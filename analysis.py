@@ -253,7 +253,7 @@ def Crop_Images_Field_of_View(master_folder, folders, fovs, fov_id,
             _sample_cell = {}
             for _index, _color in enumerate(_colors):
                 if _index != _bead_channel:
-                    _sample_cell[str(_color)] = {'names':[],'ims':[], 'uid':[]};
+                    _sample_cell[str(_color)] = {'names':[],'ims':[], 'u_names':[]};
             _cell_list.append(_sample_cell);
 
         # append information for 405 channel (DAPI)
@@ -280,7 +280,7 @@ def Crop_Images_Field_of_View(master_folder, folders, fovs, fov_id,
                     for _cell_id in range(_cell_num):
                         _cell_list[_cell_id][str(_channel)]['names'].append(_folder_name)
                         _cell_list[_cell_id][str(_channel)]['ims'].append(_cropped_im[_cell_id])
-                        _cell_list[_cell_id][str(_channel)]['uid'].append(_info)
+                        _cell_list[_cell_id][str(_channel)]['u_names'].append(_info)
                    # save
         if save:
             for _cell_id in range(_cell_num):
@@ -288,6 +288,104 @@ def Crop_Images_Field_of_View(master_folder, folders, fovs, fov_id,
                 pickle.dump(_cell_list[_cell_id], open(_save_filename, 'wb'))
 
         return _cell_list, _color_dic, _colors
+
+# update cell list from Crop_Images_Field_of_View
+# append info from sparse reconstruction
+def Update_Raw_Data(raw_file, decode_file, im_key='cs_ims', name_key='cs_names',
+                    key_prefix=['cell-','group-','channel-'], allowed_channels=['750','647','561'],
+                    verbose=True):
+    '''Function to merge cropped raw data and decoded data
+    Inputs:
+        raw_file: raw cropped cell list, which could be filename or already loaded list
+        decode_file: decoding result by sparse reconstruction, filename or already loaded dic
+        im_key: key for decoded image refs, string (usually 'cs_ims' or 'sr_ims')
+        name_key: key for decoded compatible name refs, string (usually 'cs_names' or 'sr_names')
+        key_prefix: string prefix used in decode_files from Harry, list of strings
+        allowed_channels: allowed allowed_channels for data images, list of string
+        verbose: say something!, bool
+    Output:
+        _cell_list: updated cell list with decoded image merged into them
+        '''
+    # load raw data
+    if verbose:
+        print('- Loading raw cell list.');
+    if isinstance(raw_file, list):
+        _cell_list = raw_file
+        if verbose:
+            print('-- cell list directly given')
+    elif isinstance(raw_file, str):
+        if verbose:
+            print('-- loading cell_list from '+str(raw_file))
+        if '.gz' in raw_file:
+            import gzip
+            _cell_list = pickle.load(gzip.open(raw_file,'rb'), encoding='latin1')
+        elif '.pkl' in raw_file:
+            _cell_list = pickle.load(open(raw_file,'rb'), encoding='latin1')
+        else:
+            raise ValueError('wrong filetype for raw_file input, .gz or .pkl required!');
+    else:
+        raise ValueError('wrong data type of raw_file! not filename nor cell_list');
+
+    # load decoded data
+    if verbose:
+        print('- Loading decoded images.');
+    if isinstance(decode_file, dict):
+        _decoded_ims = decode_file
+        if verbose:
+            print('-- decoded images directly given as dict')
+    elif isinstance(decode_file, list):
+        _decoded_ims = decode_file
+        if verbose:
+            print('-- decoded images directly given as list')
+    elif isinstance(decode_file, str):
+        if verbose:
+            print('-- loading decoded_ims from '+str(decode_file))
+        if '.gz' in decode_file:
+            import gzip
+            _decoded_ims = pickle.load(gzip.open(decode_file,'rb'), encoding='latin1')
+        elif '.pkl' in decode_file:
+            _decoded_ims = pickle.load(open(decode_file,'rb'), encoding='latin1')
+        else:
+            raise ValueError('wrong filetype for decode_file input, .gz or .pkl required!');
+    else:
+        raise ValueError('wrong data type of decode_file! not filename nor decoded_ims');
+    ## convert decoded ims into list
+    if isinstance(_decoded_ims, dict):
+        _decoded_list = [None for _cell in _cell_list]
+        for k,v in sorted(_decoded_ims.items()):
+            if key_prefix[0] in k:
+                _cell_id = int(k.split(key_prefix[0])[-1])
+                _decoded_list[_cell_id] = v
+        _decoded_ims = _decoded_list
+    # match length
+    if None in _decoded_ims or len(_decoded_ims) != len(_cell_list):
+        raise ValueError('decoded images doesnot match raw cell list.')
+
+    ## Loop through all cells and merge info
+    if verbose:
+        print("- Merging raw cell_list with decoded images")
+    for _cell_id, (_cell, _d_ims) in enumerate(zip(_cell_list, _decoded_ims)):
+        if verbose:
+            print('-- cell:', _cell_id);
+        for _channel, _info in sorted(_cell.items()):
+            if _channel not in allowed_channels:
+                continue
+            # initialize
+            _cell_list[_cell_id][_channel][im_key] = []
+            _cell_list[_cell_id][_channel][name_key] = []
+            # loop through each group
+            for _group, _matrix in enumerate(_info['matrices']):
+                _n_hyb, _n_reg = np.shape(_matrix) # number of hybs and regions
+                # save decoded images
+                _ims = list(_d_ims[key_prefix[1]+str(_group)][key_prefix[2]+str(_channel)])[:_n_reg];
+                _cell_list[_cell_id][_channel][im_key].append(_ims)
+                # save decoded names
+                _names = [np.unique(_matrix[:,_col_id])[-1] for _col_id in range(_n_reg)]
+                _cell_list[_cell_id][_channel][name_key].append(_names)
+
+    return _cell_list
+
+
 
 
 # decoding by compressive sensing
@@ -630,7 +728,7 @@ def candidate_spots_in_chromosome(chrom_cell_list, encoding_type, encoding_schem
     if encoding_type.lower() == 'combo' and not encoding_scheme:
         raise ValueError('encoding type is combo, so encoding_scheme is required!')
     if encoding_type.lower() == 'unique':
-        im_source, name_source = 'ims', 'uid'; # default image and name sources
+        im_source, name_source = 'ims', 'u_names'; # default image and name sources
     # loop through cells and
     for _cell_id, _cell in enumerate(_chrom_cell_list):
         # number of chromosome in this cell
@@ -705,25 +803,31 @@ def candidate_spots_in_chromosome(chrom_cell_list, encoding_type, encoding_schem
     return _chrom_cell_list
 
 # generate distance map given candidate spots
-def generate_distance_map(cand_cell_list, cand_point_key='cand_points', cand_name_key='cand_names',
+def generate_distance_map(cand_cell_list, master_folder, fov_name, cand_point_key='cand_points', cand_name_key='cand_names',
                           zxy_index=[1,2,3], zxy_dimension=[200,150,150],
-                          make_plot=False, plot_limits=[200, 800],
+                          make_plot=False, plot_limits=[200, 1000], save_map=False,
+                          map_subfolder = 'Analysis'+os.sep+'distmap',
                           verbose=True):
     '''generate standard distance map from candidate spots attached to each chromosome
     Inputs:
         cand_cell_list: cell list with candidate name and coordinates, list of dic
+        master_folder: master folder directory for this dataset, string
+        fov_name: name for this field of view, fovs[fov_id], string
         cand_point_key: key to requrest cand_points, string
         cand_name_key: key to requrest cand_names, string
         zxy_index: index of z,x,y coordinate in given cel_list[i]['cand_points'], list of 3
         zxy_dimension: size in nm of z,x,y pixels, list of 3
         make_plot: whether draw distance map, bool (default: False)
         plot_limit: limits for colormap in distance map plotting, useless if not make_plot, list
+        save_map: whether save single cell distance map, bool (default: False)
+        _map_subfolder: sub-directory to save single-cell distmap, string (default:Analysis/distmap/*)
         verbose: say something during the process, bool
     Output:
         _cand_cell_list: updated cell list with sorted candidate info and distance map, list of dics
     '''
     from scipy.spatial.distance import pdist,squareform
     import numpy as np
+    import matplotlib
     # copy
     _cand_cell_list = cand_cell_list
     if verbose:
@@ -763,13 +867,22 @@ def generate_distance_map(cand_cell_list, cand_point_key='cand_points', cand_nam
             _cand_cell_list[_cell_id]['sorted_cand_points'].append(_sorted_cand_pts)
             _cand_cell_list[_cell_id]['sorted_cand_names'].append(_sorted_cand_names)
             _cand_cell_list[_cell_id]['distance_map'].append(_dist_map)
+            # generate plot
             if make_plot:
-                plt.figure()
+                import matplotlib
+                import matplotlib.pyplot as plt
+                _invmap = matplotlib.colors.LinearSegmentedColormap('inv_seismic', matplotlib.cm.revcmap(matplotlib.cm.seismic._segmentdata))
+                _f = plt.figure()
                 plt.title("cell: "+str(_cell_id)+', chrom: '+str(_i) )
-                plt.imshow(-_dist_map, interpolation='nearest',cmap='seismic', vmax=-min(plot_limits), vmin=-max(plot_limits))
-                plt.colorbar()
+                plt.imshow(_dist_map, interpolation='nearest',cmap=_invmap, vmax=max(plot_limits), vmin=min(plot_limits))
+                plt.colorbar(ticks=range(0,2000,200), label='distance (nm)')
                 plt.show()
-
+                # save
+                if save_map:
+                    _map_folder = master_folder + os.sep + map_subfolder + os.sep + fov_name.split('.dax')[0]
+                    if not os.path.exists(_map_folder): # if folder not exist, Create
+                        os.mkdir(_map_folder);
+                    plt.savefig(_map_folder+os.sep+'dist_map_'+str(_cell_id)+'_'+str(_i)+'.png' , transparent=True)
     return _cand_cell_list
 
 # load distance map
@@ -795,7 +908,7 @@ def load_all_dist_maps(master_folder, encoding_type, analysis_dir='Analysis', po
     _file_list = os.listdir(_analysis_folder)
     for _file in _file_list:
         if str(encoding_type) in _file and post_fix in _file and '.pkl' in _file:
-            _mp_lst = pickle.load(open(_analysis_folder+os.sep+_file), encoding='latin1');
+            _mp_lst = pickle.load(open(_analysis_folder+os.sep+_file, 'rb'), encoding='latin1');
             if isinstance(_mp_lst, list):
                 if verbose:
                     print("-- loading file:", _file)
@@ -869,18 +982,30 @@ def screen_dist_maps(map_list, min_chrom_num=1, max_chrom_num=3,
     return _screen_tags
 
 # calculate population distance map
-def Calculate_population_map(map_list, _screen_tags=None, ignore_inf=True, stat_type='median'):
+def Calculate_population_map(map_list, master_folder,
+                             _screen_tags=None, ignore_inf=True, stat_type='median',
+                             make_plot=False, plot_limits=[300, 1300], save_map=False,
+                             map_subfolder = 'Analysis'+os.sep+'distmap',
+                             map_filename='', verbose=True):
     '''Calculate population distance map given map_list
     Inputs:
         map_list: list of cells with distance map, list of dic
-        _screen_tags: screening tags generated by screen_dist_maps function, list
+        master_folder: full directory of this dataset, string
+        _screen_tags: screening tags generated by screen_dist_maps function, list (default: None)
         ignore_inf: whether compute ignoring inf in stats, bool (default: True)
-        stat_type: generate median map or mean map, median / mean
+        stat_type: generate median map or mean map, median / mean (default: median)
+        make_plot: whether generate distance map plot, bool (default: False)
+        plot_limits: lower and upper limits for distance colorbar, list (default: [300,1300])
+        save_map: whether save this map, bool (default: False)
+        map_subfolder: sub-directory to save map under master folder, string (default: Analysis/distmap)
+        map_filename: filename for this distance map plot, string (default: '')
+        verbose: say something!, bool (default: True)
     Output:
         _median_map: 2d matrix
         '''
     _maps = [];
-    print("- extracting all maps")
+    if verbose:
+        print("- extracting all maps")
     if _screen_tags:
         for _tags, _cell in zip(_screen_tags, map_list):
             for _tag, _map in zip(_tags, _cell['distance_map']):
@@ -891,7 +1016,8 @@ def Calculate_population_map(map_list, _screen_tags=None, ignore_inf=True, stat_
             for _map in _cell['distance_map']:
                 _maps.append(_map)
     _num_kept = len(_maps)
-    print("-- number of chromosomes kept:", _num_kept)
+    if verbose:
+        print("-- number of chromosomes kept:", _num_kept)
     _total_map = np.array(_maps);
     if ignore_inf:
         _total_map[_total_map == np.inf] = np.nan
@@ -913,14 +1039,37 @@ def Calculate_population_map(map_list, _screen_tags=None, ignore_inf=True, stat_
              _median_map = np.nanmean(_total_map, axis=0)
         else:
             _median_map = None
+    # generate plot if specified
+    if make_plot:
+        if verbose:
+            print('- generating distance map');
+        import matplotlib
+        import matplotlib.pyplot as plt
+        _invmap = matplotlib.colors.LinearSegmentedColormap('inv_seismic', matplotlib.cm.revcmap(matplotlib.cm.seismic._segmentdata))
+        plt.figure()
+        plt.title(stat_type + ' distance map, number of chromosomes='+str(_num_kept))
+        plt.imshow(_median_map, interpolation='nearest',cmap=_invmap, vmax=max(plot_limits), vmin=min(plot_limits))
+        plt.colorbar(ticks=range(0,2000,200), label='distance (nm)')
+        # save plot
+        if save_map:
+            _map_folder = master_folder + os.sep + map_subfolder
+            if not os.path.exists(_map_folder): # if folder not exist, Create
+                os.mkdir(_map_folder);
+            if  map_filename == '':
+                map_filename += stat_type +'_dist_map.png'
+            else:
+                if '.' in map_filename:
+                    map_filename = map_filename.split('.')[0]
+                map_filename += '_' + stat_type +'_dist_map.png'
+            plt.savefig(_map_folder+os.sep+map_filename, transparent=True)
     return _median_map ,_num_kept
 
 
 # save a given list
 def Save_Cell_List(cell_list, encoding_type, fov_name, master_folder,
-                   analysis_path='Analysis', postfix='_final_dist', force=False, verbose=True):
+                   save_subfolder='Analysis', postfix='_final_dist', force=False, verbose=True):
     '''Function to save a cell list'''
-    _save_folder = master_folder + os.sep + analysis_path;
+    _save_folder = master_folder + os.sep + save_subfolder;
     if not os.path.isdir(_save_folder): # if save folder doesnt exist, create
         if verbose:
             print("- create cell list saving folder", _save_folder)
@@ -933,14 +1082,15 @@ def Save_Cell_List(cell_list, encoding_type, fov_name, master_folder,
             return False
     pickle.dump(cell_list, open(_savefile, 'wb'));
     return True
+
 # save only results
 def Save_Result_List(full_cell_list, encoding_type, fov_name, master_folder,
-                     analysis_path='Analysis', postfix='_result_noimage', force=False):
+                     save_subfolder='Analysis', postfix='_result_noimage', force=False):
     _kept_keys = ['sorted_cand_points', 'chrom_coord', 'sorted_cand_names','distance_map','chrom', 'chrom_segmentation']
     _result_list = []
     for _cell in full_cell_list:
         _cell_result = {_kk:_cell[_kk] for _kk in _kept_keys};
         _result_list.append(_cell_result);
     # save
-    analysis.Save_Cell_List(_result_list, encoding_type, fov_name, master_folder, analysis_path, postfix, force)
-    return True
+    make_save = Save_Cell_List(_result_list, encoding_type, fov_name, master_folder, save_subfolder, postfix, force)
+    return make_save
