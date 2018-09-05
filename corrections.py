@@ -1,4 +1,5 @@
 from ImageAnalysis3 import visual_tools as vis
+import ImageAnalysis3 as ia
 import numpy as np
 import pickle
 import matplotlib.pylab as plt
@@ -8,6 +9,7 @@ sys.path.append(r'C:\Users\puzheng\Documents\python-functions\python-functions-l
 
 def get_STD_beaddrift(bead_ims, bead_names, analysis_folder, fovs, fov_id,
                       illumination_correction=False, ic_channel=488,
+                      correction_folder=r'C:\Users\Pu Zheng\Documents\Corrections',
                       repeat=True, plt_val=False, cutoff_=3, xyz_res_=1,
                       coord_sel=None, sz_ex=100, ref=0, force=False, save=True, quiet=False, th_seed=150, dynamic=False):
     """Given a list of bead images This handles the fine bead drift correction.
@@ -36,7 +38,7 @@ def get_STD_beaddrift(bead_ims, bead_names, analysis_folder, fovs, fov_id,
 
     # if do illumination_correction:
     if illumination_correction:
-        _bead_ims = [Illumination_correction(_im,ic_channel,verbose=False) for _im in bead_ims]
+        _bead_ims = [Illumination_correction(_im,ic_channel, correction_folder=correction_folder, verbose=False) for _im in bead_ims]
     else:
         _bead_ims = bead_ims;
 
@@ -167,8 +169,10 @@ def get_STD_centers(im, th_seed=150, close_threshold=0.01, quiet=False, plt_val=
 
 def STD_beaddrift_sequential(bead_ims, bead_names, analysis_folder, fovs, fov_id,
                       illumination_correction=False, ic_channel=488,
+                      correction_folder=r'C:\Users\Pu Zheng\Documents\Corrections',
                       repeat=True, plt_val=False, cutoff_=3, xyz_res_=1,
-                      coord_sel=None, sz_ex=100, force=False, save=True, quiet=False, th_seed=150, dynamic=False):
+                      coord_sel=None, sz_ex=100, force=False, save=True, quiet=False, th_seed=150,
+                      dynamic=False, dynamic_th_percent=95):
     """Given a list of bead images This handles the fine bead drift correction.
     If save is true this requires global paramaters analysis_folder,fovs,fov_id
     Inputs:
@@ -177,7 +181,8 @@ def STD_beaddrift_sequential(bead_ims, bead_names, analysis_folder, fovs, fov_id
         analysis_folder: full directory to store analysis files, string
         fovs: names for all field of views, list of strings
         fov_id: the id for field of view to be analysed, int
-        Illumination_correction: whether do illumination correction
+        Illumination_correction: whether do illumination correction, bool
+
         """
     # define a sub function to do fitting
     from scipy.stats import scoreatpercentile
@@ -195,7 +200,7 @@ def STD_beaddrift_sequential(bead_ims, bead_names, analysis_folder, fovs, fov_id
 
     # if do illumination_correction:
     if illumination_correction:
-        _bead_ims = [Illumination_correction(_im,ic_channel,verbose=False) for _im in bead_ims]
+        _bead_ims = [Illumination_correction(_im,ic_channel, correction_folder=correction_folder, verbose=False) for _im in bead_ims]
     else:
         _bead_ims = bead_ims;
 
@@ -216,7 +221,7 @@ def STD_beaddrift_sequential(bead_ims, bead_names, analysis_folder, fovs, fov_id
             ref = 0; # initialize reference id
             im_ref = _bead_ims[ref]; # initialize reference image
             if dynamic:
-                th_seed = scoreatpercentile(im_ref, 99) * 0.5;
+                th_seed = scoreatpercentile(im_ref, dynamic_th_percent) * 0.5;
             # start fitting image 0
             im_ref_sm = vis.grab_block(im_ref,coord_sel1,[sz_ex]*3)
             cents_ref1 = get_STD_centers(im_ref_sm, th_seed=th_seed)#list of fits of beads in the ref cube 1
@@ -226,7 +231,7 @@ def STD_beaddrift_sequential(bead_ims, bead_names, analysis_folder, fovs, fov_id
 
             for iim,im in enumerate(_bead_ims[1:]):
                 if dynamic:
-                    th_seed = scoreatpercentile(im, 98) * 0.45;
+                    th_seed = scoreatpercentile(im, dynamic_th_percent) * 0.5;
                 #print th_seed
                 # fit target image
                 im_sm = vis.grab_block(im,coord_sel1,[sz_ex]*3)
@@ -276,27 +281,33 @@ def STD_beaddrift_sequential(bead_ims, bead_names, analysis_folder, fovs, fov_id
     return total_drift, repeat, fail_count
 
 # function to generate illumination profiles
-def generate_illumination_correction(ims, threshold, gaussian_sigma=20,
+def generate_illumination_correction(ims, threshold_percentile=98, gaussian_sigma=40,
                                      save=True, save_name='', save_dir=r'.', make_plot=False):
     '''Take into a list of beads images, report a mean illumination strength image'''
     from scipy import ndimage
     import os
     import pickle as pickle
-
+    from scipy.stats import scoreatpercentile
     # initialize total image
-    total_im = np.zeros(ims[0].sum(0).shape);
+    _ims = ims;
+    total_ims = [];
     # calculate total(average) image
-    for im in ims:
-        im_stack = im.sum(0);
-        im_stack[im_stack > threshold] = threshold;
-        total_im += im_stack;
+    for _i,_im in enumerate(_ims):
+        im_stack = _im.mean(0)
+        threshold = scoreatpercentile(_im, threshold_percentile);
+        im_stack[im_stack > threshold] = np.nan;
+        total_ims.append(im_stack);
     # gaussian fliter total image to denoise
+    total_im = np.nanmean(np.array(total_ims),0)
+    total_im[np.isnan(total_im)] = np.nanmean(total_im)
     fit_im = ndimage.gaussian_filter(total_im, gaussian_sigma);
     fit_im = fit_im / np.max(fit_im);
+
     # make plot
     if make_plot:
         f = plt.figure()
         plt.imshow(fit_im)
+        plt.title('Illumination profile for', save_name)
         plt.colorbar()
         plt.show()
     if save:
@@ -344,7 +355,8 @@ def Illumination_correction(ims, correction_channel,
 
 # Function to generate chromatic abbrevation profile
 def generate_chromatic_abbrevation_correction(ims, names, master_folder, channels, corr_channel, ref_channel,
-                                              fitting_save_subdir='Analysis', seed_th_per=99.92,
+                                              fitting_save_subdir=r'Analysis\Beads', seed_th_per=99.92,
+                                              correction_folder=r'C:\Users\puzheng\Documents\Correction_Files',
                                               make_plot=False,
                                               save=True, save_folder=r'C:\Users\puzheng\Documents\Correction_Files',
                                               force=False, verbose=True):
@@ -358,6 +370,7 @@ def generate_chromatic_abbrevation_correction(ims, names, master_folder, channel
         ref_channel: reference channel, str or int
         fitting_save_subdir: sub_directory under master_folder to save fitting results, str (default: None)
         seed_th_per: intensity percentile for seeds during beads-fitting, float (default: 99.92)
+        correction_folder: full directory for illumination correction profiles, string (default: ...)
         save: whether directly save profile, bool (default: True)
         save_folder: full path to save correction file, str (default: correction_folder)
         force: do fitting and saving despite of existing files, bool (default: False)
@@ -394,12 +407,14 @@ def generate_chromatic_abbrevation_correction(ims, names, master_folder, channel
     # loop through all images and calculate profile
     for _cim,_rim,_name in zip(_cims,_rims,names):
         # fit correction channel
-        _cim = ia.corrections.Illumination_correction(_cim, corr_channel, verbose=verbose)[0]
+        _cim = ia.corrections.Illumination_correction(_cim, corr_channel, correction_folder=correction_folder,
+                                                    verbose=verbose)[0]
         _cct = ia.corrections.get_STD_centers(_cim, scoreatpercentile(_cim, seed_th_per), quiet=not verbose,
                                     save=save, force=force, save_folder=master_folder+os.sep+fitting_save_subdir,
                                     save_name=_name.split(os.sep)[-1].replace('.dax', '_'+str(corr_channel)+'_fitting.pkl'))
         # fit reference channel
-        _rim = ia.corrections.Illumination_correction(_rim, ref_channel, verbose=verbose)[0]
+        _rim = ia.corrections.Illumination_correction(_rim, ref_channel, correction_folder=correction_folder,
+                                                    verbose=verbose)[0]
         _rct = ia.corrections.get_STD_centers(_rim, scoreatpercentile(_rim, seed_th_per), quiet=not verbose,
                                     save=save, force=force, save_folder=master_folder+os.sep+fitting_save_subdir,
                                     save_name=_name.split(os.sep)[-1].replace('.dax', '_'+str(ref_channel)+'_fitting.pkl'))

@@ -7,7 +7,10 @@ from ImageAnalysis3 import get_img_info, visual_tools, corrections
 
 # function to do segmentation
 def Segmentation_All(master_folder, folders, fovs, ref_name='H0R0',
-                     num_channel=5, dapi_channel=-1, segment3D=False,
+                     num_channel=5, dapi_channel=-1, illumination_corr=True,
+                     correction_folder='',
+                     shape_ratio_threshold=0.041,
+                     denoise_window=5,
                      segmentation_path='Analysis'+os.sep+'segmentation',
                      save=True, force=False, verbose=True):
     '''wrapped function to do DAPI segmentation
@@ -18,7 +21,10 @@ def Segmentation_All(master_folder, folders, fovs, ref_name='H0R0',
         ref_name: name of reference folder with DAPI in it, string (default: 'H0R0')
         num_channel: total color channel for ref images, int (default: 5)
         dapi_channel: index of channel having dapi, int (default: -1)
-        segment3D: whether do segmentation in 3D, bool (default: false)
+        illumination_corr: whether do illumination correction, bool (default: True)
+        correction_folder: full directory for illumination correction profiles, string (default: '')
+        shape_ratio_threshold: lower bound of A(x)/I(x)^2 for each nucleus, float (default: 0.041 for IMR90)
+        denoise_window: window size of denoise filter used in segmentation, int (default: 5)
         segmentation_path: subfolder of segmentation result, string (default: 'Analysis/segmentation')
         save: whether save segmentation result, bool (default: True)
         force: whether do segmentation despite of existing file, bool (default: False)
@@ -36,7 +42,7 @@ def Segmentation_All(master_folder, folders, fovs, ref_name='H0R0',
     if not os.path.isdir(_savefolder): # if save folder doesnt exist, create
         if verbose:
             print("- create segmentation saving folder", _savefolder)
-        os.mkdir(_savefolder);
+        os.makedirs(_savefolder);
 
     # Load reference images
     for _i, _folder in enumerate(folders):
@@ -59,7 +65,12 @@ def Segmentation_All(master_folder, folders, fovs, ref_name='H0R0',
         else: # do segmentation
             _dapi_name = ref_name+os.sep+_fov;
             _dapi_im = _ref_im_dic[_dapi_name][-1];
-            _segmentation_label = visual_tools.DAPI_convolution_segmentation(_dapi_im, _dapi_name, image3D=segment3D)[0]
+            _segmentation_label = visual_tools.DAPI_segmentation(_dapi_im, _dapi_name,
+                                                        illumination_correction=illumination_corr,
+                                                        correction_folder=correction_folder,
+                                                        shape_ratio_threshold=shape_ratio_threshold,
+                                                        denoise_window=denoise_window,
+                                                        verbose=verbose)[0]
             # append
             _segmentation_labels.append(_segmentation_label);
             _dapi_ims.append(_dapi_im);
@@ -72,7 +83,10 @@ def Segmentation_All(master_folder, folders, fovs, ref_name='H0R0',
     return _segmentation_labels, _dapi_ims
 
 def Segmentation_Fov(master_folder, folders, fovs, fov_id, ref_name='H0R0',
-                     num_channel=5, dapi_channel=-1, segment3D=False,
+                     num_channel=5, dapi_channel=-1, illumination_corr=True,
+                     correction_folder='',
+                     shape_ratio_threshold=0.041,
+                     denoise_window=5,
                      segmentation_path='Analysis'+os.sep+'segmentation',
                      save=True, force=False, verbose=True):
     '''wrapped function to do DAPI segmentation for one field of view
@@ -84,7 +98,10 @@ def Segmentation_Fov(master_folder, folders, fovs, fov_id, ref_name='H0R0',
         ref_name: name of reference folder with DAPI in it, string (default: 'H0R0')
         num_channel: total color channel for ref images, int (default: 5)
         dapi_channel: index of channel having dapi, int (default: -1)
-        segment3D: whether do segmentation in 3D, bool (default: false)
+        illumination_corr: whether do illumination correction, bool (default: True)
+        correction_folder: full directory for illumination correction profiles, string (default: '')
+        shape_ratio_threshold: lower bound of A(x)/I(x)^2 for each nucleus, float (default: 0.041 for IMR90)
+        denoise_window: window size of denoise filter used in segmentation, int (default: 5)
         segmentation_path: subfolder of segmentation result, string (default: 'Analysis/segmentation')
         save: whether save segmentation result, bool (default: True)
         force: whether do segmentation despite of existing file, bool (default: False)
@@ -101,7 +118,7 @@ def Segmentation_Fov(master_folder, folders, fovs, fov_id, ref_name='H0R0',
     if not os.path.isdir(_savefolder): # if save folder doesnt exist, create
         if verbose:
             print("- create segmentation saving folder", _savefolder)
-        os.mkdir(_savefolder);
+        os.makedirs(_savefolder);
     if os.path.isfile(_savefile) and not force: # load existing file
         if verbose:
             print("- load segmentation result from filename:", _savefile);
@@ -117,7 +134,12 @@ def Segmentation_Fov(master_folder, folders, fovs, fov_id, ref_name='H0R0',
         # acquire dapi name and image
         _dapi_name = ref_name+os.sep+fovs[fov_id];
         _dapi_im = _ref_im_dic[_dapi_name][-1];
-        _segmentation_label = visual_tools.DAPI_convolution_segmentation(_dapi_im, _dapi_name, image3D=segment3D)[0]
+        _segmentation_label = visual_tools.DAPI_segmentation(_dapi_im, _dapi_name,
+                                                    illumination_correction=illumination_corr,
+                                                    correction_folder=correction_folder,
+                                                    shape_ratio_threshold=shape_ratio_threshold,
+                                                    denoise_window=denoise_window,
+                                                    verbose=verbose)[0]
         # save
         if save:
             if verbose:
@@ -139,6 +161,7 @@ def Crop_Images_Field_of_View(master_folder, folders, fovs, fov_id,
                               th_seed=300,dynamic=False,
                               color_filename='',
                               encoding_filename='',
+                              correction_folder=r'C:\Users\Pu Zheng\Documents\Corrections',
                               save=False, verbose=True):
     '''Crop images for a certain field of view
     Inputs:
@@ -188,6 +211,7 @@ def Crop_Images_Field_of_View(master_folder, folders, fovs, fov_id,
                                                     fov_id=fov_id,
                                                     sz_ex=drift_corr_size,
                                                     force=False, save=True, quiet=False,
+                                                    correction_folder=correction_folder,
                                                     th_seed=th_seed, dynamic=dynamic)
 
     # take care of combo type:
@@ -225,8 +249,12 @@ def Crop_Images_Field_of_View(master_folder, folders, fovs, fov_id,
                     _name = _fd+os.sep+fovs[fov_id];
                     _channel_index = _colors.index(int(_channel))
                     _im = _im_dic[_name][_channel_index];
-                    _corr_im = corrections.Illumination_correction(_im, correction_channel=_channel, verbose=False)
-                    _corr_im = corrections.Chromatic_abbrevation_correction(_corr_im[0], correction_channel=_channel, verbose=False)
+                    if correction_folder == '':
+                        correction_folder = master_folder;
+                    _corr_im = corrections.Illumination_correction(_im,
+                    correction_channel=_channel, correction_folder=correction_folder, verbose=False)
+                    _corr_im = corrections.Chromatic_abbrevation_correction(_corr_im[0],
+                    correction_channel=_channel, correction_folder=correction_folder, verbose=False)
                     _group_cropped_ims.append(visual_tools.crop_cell(_corr_im[0], _segmentation_label, _total_drift[_name]))
                 # save cropped ims
                 for _cell_id in range(_cell_num):
@@ -1067,30 +1095,44 @@ def Calculate_population_map(map_list, master_folder,
 
 # save a given list
 def Save_Cell_List(cell_list, encoding_type, fov_name, master_folder,
-                   save_subfolder='Analysis', postfix='_final_dist', force=False, verbose=True):
+                   save_subfolder='Analysis', postfix='_final_dist',
+                   save_as_zip=False, force=False, verbose=True):
+    import gzip
     '''Function to save a cell list'''
     _save_folder = master_folder + os.sep + save_subfolder;
     if not os.path.isdir(_save_folder): # if save folder doesnt exist, create
         if verbose:
             print("- create cell list saving folder", _save_folder)
         os.mkdir(_save_folder);
-    _savefile = _save_folder +os.sep+fov_name.replace(".dax", "_"+str(encoding_type)+postfix+".pkl")
-    if os.path.isfile(_savefile):
-        print(_savefile, "- already exist!");
-        if not force:
-            print("-- stop writting file, exit")
-            return False
-    pickle.dump(cell_list, open(_savefile, 'wb'));
+    if save_as_zip:
+        _savefile = _save_folder +os.sep+fov_name.replace(".dax", "_"+str(encoding_type)+postfix+".zip")
+        if os.path.isfile(_savefile):
+            print(_savefile, "- already exist!");
+            if not force:
+                print("-- stop writting file, exit")
+                return False
+        else:
+            pickle.dump(cell_list, gzip.open(_savefile, 'wb'));
+    else:
+        _savefile = _save_folder +os.sep+fov_name.replace(".dax", "_"+str(encoding_type)+postfix+".pkl")
+        if os.path.isfile(_savefile):
+            print(_savefile, "- already exist!");
+            if not force:
+                print("-- stop writting file, exit")
+                return False
+        else:
+            pickle.dump(cell_list, open(_savefile, 'wb'));
     return True
 
 # save only results
 def Save_Result_List(full_cell_list, encoding_type, fov_name, master_folder,
-                     save_subfolder='Analysis', postfix='_result_noimage', force=False):
+                     save_subfolder='Analysis', postfix='_result_noimage',
+                     save_as_zip=False, force=False):
     _kept_keys = ['sorted_cand_points', 'chrom_coord', 'sorted_cand_names','distance_map','chrom', 'chrom_segmentation']
     _result_list = []
     for _cell in full_cell_list:
         _cell_result = {_kk:_cell[_kk] for _kk in _kept_keys};
         _result_list.append(_cell_result);
     # save
-    make_save = Save_Cell_List(_result_list, encoding_type, fov_name, master_folder, save_subfolder, postfix, force)
+    make_save = Save_Cell_List(_result_list, encoding_type, fov_name, master_folder, save_subfolder, postfix, save_as_zip, force)
     return make_save
