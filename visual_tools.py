@@ -958,7 +958,7 @@ def DAPI_segmentation(ims, names,
                       signal_cap_ratio = 0.15,
                       cell_min_size=1000,
                       shape_ratio_threshold = 0.041,
-                      remove_fov_boundary = 50,
+                      remove_fov_boundary = 40,
                       make_plot=False,
                       verbose=True):
     """cell segmentation for DAPI images with pooling and convolution layers
@@ -1061,7 +1061,7 @@ def DAPI_segmentation(ims, names,
         print("- acquire labels")
     _open_objects = [morphology.opening(_im, morphology.disk(3)) for _im in _supercell_masks];
     _close_objects = [morphology.closing(_open, morphology.disk(3)) for _open in _open_objects]
-    _close_objects = [morphology.remove_small_objects(_close, 1000) for _close in _close_objects];
+    _close_objects = [morphology.remove_small_objects(_close, 2000) for _close in _close_objects];
     _bboxes = [ndimage.find_objects(_close) for _close in _close_objects];
     _masks = [_close[_bbox[0]] for _bbox, _close in zip(_bboxes, _close_objects)];
     _labels = [];
@@ -1074,7 +1074,7 @@ def DAPI_segmentation(ims, names,
     # random walker segmentation
     if verbose:
         print ("- random walker segmentation!")
-    _seg_labels = [random_walker(_im, _label, beta=100, mode='bf') for _im, _label in zip(_stack_ims, _labels)];
+    _seg_labels = [random_walker(_im, _label, beta=1, mode='bf') for _im, _label in zip(_stack_ims, _labels)];
 
     # remove bad labels by shape ratio: A(x)/I(x)^2
     if verbose:
@@ -1584,7 +1584,7 @@ def fit_single_gaussian(data, center_zxy, width_zxy=[1.35, 1., 1.], radius=10, n
     data_=np.array(data,dtype=float)
     dims = np.array(data_.shape)
 
-    if center_zxy:
+    if len(center_zxy)==3:
         center_z,center_x,center_y = center_zxy
     else:
         zxy = np.array(list(map(np.ravel,np.indices(data_.shape))))
@@ -1668,11 +1668,11 @@ def fit_multi_gaussian(im, seeds, width_zxy = [1.35,1,1], fit_radius=5,
         # loop through seeds
         for _seed in _seeds:
             p, success = fit_single_gaussian(im_subtr,_seed,
-                                                                      height_sensitivity=height_sensitivity,
-                                                                      expect_intensity=expect_intensity,
-                                                                      expect_weight=expect_weight,
-                                                                      radius=fit_radius,
-                                                                      width_zxy=width_zxy)
+                                          height_sensitivity=height_sensitivity,
+                                          expect_intensity=expect_intensity,
+                                          expect_weight=expect_weight,
+                                          radius=fit_radius,
+                                          width_zxy=width_zxy)
             if p is not None and success: # If got any successful fitting, substract fitted profile
                 ps.append(p)
                 sub_ims.append(im_subtr)
@@ -1691,11 +1691,11 @@ def fit_multi_gaussian(im, seeds, width_zxy = [1.35,1,1], fit_radius=5,
                 _seed = p_1[1:4]
                 im_add = plus_source(im_add,p_1)
                 p,success = fit_single_gaussian(im_subtr,_seed,
-                                                                      height_sensitivity=height_sensitivity,
-                                                                      expect_intensity=expect_intensity,
-                                                                      expect_weight=expect_weight,
-                                                                      radius=fit_radius,
-                                                                      width_zxy=width_zxy)
+                                              height_sensitivity=height_sensitivity,
+                                              expect_intensity=expect_intensity,
+                                              expect_weight=expect_weight,
+                                              radius=fit_radius,
+                                              width_zxy=width_zxy)
                 if p is not None:
                     ps.append(p)
                     ps_1_rem.append(p_1)

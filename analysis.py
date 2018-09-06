@@ -9,7 +9,7 @@ from ImageAnalysis3 import get_img_info, visual_tools, corrections
 def Segmentation_All(master_folder, folders, fovs, ref_name='H0R0',
                      num_channel=5, dapi_channel=-1, illumination_corr=True,
                      correction_folder='',
-                     shape_ratio_threshold=0.041,
+                     shape_ratio_threshold=0.041, signal_cap_ratio=0.2,
                      denoise_window=5,
                      segmentation_path='Analysis'+os.sep+'segmentation',
                      save=True, force=False, verbose=True):
@@ -69,6 +69,7 @@ def Segmentation_All(master_folder, folders, fovs, ref_name='H0R0',
                                                         illumination_correction=illumination_corr,
                                                         correction_folder=correction_folder,
                                                         shape_ratio_threshold=shape_ratio_threshold,
+                                                        signal_cap_ratio=signal_cap_ratio,
                                                         denoise_window=denoise_window,
                                                         verbose=verbose)[0]
             # append
@@ -85,7 +86,7 @@ def Segmentation_All(master_folder, folders, fovs, ref_name='H0R0',
 def Segmentation_Fov(master_folder, folders, fovs, fov_id, ref_name='H0R0',
                      num_channel=5, dapi_channel=-1, illumination_corr=True,
                      correction_folder='',
-                     shape_ratio_threshold=0.041,
+                     shape_ratio_threshold=0.041,signal_cap_ratio=0.2,
                      denoise_window=5,
                      segmentation_path='Analysis'+os.sep+'segmentation',
                      save=True, force=False, verbose=True):
@@ -138,6 +139,7 @@ def Segmentation_Fov(master_folder, folders, fovs, fov_id, ref_name='H0R0',
                                                     illumination_correction=illumination_corr,
                                                     correction_folder=correction_folder,
                                                     shape_ratio_threshold=shape_ratio_threshold,
+                                                    signal_cap_ratio=signal_cap_ratio,
                                                     denoise_window=denoise_window,
                                                     verbose=verbose)[0]
         # save
@@ -301,8 +303,10 @@ def Crop_Images_Field_of_View(master_folder, folders, fovs, fov_id,
                         print("- processing:", _folder_name, _channel, _info)
                     _name = _folder_name+os.sep+fovs[fov_id];
                     _im = _im_dic[_name][_channel_index];
-                    _corr_im = corrections.Illumination_correction(_im, correction_channel=_channel, verbose=False)
-                    _corr_im = corrections.Chromatic_abbrevation_correction(_corr_im[0], correction_channel=_channel, verbose=False)
+                    _corr_im = corrections.Illumination_correction(_im, correction_channel=_channel,
+                                                                    correction_folder=correction_folder, verbose=False)
+                    _corr_im = corrections.Chromatic_abbrevation_correction(_corr_im[0], correction_channel=_channel,
+                                                                    correction_folder=correction_folder, verbose=False)
                     _cropped_im = visual_tools.crop_cell(_corr_im[0], _segmentation_label, _total_drift[_name])
                     # save info
                     for _cell_id in range(_cell_num):
@@ -320,7 +324,7 @@ def Crop_Images_Field_of_View(master_folder, folders, fovs, fov_id,
 # update cell list from Crop_Images_Field_of_View
 # append info from sparse reconstruction
 def Update_Raw_Data(raw_file, decode_file, im_key='cs_ims', name_key='cs_names',
-                    key_prefix=['cell-','group-','channel-'], allowed_channels=['750','647','561'],
+                    key_prefix=['cell-','channel-','group-'], allowed_channels=['750','647','561'],
                     verbose=True):
     '''Function to merge cropped raw data and decoded data
     Inputs:
@@ -344,11 +348,14 @@ def Update_Raw_Data(raw_file, decode_file, im_key='cs_ims', name_key='cs_names',
     elif isinstance(raw_file, str):
         if verbose:
             print('-- loading cell_list from '+str(raw_file))
+        if '.zip' in raw_file:
+            import gzip
+            _cell_list = pickle.load(gzip.open(raw_file,'rb'))
         if '.gz' in raw_file:
             import gzip
-            _cell_list = pickle.load(gzip.open(raw_file,'rb'), encoding='latin1')
+            _cell_list = pickle.load(gzip.open(raw_file,'rb'))
         elif '.pkl' in raw_file:
-            _cell_list = pickle.load(open(raw_file,'rb'), encoding='latin1')
+            _cell_list = pickle.load(open(raw_file,'rb'))
         else:
             raise ValueError('wrong filetype for raw_file input, .gz or .pkl required!');
     else:
@@ -370,9 +377,9 @@ def Update_Raw_Data(raw_file, decode_file, im_key='cs_ims', name_key='cs_names',
             print('-- loading decoded_ims from '+str(decode_file))
         if '.gz' in decode_file:
             import gzip
-            _decoded_ims = pickle.load(gzip.open(decode_file,'rb'), encoding='latin1')
+            _decoded_ims = pickle.load(gzip.open(decode_file,'rb'))
         elif '.pkl' in decode_file:
-            _decoded_ims = pickle.load(open(decode_file,'rb'), encoding='latin1')
+            _decoded_ims = pickle.load(open(decode_file,'rb'))
         else:
             raise ValueError('wrong filetype for decode_file input, .gz or .pkl required!');
     else:
@@ -386,13 +393,26 @@ def Update_Raw_Data(raw_file, decode_file, im_key='cs_ims', name_key='cs_names',
                 _decoded_list[_cell_id] = v
         _decoded_ims = _decoded_list
     # match length
-    if None in _decoded_ims or len(_decoded_ims) != len(_cell_list):
-        raise ValueError('decoded images doesnot match raw cell list.')
+    if not _decoded_ims:
+        raise ValueError('decoded image loading failed')
+    elif len(_decoded_ims) != len(_cell_list):
+        print('decoded images doesnot match raw cell list.')
 
     ## Loop through all cells and merge info
     if verbose:
         print("- Merging raw cell_list with decoded images")
-    for _cell_id, (_cell, _d_ims) in enumerate(zip(_cell_list, _decoded_ims)):
+    # a list to record successful cells
+    _success_cells = [True for _cell in _cell_list]
+    for _cell_id, _cell in enumerate(_cell_list):
+        # load decoded result
+        if _decoded_ims[_cell_id]:
+            _d_ims = _decoded_ims[_cell_id];
+        else:
+            _success_cells[_cell_id] = False
+            if verbose:
+                print("--- no decoded info for cell:", _cell_id);
+            continue
+
         if verbose:
             print('-- cell:', _cell_id);
         for _channel, _info in sorted(_cell.items()):
@@ -404,14 +424,27 @@ def Update_Raw_Data(raw_file, decode_file, im_key='cs_ims', name_key='cs_names',
             # loop through each group
             for _group, _matrix in enumerate(_info['matrices']):
                 _n_hyb, _n_reg = np.shape(_matrix) # number of hybs and regions
+                # check if this groups is decoded
+                if key_prefix[1]+str(_channel) not in _d_ims:
+                    _success_cells[_cell_id] = False
+                    if verbose:
+                        print("--- no decoded info for cell:", _cell_id, ', channel:', _channel);
+                    continue;
+                elif key_prefix[2]+str(_group) not in _d_ims[key_prefix[1]+str(_channel)]:
+                    _success_cells[_cell_id] = False
+                    if verbose:
+                        print("--- no decoded info for cell:", _cell_id, ', channel:', _channel, ', group:',_group);
+                    continue;
                 # save decoded images
-                _ims = list(_d_ims[key_prefix[1]+str(_group)][key_prefix[2]+str(_channel)])[:_n_reg];
+                _ims = list(_d_ims[key_prefix[1]+str(_channel)][key_prefix[2]+str(_group)])[:_n_reg];
                 _cell_list[_cell_id][_channel][im_key].append(_ims)
                 # save decoded names
                 _names = [np.unique(_matrix[:,_col_id])[-1] for _col_id in range(_n_reg)]
                 _cell_list[_cell_id][_channel][name_key].append(_names)
+    # screen out failed cells
+    _kept_cell_list = [_cell for _cell, _kept in zip(_cell_list, _success_cells) if _kept]
 
-    return _cell_list
+    return _kept_cell_list
 
 
 
@@ -576,7 +609,7 @@ def generate_chromosome_from_cell_list(cell_list, encoding_type, merging_channel
         print("- generating chromosome from cell_list.")
     # check merging_channel input
     for _channel in merging_channel:
-        if _channel not in list(cell_list[0].keys()):
+        if str(_channel) not in list(cell_list[0].keys()):
             raise ValueError('merging_channel not compatible with cell list info.')
     # initialize _chrom_cell_list:
     _chrom_cell_list = cell_list;
@@ -791,6 +824,7 @@ def candidate_spots_in_chromosome(chrom_cell_list, encoding_type, encoding_schem
                                                                                           radius=fit_radius,
                                                                                           width_zxy=fit_width)
                                 else:
+                                    _pt = np.ones(8)*np.inf
                                     _success = False;
                                 if _success and _pt[0] > _channel_intensity:
                                     _cand_pts.append(_pt)
@@ -831,7 +865,8 @@ def candidate_spots_in_chromosome(chrom_cell_list, encoding_type, encoding_schem
     return _chrom_cell_list
 
 # generate distance map given candidate spots
-def generate_distance_map(cand_cell_list, master_folder, fov_name, cand_point_key='cand_points', cand_name_key='cand_names',
+def generate_distance_map(cand_cell_list, master_folder, fov_name, encoding_type,
+                          cand_point_key='cand_points', cand_name_key='cand_names',
                           zxy_index=[1,2,3], zxy_dimension=[200,150,150],
                           make_plot=False, plot_limits=[200, 1000], save_map=False,
                           map_subfolder = 'Analysis'+os.sep+'distmap',
@@ -841,6 +876,7 @@ def generate_distance_map(cand_cell_list, master_folder, fov_name, cand_point_ke
         cand_cell_list: cell list with candidate name and coordinates, list of dic
         master_folder: master folder directory for this dataset, string
         fov_name: name for this field of view, fovs[fov_id], string
+        encoding_type: type of dataset, combo / unique
         cand_point_key: key to requrest cand_points, string
         cand_name_key: key to requrest cand_names, string
         zxy_index: index of z,x,y coordinate in given cel_list[i]['cand_points'], list of 3
@@ -868,7 +904,9 @@ def generate_distance_map(cand_cell_list, master_folder, fov_name, cand_point_ke
             raise IndexError('no cand_names in cell '+str(_cell_id))
     if len(zxy_index) != 3 or len(zxy_dimension) != 3:
         raise ValueError('wrong dimension for zxy_index or dimension, length should be 3!');
-
+    _allowed_encoding_type = ['combo', 'unique']
+    if str(encoding_type) not in _allowed_encoding_type:
+        raise ValueError('wrong given encoding type, should be combo or unique');
     # loop through cells, calculate distance map
     for _cell_id, _cell in enumerate(_cand_cell_list):
         # number of chromosome
@@ -909,8 +947,8 @@ def generate_distance_map(cand_cell_list, master_folder, fov_name, cand_point_ke
                 if save_map:
                     _map_folder = master_folder + os.sep + map_subfolder + os.sep + fov_name.split('.dax')[0]
                     if not os.path.exists(_map_folder): # if folder not exist, Create
-                        os.mkdir(_map_folder);
-                    plt.savefig(_map_folder+os.sep+'dist_map_'+str(_cell_id)+'_'+str(_i)+'.png' , transparent=True)
+                        os.makedirs(_map_folder);
+                    plt.savefig(_map_folder+os.sep+'dist_map_'+str(encoding_type)+'_'+str(_cell_id)+'_'+str(_i)+'.png' , transparent=True)
     return _cand_cell_list
 
 # load distance map
@@ -936,7 +974,7 @@ def load_all_dist_maps(master_folder, encoding_type, analysis_dir='Analysis', po
     _file_list = os.listdir(_analysis_folder)
     for _file in _file_list:
         if str(encoding_type) in _file and post_fix in _file and '.pkl' in _file:
-            _mp_lst = pickle.load(open(_analysis_folder+os.sep+_file, 'rb'), encoding='latin1');
+            _mp_lst = pickle.load(open(_analysis_folder+os.sep+_file, 'rb'));
             if isinstance(_mp_lst, list):
                 if verbose:
                     print("-- loading file:", _file)
@@ -1010,7 +1048,7 @@ def screen_dist_maps(map_list, min_chrom_num=1, max_chrom_num=3,
     return _screen_tags
 
 # calculate population distance map
-def Calculate_population_map(map_list, master_folder,
+def Calculate_population_map(map_list, master_folder, encoding_type,
                              _screen_tags=None, ignore_inf=True, stat_type='median',
                              make_plot=False, plot_limits=[300, 1300], save_map=False,
                              map_subfolder = 'Analysis'+os.sep+'distmap',
@@ -1019,6 +1057,7 @@ def Calculate_population_map(map_list, master_folder,
     Inputs:
         map_list: list of cells with distance map, list of dic
         master_folder: full directory of this dataset, string
+        encoding_type: type of dataset, combo / unique
         _screen_tags: screening tags generated by screen_dist_maps function, list (default: None)
         ignore_inf: whether compute ignoring inf in stats, bool (default: True)
         stat_type: generate median map or mean map, median / mean (default: median)
@@ -1031,9 +1070,15 @@ def Calculate_population_map(map_list, master_folder,
     Output:
         _median_map: 2d matrix
         '''
+    # check input
+    _allowed_encoding_type = ['combo', 'unique']
+    if str(encoding_type) not in _allowed_encoding_type:
+        raise ValueError('wrong given encoding type, should be combo or unique');
+    # initialize
     _maps = [];
     if verbose:
         print("- extracting all maps")
+    # if screening tag applied
     if _screen_tags:
         for _tags, _cell in zip(_screen_tags, map_list):
             for _tag, _map in zip(_tags, _cell['distance_map']):
@@ -1046,7 +1091,8 @@ def Calculate_population_map(map_list, master_folder,
     _num_kept = len(_maps)
     if verbose:
         print("-- number of chromosomes kept:", _num_kept)
-    _total_map = np.array(_maps);
+
+    _total_map = np.array(_maps, dtype=np.float);
     if ignore_inf:
         _total_map[_total_map == np.inf] = np.nan
         if stat_type == 'median':
@@ -1084,11 +1130,11 @@ def Calculate_population_map(map_list, master_folder,
             if not os.path.exists(_map_folder): # if folder not exist, Create
                 os.mkdir(_map_folder);
             if  map_filename == '':
-                map_filename += stat_type +'_dist_map.png'
+                map_filename += '_'+stat_type +'_'+str(encoding_type)+'_dist_map.png'
             else:
                 if '.' in map_filename:
                     map_filename = map_filename.split('.')[0]
-                map_filename += '_' + stat_type +'_dist_map.png'
+                map_filename += '_'+stat_type +'_'+str(encoding_type)+'_dist_map.png'
             plt.savefig(_map_folder+os.sep+map_filename, transparent=True)
     return _median_map ,_num_kept
 

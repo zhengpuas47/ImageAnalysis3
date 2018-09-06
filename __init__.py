@@ -13,5 +13,7 @@ from . import get_img_info
 # Drift and illumination correction
 from . import corrections
 
+# Defined class
+from . import objects
 # depriciated functions:
 #from . import fitting
