@@ -222,9 +222,11 @@ def Crop_Images_Field_of_View(master_folder, folders, fovs, fov_id,
             print("Processing combo images")
         # load encoding scheme
         if encoding_filename:
-            _encoding_scheme, _num_hyb, _num_reg, _num_color = get_img_info.Load_Encoding_Scheme(master_folder, encoding_filename=encoding_filename)
+            _encoding_scheme = get_img_info.Load_Encoding_Scheme(master_folder,
+                                                            encoding_filename=encoding_filename,
+                                                            return_info=False)
         else:
-            _encoding_scheme, _num_hyb, _num_reg, _num_color = get_img_info.Load_Encoding_Scheme(master_folder)
+            _encoding_scheme = get_img_info.Load_Encoding_Scheme(master_folder, return_info=False)
 
         # initialize cell list
         _cell_num = np.max(_segmentation_label) # number of cells in this field of view
@@ -938,11 +940,10 @@ def generate_distance_map(cand_cell_list, master_folder, fov_name, encoding_type
                 import matplotlib
                 import matplotlib.pyplot as plt
                 _invmap = matplotlib.colors.LinearSegmentedColormap('inv_seismic', matplotlib.cm.revcmap(matplotlib.cm.seismic._segmentdata))
-                _f = plt.figure()
+                plt.figure()
                 plt.title("cell: "+str(_cell_id)+', chrom: '+str(_i) )
                 plt.imshow(_dist_map, interpolation='nearest',cmap=_invmap, vmax=max(plot_limits), vmin=min(plot_limits))
                 plt.colorbar(ticks=range(0,2000,200), label='distance (nm)')
-                plt.show()
                 # save
                 if save_map:
                     _map_folder = master_folder + os.sep + map_subfolder + os.sep + fov_name.split('.dax')[0]

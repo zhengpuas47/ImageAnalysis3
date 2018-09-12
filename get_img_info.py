@@ -150,11 +150,26 @@ def find_bead_channel(__color_dic, __bead_mark='beads'):
 	if len(__unique_channel) == 1:
 		return __unique_channel[0];
 	else:
-		print("-- bead channel not unique:", __unique_channel)
+		raise ValueError("-- bead channel not unique:", __unique_channel)
+		return __unique_channel
+
+# function for finding DAPI channel given color_usage profile
+def find_dapi_channel(__color_dic, __dapi_mark='DAPI'):
+	'''Given a color_dic loaded from Color_Usage file, return bead channel if applicable'''
+	__dapi_channels = []
+	for __name, __info in sorted(list(__color_dic.items()), key=lambda k_v:int(k_v[0].split('H')[1].split('R')[0])):
+		if __dapi_mark in __info:
+			__dapi_channels.append(__info.index(__dapi_mark))
+	__unique_channel = np.unique(__dapi_channels);
+	if len(__unique_channel) == 1:
+		return __unique_channel[0];
+	else:
+		raise ValueError("-- dapi channel not unique:", __unique_channel)
 		return __unique_channel
 
 # load encoding scheme for decoding
-def Load_Encoding_Scheme(master_folder, encoding_filename='Encoding_Scheme', encoding_format='csv', return_info=True):
+def Load_Encoding_Scheme(master_folder, encoding_filename='Encoding_Scheme', encoding_format='csv',
+					     return_info=True, verbose=True):
 	'''Load encoding scheme from csv file
 	Inputs:
 		master_folder: master directory of this dataset, path(string);
@@ -169,11 +184,12 @@ def Load_Encoding_Scheme(master_folder, encoding_filename='Encoding_Scheme', enc
 	# initialize
 	_hyb_names = [];
 	_encodings = [];
-	_num_hyb,_num_reg,_num_color = None,None,None
+	_num_hyb,_num_reg,_num_color,_num_group = None,None,None,None
 	# process with csv format
 	if encoding_format == 'csv':
 		_full_name = master_folder+os.sep+encoding_filename+"."+'csv';
-		print("- Importing csv file:", _full_name);
+		if verbose:
+			print("- Importing csv file:", _full_name);
 		import csv
 		with open(_full_name, 'r') as handle:
 			_reader = csv.reader(handle)
@@ -195,7 +211,8 @@ def Load_Encoding_Scheme(master_folder, encoding_filename='Encoding_Scheme', enc
 	# process with txt format (\t splitted)
 	elif encoding_format == 'txt':
 		_full_name = master_folder+os.sep+encoding_filename+"."+'txt';
-		print("- Importing txt file:", _full_name);
+		if verbose:
+			print("- Importing txt file:", _full_name);
 		with open(_full_name, 'r') as handle:
 			_line = handle.readline().rstrip();
 			_header = _line.split('\t')
@@ -235,20 +252,26 @@ def Load_Encoding_Scheme(master_folder, encoding_filename='Encoding_Scheme', enc
 				_hyb_matrix = np.array(_encodings[_i*_num_hyb: (_i+1)*_num_hyb], dtype=int)
 				if _hyb_matrix.shape[1] == _num_reg * _num_color:
 					for _j in range( int(_hyb_matrix.shape[1]/_num_reg)):
-						_encoding_scheme[_colors[_j]]['names'].append(_hyb_group);
-						_encoding_scheme[_colors[_j]]['matrices'].append(_hyb_matrix[:,_j*_num_reg:(_j+1)*_num_reg])
+						_mat = _hyb_matrix[:,_j*_num_reg:(_j+1)*_num_reg]
+						if not (_mat == -1).all():
+							_encoding_scheme[_colors[_j]]['names'].append(_hyb_group);
+							_encoding_scheme[_colors[_j]]['matrices'].append(_mat)
 				else:
 					raise ValueError('dimension of hyb matrix doesnt match color and region')
 		else:
 			raise ValueError('number of hybs doesnot match number of hybs per group.');
-
-
-	print("-- hyb per group:",_num_hyb)
-	print("-- region per group:", _num_reg)
-	print("-- number of colors:", _num_color)
+	# calculate number of groups per color
+	_group_nums = []
+	for _color in _colors:
+		_group_nums.append(len(_encoding_scheme[_color]['matrices']));
+	if verbose:
+		print("-- hyb per group:",_num_hyb)
+		print("-- region per group:", _num_reg)
+		print("-- colors:", _colors)
+		print('-- number of groups:', _group_nums)
 	# return
 	if return_info:
-		return _encoding_scheme, _num_hyb, _num_reg, _num_color
+		return _encoding_scheme, _num_hyb, _num_reg, _colors, _group_nums
 	return _encoding_scheme
 
 def split_channels(ims, names, num_channel=2, buffer_frames=10, DAPI=False, verbose=True):
@@ -317,3 +340,26 @@ def split_channels_by_image(ims, names, num_channel=4, buffer_frames=10, DAPI=Fa
 			_im_list = [_im[int(buffer_frames): -int(buffer_frames)][(-buffer_frames+1+_channel)%num_channel::num_channel] for _channel in range(num_channel)]
 			_im_dic[_name] = _im_list;
 	return _im_dic
+
+# match harry's result with raw data_
+def decode_match_raw(raw_data_folder, raw_feature, decode_data_folder, decode_feature, fovs, e_type):
+    # initialize
+    _match_dic = {};
+    # get raw data file list
+    _raw_list = glob.glob(raw_data_folder+os.sep+'*'+raw_feature)
+    _raw_list = [_raw for _raw in _raw_list if str(e_type) in _raw]
+    # get decode data file list
+    _decode_list = glob.glob(decode_data_folder+os.sep+'*'+decode_feature)
+
+    print(len(_raw_list), len(_decode_list))
+    # loop to match!
+    for _decode_fl in sorted(_decode_list):
+        # fov id
+        _fov_id = int(_decode_fl.split('fov-')[1].split('-')[0])
+        # search to match
+        _matched_raw = [_raw_fl for _raw_fl in _raw_list if fovs[_fov_id].split('.')[0] in _raw_fl]
+        # keep unique match
+        if len(_matched_raw) == 1:
+            _match_dic[_fov_id] = [_matched_raw[0], _decode_fl]
+
+    return _match_dic

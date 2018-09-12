@@ -1429,7 +1429,8 @@ def crop_cell(im, segmentation_label, drift=None, extend_dim=20, overlap_thresho
             raise ValueError('drift dimension and image dimension doesnt match!');
     # initialize cropped image list
     _crop_ims = [];
-    for _l in range(np.max(segmentation_label)):
+
+    for _l in range(int(np.max(segmentation_label))):
         #print _l
         if len(_label_dim) == 3: # 3D
             _limits = np.zeros([len(_label_dim),2]); # initialize matrix to save cropping limit

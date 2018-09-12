@@ -14,6 +14,6 @@ from . import get_img_info
 from . import corrections
 
 # Defined class
-from . import objects
+from . import classes
 # depriciated functions:
 #from . import fitting
