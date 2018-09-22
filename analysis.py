@@ -83,16 +83,16 @@ def Segmentation_All(master_folder, folders, fovs, ref_name='H0R0',
 
     return _segmentation_labels, _dapi_ims
 
-def Segmentation_Fov(master_folder, folders, fovs, fov_id, ref_name='H0R0',
+def Segmentation_Fov(analysis_folder, folders, fovs, fov_id, ref_name='H0R0',
                      num_channel=5, dapi_channel=-1, illumination_corr=True,
                      correction_folder='',
                      shape_ratio_threshold=0.041,signal_cap_ratio=0.2,
                      denoise_window=5,
-                     segmentation_path='Analysis'+os.sep+'segmentation',
+                     segmentation_path='segmentation',
                      save=True, force=False, verbose=True):
     '''wrapped function to do DAPI segmentation for one field of view
     Inputs:
-        master_folder: directory of this data, string
+        analysis_folder: directory of this data analysis result, string
         folders: list of sub-folder names, list of string
         fovs: list of field of view names, list of string
         fov_id: field of view id to be segmentated, int
@@ -113,7 +113,7 @@ def Segmentation_Fov(master_folder, folders, fovs, fov_id, ref_name='H0R0',
     _dapi_im: original images for DAPI, list of 3D images
     '''
     # path to store segmentation result
-    _savefolder = master_folder+os.sep+segmentation_path;
+    _savefolder = analysis_folder+os.sep+segmentation_path;
     _savefile = _savefolder + os.sep + fovs[fov_id].replace('.dax', '_segmentation.pkl');
     # check dir and savefile
     if not os.path.isdir(_savefolder): # if save folder doesnt exist, create

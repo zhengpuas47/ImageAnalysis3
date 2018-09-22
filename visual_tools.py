@@ -605,8 +605,8 @@ class imshow_mark_3d_v2:
     def load_coords(self):
         save_file = self.save_file
         if save_file is not None and os.path.exists(save_file):
-            fid = open(save_file,'r')
-            save_dic = pickle.load(fid, encoding='latin1')
+            fid = open(save_file,'rb')
+            save_dic = pickle.load(fid)
             self.coords,self.class_ids = save_dic['coords'],save_dic['class_ids']
             if 'pfits' in save_dic:
                 self.pfits_save = save_dic['pfits']
@@ -619,7 +619,7 @@ class imshow_mark_3d_v2:
         if save_file is not None:
             if not os.path.exists(os.path.dirname(save_file)):
                 os.makedirs(os.path.dirname(save_file))
-            fid = open(save_file,'w')
+            fid = open(save_file,'wb')
             self.pfits_save = getattr(self,'pfits_save',{})
             self.dec_text = getattr(self,'dec_text',{})
             save_dic = {'coords':self.coords,'class_ids':self.class_ids,'pfits':self.pfits_save,'dec_text':self.dec_text}

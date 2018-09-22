@@ -167,18 +167,18 @@ def get_STD_centers(im, th_seed=150, close_threshold=0.01, quiet=False, plt_val=
         return beads
 
 
-def STD_beaddrift_sequential(bead_ims, bead_names, analysis_folder, fovs, fov_id,
+def STD_beaddrift_sequential(bead_ims, bead_names, drift_folder, fovs, fov_id,
                       illumination_correction=False, ic_channel=488,
                       correction_folder=r'C:\Users\Pu Zheng\Documents\Corrections',
                       repeat=True, plt_val=False, cutoff_=3, xyz_res_=1,
-                      coord_sel=None, sz_ex=100, force=False, save=True, quiet=False, th_seed=150,
-                      dynamic=False, dynamic_th_percent=95):
+                      coord_sel=None, sz_ex=200, force=False, save=True, quiet=False, th_seed=150,
+                      dynamic=False, dynamic_th_percent=80):
     """Given a list of bead images This handles the fine bead drift correction.
-    If save is true this requires global paramaters analysis_folder,fovs,fov_id
+    If save is true this requires global paramaters drift_folder,fovs,fov_id
     Inputs:
         bead_ims: list of images, list of ndarray
         bead_names: names for bead files, list of strings
-        analysis_folder: full directory to store analysis files, string
+        drift_folder: full directory to store analysis files, string
         fovs: names for all field of views, list of strings
         fov_id: the id for field of view to be analysed, int
         Illumination_correction: whether do illumination correction, bool
@@ -191,10 +191,12 @@ def STD_beaddrift_sequential(bead_ims, bead_names, analysis_folder, fovs, fov_id
 
     # if save, check existing pickle file, if exist, don't repeat
     if save:
-        save_cor = analysis_folder+os.sep+fovs[fov_id].replace('.dax','_sequential_current_cor.pkl')
+        save_cor = drift_folder+os.sep+fovs[fov_id].replace('.dax','_sequential_current_cor.pkl')
         if os.path.exists(save_cor):
             total_drift = pickle.load(open(save_cor,'rb'), encoding='latin1')
             if len(list(total_drift.keys()))==len(bead_ims):
+                if not quiet:
+                    print("length matches:",len(bead_ims), "and forcing calculation="+str(force))
                 repeat=False
     repeat = repeat or force
 
@@ -273,9 +275,9 @@ def STD_beaddrift_sequential(bead_ims, bead_names, analysis_folder, fovs, fov_id
         # convert to total drift
         total_drift = {_name: sum(txyzs[:_i+1]) for _i, _name in enumerate(bead_names)}
         if save:
-            if not os.path.exists(analysis_folder):
-                os.makedirs(analysis_folder)
-            save_cor = analysis_folder+os.sep+fovs[fov_id].replace('.dax','_sequential_current_cor.pkl')
+            if not os.path.exists(drift_folder):
+                os.makedirs(drift_folder)
+            save_cor = drift_folder+os.sep+fovs[fov_id].replace('.dax','_sequential_current_cor.pkl')
             pickle.dump(total_drift,open(save_cor,'wb'))
 
     return total_drift, repeat, fail_count
@@ -300,16 +302,18 @@ def generate_illumination_correction(ims, threshold_percentile=98, gaussian_sigm
     # gaussian fliter total image to denoise
     total_im = np.nanmean(np.array(total_ims),0)
     total_im[np.isnan(total_im)] = np.nanmean(total_im)
-    fit_im = ndimage.gaussian_filter(total_im, gaussian_sigma);
+    if gaussian_sigma:
+        fit_im = ndimage.gaussian_filter(total_im, gaussian_sigma);
+    else:
+        fit_im = total_im;
     fit_im = fit_im / np.max(fit_im);
 
     # make plot
     if make_plot:
         f = plt.figure()
         plt.imshow(fit_im)
-        plt.title('Illumination profile for', save_name)
+        plt.title('Illumination profile for '+ save_name)
         plt.colorbar()
-        plt.show()
     if save:
         if not os.path.exists(save_dir):
             os.mkdir(save_dir)
@@ -342,7 +346,7 @@ def Illumination_correction(ims, correction_channel,
     # load correcton profile
     _corr_filename = os.path.join(correction_folder, 'Illumination_correction_'+str(correction_channel)+'.pkl')
     with open(_corr_filename, 'rb') as handle:
-        _ic_profile = pickle.load(handle, encoding='latin1')
+        _ic_profile = pickle.load(handle)
     # do correction
     if verbose:
         print("-- Number of images to be corrected:", len(_ims))
@@ -512,7 +516,7 @@ def Chromatic_abbrevation_correction(ims, correction_channel,
     # load correcton profile
     _correction_file = correction_folder+os.sep+'Chromatic_correction_'+str(correction_channel)+'_'+str(target_channel)+'.pkl';
     if os.path.isfile(_correction_file):
-        _cc_profile = pickle.load(open(_correction_file,'rb'), encoding='latin1')
+        _cc_profile = pickle.load(open(_correction_file,'rb'))
     else:
         print("- No chromatic correction profile file founded!");
         return None
@@ -610,4 +614,34 @@ def fast_translate(im,trans):
 	im_base_0[(im_zmin-zmin):(im_zmax-zmin),(im_xmin-xmin):(im_xmax-xmin),(im_ymin-ymin):(im_ymax-ymin)]=im[im_zmin:im_zmax,im_xmin:im_xmax,im_ymin:im_ymax]
 	return im_base_0
 
-## Using FFT align and fast_translate to generate rough chromosome images
+
+
+# correct for illumination _shifts across z layers
+def Z_Shift_Correction(im, style='mean', normalization=False, verbose=False):
+    '''Function to correct for each layer in z, to make sure they match in term of intensity'''
+    if style not in ['mean','median','interpolation']:
+        raise ValueError('wrong style input for Z shift correction!');
+    _nim = np.zeros(np.shape(im));
+    if style == 'mean':
+        _norm_factors = [np.mean(_lyr) for _lyr in im];
+    elif style == 'median':
+        _norm_factors = [np.median(_lyr) for _lyr in im];
+    elif stype == 'interpolation':
+        _means = np.array([np.mean(_lyr) for _lyr in im]);
+        _interpolation = _means;
+        _interpolation[1:-1] += _means[:-2];
+        _interpolation[1:-1] += _means[2:];
+        _interpolation[1:-1] = _interpolation[1:-1]/3;
+        _norm_factors = _interpolation;
+    # loop through layers
+    for _i, _lyr in enumerate(im):
+        _nim[_i] = _lyr / _norm_factors[_i];
+    # if not normalization
+    if not normalization:
+        _nim = _nim * np.mean(im);
+
+    return _nim.astype(np.uint16)
+
+def Remove_Hot_Pixels(im, hot_pix_th=0.2, interpolation_style='nearest'):
+    '''Function to remove hot pixels by interpolation in each single layer'''
+    pass

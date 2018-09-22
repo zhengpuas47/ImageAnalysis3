@@ -105,34 +105,52 @@ class Cell_Data():
         if not isinstance(parameters, dict):
             raise TypeError('wrong input type of parameters, should be a dictionary containing essential info.');
         # necessary parameters
-        self.data_folder = str(parameters['data_folder'])
+        # data folder (list)
+        if isinstance(parameters['data_folder'], list):
+            self.data_folder = [str(_fd) for _fd in parameters['data_folder']]
+        else:
+            self.data_folder = [str(parameters['data_folder'])];
+        # analysis folder
+        if 'analysis_folder' not in parameters:
+            self.analysis_folder = self.data_folder[0]+os.sep+'Analysis'
+        else:
+            self.analysis_folder = str(parameters['analysis_folder']);
         # extract hybe folders and field-of-view names
-        self.folders, self.fovs = get_img_info.get_folders(self.data_folder, feature='H', verbose=True)
+        self.folders = []
+        for _fd in self.data_folder:
+            _hyb_fds, self.fovs = get_img_info.get_folders(_fd, feature='H', verbose=True)
+            self.folders += _hyb_fds;
         # fov id and cell id given
         self.fov_id = int(parameters['fov_id'])
         self.cell_id = int(parameters['cell_id'])
         # segmentation_folder, pickle_folder, correction_folder,map_folder
         if 'segmentation_folder' in parameters:
-            self.segmentation_folder = parameters[segmentation_folder];
+            self.segmentation_folder = parameters['segmentation_folder'];
         else:
-            self.segmentation_folder = self.data_folder+os.sep+'Analysis'+os.sep+'segmentation'
+            self.segmentation_folder = self.analysis_folder+os.sep+'segmentation'
         if 'pickle_folder' in parameters:
-            self.pickle_folder = parameters[pickle_folder];
+            self.pickle_folder = parameters['pickle_folder'];
         else:
-            self.pickle_folder = self.data_folder+os.sep+'Analysis'+os.sep+'raw'
+            self.pickle_folder = self.analysis_folder+os.sep+'raw'
         if 'correction_folder' in parameters:
-            self.correction_folder = parameters[correction_folder];
+            self.correction_folder = parameters['correction_folder'];
         else:
             self.correction_folder = self.data_folder
-        if 'map_folder' in parameters:
-            self.map_folder = parameters[map_folder];
+        if 'drift_folder' in parameters:
+            self.drift_folder = parameters['drift_folder'];
         else:
-            self.map_folder = self.data_folder+os.sep+'Analysis'+os.sep+'distmap'
+            self.drift_folder =  self.analysis_folder+os.sep+'drift'
+        if 'map_folder' in parameters:
+            self.map_folder = parameters['map_folder'];
+        else:
+            self.map_folder = self.analysis_folder+os.sep+'distmap'
 
     # allow print info of Cell_List
     def __str__(self):
         if hasattr(self, 'data_folder'):
-            print("Cell Data from folder:", self.data_folder);
+            print("Cell Data from folder(s):", self.data_folder);
+        if hasattr(self, 'analysis_folder'):
+            print("\t path for anaylsis result:", self.analysis_folder);
         if hasattr(self, 'fov_id'):
             print("\t from field-of-view:", self.fov_id);
         if hasattr(self, 'cell_id'):
@@ -143,10 +161,12 @@ class Cell_Data():
     # allow iteration of Cell_List
     def __iter__(self):
         return self
+    def __next__(self):
+        return self
 
     ## Load basic info
     def _load_color_info(self, _color_filename='Color_Usage', _color_format='csv', _save_color_dic=True):
-        _color_dic, _use_dapi, _channels = get_img_info.Load_Color_Usage(self.data_folder,
+        _color_dic, _use_dapi, _channels = get_img_info.Load_Color_Usage(self.analysis_folder,
                                                             color_filename=_color_filename,
                                                             color_format=_color_format,
                                                             return_color=True)
@@ -166,7 +186,7 @@ class Cell_Data():
     def _load_encoding_scheme(self, _encoding_filename='Encoding_Scheme', _encoding_format='csv', _save_encoding_scheme=True):
         _encoding_scheme, self.hyb_per_group, self.reg_per_group, \
         self.encoding_colors, self.encoding_group_nums \
-            = get_img_info.Load_Encoding_Scheme(self.data_folder,
+            = get_img_info.Load_Encoding_Scheme(self.analysis_folder,
                                                    encoding_filename=_encoding_filename,
                                                    encoding_format=_encoding_format,
                                                    return_info=True)
@@ -183,7 +203,7 @@ class Cell_Data():
             self._load_color_info()
 
         # do segmentation if necessary, or just load existing segmentation file
-        fov_segmentation_label, fov_dapi_im  = analysis.Segmentation_Fov(self.data_folder,
+        fov_segmentation_label, fov_dapi_im  = analysis.Segmentation_Fov(self.analysis_folder,
                                                 self.folders, self.fovs, self.fov_id,
                                                 shape_ratio_threshold=_shape_ratio_threshold,
                                                 signal_cap_ratio=_signal_cap_ratio,
@@ -191,7 +211,7 @@ class Cell_Data():
                                                 num_channel=len(self.channels),
                                                 dapi_channel=self.dapi_channel_index,
                                                 correction_folder=self.correction_folder,
-                                                segmentation_path=self.segmentation_folder.split(self.data_folder+os.sep)[1],
+                                                segmentation_path=os.path.basename(self.segmentation_folder),
                                                 save=False, force=False)
         # exclude special cases
         if not hasattr(self, 'cell_id'):
@@ -201,42 +221,95 @@ class Cell_Data():
         # if everything works, keep segementation_albel and dapi_im for this cell
         else:
             _seg_label = - np.ones(fov_segmentation_label.shape);
-            _seg_label[fov_segmentation_label==self.cell_id+1] = self.cell_id+1;
+            _seg_label[fov_segmentation_label==self.cell_id+1] = 1;
             self.segmentation_label = _seg_label
             self.dapi_im = visual_tools.crop_cell(fov_dapi_im, self.segmentation_label, drift=None)[0]
 
         return self.segmentation_label, self.dapi_im
 
-    def _load_drift(self,):
-        pass
+    def _load_drift(self, _size=300, _force=False, _dynamic=True):
+        if not hasattr(self, 'bead_ims'):
+            self._load_images('beads');
+        # do drift correction
+        self.drift, _, _failed_count = corrections.STD_beaddrift_sequential(self.bead_ims, self.names,
+                                                                    self.drift_folder,
+                                                                    self.fovs, self.fov_id,
+                                                                    sz_ex=_size, force=_force, dynamic=_dynamic)
+        if _failed_count > 0:
+            print('Failed drift noticed! total failure:', _failed_count);
 
+        return self.drift
 
-
-    def _load_images(self, _type, _drift=False ):
+    def _load_images(self, _type, _extend_dim=20, _load_in_ram=True, _load_annotated_only=True):
         if not hasattr(self, 'segmentation_label'):
             self._load_segmentation();
         if not hasattr(self, 'channels'):
             self._load_color_info();
-        _ims, _names = get_img_info.get_img_fov(self.folders, self.fovs, self.fov_id, verbose=False);
+        # load images
+        if _load_annotated_only:
+            _annotated_folders = [_fd for _fd in self.folders if os.path.basename(_fd) in self.color_dic];
+            self.annotated_folders = _annotated_folders
+            _ims, _names = get_img_info.get_img_fov(_annotated_folders, self.fovs, self.fov_id, verbose=False);
+        else:
+            _ims, _names = get_img_info.get_img_fov(self.folders, self.fovs, self.fov_id, verbose=False);
+        # save names
+        self.names = _names;
         if '405' in self.channels:
             _num_ch = len(self.channels) -1;
         else:
             _num_ch = len(self.channels);
+        # split images
         _splitted_ims = get_img_info.split_channels_by_image(_ims, _names,
                                     num_channel=_num_ch, DAPI=self.use_dapi);
+
         if str(_type).lower() == "beads":
+            # check color usage
+            if not hasattr(self, 'color_dic'):
+                self._load_color_info();
             _drift=False # no need to correct for beads because you are using it to correct
-            return _splitted_ims
+            _bead_ims = [];
+            for _hyb_fd, _info in self.color_dic.items():
+                _img_name = _hyb_fd + os.sep + self.fovs[self.fov_id];
+                if _img_name in _splitted_ims:
+                    _bead_ims.append(_splitted_ims[_img_name][self.bead_channel_index])
+                else:
+                    print('-- missing image:',_img_name);
+            if _load_in_ram:
+                self.bead_ims = _bead_ims
+            #self.hyb_names = _names
+            return _bead_ims
         elif str(_type).lower() == 'unique':
             # check attributes
             if not hasattr(self, 'channels'):
                 self._load_color_info();
         elif str(_type).lower() == 'combo' or str(_source).lower() == 'sparse' :
-            # check attributes
+            # check color usage
             if not hasattr(self, 'color_dic'):
                 self._load_color_info();
-            # check attributes
+            # check encoding scheme
             if not hasattr(self, 'encoding_scheme'):
                 self._load_encoding_scheme();
+            # check drift info
+            if not hasattr(self, 'drift'):
+                 self._load_drift();
+            _cropped_ims = [];
+            for _name, _sp_ims in _splitted_ims.items():
+                _cropped_ims.append(visual_tools.crop_cell(_sp_ims[self.bead_channel_index],
+                                        self.segmentation_label, extend_dim=_extend_dim)[0])
+            self.bead_ims = _cropped_ims
         else:
             pass
+
+class Encoding_Group():
+    """defined class for each group of encoded images"""
+    def __init__(self, ims, hybe_names, encoding_matrix, readout_list=None, save_folder=None, color=None):
+        self.ims = ims;
+        self.names = hybe_names;
+        self.matrix = encoding_matrix;
+        if readouts:
+            self.readouts = readout_list;
+        if save_folder:
+            self.save_folder = save_folder;
+        if color:
+            self.color = color;
+        return True
