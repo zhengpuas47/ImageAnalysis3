@@ -227,11 +227,14 @@ class Cell_Data():
 
         return self.segmentation_label, self.dapi_im
 
-    def _load_drift(self, _size=300, _force=False, _dynamic=True):
+    def _load_drift(self, _size=450, _force=False, _dynamic=True):
         if not hasattr(self, 'bead_ims'):
-            self._load_images('beads');
+            print("images for beads not loaded yet!")
+             _bead_ims, _bead_names = self._load_images('beads', _load_in_ram=False);
+        else:
+             _bead_ims, _bead_names = self.bead_ims, self.bead_names
         # do drift correction
-        self.drift, _, _failed_count = corrections.STD_beaddrift_sequential(self.bead_ims, self.names,
+        self.drift, _, _failed_count = corrections.STD_beaddrift_sequential(_bead_ims, _bead_names,
                                                                     self.drift_folder,
                                                                     self.fovs, self.fov_id,
                                                                     sz_ex=_size, force=_force, dynamic=_dynamic)
@@ -252,8 +255,7 @@ class Cell_Data():
             _ims, _names = get_img_info.get_img_fov(_annotated_folders, self.fovs, self.fov_id, verbose=False);
         else:
             _ims, _names = get_img_info.get_img_fov(self.folders, self.fovs, self.fov_id, verbose=False);
-        # save names
-        self.names = _names;
+
         if '405' in self.channels:
             _num_ch = len(self.channels) -1;
         else:
@@ -268,20 +270,48 @@ class Cell_Data():
                 self._load_color_info();
             _drift=False # no need to correct for beads because you are using it to correct
             _bead_ims = [];
+            _bead_names = [];
+            # load the images in the order of color_dic (which corresponding to experiment order)
             for _hyb_fd, _info in self.color_dic.items():
                 _img_name = _hyb_fd + os.sep + self.fovs[self.fov_id];
                 if _img_name in _splitted_ims:
                     _bead_ims.append(_splitted_ims[_img_name][self.bead_channel_index])
+                    _bead_names.append(_img_name);
                 else:
-                    print('-- missing image:',_img_name);
+                    raise IOError('-- missing image:',_img_name);
             if _load_in_ram:
                 self.bead_ims = _bead_ims
-            #self.hyb_names = _names
-            return _bead_ims
+                self.bead_names = _bead_names
+
+            return _bead_ims, _bead_names
+
         elif str(_type).lower() == 'unique':
-            # check attributes
-            if not hasattr(self, 'channels'):
+            # check attributes of color dic
+            if not hasattr(self, 'color_dic'):
                 self._load_color_info();
+            # initialize
+            _unique_ims = [];
+            _unique_ids = [];
+            _unique_colors = [];
+            _unique_marker = 'u';
+            # load the images in the order of color_dic (which corresponding to experiment order)
+            for _hyb_fd, _info in self.color_dic.items():
+                _img_name = _hyb_fd + os.sep + self.fovs[self.fov_id];
+                if _img_name in _splitted_ims:
+                    if len(_info) != len(_splitted_ims[_img_name]):
+                        raise IndexError('information from color_usage doesnot match splitted images.')
+                    for _i, (_channel_info, _channel_im) in enumerate(zip(_info, _splitted_ims[_img_name])):
+                        if _unique_marker in _channel_info:
+                            _unique_ims.append()
+
+                else:
+                    raise IOError('-- missing image:',_img_name);
+            if _load_in_ram:
+                self.unique_ims = _unique_ims;
+                self.unique_ids = _unique_ids;
+
+            return _unique_ims, _unique_ids
+
         elif str(_type).lower() == 'combo' or str(_source).lower() == 'sparse' :
             # check color usage
             if not hasattr(self, 'color_dic'):

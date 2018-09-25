@@ -159,7 +159,7 @@ def get_STD_centers(im, th_seed=150, close_threshold=0.01, quiet=False, plt_val=
         # save to pickle if specified
         if save:
             if not os.path.exists(save_folder):
-                os.mkdir(save_folder)
+                os.makedirs(save_folder)
             if not quiet:
                 print("-- saving beads to", save_folder+os.sep+save_name)
             pickle.dump(beads, open(save_folder+os.sep+save_name, 'wb'));
@@ -192,12 +192,16 @@ def STD_beaddrift_sequential(bead_ims, bead_names, drift_folder, fovs, fov_id,
     # if save, check existing pickle file, if exist, don't repeat
     if save:
         save_cor = drift_folder+os.sep+fovs[fov_id].replace('.dax','_sequential_current_cor.pkl')
+        # if savefile already exists, check whether dimension was correct
         if os.path.exists(save_cor):
             total_drift = pickle.load(open(save_cor,'rb'), encoding='latin1')
             if len(list(total_drift.keys()))==len(bead_ims):
                 if not quiet:
                     print("length matches:",len(bead_ims), "and forcing calculation="+str(force))
                 repeat=False
+            else:
+                if not quiet:
+                    print("length doesnot match, redo drift correction!");
     repeat = repeat or force
 
     # if do illumination_correction:
@@ -410,32 +414,34 @@ def generate_chromatic_abbrevation_correction(ims, names, master_folder, channel
 
     # loop through all images and calculate profile
     for _cim,_rim,_name in zip(_cims,_rims,names):
-        # fit correction channel
-        _cim = ia.corrections.Illumination_correction(_cim, corr_channel, correction_folder=correction_folder,
-                                                    verbose=verbose)[0]
-        _cct = ia.corrections.get_STD_centers(_cim, scoreatpercentile(_cim, seed_th_per), quiet=not verbose,
-                                    save=save, force=force, save_folder=master_folder+os.sep+fitting_save_subdir,
-                                    save_name=_name.split(os.sep)[-1].replace('.dax', '_'+str(corr_channel)+'_fitting.pkl'))
-        # fit reference channel
-        _rim = ia.corrections.Illumination_correction(_rim, ref_channel, correction_folder=correction_folder,
-                                                    verbose=verbose)[0]
-        _rct = ia.corrections.get_STD_centers(_rim, scoreatpercentile(_rim, seed_th_per), quiet=not verbose,
-                                    save=save, force=force, save_folder=master_folder+os.sep+fitting_save_subdir,
-                                    save_name=_name.split(os.sep)[-1].replace('.dax', '_'+str(ref_channel)+'_fitting.pkl'))
-        # Align points
-        _aligned_cct, _aligned_rct, _shift = ia.visual_tools.beads_alignment_fast(_cct ,_rct, outlier_sigma=1, unique_cutoff=2)
-        # append
-        _ccts.append(_aligned_cct);
-        _rcts.append(_aligned_rct);
-        _shifts.append(_shift);
-        # make plot
-        if make_plot:
-            fig = plt.figure()
-            plt.plot(_aligned_rct[:,2], _aligned_rct[:,1],'r.', alpha=0.3)
-            plt.quiver(_aligned_rct[:,2], _aligned_rct[:,1], _shift[:,2], _shift[:,1])
-            plt.imshow(_rim.sum(0))
-            plt.show()
-
+        try:
+            # fit correction channel
+            _cim = ia.corrections.Illumination_correction(_cim, corr_channel, correction_folder=correction_folder,
+                                                        verbose=verbose)[0]
+            _cct = ia.corrections.get_STD_centers(_cim, scoreatpercentile(_cim, seed_th_per), quiet=not verbose,
+                                        save=save, force=force, save_folder=master_folder+os.sep+fitting_save_subdir,
+                                        save_name=_name.split(os.sep)[-1].replace('.dax', '_'+str(corr_channel)+'_fitting.pkl'))
+            # fit reference channel
+            _rim = ia.corrections.Illumination_correction(_rim, ref_channel, correction_folder=correction_folder,
+                                                        verbose=verbose)[0]
+            _rct = ia.corrections.get_STD_centers(_rim, scoreatpercentile(_rim, seed_th_per), quiet=not verbose,
+                                        save=save, force=force, save_folder=master_folder+os.sep+fitting_save_subdir,
+                                        save_name=_name.split(os.sep)[-1].replace('.dax', '_'+str(ref_channel)+'_fitting.pkl'))
+            # Align points
+            _aligned_cct, _aligned_rct, _shift = ia.visual_tools.beads_alignment_fast(_cct ,_rct, outlier_sigma=1, unique_cutoff=2)
+            # append
+            _ccts.append(_aligned_cct);
+            _rcts.append(_aligned_rct);
+            _shifts.append(_shift);
+            # make plot
+            if make_plot:
+                fig = plt.figure()
+                plt.plot(_aligned_rct[:,2], _aligned_rct[:,1],'r.', alpha=0.3)
+                plt.quiver(_aligned_rct[:,2], _aligned_rct[:,1], _shift[:,2], _shift[:,1])
+                plt.imshow(_rim.sum(0))
+                plt.show()
+        except:
+            pass
     ## do fitting to explain chromatic abbrevation
     # merge
     _corr_beads = np.concatenate(_ccts);
