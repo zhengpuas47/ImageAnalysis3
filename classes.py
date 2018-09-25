@@ -197,7 +197,8 @@ class Cell_Data():
         return _encoding_scheme
 
     ## load cell specific info
-    def _load_segmentation(self, _shape_ratio_threshold=0.041, _signal_cap_ratio=0.2, _denoise_window=5):
+    def _load_segmentation(self, _shape_ratio_threshold=0.041, _signal_cap_ratio=0.2, _denoise_window=5,
+                           _load_in_ram=True):
         # check attributes
         if not hasattr(self, 'channels'):
             self._load_color_info()
@@ -222,15 +223,17 @@ class Cell_Data():
         else:
             _seg_label = - np.ones(fov_segmentation_label.shape);
             _seg_label[fov_segmentation_label==self.cell_id+1] = 1;
-            self.segmentation_label = _seg_label
-            self.dapi_im = visual_tools.crop_cell(fov_dapi_im, self.segmentation_label, drift=None)[0]
+            _dapi_im = visual_tools.crop_cell(fov_dapi_im, _seg_label, drift=None)[0]
+            if _load_in_ram:
+                self.segmentation_label = _seg_label
+                self.dapi_im = _dapi_im
 
-        return self.segmentation_label, self.dapi_im
+        return _seg_label, _dapi_im
 
     def _load_drift(self, _size=450, _force=False, _dynamic=True):
         if not hasattr(self, 'bead_ims'):
             print("images for beads not loaded yet!")
-             _bead_ims, _bead_names = self._load_images('beads', _load_in_ram=False);
+            _bead_ims, _bead_names = self._load_images('beads', _load_in_ram=False);
         else:
              _bead_ims, _bead_names = self.bead_ims, self.bead_names
         # do drift correction
@@ -243,27 +246,32 @@ class Cell_Data():
 
         return self.drift
 
-    def _load_images(self, _type, _extend_dim=20, _load_in_ram=True, _load_annotated_only=True):
-        if not hasattr(self, 'segmentation_label'):
+    def _load_images(self, _type, _extend_dim=20, _load_in_ram=True, _load_annotated_only=True,
+                     _illumination_correction=True, _chromatic_correction=True, _verbose=False):
+        if not hasattr(self, 'segmentation_label') and _type != 'beads':
             self._load_segmentation();
         if not hasattr(self, 'channels'):
             self._load_color_info();
-        # load images
-        if _load_annotated_only:
-            _annotated_folders = [_fd for _fd in self.folders if os.path.basename(_fd) in self.color_dic];
-            self.annotated_folders = _annotated_folders
-            _ims, _names = get_img_info.get_img_fov(_annotated_folders, self.fovs, self.fov_id, verbose=False);
-        else:
-            _ims, _names = get_img_info.get_img_fov(self.folders, self.fovs, self.fov_id, verbose=False);
+        # load images if not pre_loaded:
+        if not hasattr(self, 'splitted_ims'):
+            if _load_annotated_only:
+                _annotated_folders = [_fd for _fd in self.folders if os.path.basename(_fd) in self.color_dic];
+                self.annotated_folders = _annotated_folders
+                _ims, _names = get_img_info.get_img_fov(_annotated_folders, self.fovs, self.fov_id, verbose=False);
+            else:
+                _ims, _names = get_img_info.get_img_fov(self.folders, self.fovs, self.fov_id, verbose=False);
 
-        if '405' in self.channels:
-            _num_ch = len(self.channels) -1;
+            if '405' in self.channels:
+                _num_ch = len(self.channels) -1;
+            else:
+                _num_ch = len(self.channels);
+            # split images
+            _splitted_ims = get_img_info.split_channels_by_image(_ims, _names,
+                                        num_channel=_num_ch, DAPI=self.use_dapi);
         else:
-            _num_ch = len(self.channels);
-        # split images
-        _splitted_ims = get_img_info.split_channels_by_image(_ims, _names,
-                                    num_channel=_num_ch, DAPI=self.use_dapi);
+            _splitted_ims = self.splitted_ims;
 
+        # if the purpose is to load bead images:
         if str(_type).lower() == "beads":
             # check color usage
             if not hasattr(self, 'color_dic'):
@@ -282,9 +290,9 @@ class Cell_Data():
             if _load_in_ram:
                 self.bead_ims = _bead_ims
                 self.bead_names = _bead_names
-
             return _bead_ims, _bead_names
 
+        # load unique images
         elif str(_type).lower() == 'unique':
             # check attributes of color dic
             if not hasattr(self, 'color_dic'):
@@ -292,7 +300,7 @@ class Cell_Data():
             # initialize
             _unique_ims = [];
             _unique_ids = [];
-            _unique_colors = [];
+            _unique_channels = [];
             _unique_marker = 'u';
             # load the images in the order of color_dic (which corresponding to experiment order)
             for _hyb_fd, _info in self.color_dic.items():
@@ -302,7 +310,20 @@ class Cell_Data():
                         raise IndexError('information from color_usage doesnot match splitted images.')
                     for _i, (_channel_info, _channel_im) in enumerate(zip(_info, _splitted_ims[_img_name])):
                         if _unique_marker in _channel_info:
-                            _unique_ims.append()
+                            _channel = str(self.channels[_i]);
+                            _corr_im = _channel_im;
+                            print(len(_channel_im))
+                            if _illumination_correction:
+                                _corr_im = corrections.Illumination_correction(_corr_im, correction_channel=_channel,
+                                            correction_folder=self.correction_folder, verbose=_verbose)[0]
+                                print('after illumination', len(_corr_im))
+                            if _chromatic_correction:
+                                _corr_im = corrections.Chromatic_abbrevation_correction(_corr_im, correction_channel=_channel,
+                                            correction_folder=self.correction_folder, verbose=_verbose)[0]
+                                print('after chromatic', len(_corr_im))
+                                _cropped_im = visual_tools.crop_cell(_corr_im, self.segmentation_label,
+                                                                     drift=self.drift[_img_name])[0]
+                            _unique_ims.append(_cropped_im)
 
                 else:
                     raise IOError('-- missing image:',_img_name);

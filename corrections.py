@@ -355,9 +355,9 @@ def Illumination_correction(ims, correction_channel,
     if verbose:
         print("-- Number of images to be corrected:", len(_ims))
     if len(_ims[0].shape) == 2: # if 2D
-        _ims = [_im/_ic_profile**2 for _im in _ims];
+        _ims = [_im/_ic_profile**1.5 for _im in _ims];
     else: # else, 3D
-        _ims = [_im/_ic_profile[np.newaxis,:,:]**2 for _im in _ims];
+        _ims = [_im/_ic_profile[np.newaxis,:,:]**1.5 for _im in _ims];
 
     return _ims
 
