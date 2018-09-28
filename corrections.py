@@ -625,6 +625,8 @@ def fast_translate(im,trans):
 # correct for illumination _shifts across z layers
 def Z_Shift_Correction(im, style='mean', normalization=False, verbose=False):
     '''Function to correct for each layer in z, to make sure they match in term of intensity'''
+    if verbose:
+        print("- Correct Z axis illumination shifts.")
     if style not in ['mean','median','interpolation']:
         raise ValueError('wrong style input for Z shift correction!');
     _nim = np.zeros(np.shape(im));
@@ -648,6 +650,23 @@ def Z_Shift_Correction(im, style='mean', normalization=False, verbose=False):
 
     return _nim.astype(np.uint16)
 
-def Remove_Hot_Pixels(im, hot_pix_th=0.2, interpolation_style='nearest'):
+def Remove_Hot_Pixels(im, hot_pix_th=0.5, interpolation_style='nearest', hot_th = 10):
     '''Function to remove hot pixels by interpolation in each single layer'''
-    pass
+    # create convolution matrix, ignore boundaries for now
+    _conv = (np.roll(im,1,1)+np.roll(im,-1,1)+np.roll(im,1,2)+np.roll(im,1,2))/4
+    # hot pixels must be have signals higher than average of neighboring pixels by hot_th in more than hot_pix_th*total z-stacks
+    _hotmat = im > hot_th*_conv
+    _hotmat2D = np.sum(_hotmat,0)
+    _hotpix_cand = [np.where(_hotmat2D > hot_pix_th*np.shape(im)[0])]
+    _hotpix = _hotpix_cand[0]
+    # if no hot pixel detected, directly exit
+    if len(_hotpix[0]) == 0:
+        return im
+    # create new image to interpolate the hot pixels with average of neighboring pixels
+    _nim = np.zeros(np.shape(im))+im;
+    if interpolation_style == 'nearest':
+        for _p in _hotpix:
+            for _i in range(np.shape(im)[0]):
+                _interp = np.average([im[_i][_p[0]+1][_p[1]],im[_i][_p[0]-1][_p[1]],im[_i][_p[0]][_p[1]+1],im[_i][_p[0]][_p[1]-1]]);
+                _nim[_i][_p[0]][_p[1]] = _interp;
+    return _nim.astype(np.uint16)
