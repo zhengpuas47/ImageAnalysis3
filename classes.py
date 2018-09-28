@@ -487,13 +487,14 @@ class Cell_Data():
                         _save_dic[_attr] = getattr(self, _attr);
                         _updated_info.append(_attr);
 
-        if _verbose and len(_updated_info) > 0:
-            print("-- information updated in cell_info.pkl:", _updated_info);
-        # save info to all
-        with open(_savefile, 'wb') as output_handle:
-            if _verbose:
-                print("- Writing cell data to file:", _savefile);
-            pickle.dump(_save_dic, output_handle);
+            if _verbose and len(_updated_info) > 0:
+                print("-- information updated in cell_info.pkl:", _updated_info);
+            # save info to all
+            with open(_savefile, 'wb') as output_handle:
+                if _verbose:
+                    print("- Writing cell data to file:", _savefile);
+                pickle.dump(_save_dic, output_handle);
+
         # save combo
         if (_type =='all' or _type == 'combo') and hasattr(self, 'combo_groups'):
             for _group in self.combo_groups:
@@ -516,6 +517,8 @@ class Cell_Data():
                     'encoding': _group.matrix,
                     'names': np.array(_group.names),
                 }
+                if hasattr(_group, 'readouts'):
+                    _combo_dic['readouts'] = np.array(_group.readouts);
                 # save
                 if _verbose:
                     print("-- saving combo to:", _combo_savefile)
@@ -552,17 +555,60 @@ class Cell_Data():
                     elif len(_load_attrs) == 0:
                         setattr(self, _key, _value);
 
-        if _type == 'all' or _type == 'combo':
-            pass
+        if _type == 'all' or _type == 'raw_combo':
+            if not hasattr(self, 'combo_groups'):
+                self.combo_groups = [];
+            elif not isinstance(self.combo_groups, list):
+                raise TypeError('Wrong datatype for combo_groups attribute for cell data.');
 
+            # load existing combo files
+            _raw_combo_fl = "rounds.npz"
+            _combo_files = glob.glob(os.path.join(_save_folder, "group-*", "channel-*", _raw_combo_fl));
+            for _combo_file in _combo_files:
+                if _verbose:
+                    print("-- loading combo from file:", _combo_file)
+                with np.load(_combo_file) as handle:
+                    _ims = list(handle['observation']);
+                    _matrix = handle['encoding']
+                    _names = handle['names'];
+                    if 'readout' in handle:
+                        _readouts = handle['readouts']
+                _name_info = _combo_file.split(os.sep);
+                _fov_id = [int(_i.split('-')[-1]) for _i in _name_info if "fov" in _i][0]
+                _cell_id = [int(_i.split('-')[-1]) for _i in _name_info if "cell" in _i][0]
+                _group_id = [int(_i.split('-')[-1]) for _i in _name_info if "group" in _i][0]
+                _color = [_i.split('-')[-1] for _i in _name_info if "channel" in _i][0]
+                # check duplication
+                _check_duplicate = [(_g.fov_id==_fov_id) and (_g.cell_id==_cell_id) and (_g.group_id==_group_id) and (_g.color==_color) for _g in self.combo_groups];
+                if sum(_check_duplicate) > 0: #duplicate found:
+                    if not _overwrite:
+                        if _verbose:
+                            print("---", _combo_file.split(_save_folder)[-1], "already exists in combo_groups, skip")
+                        continue;
+                    else:
+                        self.combo_groups.pop(_check_duplicate.index(True));
+                # create new group
+                if '_readouts' in locals():
+                    _group = Encoding_Group(_ims, _names, _matrix, _save_folder,
+                                            _fov_id, _cell_id, _color, _group_id, _readouts)
+                else:
+                    _group = Encoding_Group(_ims, _names, _matrix, _save_folder,
+                                            _fov_id, _cell_id, _color, _group_id)
+                # append
+                self.combo_groups.append(_group);
 
-
+        if _type == 'all' or _type == 'raw_unique':
+            _unique_fl = 'unique_rounds.npz'
+            _unique_savefile = _save_folder + os.sep + _unique_fl;
+            with np.load(_unique_savefile) as handle:
+                self.unique_ims = list(handle['observation']);
+                self.unique_ids = list(handle['ids']);
 
 
 class Encoding_Group():
     """defined class for each group of encoded images"""
     def __init__(self, ims, hybe_names, encoding_matrix, save_folder,
-                 fov_id, cell_id, color, group_id, readout_list=None):
+                 fov_id, cell_id, color, group_id, readouts=None):
         # info for this cell
         self.ims = ims;
         self.names = hybe_names;
@@ -573,8 +619,8 @@ class Encoding_Group():
         self.cell_id = cell_id;
         self.color = color;
         self.group_id = group_id;
-        if readout_list:
-            self.readouts = readout_list;
+        if readouts:
+            self.readouts = readouts;
     def _save_group(self, _overwrite=False):
         _combo_savefolder = os.path.join(self.save_folder,
                                         'group-'+str(self.group_id),
@@ -595,6 +641,8 @@ class Encoding_Group():
             'encoding': self.matrix,
             'names': np.array(self.names),
         }
+        if hasattr(self, 'readouts'):
+            _combo_dic['readouts'] = np.array(self.readouts);
         # save
         if _verbose:
             print("-- saving combo to:", _combo_savefile)
