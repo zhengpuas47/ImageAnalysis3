@@ -709,16 +709,38 @@ class Cell_Data():
 
         return _kept_label, _chrom_coords
 
-    def _update_chromosome_manual(self, _save_folder=None, _save_fl='chrom_coord.pkl'):
+    def _pick_chromosome_manual(self, _save_folder=None, _save_fl='chrom_coord.pkl'):
         if not _save_folder:
             if hasattr(self, 'save_folder'):
                 _save_folder = self.save_folder;
             else:
                 raise ValueError('save_folder not given in keys and attributes.')
-        if not hasattr(self, chrom_coord):
+        _chrom_savefile = _save_folder + os.sep + _save_fl;
+        if not hasattr(self, 'chrom_coords'):
             raise ValueError("chromosome coordinates doesnot exist in attributes.")
-        
+        _coord_dic = {'coords': [np.flipud(_coord) for _coord in self.chrom_coords],
+                      'class_ids': list(np.zeros(len(self.chrom_coords),dtype=np.uint8)),
+                      'pfits':{},
+                      'dec_text':{},
+                      };
+        #pickle.dump(_coord_dic, open(_chrom_savefile, 'wb'));
+        _viewer = visual_tools.imshow_mark_3d_v2([self.chrom_im], image_names=['chromosome'], save_file=_chrom_savefile, given_dic=_coord_dic)
+        return _viewer
 
+    def _update_chromosome_from_file(self, _save_folder=None, _save_fl='chrom_coord.pkl', _verbose=True):
+        if not _save_folder:
+            if hasattr(self, 'save_folder'):
+                _save_folder = self.save_folder;
+            else:
+                raise ValueError('save_folder not given in keys and attributes.')
+        _chrom_savefile = _save_folder + os.sep + _save_fl;
+        _coord_dic = pickle.load(open(_chrom_savefile, 'rb'));
+        _chrom_coords = [np.flipud(_coord) for _coord in _coord_dic['coords']];
+        if _verbose:
+            print(f"-- {len(_chrom_coords)} loaded")
+        self.chrom_coords = _chrom_coords;
+
+        return _chrom_coords
 class Encoding_Group():
     """defined class for each group of encoded images"""
     def __init__(self, ims, hybe_names, encoding_matrix, save_folder,

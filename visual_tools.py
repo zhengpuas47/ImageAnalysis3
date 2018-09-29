@@ -411,7 +411,7 @@ class imshow_mark_3d_v2:
         #load vars
         self.load_coords()
         self.set_image()
-    def __init__(self,ims,fig=None,image_names=None,rescz=1.,min_max_default = [None,None],save_file=None,paramaters={}):
+    def __init__(self,ims,fig=None,image_names=None,rescz=1.,min_max_default = [None,None], given_dic=None,save_file=None,paramaters={}):
         #internalize
         #seeding paramaters
         self.gfilt_size = paramaters.get('gfilt_size',0.75)#first gaussian blur with radius # to avoid false local max from camera fluc
@@ -439,7 +439,7 @@ class imshow_mark_3d_v2:
         self.coords = list(zip(self.draw_x,self.draw_y,self.draw_z))
         self.delete_mode = False
         #load vars
-        self.load_coords()
+        self.load_coords(_given_dic=given_dic)
         #construct images
         self.index_im = 0
         self.im_ = self.ims[self.index_im]
@@ -607,8 +607,8 @@ class imshow_mark_3d_v2:
         if _given_dic:
             save_dic = _given_dic
         elif save_file is not None and os.path.exists(save_file):
-            fid = open(save_file,'rb')
-            save_dic = pickle.load(fid)
+            with open(save_file,'rb') as fid:
+                save_dic = pickle.load(fid)
         else:
             return False
         # load information from save_dic
@@ -617,8 +617,8 @@ class imshow_mark_3d_v2:
             self.pfits_save = save_dic['pfits']
         if 'dec_text' in save_dic:
             self.dec_text=save_dic['dec_text']
-        fid.close()
         self.populate_draw_xyz()#coords to plot list
+
     def save_coords(self):
         save_file = self.save_file
         if save_file is not None:
