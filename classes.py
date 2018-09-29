@@ -5,6 +5,11 @@ import pickle as pickle
 import matplotlib.pyplot as plt
 from . import get_img_info, corrections, visual_tools, analysis
 
+from scipy import ndimage
+from scipy import stats
+from skimage import morphology
+from skimage.segmentation import random_walker
+
 class Cell_List():
     """
     Class Cell_List:
@@ -353,6 +358,9 @@ class Cell_Data():
                         raise IndexError('information from color_usage doesnot match splitted images.')
                     for _i, (_channel_info, _channel_im) in enumerate(zip(_info, _splitted_ims[_img_name])):
                         if _unique_marker in _channel_info:
+                            _uid = int(_channel_info.split(_unique_marker)[-1])
+                            if _verbose:
+                                print(f"-- loading unique region {_uid} at {_hyb_fd} and color {self.channels[_i]} ")
                             _channel = str(self.channels[_i]);
                             # correct for z axis shift
                             _corr_im = corrections.Z_Shift_Correction(_channel_im)
@@ -369,6 +377,7 @@ class Cell_Data():
                                                                  drift=self.drift[_img_name])[0]
 
                             _unique_ims.append(_cropped_im)
+                            _unique_ids.append(int(_channel_info.split(_unique_marker)[-1]))
 
                 else:
                     raise IOError('-- missing image:',_img_name);
@@ -442,8 +451,7 @@ class Cell_Data():
                     _group = Encoding_Group(_combo_images, _hyb_fds, _matrix, self.save_folder,
                                             self.fov_id, self.cell_id, _channel, _group_id);
                     _combo_groups.append(_group);
-                    if _group_id >= 2:
-                        break;
+
 
             if _load_in_ram:
                 self.combo_groups = _combo_groups;
@@ -466,18 +474,18 @@ class Cell_Data():
             _save_folder = self.save_folder;
         if not os.path.exists(_save_folder):
             os.makedirs(_save_folder);
-        # save file full name
-        _savefile = _save_folder + os.sep + 'cell_info.pkl';
-        if _verbose:
-            print("- Save cell_info:")
-        if os.path.isfile(_savefile) and not _overwrite:
-            if _verbose:
-                print("-- loading existing info from file:", _savefile);
-            _save_dic = pickle.load(open(_savefile, 'rb'));
-        else: # no existing file:
-            _save_dic = {}; # create an empty dic
 
         if _type=='all' or type=='cell_info':
+            # save file full name
+            _savefile = _save_folder + os.sep + 'cell_info.pkl';
+            if _verbose:
+                print("- Save cell_info:")
+            if os.path.isfile(_savefile) and not _overwrite:
+                if _verbose:
+                    print("-- loading existing info from file:", _savefile);
+                _save_dic = pickle.load(open(_savefile, 'rb'));
+            else: # no existing file:
+                _save_dic = {}; # create an empty dic
             _existing_attributes = [_attr for _attr in dir(self) if not _attr.startswith('_') and _attr not in _special_keys];
             # store updated information
             _updated_info = [];
@@ -600,10 +608,116 @@ class Cell_Data():
         if _type == 'all' or _type == 'raw_unique':
             _unique_fl = 'unique_rounds.npz'
             _unique_savefile = _save_folder + os.sep + _unique_fl;
+            if _verbose:
+                print("- Loading unique from file:", _unique_savefile);
             with np.load(_unique_savefile) as handle:
-                self.unique_ims = list(handle['observation']);
-                self.unique_ids = list(handle['ids']);
+                _unique_ims = list(handle['observation']);
+                _unique_ids = list(handle['ids']);
+            # save
+            if not hasattr(self, 'unique_ids') or not hasattr(self, 'unique_ims'):
+                self.unique_ids, self.unique_ims = [], [];
+            for _uim, _uid in zip(_unique_ims, _unique_ids):
+                if int(_uid) not in self.unique_ids:
+                    if _verbose:
+                        print(f"loading image with unique_id: {_uid}")
+                    self.unique_ids.append(_uid)
+                    self.unique_ims.append(_uim)
+                elif int(_uid) in self.unique_ids and _overwrite:
+                    if _verbose:
+                        print(f"overwriting image with unique_id: {_uid}")
+                    self.unique_ims[self.unique_ids.index(int(_uid))] = _uim;
 
+    def _generate_chromosome_image(self, _source='combo', _max_count= 30, _verbose=False):
+        """Generate chromosome from existing combo / unique images"""
+        if _source.lower() != 'combo' and _source.lower() != 'unique':
+            raise ValueError('wrong source key given, should be combo or unique. ');
+        if _source == 'combo':
+            if not hasattr(self, 'combo_groups'):
+                raise AttributeError('cell_data doesnot have combo_groups.');
+            # sum up existing Images
+            _image_count = 0;
+            _chrom_im = np.zeros(np.shape(self.combo_groups[0].ims[0]));
+            for _group in self.combo_groups:
+                _chrom_im += sum(_group.ims)
+                _image_count += len(_group.ims)
+                if _max_count > 0 and _image_count > _max_count:
+                    break;
+            _chrom_im = _chrom_im / _image_count
+
+        elif _source == 'unique':
+            if not hasattr(self, 'unique_ims'):
+                raise AttributeError('cell_data doesnot have unique images');
+            # sum up existing Images
+            _image_count = 0;
+            _chrom_im = np.zeros(np.shape(self.unique_ims[0]));
+            for _im in self.unique_ims:
+                _chrom_im += _im
+                _image_count += 1
+                if _max_count > 0 and _image_count > _max_count:
+                    break;
+            _chrom_im = _chrom_im / _image_count
+
+        # final correction
+        _chrom_im = corrections.Z_Shift_Correction(_chrom_im);
+        _chrom_im = corrections.Remove_Hot_Pixels(_chrom_im);
+        self.chrom_im = _chrom_im;
+
+        return _chrom_im;
+
+    def _identify_chromosomes(self, _gaussian_size=2, _cap_percentile=1, _seed_dim=3,
+                              _th_percentile=99.5, _min_obj_size=125, _verbose=True):
+        """Function to identify chromsome automatically first"""
+        if not hasattr(self, 'chrom_im'):
+            self._generate_chromosome_image();
+        _chrom_im = np.zeros(np.shape(self.chrom_im), dtype=np.uint8) + self.chrom_im;
+        if _gaussian_size:
+            # gaussian filter
+            _chrom_im = ndimage.filters.gaussian_filter(_chrom_im, _gaussian_size)
+            # normalization
+            _limit = stats.scoreatpercentile(_chrom_im, (_cap_percentile, 100.-_cap_percentile)).astype(np.float)
+            _chrom_im = (_chrom_im-np.min(_limit))/(np.max(_limit)-np.min(_limit))
+            # max filter - min filter
+            _max_ft = ndimage.filters.maximum_filter(_chrom_im, _seed_dim)
+            _min_ft = ndimage.filters.minimum_filter(_chrom_im, _seed_dim)
+            _seed_im = 2*_max_ft - _min_ft
+            # binarilize
+            _binary_im = (_seed_im > stats.scoreatpercentile(_seed_im, _th_percentile))
+            # dialation and erosion
+            _binary_im = ndimage.binary_dilation(_binary_im, morphology.ball(1))
+            _binary_im = ndimage.binary_erosion(_binary_im, morphology.ball(0))
+            _binary_im = ndimage.binary_fill_holes(_binary_im, structure=morphology.ball(2))
+            # find objects
+            _open_objects = morphology.opening(_binary_im, morphology.ball(0))
+            _close_objects = morphology.closing(_open_objects, morphology.ball(1))
+            _label, _num = ndimage.label(_close_objects);
+            _label[_label==0] = -1;
+            # segmentation
+            _seg_label = random_walker(_chrom_im, _label, beta=100, mode='bf')
+            # keep object
+            _kept_label = -1 * np.ones(_seg_label.shape, dtype=np.int);
+            _sizes = [np.sum(_seg_label==_j+1) for _j in range(np.max(_seg_label))]
+            # re-label
+            _label_ct = 1;
+            for _i, _size in enumerate(_sizes):
+                if _size > _min_obj_size: # then save this label
+                    _kept_label[_seg_label == _i+1] = _label_ct
+                    _label_ct += 1;
+            _chrom_coords = [ndimage.measurements.center_of_mass(_kept_label==_j+1) for _j in range(np.max(_kept_label))]
+            # store
+            self.chrom_segmentation = _kept_label;
+            self.chrom_coords = _chrom_coords;
+
+        return _kept_label, _chrom_coords
+
+    def _update_chromosome_manual(self, _save_folder=None, _save_fl='chrom_coord.pkl'):
+        if not _save_folder:
+            if hasattr(self, 'save_folder'):
+                _save_folder = self.save_folder;
+            else:
+                raise ValueError('save_folder not given in keys and attributes.')
+        if not hasattr(self, chrom_coord):
+            raise ValueError("chromosome coordinates doesnot exist in attributes.")
+        
 
 class Encoding_Group():
     """defined class for each group of encoded images"""

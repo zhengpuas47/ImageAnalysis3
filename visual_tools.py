@@ -602,18 +602,23 @@ class imshow_mark_3d_v2:
         if not hasattr(self,'texts'): self.texts = []
         for txt in self.texts:
             txt.remove()
-    def load_coords(self):
+    def load_coords(self, _given_dic=None):
         save_file = self.save_file
-        if save_file is not None and os.path.exists(save_file):
+        if _given_dic:
+            save_dic = _given_dic
+        elif save_file is not None and os.path.exists(save_file):
             fid = open(save_file,'rb')
             save_dic = pickle.load(fid)
-            self.coords,self.class_ids = save_dic['coords'],save_dic['class_ids']
-            if 'pfits' in save_dic:
-                self.pfits_save = save_dic['pfits']
-            if 'dec_text' in save_dic:
-                self.dec_text=save_dic['dec_text']
-            fid.close()
-            self.populate_draw_xyz()#coords to plot list
+        else:
+            return False
+        # load information from save_dic
+        self.coords,self.class_ids = save_dic['coords'],save_dic['class_ids']
+        if 'pfits' in save_dic:
+            self.pfits_save = save_dic['pfits']
+        if 'dec_text' in save_dic:
+            self.dec_text=save_dic['dec_text']
+        fid.close()
+        self.populate_draw_xyz()#coords to plot list
     def save_coords(self):
         save_file = self.save_file
         if save_file is not None:
