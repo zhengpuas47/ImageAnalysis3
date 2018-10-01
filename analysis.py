@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from ImageAnalysis3 import get_img_info, visual_tools, corrections
 
 # function to do segmentation
-def Segmentation_All(master_folder, folders, fovs, ref_name='H0R0',
+def Segmentation_All(analysis_folder, folders, fovs, ref_name='H0R0',
                      num_channel=5, dapi_channel=-1, illumination_corr=True,
                      correction_folder='',
                      shape_ratio_threshold=0.041, signal_cap_ratio=0.2,
@@ -15,7 +15,7 @@ def Segmentation_All(master_folder, folders, fovs, ref_name='H0R0',
                      save=True, force=False, verbose=True):
     '''wrapped function to do DAPI segmentation
     Inputs:
-        master_folder: directory of this data, string
+        analysis_folder: directory of this data, string
         folders: list of sub-folder names, list of string
         fovs: list of field of view names, list of string
         ref_name: name of reference folder with DAPI in it, string (default: 'H0R0')
@@ -36,7 +36,7 @@ def Segmentation_All(master_folder, folders, fovs, ref_name='H0R0',
     '''
 
     # path to store segmentation result
-    _savefolder = master_folder+os.sep+segmentation_path;
+    _savefolder = analysis_folder+os.sep+segmentation_path;
 
     # check dir and savefile
     if not os.path.isdir(_savefolder): # if save folder doesnt exist, create

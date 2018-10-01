@@ -17,39 +17,80 @@ class Cell_List():
 
     """
     # initialize
-    def __init__(self, data_folder):
-        self.data_folder = data_folder;
-        self.cells = [];
-        self.index = len(self.cells);
+    def __init__(self, parameters, _chosen_fovs=[], _exclude_fovs=[], _load_all_attr=False):
+        if not isinstance(parameters, dict):
+            raise TypeError('wrong input type of parameters, should be a dictionary containing essential info.');
 
-        # segmentation_folder, save_folder, correction_folder,map_folder
+        ## required parameters: data folder (list)
+        if isinstance(parameters['data_folder'], list):
+            self.data_folder = [str(_fd) for _fd in parameters['data_folder']]
+        else:
+            self.data_folder = [str(parameters['data_folder'])];
+
+        ## extract hybe folders and field-of-view names
+        self.folders = []
+        for _fd in self.data_folder:
+            _hyb_fds, _fovs = get_img_info.get_folders(_fd, feature='H', verbose=True)
+            self.folders += _hyb_fds;
+            self.fovs = _fovs;
+
+        ## analysis_folder, segmentation_folder, save_folder, correction_folder,map_folder
+        if 'analysis_folder' not in parameters:
+            self.analysis_folder = self.data_folder[0]+os.sep+'Analysis'
+        else:
+            self.analysis_folder = str(parameters['analysis_folder']);
         if 'segmentation_folder' in parameters:
-            self.segmentation_folder = parameters[segmentation_folder];
+            self.segmentation_folder = parameters['segmentation_folder'];
         else:
-            self.segmentation_folder = self.data_folder+os.sep+'Analysis'+os.sep+'segmentation'
+            self.segmentation_folder = self.analysis_folder+os.sep+'segmentation'
         if 'save_folder' in parameters:
-            self.save_folder = parameters[save_folder];
+            self.save_folder = parameters['save_folder'];
         else:
-            self.save_folder = self.data_folder+os.sep+'Analysis'+os.sep+'raw'
+            self.save_folder = self.analysis_folder+os.sep+'5x10';
         if 'correction_folder' in parameters:
-            self.correction_folder = parameters[correction_folder];
+            self.correction_folder = parameters['correction_folder'];
         else:
             self.correction_folder = self.data_folder
-        if 'map_folder' in parameters:
-            self.map_folder = parameters[map_folder];
+        if 'drift_folder' in parameters:
+            self.drift_folder = parameters['drift_folder'];
         else:
-            self.map_folder = self.data_folder+os.sep+'Analysis'+os.sep+'distmap'
+            self.drift_folder =  self.analysis_folder+os.sep+'drift'
+        if 'map_folder' in parameters:
+            self.map_folder = parameters['map_folder'];
+        else:
+            self.map_folder = self.analysis_folder+os.sep+'distmap'
+
+        ## if loading all remaining attr in parameter
+        if _load_all_attr:
+            for _key, _value in parameters.items():
+                if not hasattr(self, _key):
+                    setattr(self, _key, _value);
+
+        ## list to store Cell_data
+        self.cells = [];
+
+        ## chosen field of views
+        if len(_chosen_fovs) == 0: # no specification
+            self.fov_ids = np.arange(len(_fovs));
+        if len(_chosen_fovs) > 0: # there are specifications
+            _chosen_fovs = [_i for _i in _chosen_fovs if _i <= len(_fovs)];
+            _chosen_fovs = list(np.array(np.unique(_chosen_fovs), dtype=np.int));
+        # exclude fovs
+        if len(_exclude_fovs) > 0: #exclude any fov:
+            for _i in _exclude_fovs:
+                _chosen_fovs.pop(_chosen_fovs.index(_i))
+        # save values to the class
+        self.fov_ids = _chosen_fovs;
+        self.chosen_fovs = list(np.array(self.fovs)[np.array(self.fov_ids, dtype=np.int)]);
 
     # allow print info of Cell_List
     def __str__(self):
         if hasattr(self, 'data_folder'):
             print("Data folder:", self.data_folder);
         return 'test'
-
     # allow iteration of Cell_List
     def __iter__(self):
         return self
-
     def __next__(self):
         if not hasattr(self, 'cells') or not not hasattr(self, 'index'):
             raise StopIteration
@@ -61,7 +102,7 @@ class Cell_List():
 
     ## Load basic info
     def _load_color_info(self, _color_filename='Color_Usage', _color_format='csv', _save_color_dic=True):
-        _color_dic, _use_dapi, _channels = get_img_info.Load_Color_Usage(self.data_folder,
+        _color_dic, _use_dapi, _channels = get_img_info.Load_Color_Usage(self.analysis_folder,
                                                             color_filename=_color_filename,
                                                             color_format=_color_format,
                                                             return_color=True)
@@ -79,20 +120,39 @@ class Cell_List():
 
         return _color_dic
     def _load_encoding_scheme(self, _encoding_filename='Encoding_Scheme', _encoding_format='csv', _save_encoding_scheme=True):
-        _encoding_scheme, _num_hyb, _num_reg, _en_colors, _en_groups = get_img_info.Load_Encoding_Scheme(self.data_folder,
-                                                                                                encoding_filename=_encoding_filename,
-                                                                                                encoding_format=_encoding_format,
-                                                                                                return_info=True)
+        _encoding_scheme, self.hyb_per_group, self.reg_per_group, \
+        self.encoding_colors, self.encoding_group_nums \
+            = get_img_info.Load_Encoding_Scheme(self.analysis_folder,
+                                                   encoding_filename=_encoding_filename,
+                                                   encoding_format=_encoding_format,
+                                                   return_info=True)
         # need-based encoding scheme saving
         if _save_encoding_scheme:
             self.encoding_scheme = _encoding_scheme;
-        # save other info
-        self.hyb_per_group = _num_hyb;
-        self.reg_per_group = _num_reg;
-        self.encoding_colors = _en_colors;
-        self.encoding_group_nums = _en_groups;
 
         return _encoding_scheme
+
+    ## Load segmentations info
+
+    def _pick_cell_from_segmentation(self, _shape_ratio_threshold=0.041, _signal_cap_ratio=0.2, _denoise_window=5,
+                           _load_in_ram=True, _save=True, _force=False, _verbose=True):
+        ## load segmentation
+        # check attributes
+        if not hasattr(self, 'channels'):
+            self._load_color_info()
+        if _verbose:
+            print(f"{len(self.chosen_fovs)} of field-of-views are selected to load segmentation.");
+        # do segmentation if necessary, or just load existing segmentation file
+        fov_segmentation_label, fov_dapi_im  = analysis.Segmentation_All(self.analysis_folder,
+                                                self.folders, self.fovs, ref_name='H0R0',
+                                                shape_ratio_threshold=_shape_ratio_threshold,
+                                                signal_cap_ratio=_signal_cap_ratio,
+                                                denoise_window=_denoise_window,
+                                                num_channel=len(self.channels),
+                                                dapi_channel=self.dapi_channel_index,
+                                                correction_folder=self.correction_folder,
+                                                segmentation_path=os.path.basename(self.segmentation_folder),
+                                                save=_save, force=_force)
 
 
 class Cell_Data():
@@ -279,8 +339,8 @@ class Cell_Data():
 
         return self.drift
 
-    def _load_images(self, _type, _extend_dim=20, _load_in_ram=True, _save_cropped_ims=False,
-                     _load_annotated_only=True, _illumination_correction=True, _chromatic_correction=True,
+    def _load_images(self, _type, _extend_dim=20, _load_in_ram=True, _load_annotated_only=True,
+                     _illumination_correction=True, _chromatic_correction=True,
                      _save=False, _overwrite=False, _verbose=False):
         """Core function to load images, support different types:"""
         if not hasattr(self, 'segmentation_label') and _type != 'beads':
@@ -378,6 +438,7 @@ class Cell_Data():
 
                             _unique_ims.append(_cropped_im)
                             _unique_ids.append(int(_channel_info.split(_unique_marker)[-1]))
+                            _unique_channels.append(_channel);
 
                 else:
                     raise IOError('-- missing image:',_img_name);
@@ -385,6 +446,7 @@ class Cell_Data():
             if _load_in_ram:
                 self.unique_ims = _unique_ims;
                 self.unique_ids = _unique_ids;
+                self.unique_channels = _unique_channels
 
             if _save:
                 self._save_to_file('unique', _overwrite=_overwrite);
@@ -537,6 +599,7 @@ class Cell_Data():
             _unique_dic = {
                 'observation': np.concatenate([_im[np.newaxis,:] for _im in self.unique_ims]),
                 'ids': np.array(self.unique_ids),
+                'channels': np.array(self.unique_channels)
             }
             # save
             if _verbose:
@@ -608,20 +671,25 @@ class Cell_Data():
         if _type == 'all' or _type == 'raw_unique':
             _unique_fl = 'unique_rounds.npz'
             _unique_savefile = _save_folder + os.sep + _unique_fl;
+            if not os.path.exists(_unique_savefile):
+                print(f"- savefile {_unique_savefile} not exists, exit.")
+                return False
             if _verbose:
                 print("- Loading unique from file:", _unique_savefile);
             with np.load(_unique_savefile) as handle:
                 _unique_ims = list(handle['observation']);
                 _unique_ids = list(handle['ids']);
+                _unique_channels = list(handle['channels']);
             # save
             if not hasattr(self, 'unique_ids') or not hasattr(self, 'unique_ims'):
-                self.unique_ids, self.unique_ims = [], [];
-            for _uim, _uid in zip(_unique_ims, _unique_ids):
+                self.unique_ids, self.unique_ims, self.unique_channels = [], [], [];
+            for _uim, _uid, _channel in zip(_unique_ims, _unique_ids, _unique_channels):
                 if int(_uid) not in self.unique_ids:
                     if _verbose:
                         print(f"loading image with unique_id: {_uid}")
                     self.unique_ids.append(_uid)
                     self.unique_ims.append(_uim)
+                    self.unique_channels.append(_channel)
                 elif int(_uid) in self.unique_ids and _overwrite:
                     if _verbose:
                         print(f"overwriting image with unique_id: {_uid}")
