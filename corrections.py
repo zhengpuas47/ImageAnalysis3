@@ -237,7 +237,7 @@ def STD_beaddrift_sequential(bead_ims, bead_names, drift_folder, fovs, fov_id,
 
             for iim,im in enumerate(_bead_ims[1:]):
                 if dynamic:
-                    th_seed = scoreatpercentile(im, dynamic_th_percent) * 0.5;
+                    th_seed = scoreatpercentile(im, dynamic_th_percent) * 0.45;
                 #print th_seed
                 # fit target image
                 im_sm = vis.grab_block(im,coord_sel1,[sz_ex]*3)
@@ -355,7 +355,7 @@ def Illumination_correction(ims, correction_channel,
     if verbose:
         print("-- Number of images to be corrected:", len(_ims))
     if len(_ims[0].shape) == 2: # if 2D
-        _ims = [_im/_ic_profile**1.5 for _im in _ims];
+        _ims = [_im/_ic_profile**1.8 for _im in _ims];
     else: # else, 3D
         _ims = [_im/_ic_profile[np.newaxis,:,:]**1.5 for _im in _ims];
 
@@ -650,7 +650,7 @@ def Z_Shift_Correction(im, style='mean', normalization=False, verbose=False):
 
     return _nim.astype(np.uint16)
 
-def Remove_Hot_Pixels(im, hot_pix_th=0.5, interpolation_style='nearest', hot_th = 10):
+def Remove_Hot_Pixels(im, hot_pix_th=0.33, interpolation_style='nearest', hot_th = 10):
     '''Function to remove hot pixels by interpolation in each single layer'''
     # create convolution matrix, ignore boundaries for now
     _conv = (np.roll(im,1,1)+np.roll(im,-1,1)+np.roll(im,1,2)+np.roll(im,1,2))/4

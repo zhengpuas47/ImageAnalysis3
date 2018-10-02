@@ -1,17 +1,22 @@
-import sys,glob,os
+import sys,glob,os, time
 import numpy as np
 sys.path.append(r'C:\Users\puzheng\Documents\python-functions\python-functions-library')
 import pickle as pickle
 import matplotlib.pyplot as plt
 from ImageAnalysis3 import get_img_info, visual_tools, corrections
+import multiprocessing
 
 # function to do segmentation
 def Segmentation_All(analysis_folder, folders, fovs, ref_name='H0R0',
-                     num_channel=5, dapi_channel=-1, illumination_corr=True,
+                     num_channel=4, dapi_channel=-1,
+                     num_threads=5,
+                     illumination_corr=True,
                      correction_folder='',
-                     shape_ratio_threshold=0.041, signal_cap_ratio=0.2,
                      denoise_window=5,
-                     segmentation_path='Analysis'+os.sep+'segmentation',
+                     signal_cap_ratio=0.15,
+                     cell_min_size=2000,
+                     shape_ratio_threshold=0.030,
+                     segmentation_path='segmentation',
                      save=True, force=False, verbose=True):
     '''wrapped function to do DAPI segmentation
     Inputs:
@@ -21,14 +26,16 @@ def Segmentation_All(analysis_folder, folders, fovs, ref_name='H0R0',
         ref_name: name of reference folder with DAPI in it, string (default: 'H0R0')
         num_channel: total color channel for ref images, int (default: 5)
         dapi_channel: index of channel having dapi, int (default: -1)
+        num_threads ** Number of threads used in parallel computing, int (default: 4);
         illumination_corr: whether do illumination correction, bool (default: True)
         correction_folder: full directory for illumination correction profiles, string (default: '')
-        shape_ratio_threshold: lower bound of A(x)/I(x)^2 for each nucleus, float (default: 0.041 for IMR90)
         denoise_window: window size of denoise filter used in segmentation, int (default: 5)
+        signal_cap_ratio: ratio to maximum for setting threshold considered as signal, float(default: 0.15)
+        cell_min_size: minimal cell size expected in 2D, int or float (default: 2000)
+        shape_ratio_threshold: lower bound of A(x)/I(x)^2 for each nucleus, float (default: 0.041 for IMR90)
         segmentation_path: subfolder of segmentation result, string (default: 'Analysis/segmentation')
         save: whether save segmentation result, bool (default: True)
         force: whether do segmentation despite of existing file, bool (default: False)
-        filename: name of saved file for segmentation, string (default: 'segmentation.pkl')
         verbose: say something!, bool (default: True)
     Outputs:
     _segmentation_labels: list of images with segmentation results, list of images
@@ -51,35 +58,64 @@ def Segmentation_All(analysis_folder, folders, fovs, ref_name='H0R0',
     # split image into dictionary
     _ref_im_dic = get_img_info.split_channels_by_image(_ref_ims, _ref_names, num_channel=num_channel, DAPI=False)
 
-    _segmentation_labels, _dapi_ims = [],[];
+    # record dapi_names and dapi_ims
+    _process_markers = [];
+    _process_names, _process_ims = [], []
     for _id, _fov in enumerate(fovs):
-        _savefile = _savefolder + os.sep + _fov.replace('.dax', '_segmentation.pkl');
-        # if file already exists and not force, just load
-        if os.path.isfile(_savefile) and not force: # load existing file
-            if verbose:
-                print("-- load segmentation result from filename:", _savefile);
-            _segmentation_label, _dapi_im = pickle.load(open(_savefile, 'rb'), encoding='latin1')
-            _segmentation_labels.append(_segmentation_label);
-            _dapi_ims.append(_dapi_im);
-            continue
-        else: # do segmentation
+        _savefile = _savefolder + os.sep + _fov.replace('.dax', '_segmentation.pkl')
+        # if file already exists and not force, just
+        if os.path.isfile(_savefile) and not force:
+            _process_markers.append(False)
+        else:
+            _process_markers.append(True)
             _dapi_name = ref_name+os.sep+_fov;
             _dapi_im = _ref_im_dic[_dapi_name][-1];
-            _segmentation_label = visual_tools.DAPI_segmentation(_dapi_im, _dapi_name,
-                                                        illumination_correction=illumination_corr,
-                                                        correction_folder=correction_folder,
-                                                        shape_ratio_threshold=shape_ratio_threshold,
-                                                        signal_cap_ratio=signal_cap_ratio,
-                                                        denoise_window=denoise_window,
-                                                        verbose=verbose)[0]
-            # append
-            _segmentation_labels.append(_segmentation_label);
+            # record
+            _process_names.append(_dapi_name)
+            _process_ims.append(_dapi_im)
+    ## segmentation in parallel
+    _args = [(_im,_nm, 0.5, illumination_corr, 405, correction_folder, 11, denoise_window, 13, signal_cap_ratio, cell_min_size, shape_ratio_threshold) for _im,_nm in zip(_process_ims, _process_names)];
+    _chunk_size = int(np.round(len(_args)/num_threads));
+    if _chunk_size < 1:
+        _chunk_size = 1;
+    if verbose:
+        print(f"--- {len(_args)} of fovs are being processed by {num_threads} threads, chunk_size={_chunk_size}");
+    # start parallel computing
+    start_time = time.time();
+    pool = multiprocessing.Pool(num_threads);
+    _process_labels = pool.starmap(visual_tools.DAPI_segmentation, _args, chunksize=_chunk_size);
+    pool.close()
+    pool.join()
+    if verbose:
+        print("--- used time is ", time.time() - start_time)
+    # revert format
+    _process_dic = {_dapi_name:_l[0] for _dapi_name, _l in zip(_process_names, _process_labels)}
+    # merge with labels loaded from files and save
+    if verbose:
+        print("-- Merge result with stored results and Save");
+    _dapi_ims, _segmentation_labels = [], []
+    for _id, (_fov, _mk) in enumerate(zip(fovs, _process_markers)):
+        # save file
+        _savefile = _savefolder + os.sep + _fov.replace('.dax', '_segmentation.pkl')
+        _dapi_name = ref_name+os.sep+_fov;
+        _dapi_im = _ref_im_dic[_dapi_name][-1];
+        if _mk: # did calculation previously
+            if verbose:
+                print(f"--- fov:{fovs[_id]} has been processed.");
+            # store image
             _dapi_ims.append(_dapi_im);
-            # save
+            # store segmentation result:
+            _segmentation_labels.append(_process_dic[_dapi_name]);
             if save:
-                if verbose:
-                    print("- saving segmentation result to file:",_savefile)
-                pickle.dump([_segmentation_label, _dapi_im], open(_savefile, 'wb'))
+                pickle.dump([_process_dic[_dapi_name], _dapi_im], open(_savefile, 'wb'))
+        else:
+            if verbose:
+                print(f"--- fov-{fovs[_id]} has been loaded from file.");
+            _segmentation_label, _dapi_im = pickle.load(open(_savefile, 'rb'));
+            # store
+            _dapi_ims.append(_dapi_im);
+            _segmentation_labels.append(_segmentation_label);
+
 
     return _segmentation_labels, _dapi_ims
 
@@ -123,7 +159,7 @@ def Segmentation_Fov(analysis_folder, folders, fovs, fov_id, ref_name='H0R0',
     if os.path.isfile(_savefile) and not force: # load existing file
         if verbose:
             print("- load segmentation result from filename:", _savefile);
-        _segmentation_label, _dapi_im = pickle.load(open(_savefile, 'rb'), encoding='latin1')
+        _segmentation_label, _dapi_im = pickle.load(open(_savefile, 'rb'))
         return _segmentation_label, _dapi_im
     else: # do segmentation
         # Load reference images

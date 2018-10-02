@@ -1,4 +1,4 @@
-import sys,glob,os,time
+import sys,glob,os,time, copy
 import numpy as np
 sys.path.append(r'C:\Users\puzheng\Documents\python-functions\python-functions-library')
 import pickle as pickle
@@ -60,6 +60,12 @@ class Cell_List():
         else:
             self.map_folder = self.analysis_folder+os.sep+'distmap'
 
+        # number of num_threads
+        if 'num_threads' in parameters:
+            self.num_threads = parameters['num_threads'];
+        else:
+            self.num_threads = int(os.cpu_count() / 3); # default: use one third of cpus.
+
         ## if loading all remaining attr in parameter
         if _load_all_attr:
             for _key, _value in parameters.items():
@@ -71,7 +77,7 @@ class Cell_List():
 
         ## chosen field of views
         if len(_chosen_fovs) == 0: # no specification
-            self.fov_ids = np.arange(len(_fovs));
+            _chosen_fovs = np.arange(len(_fovs));
         if len(_chosen_fovs) > 0: # there are specifications
             _chosen_fovs = [_i for _i in _chosen_fovs if _i <= len(_fovs)];
             _chosen_fovs = list(np.array(np.unique(_chosen_fovs), dtype=np.int));
@@ -134,26 +140,150 @@ class Cell_List():
 
     ## Load segmentations info
 
-    def _pick_cell_from_segmentation(self, _shape_ratio_threshold=0.041, _signal_cap_ratio=0.2, _denoise_window=5,
-                           _load_in_ram=True, _save=True, _force=False, _verbose=True):
+    def _load_cell_segmentations(self, _num_threads=None, _allow_manual=True,
+                            _shape_ratio_threshold=0.041, _signal_cap_ratio=0.2, _denoise_window=5,
+                            _load_in_ram=True, _save=True, _force=False,
+                            _cell_coord_fl='cell_coords.pkl', _verbose=True):
         ## load segmentation
         # check attributes
         if not hasattr(self, 'channels'):
             self._load_color_info()
+        if not _num_threads:
+            if not hasattr(self, 'num_threads'):
+                raise AttributeError('No num_threads given in funtion kwds and class attributes');
+            else:
+                _num_threads = self.num_threads;
         if _verbose:
             print(f"{len(self.chosen_fovs)} of field-of-views are selected to load segmentation.");
         # do segmentation if necessary, or just load existing segmentation file
-        fov_segmentation_label, fov_dapi_im  = analysis.Segmentation_All(self.analysis_folder,
-                                                self.folders, self.fovs, ref_name='H0R0',
-                                                shape_ratio_threshold=_shape_ratio_threshold,
-                                                signal_cap_ratio=_signal_cap_ratio,
-                                                denoise_window=_denoise_window,
-                                                num_channel=len(self.channels),
-                                                dapi_channel=self.dapi_channel_index,
-                                                correction_folder=self.correction_folder,
-                                                segmentation_path=os.path.basename(self.segmentation_folder),
-                                                save=_save, force=_force)
+        _segmentation_labels, _dapi_ims  = analysis.Segmentation_All(self.analysis_folder,
+                                        self.folders, self.chosen_fovs, ref_name='H0R0',
+                                        num_threads=_num_threads,
+                                        shape_ratio_threshold=_shape_ratio_threshold,
+                                        signal_cap_ratio=_signal_cap_ratio,
+                                        denoise_window=_denoise_window,
+                                        num_channel=len(self.channels),
+                                        dapi_channel=self.dapi_channel_index,
+                                        correction_folder=self.correction_folder,
+                                        segmentation_path=os.path.basename(self.segmentation_folder),
+                                        save=_save, force=_force)
+        _dapi_ims = [corrections.Remove_Hot_Pixels(_im) for _im in _dapi_ims];
+        _dapi_ims = [corrections.Z_Shift_Correction(_im) for _im in _dapi_ims];
 
+        ## pick(exclude) cells from previous result
+        if _allow_manual:
+            # generate coordinates
+            _coord_list, _index_list = [],[];
+            for _i, _label in enumerate(_segmentation_labels):
+                for _j in range(np.max(_label)-1):
+                    _center = np.round(ndimage.measurements.center_of_mass(_label==_j+1));
+                    _center = list(np.flipud(_center));
+                    _center.append(_dapi_ims[0].shape[0]/2)
+                    _coord_list.append(_center)
+                    _index_list.append(_i);
+            # wrap into a dic
+            _cell_coord_dic = {'coords': _coord_list,
+                          'class_ids': _index_list,
+                          'pfits':{},
+                          'dec_text':{},
+                          };
+            self.cell_coord_dic = copy.deepcopy(_cell_coord_dic);
+            # use visual tools to pick
+            _cell_coord_savefile = self.save_folder + os.sep + _cell_coord_fl;
+
+            _cell_viewer = visual_tools.imshow_mark_3d_v2(_dapi_ims, image_names=self.chosen_fovs,
+                                                          save_file=_cell_coord_savefile,
+                                                          given_dic=_cell_coord_dic);
+
+            return _cell_viewer
+        else:
+            return _segmentation_labels, _dapi_ims
+
+    def _update_cell_segmentations(self, _cell_coord_fl='cell_coords.pkl',
+                                  _overwrite_segmentation=True,
+                                  _marker_displace_th = 900,
+                                  _verbose=True):
+        """Function to update cell segmentation info from saved file,
+            - usually do this after automatic segmentation"""
+        _cell_coord_savefile = self.save_folder + os.sep + _cell_coord_fl;
+        if not os.path.exists(_cell_coord_savefile):
+            raise IOError(f'{_cell_coord_savefile} doesnot exist, exit')
+            return False
+        with open(_cell_coord_savefile, 'rb') as handle:
+            _new_cell_coord_dic = pickle.load(handle);
+        # parse
+        _ccd = visual_tools.partition_map(self.cell_coord_dic['coords'], self.cell_coord_dic['class_ids'])
+        _new_ccd = visual_tools.partition_map(_new_cell_coord_dic['coords'], _new_cell_coord_dic['class_ids'])
+
+        # initialize
+        _new_seg_labels, _dapi_ims = [], [];
+        _remove_cts = [];
+        for _i, (_cell_coords, _new_cell_coords) in enumerate(zip(_ccd, _new_ccd)):
+            # now we are taking care of one specific field of view
+            if _verbose:
+                print(f"-- fov-{_i}, match manually picked cell with sgementation ")
+            # load fov image
+            _seg_file = self.segmentation_folder+os.sep+self.chosen_fovs[_i].replace('.dax', '_segmentation.pkl');
+            _seg_label, _dapi_im = pickle.load(open(_seg_file, 'rb'));
+            _remove = 0;
+            if not _overwrite_segmentation:
+                # save original seg label into another file
+                _old_seg_file = _seg_file.replace('_segmentation.pkl', '_segmentation_old.pkl');
+                pickle.dump([_seg_label, _dapi_im], open(_old_seg_file, 'wb'));
+
+            for _l, _coord in enumerate(_cell_coords):
+                _dist = [np.sum((_c-_coord)**2) for _c in _new_cell_coords];
+                _match = [_d < _marker_displace_th for _d in _dist]
+                if sum(_match) == 0:
+                    _seg_label[_seg_label==_l+1-_remove] = -1;
+                    _seg_label[_seg_label >_l+1-_remove] -= 1;
+                    _remove += 1;
+            if _verbose:
+                print(f"--- {_remove} label(s) got removed!");
+            _new_seg_labels.append(_seg_label)
+            _dapi_ims.append(_dapi_im)
+            _remove_cts.append(_remove);
+            # save
+            if _verbose:
+                print(f"--- save updated segmentation to {os.path.basename(_seg_file)}");
+            pickle.dump([_seg_label, _dapi_im], open(_seg_file, 'wb'))
+
+        return _new_seg_labels, _dapi_ims, _remove_cts
+
+    def _calculate_drift(self):
+        pass
+
+
+
+    def _create_cell(self, _fov_id, _cell_id, _load_in_list=True,
+                     _load_info=True, _load_segmentation=True, _load_drift=True):
+        _param = {'fov_id': _fov_id,
+                  'cell_id': _cell_id,
+                  'data_folder': self.data_folder,
+                  'analysis_folder':self.analysis_folder,
+                  'segmentation_folder': self.segmentation_folder,
+                  'save_folder': self.save_folder,
+                  'correction_folder': self.correction_folder,
+                  'drift_folder': self.drift_folder,
+                  'map_folder': self.map_folder,
+                  }
+        _cell = Cell_Data(_param, _load_all_attr=True)
+        if _load_info:
+            _cell._load_color_info();
+            _cell._load_encoding_scheme();
+        if _load_segmentation:
+            _cell._load_segmentation();
+        if _load_drift:
+            _cell._load_drift();
+        # whether store
+        if _load_in_list:
+            self.cells.append(_cell);
+        return _cell
+
+    def _create_cells_in_fov(self, _num_threads=None):
+        if not _num_threads:
+            _num_threads = int(self.num_threads);
+        pass
 
 class Cell_Data():
     """
@@ -263,7 +393,7 @@ class Cell_Data():
         return _encoding_scheme
 
     ## load cell specific info
-    def _load_segmentation(self, _shape_ratio_threshold=0.041, _signal_cap_ratio=0.2, _denoise_window=5,
+    def _load_segmentation(self, _shape_ratio_threshold=0.030, _signal_cap_ratio=0.15, _denoise_window=5,
                            _load_in_ram=True, _save=True, _force=False):
         # check attributes
         if not hasattr(self, 'channels'):
@@ -277,6 +407,7 @@ class Cell_Data():
                                                 denoise_window=_denoise_window,
                                                 num_channel=len(self.channels),
                                                 dapi_channel=self.dapi_channel_index,
+                                                illumination_corr=True,
                                                 correction_folder=self.correction_folder,
                                                 segmentation_path=os.path.basename(self.segmentation_folder),
                                                 save=_save, force=_force)
@@ -300,7 +431,7 @@ class Cell_Data():
 
         return _seg_label, _dapi_im
 
-    def _load_drift(self, _size=450, _force=False, _dynamic=True, _verbose=True):
+    def _load_drift(self, _size=500, _force=False, _dynamic=True, _verbose=True):
         # load color usage if not given
         if not hasattr(self, 'channels'):
             self._load_color_info();
@@ -349,6 +480,8 @@ class Cell_Data():
             self._load_color_info();
         # load images if not pre_loaded:
         if not hasattr(self, 'splitted_ims'):
+            if _verbose:
+                print("- Starting loading images")
             if _load_annotated_only:
                 _annotated_folders = [_fd for _fd in self.folders if os.path.basename(_fd) in self.color_dic];
                 self.annotated_folders = _annotated_folders
@@ -361,11 +494,30 @@ class Cell_Data():
             else:
                 _num_ch = len(self.channels);
             # split images
+            if _verbose:
+                print(f"-- split into {_num_ch} channels")
             _splitted_ims = get_img_info.split_channels_by_image(_ims, _names,
                                         num_channel=_num_ch, DAPI=self.use_dapi);
+            # do all corrections
+            if _verbose:
+                print(f"-- do all corrections")
+            for _hyb_fd, _hyb_ims in _splitted_ims.items():
+                for _i, (_channel, _hyb_im) in enumerate(zip(self.channels[:len(_hyb_ims)],_hyb_ims) ):
+                    # correct for z axis shift
+                    _corr_im = corrections.Z_Shift_Correction(_hyb_im, _verbose=False)
+                    # correct for hot pixels
+                    _corr_im = corrections.Remove_Hot_Pixels(_corr_im)
+                    if _illumination_correction:
+                        _corr_im = corrections.Illumination_correction(_corr_im, correction_channel=_channel,
+                                    correction_folder=self.correction_folder, verbose=False)[0]
+                    if _chromatic_correction:
+                        _corr_im = corrections.Chromatic_abbrevation_correction(_corr_im, correction_channel=_channel,
+                                    correction_folder=self.correction_folder, verbose=False)[0]
+                    # replace original image
+                    _splitted_ims[_hyb_fd][_i] = _corr_im;
         else:
             _splitted_ims = self.splitted_ims;
-        if str(_type).lower() == 'all':
+        if str(_type).lower() == 'raw':
             # Load all splitted images
             if _load_in_ram:
                 self.splitted_ims = _splitted_ims;
@@ -383,10 +535,6 @@ class Cell_Data():
                 _img_name = _hyb_fd + os.sep + self.fovs[self.fov_id];
                 if _img_name in _splitted_ims:
                     _bead_im = _splitted_ims[_img_name][self.bead_channel_index]
-                    # correct for z axis shift
-                    _bead_im = corrections.Z_Shift_Correction(_bead_im)
-                    # correct for hot pixels
-                    _bead_im = corrections.Remove_Hot_Pixels(_bead_im)
                     # append
                     _bead_ims.append(_bead_im)
                     _bead_names.append(_img_name);
@@ -422,16 +570,6 @@ class Cell_Data():
                             if _verbose:
                                 print(f"-- loading unique region {_uid} at {_hyb_fd} and color {self.channels[_i]} ")
                             _channel = str(self.channels[_i]);
-                            # correct for z axis shift
-                            _corr_im = corrections.Z_Shift_Correction(_channel_im)
-                            # correct for hot pixels
-                            _corr_im = corrections.Remove_Hot_Pixels(_corr_im)
-                            if _illumination_correction:
-                                _corr_im = corrections.Illumination_correction(_corr_im, correction_channel=_channel,
-                                            correction_folder=self.correction_folder, verbose=_verbose)[0]
-                            if _chromatic_correction:
-                                _corr_im = corrections.Chromatic_abbrevation_correction(_corr_im, correction_channel=_channel,
-                                            correction_folder=self.correction_folder, verbose=_verbose)[0]
                             # cropping
                             _cropped_im = visual_tools.crop_cell(_corr_im, self.segmentation_label,
                                                                  drift=self.drift[_img_name])[0]
@@ -491,21 +629,9 @@ class Cell_Data():
                             if _combo_marker not in self.color_dic[_hyb_fd][_channel_idx]:
                                 raise ValueError('this', _hyb_fd, "does not correspond to combo in channel", _channel);
                             # get raw image
-                            _raw_img = _splitted_ims[_img_name][_channel_idx];
-                            # do all following processing:
-                            # correct for z axis shift
-                            _corr_im = corrections.Z_Shift_Correction(_raw_img, verbose=_verbose)
-                            # correct for hot pixels
-                            _corr_im = corrections.Remove_Hot_Pixels(_corr_im)
-                            # illumination correction and chromatic correction
-                            if _illumination_correction:
-                                _corr_im = corrections.Illumination_correction(_corr_im, correction_channel=_channel,
-                                            correction_folder=self.correction_folder, verbose=_verbose)[0]
-                            if _chromatic_correction:
-                                _corr_im = corrections.Chromatic_abbrevation_correction(_corr_im, correction_channel=_channel,
-                                            correction_folder=self.correction_folder, verbose=_verbose)[0]
+                            _raw_im = _splitted_ims[_img_name][_channel_idx];
                             # cropping
-                            _cropped_im = visual_tools.crop_cell(_corr_im, self.segmentation_label,
+                            _cropped_im = visual_tools.crop_cell(_raw_im, self.segmentation_label,
                                                                  drift=self.drift[_img_name])[0]
                             # store this image
                             _combo_images.append(_cropped_im);
