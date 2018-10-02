@@ -194,7 +194,7 @@ def STD_beaddrift_sequential(bead_ims, bead_names, drift_folder, fovs, fov_id,
         save_cor = drift_folder+os.sep+fovs[fov_id].replace('.dax','_sequential_current_cor.pkl')
         # if savefile already exists, check whether dimension was correct
         if os.path.exists(save_cor):
-            total_drift = pickle.load(open(save_cor,'rb'), encoding='latin1')
+            total_drift = pickle.load(open(save_cor,'rb'))
             if len(list(total_drift.keys()))==len(bead_ims):
                 if not quiet:
                     print("length matches:",len(bead_ims), "and forcing calculation="+str(force))
@@ -670,3 +670,38 @@ def Remove_Hot_Pixels(im, hot_pix_th=0.33, interpolation_style='nearest', hot_th
                 _interp = np.average([im[_i][_p[0]+1][_p[1]],im[_i][_p[0]-1][_p[1]],im[_i][_p[0]][_p[1]+1],im[_i][_p[0]][_p[1]-1]]);
                 _nim[_i][_p[0]][_p[1]] = _interp;
     return _nim.astype(np.uint16)
+
+# wrapper
+def correction_wrapper(im, channel, correction_folder=r'C:\Users\Pu Zheng\Documents\Corrections',
+                       z_shift_corr=True, hot_pixel_remove=True,
+                       illumination_corr=True, chromatic_corr=True,
+                       verbose=False):
+    """wrapper for all correction steps to one image, used for multi-processing
+    Inputs:
+        im: image
+        channel: which channel is this image
+        correction_folder: path to find correction files
+        z_shift_corr: whether do z-shift correction, bool (default: True)
+        hot_pixel_remove: whether remove hot-pixels, bool (default: True)
+        illumination_corr: whether do illumination correction, bool (default: True)
+        chromatic_corr: whether do chromatic abbrevation correction, bool (default: True)
+        verbose: whether say something!, bool
+        """
+    # localize
+    _corr_im = im;
+    if z_shift_corr:
+        # correct for z axis shift
+        _corr_im = Z_Shift_Correction(_corr_im, verbose=verbose)
+    if hot_pixel_remove:
+        # correct for hot pixels
+        _corr_im = Remove_Hot_Pixels(_corr_im)
+    if illumination_corr:
+        # illumination correction
+        _corr_im = Illumination_correction(_corr_im, correction_channel=channel,
+                    correction_folder=correction_folder, verbose=verbose)[0]
+    if chromatic_corr:
+        # chromatic correction
+        _corr_im = Chromatic_abbrevation_correction(_corr_im, correction_channel=channel,
+                    correction_folder=correction_folder, verbose=verbose)[0]
+
+    return _corr_im;

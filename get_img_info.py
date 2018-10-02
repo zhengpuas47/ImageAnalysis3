@@ -82,7 +82,8 @@ def get_img_hyb(folders, fovs, hyb_id=0, verbose=True):
 	return _ims, _names
 
 ## Load file Color_Usage in dataset folder
-def Load_Color_Usage(master_folder, color_filename='Color_Usage', color_format='csv', return_color=True):
+def Load_Color_Usage(master_folder, color_filename='Color_Usage', color_format='csv',
+					 DAPI_hyb_name="H0R0", return_color=True):
 	'''Function to load standard Color_Usage file:
 	Inputs:
 		master_folder: master directory of this dataset, path(string);
@@ -123,12 +124,10 @@ def Load_Color_Usage(master_folder, color_filename='Color_Usage', color_format='
 					_content = _content[:-1]
 				_hyb = _content.pop(0);
 				_color_usage[_hyb] = _content
-	# save channel information
-	#_color_usage['channels'] = _header[1:];
 	# detect dapi
-	if 'H0R0' in _color_usage:
-		print("- Hyb 0 exists in this data")
-		if 'dapi' in _color_usage['H0R0'] or 'DAPI' in _color_usage['H0R0']:
+	if DAPI_hyb_name in _color_usage:
+		print(f"-- Hyb {DAPI_hyb_name} exists in this data")
+		if 'dapi' in _color_usage[DAPI_hyb_name] or 'DAPI' in _color_usage[DAPI_hyb_name]:
 			print("-- DAPI exists")
 			_dapi = True
 		else:
@@ -324,9 +323,11 @@ def split_channels_by_image(ims, names, num_channel=4, buffer_frames=10, DAPI=Fa
 		_im_sizes = [_im.shape[0] for _im in _ims];
 		if np.max(_im_sizes) == np.min(_im_sizes):
 			raise ValueError('image dimension does not match for DAPI');
-		#if (np.max(_im_sizes) - 2*buffer_frames) / (num_channel + 1) != (np.min(_im_sizes) - 2*buffer_frames) / num_channel:
-		#	raise ValueError('image for DAPI does not have compatible frame numbers for 1 more channel');
-
+		if (np.max(_im_sizes) - 2*buffer_frames) / (num_channel + 1) != (np.min(_im_sizes) - 2*buffer_frames) / num_channel:
+			raise ValueError('image for DAPI does not have compatible frame numbers for 1 more channel');
+		else:
+			if verbose:
+				print("--- DAPI images discovered, splitting images")
 		for _im,_name in zip(_ims, names):
 			if _im.shape[0] == np.max(_im_sizes):
 				_im_list = [_im[int(buffer_frames): -int(buffer_frames)][(-buffer_frames+1+_channel)%(num_channel+1)::num_channel+1] for _channel in range(num_channel+1)]
@@ -335,7 +336,7 @@ def split_channels_by_image(ims, names, num_channel=4, buffer_frames=10, DAPI=Fa
 			_im_dic[_name] = _im_list;
 	else:
 		if verbose:
-			print("-- scanning through images without DAPI");
+			print("-- splitting through images without DAPI");
 		for _im,_name in zip(_ims, names):
 			_im_list = [_im[int(buffer_frames): -int(buffer_frames)][(-buffer_frames+1+_channel)%num_channel::num_channel] for _channel in range(num_channel)]
 			_im_dic[_name] = _im_list;

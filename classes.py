@@ -84,7 +84,8 @@ class Cell_List():
         # exclude fovs
         if len(_exclude_fovs) > 0: #exclude any fov:
             for _i in _exclude_fovs:
-                _chosen_fovs.pop(_chosen_fovs.index(_i))
+                if _i in _chosen_fovs:
+                    _chosen_fovs.pop(_chosen_fovs.index(_i))
         # save values to the class
         self.fov_ids = _chosen_fovs;
         self.chosen_fovs = list(np.array(self.fovs)[np.array(self.fov_ids, dtype=np.int)]);
@@ -250,8 +251,46 @@ class Cell_List():
 
         return _new_seg_labels, _dapi_ims, _remove_cts
 
-    def _calculate_drift(self):
-        pass
+    def _load_drifts(self, _num_threads=None, _size=500, _force=False, _dynamic=True, _verbose=True):
+
+        # load color usage if not given
+        if not hasattr(self, 'channels') or not hasattr(self, 'bead_channel_index'):
+            self._load_color_info();
+
+        # scan for candidate drift correction files
+        _dft_file_cand = glob.glob(self.drift_folder+os.sep+self.fovs[self.fov_id].replace(".dax", "*.pkl"))
+        # if one unique drift file was found:
+        if len(_dft_file_cand) == 1:
+            _dft = pickle.load(open(_dft_file_cand[0], 'rb'));
+            # check drift length
+            if len(_dft) == len(self.color_dic):
+                if _verbose:
+                    print("- length matches, directly load from existing file:", _dft_file_cand[0]);
+                self.drift = _dft;
+                return self.drift
+            else:
+                if _verbose:
+                    print("- length doesn't match, proceed to do drift correction.");
+
+        if len(_dft_file_cand) == 0:
+            if _verbose:
+                print("- no drift result found in drift folder", self.drift_folder)
+        # do drift correction from scratch
+        if not hasattr(self, 'bead_ims'):
+            if _verbose:
+                print("- Loading beads images for drift correction")
+            _bead_ims, _bead_names = self._load_images('beads', _load_in_ram=False);
+        else:
+             _bead_ims, _bead_names = self.bead_ims, self.bead_names
+        # do drift correction
+        self.drift, _, _failed_count = corrections.STD_beaddrift_sequential(_bead_ims, _bead_names,
+                                                                    self.drift_folder,
+                                                                    self.fovs, self.fov_id,
+                                                                    sz_ex=_size, force=_force, dynamic=_dynamic)
+        if _failed_count > 0:
+            print('Failed drift noticed! total failure:', _failed_count);
+
+        return self.drift
 
 
 
@@ -504,17 +543,17 @@ class Cell_Data():
             for _hyb_fd, _hyb_ims in _splitted_ims.items():
                 for _i, (_channel, _hyb_im) in enumerate(zip(self.channels[:len(_hyb_ims)],_hyb_ims) ):
                     # correct for z axis shift
-                    _corr_im = corrections.Z_Shift_Correction(_hyb_im, _verbose=False)
+                    _hyb_im = corrections.Z_Shift_Correction(_hyb_im)
                     # correct for hot pixels
-                    _corr_im = corrections.Remove_Hot_Pixels(_corr_im)
+                    _hyb_im = corrections.Remove_Hot_Pixels(_hyb_im)
                     if _illumination_correction:
-                        _corr_im = corrections.Illumination_correction(_corr_im, correction_channel=_channel,
+                        _hyb_im = corrections.Illumination_correction(_hyb_im, correction_channel=_channel,
                                     correction_folder=self.correction_folder, verbose=False)[0]
                     if _chromatic_correction:
-                        _corr_im = corrections.Chromatic_abbrevation_correction(_corr_im, correction_channel=_channel,
+                        _hyb_im = corrections.Chromatic_abbrevation_correction(_hyb_im, correction_channel=_channel,
                                     correction_folder=self.correction_folder, verbose=False)[0]
                     # replace original image
-                    _splitted_ims[_hyb_fd][_i] = _corr_im;
+                    _splitted_ims[_hyb_fd][_i] = _hyb_im;
         else:
             _splitted_ims = self.splitted_ims;
         if str(_type).lower() == 'raw':
@@ -935,6 +974,7 @@ class Cell_Data():
         self.chrom_coords = _chrom_coords;
 
         return _chrom_coords
+
 class Encoding_Group():
     """defined class for each group of encoded images"""
     def __init__(self, ims, hybe_names, encoding_matrix, save_folder,
