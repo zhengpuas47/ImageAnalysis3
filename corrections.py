@@ -355,9 +355,9 @@ def Illumination_correction(ims, correction_channel,
     if verbose:
         print("-- Number of images to be corrected:", len(_ims))
     if len(_ims[0].shape) == 2: # if 2D
-        _ims = [_im/_ic_profile**1.8 for _im in _ims];
+        _ims = [(_im/_ic_profile**1.75).astype(np.unit16) for _im in _ims];
     else: # else, 3D
-        _ims = [_im/_ic_profile[np.newaxis,:,:]**1.5 for _im in _ims];
+        _ims = [(_im/_ic_profile[np.newaxis,:,:]**1.75).astype(np.uint16) for _im in _ims];
 
     return _ims
 
@@ -550,11 +550,11 @@ def Chromatic_abbrevation_correction(ims, correction_channel,
         if len(_im.shape) == 2: # if 2D
             _cim = map_coordinates(_im, _coord.reshape(2,-1))
             _cim = _cim.reshape(_im.shape)
-            _corr_ims.append(_cim)
+            _corr_ims.append(_cim.astype(np.uint16))
         else: # else, 3D
             _cim = map_coordinates(_im, _coord.reshape(3,-1))
             _cim = _cim.reshape(_im.shape)
-            _corr_ims.append(_cim)
+            _corr_ims.append(_cim.astype(np.uint16))
 
     return _corr_ims;
 
