@@ -650,8 +650,10 @@ def Z_Shift_Correction(im, style='mean', normalization=False, verbose=False):
 
     return _nim.astype(np.uint16)
 
-def Remove_Hot_Pixels(im, hot_pix_th=0.33, interpolation_style='nearest', hot_th = 10):
+def Remove_Hot_Pixels(im, hot_pix_th=0.33, interpolation_style='nearest', hot_th = 10, verbose=False):
     '''Function to remove hot pixels by interpolation in each single layer'''
+    if verbose:
+        print("- Remove hot pixels")
     # create convolution matrix, ignore boundaries for now
     _conv = (np.roll(im,1,1)+np.roll(im,-1,1)+np.roll(im,1,2)+np.roll(im,1,2))/4
     # hot pixels must be have signals higher than average of neighboring pixels by hot_th in more than hot_pix_th*total z-stacks
@@ -694,7 +696,7 @@ def correction_wrapper(im, channel, correction_folder=r'C:\Users\Pu Zheng\Docume
         _corr_im = Z_Shift_Correction(_corr_im, verbose=verbose)
     if hot_pixel_remove:
         # correct for hot pixels
-        _corr_im = Remove_Hot_Pixels(_corr_im)
+        _corr_im = Remove_Hot_Pixels(_corr_im, verbose=verbose)
     if illumination_corr:
         # illumination correction
         _corr_im = Illumination_correction(_corr_im, correction_channel=channel,
