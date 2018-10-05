@@ -498,7 +498,8 @@ def Crop_Images_Field_of_View(master_folder, folders, fovs, fov_id,
         _dapi_im = dapi_ims[fov_id];
     else:
         _dapi_im = dapi_ims
-
+    if correction_folder == '':
+        correction_folder = master_folder;
     # load color usage
     if verbose:
         print("Loading color usage");
@@ -571,12 +572,19 @@ def Crop_Images_Field_of_View(master_folder, folders, fovs, fov_id,
                     _name = _fd+os.sep+fovs[fov_id];
                     _channel_index = _colors.index(int(_channel))
                     _im = _im_dic[_name][_channel_index];
-                    if correction_folder == '':
-                        correction_folder = master_folder;
+                    # convert to local
+                    _corr_im = _im;
+                    # correct for z axis shift
+                    _corr_im = corrections.Z_Shift_Correction(_corr_im, verbose=verbose)
+                    # correct for hot pixels
+                    _corr_im = corrections.Remove_Hot_Pixels(_corr_im, verbose=verbose)
+                    # illumination correction
                     _corr_im = corrections.Illumination_correction(_im,
                     correction_channel=_channel, correction_folder=correction_folder, verbose=False)
+                    # chromatic abbrevation
                     _corr_im = corrections.Chromatic_abbrevation_correction(_corr_im[0],
                     correction_channel=_channel, correction_folder=correction_folder, verbose=False)
+                    # crop
                     _group_cropped_ims.append(visual_tools.crop_cell(_corr_im[0], _segmentation_label, _total_drift[_name]))
                 # save cropped ims
                 for _cell_id in range(_cell_num):
@@ -623,10 +631,19 @@ def Crop_Images_Field_of_View(master_folder, folders, fovs, fov_id,
                         print("- processing:", _folder_name, _channel, _info)
                     _name = _folder_name+os.sep+fovs[fov_id];
                     _im = _im_dic[_name][_channel_index];
-                    _corr_im = corrections.Illumination_correction(_im, correction_channel=_channel,
-                                                                    correction_folder=correction_folder, verbose=False)
-                    _corr_im = corrections.Chromatic_abbrevation_correction(_corr_im[0], correction_channel=_channel,
-                                                                    correction_folder=correction_folder, verbose=False)
+                    # convert to local
+                    _corr_im = _im;
+                    # correct for z axis shift
+                    _corr_im = corrections.Z_Shift_Correction(_corr_im, verbose=verbose)
+                    # correct for hot pixels
+                    _corr_im = corrections.Remove_Hot_Pixels(_corr_im, verbose=verbose)
+                    # illumination correction
+                    _corr_im = corrections.Illumination_correction(_im,
+                    correction_channel=_channel, correction_folder=correction_folder, verbose=False)
+                    # chromatic abbrevation
+                    _corr_im = corrections.Chromatic_abbrevation_correction(_corr_im[0],
+                    correction_channel=_channel, correction_folder=correction_folder, verbose=False)
+                    # crop
                     _cropped_im = visual_tools.crop_cell(_corr_im[0], _segmentation_label, _total_drift[_name])
                     # save info
                     for _cell_id in range(_cell_num):
