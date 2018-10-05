@@ -531,9 +531,9 @@ def Crop_Images_Field_of_View(master_folder, folders, fovs, fov_id,
                                                     fovs=fovs,
                                                     fov_id=fov_id,
                                                     sz_ex=drift_corr_size,
-                                                    force=False, save=True, quiet=False,
+                                                    force=False, save=True,
                                                     correction_folder=correction_folder,
-                                                    th_seed=th_seed, dynamic=dynamic)
+                                                    th_seed=th_seed, dynamic=dynamic, verbose=True)
 
     # take care of combo type:
     if encoding_type.lower() == 'combo':
