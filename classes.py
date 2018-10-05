@@ -4,11 +4,15 @@ sys.path.append(r'C:\Users\puzheng\Documents\python-functions\python-functions-l
 import pickle as pickle
 import matplotlib.pyplot as plt
 from . import get_img_info, corrections, visual_tools, analysis
-
+import multiprocessing
 from scipy import ndimage
 from scipy import stats
 from skimage import morphology
 from skimage.segmentation import random_walker
+
+# global variables
+_correction_folder=r'E:\Users\puzheng\Documents\Corrections'
+_temp_folder = r'I:\Pu_temp'
 
 class Cell_List():
     """
@@ -33,12 +37,16 @@ class Cell_List():
             _hyb_fds, _fovs = get_img_info.get_folders(_fd, feature='H', verbose=True)
             self.folders += _hyb_fds;
             self.fovs = _fovs;
-
-        ## analysis_folder, segmentation_folder, save_folder, correction_folder,map_folder
-        if 'analysis_folder' not in parameters:
-            self.analysis_folder = self.data_folder[0]+os.sep+'Analysis'
+        # temp_folder
+        if 'temp_folder' in parameters:
+            self.temp_folder = parameters['temp_folder'];
         else:
+            self.temp_folder = _temp_folder
+        ## analysis_folder, segmentation_folder, save_folder, correction_folder,map_folder
+        if 'analysis_folder'  in parameters:
             self.analysis_folder = str(parameters['analysis_folder']);
+        else:
+            self.analysis_folder = self.data_folder[0]+os.sep+'Analysis'
         if 'segmentation_folder' in parameters:
             self.segmentation_folder = parameters['segmentation_folder'];
         else:
@@ -50,7 +58,7 @@ class Cell_List():
         if 'correction_folder' in parameters:
             self.correction_folder = parameters['correction_folder'];
         else:
-            self.correction_folder = self.data_folder
+            self.correction_folder = _correction_folder
         if 'drift_folder' in parameters:
             self.drift_folder = parameters['drift_folder'];
         else:
@@ -90,6 +98,7 @@ class Cell_List():
         self.fov_ids = _chosen_fovs;
         self.chosen_fovs = list(np.array(self.fovs)[np.array(self.fov_ids, dtype=np.int)]);
 
+
     # allow print info of Cell_List
     def __str__(self):
         if hasattr(self, 'data_folder'):
@@ -126,6 +135,7 @@ class Cell_List():
         self.dapi_channel_index = _dapi_channel
 
         return _color_dic
+
     def _load_encoding_scheme(self, _encoding_filename='Encoding_Scheme', _encoding_format='csv', _save_encoding_scheme=True):
         _encoding_scheme, self.hyb_per_group, self.reg_per_group, \
         self.encoding_colors, self.encoding_group_nums \
@@ -141,7 +151,7 @@ class Cell_List():
 
     ## Load segmentations info
 
-    def _load_cell_segmentations(self, _num_threads=None, _allow_manual=True,
+    def _pick_cell_segmentations(self, _num_threads=None, _allow_manual=True,
                             _shape_ratio_threshold=0.041, _signal_cap_ratio=0.2, _denoise_window=5,
                             _load_in_ram=True, _save=True, _force=False,
                             _cell_coord_fl='cell_coords.pkl', _verbose=True):
@@ -251,62 +261,12 @@ class Cell_List():
 
         return _new_seg_labels, _dapi_ims, _remove_cts
 
-    def _load_drifts(self, _num_threads=None, _size=500, _force=False, _dynamic=True, _verbose=True):
 
-        # load color usage if not given
-        if not hasattr(self, 'channels') or not hasattr(self, 'bead_channel_index'):
-            self._load_color_info();
-
-        # scan for candidate drift correction files
-        _dft_file_cand = glob.glob(self.drift_folder+os.sep+self.fovs[self.fov_id].replace(".dax", "*.pkl"))
-        # if one unique drift file was found:
-        if len(_dft_file_cand) == 1:
-            _dft = pickle.load(open(_dft_file_cand[0], 'rb'));
-            # check drift length
-            if len(_dft) == len(self.color_dic):
-                if _verbose:
-                    print("- length matches, directly load from existing file:", _dft_file_cand[0]);
-                self.drift = _dft;
-                return self.drift
-            else:
-                if _verbose:
-                    print("- length doesn't match, proceed to do drift correction.");
-
-        if len(_dft_file_cand) == 0:
-            if _verbose:
-                print("- no drift result found in drift folder", self.drift_folder)
-        # do drift correction from scratch
-        if not hasattr(self, 'bead_ims'):
-            if _verbose:
-                print("- Loading beads images for drift correction")
-            _bead_ims, _bead_names = self._load_images('beads', _load_in_ram=False);
-        else:
-             _bead_ims, _bead_names = self.bead_ims, self.bead_names
-        # do drift correction
-        self.drift, _, _failed_count = corrections.STD_beaddrift_sequential(_bead_ims, _bead_names,
-                                                                    self.drift_folder,
-                                                                    self.fovs, self.fov_id,
-                                                                    sz_ex=_size, force=_force, dynamic=_dynamic)
-        if _failed_count > 0:
-            print('Failed drift noticed! total failure:', _failed_count);
-
-        return self.drift
-
-
-
-    def _create_cell(self, _fov_id, _cell_id, _load_in_list=True,
-                     _load_info=True, _load_segmentation=True, _load_drift=True):
-        _param = {'fov_id': _fov_id,
-                  'cell_id': _cell_id,
-                  'data_folder': self.data_folder,
-                  'analysis_folder':self.analysis_folder,
-                  'segmentation_folder': self.segmentation_folder,
-                  'save_folder': self.save_folder,
-                  'correction_folder': self.correction_folder,
-                  'drift_folder': self.drift_folder,
-                  'map_folder': self.map_folder,
-                  }
-        _cell = Cell_Data(_param, _load_all_attr=True)
+    def _create_cell(self, _parameter, _load_info=True,
+                     _load_segmentation=True, _load_drift=True,
+                     _save=True, _append_cell_list=False):
+        """Function to create one cell_data object"""
+        _cell = Cell_Data(_parameter, _load_all_attr=True)
         if _load_info:
             _cell._load_color_info();
             _cell._load_encoding_scheme();
@@ -314,14 +274,111 @@ class Cell_List():
             _cell._load_segmentation();
         if _load_drift:
             _cell._load_drift();
-        # whether store
-        if _load_in_list:
+        if _save:
+            _cell._save_to_file()
+
+        # whether directly store
+        if _append_cell_list:
             self.cells.append(_cell);
+
         return _cell
 
-    def _create_cells_in_fov(self, _num_threads=None):
+    def _create_cells_fov(self, _fov_id, _num_threads=None, _load_annotated_only=True, _overwrite_temp=True,
+                          _drift_size=550, _drift_dynamic=True, _verbose=True):
+        """Create Cele_data objects for one field of view"""
         if not _num_threads:
             _num_threads = int(self.num_threads);
+        if _fov_id not in self.fov_ids:
+            raise ValueError("Wrong fov_id kwd given! \
+                this should be real fov-number that allowed during intiation of class.")
+        if _verbose:
+            print("+ Create Cell_Data objects for field of view:", self.fovs[_fov_id], _fov_id);
+            print("++ preparing variables");
+        # check attributes
+        if not hasattr(self, 'channels') or not hasattr(self, 'color_dic'):
+            self._load_color_info()
+
+        if _load_annotated_only:
+            self.annotated_folders = [];
+            for _hyb_fd, _info in self.color_dic.items():
+                _matches = [_fd for _fd in self.folders if _hyb_fd in _fd];
+                if len(_matches)==1:
+                    self.annotated_folders.append(_matches[0])
+            print(f"{len(self.annotated_folders)} folders are found according to color-usage annotation.")
+        else:
+            self.annotated_folders = self.folders;
+
+        # load segmentation for this fov
+        if _verbose:
+            print("+ Load segmentation for fov", _fov_id)
+        # do segmentation if necessary, or just load existing segmentation file
+        _fov_segmentation_label, _fov_dapi_im  = analysis.Segmentation_Fov(self.analysis_folder,
+                                                self.annotated_folders, self.fovs, _fov_id,
+                                                num_channel=len(self.channels),
+                                                dapi_channel=self.dapi_channel_index,
+                                                illumination_corr=True,
+                                                correction_folder=self.correction_folder,
+                                                segmentation_path=os.path.basename(self.segmentation_folder),
+                                                save=True, force=False, verbose=_verbose)
+        plt.figure()
+        plt.imshow(_fov_segmentation_label)
+        # do drift for this fov
+        if _verbose:
+            print("+ Drift correction for fov", _fov_id);
+        _drift_fl = self.drift_folder+os.sep+self.fovs[_fov_id].replace('.dax', "*_cor.pkl");
+        _drift_fl = glob.glob(_drift_fl);
+        if len(_drift_fl) == 1 and os.path.isfile(_drift_fl[0]):
+            _drift_fl = _drift_fl[0];
+            if _verbose:
+                print("++ Directly load drift correction from file:", _drift_fl)
+            _fov_drift = pickle.load(open(_drift_fl, 'rb'))
+        else:
+            if _verbose:
+                print("++ loading bead images for drift correction.")
+            # load bead images
+            _bead_temp_files, _,_ = analysis.load_image_fov(self.annotated_folders, self.fovs, _fov_id, self.channels,  self.color_dic,
+                                                self.num_threads, loading_type='beads', max_chunk_size=6,
+                                                correction_folder=self.correction_folder, overwrite_temp=_overwrite_temp,
+                                                temp_folder=self.temp_folder, return_type='filename', verbose=_verbose)
+            _bead_ims, _bead_names = analysis.reconstruct_from_temp(_bead_temp_files, self.annotated_folders, self.fovs, _fov_id,
+                                                       self.channels, self.color_dic, temp_folder=self.temp_folder,
+                                                       find_all=True, num_threads=self.num_threads, loading_type='beads', verbose=_verbose)
+            if _verbose:
+                print ("++ do drift correction!")
+            # do drift corrections
+            _fov_drift, _, _failed_count = corrections.STD_beaddrift_sequential(_bead_ims, _bead_names,
+                                                                                self.drift_folder,
+                                                                                self.fovs, _fov_id,
+                                                                                sz_ex=_drift_size,
+                                                                                force=True, dynamic=_drift_dynamic, verbose=_verbose)
+            if _failed_count >0:
+                print(f"++ {_fail_count} suspected failures detected in drift correction.");
+            # release
+            del(_bead_ims, _)
+        # create cells in parallel
+        if _verbose:
+            print("+ Create cell_data objects!");
+        _cell_ids = range(int(np.max(_fov_segmentation_label)-1));
+        _params = [{'fov_id': _fov_id,
+                  'cell_id': _cell_id,
+                  'data_folder': self.data_folder,
+                  'temp_folder': self.temp_folder,
+                  'analysis_folder':self.analysis_folder,
+                  'segmentation_folder': self.segmentation_folder,
+                  'correction_folder': self.correction_folder,
+                  'drift_folder': self.drift_folder,
+                  'map_folder': self.map_folder,
+                  'drift': _fov_drift,
+                  } for _cell_id in _cell_ids];
+        _args = [(_p, True, True, True, True) for _p in _params]
+        _cell_pool = multiprocessing.Pool(_num_threads)
+        _cells = _cell_pool.starmap(self._create_cell, _args, chunksize=1)
+        _cell_pool.close();
+        _cell_pool.join();
+        _cell_pool.terminate();
+
+
+    def _load_image_for_cells(self):
         pass
 
 class Cell_Data():
@@ -341,10 +398,15 @@ class Cell_Data():
         else:
             self.data_folder = [str(parameters['data_folder'])];
         # analysis folder
-        if 'analysis_folder' not in parameters:
-            self.analysis_folder = self.data_folder[0]+os.sep+'Analysis'
-        else:
+        if 'analysis_folder'  in parameters:
             self.analysis_folder = str(parameters['analysis_folder']);
+        else:
+            self.analysis_folder = self.data_folder[0]+os.sep+'Analysis'
+        # temp_folder
+        if 'temp_folder'  in parameters:
+            self.temp_folder = parameters['temp_folder'];
+        else:
+            self.temp_folder = _temp_folder
         # extract hybe folders and field-of-view names
         self.folders = []
         for _fd in self.data_folder:
@@ -365,7 +427,7 @@ class Cell_Data():
         if 'correction_folder' in parameters:
             self.correction_folder = parameters['correction_folder'];
         else:
-            self.correction_folder = self.data_folder
+            self.correction_folder = _correction_folder
         if 'drift_folder' in parameters:
             self.drift_folder = parameters['drift_folder'];
         else:
@@ -471,6 +533,11 @@ class Cell_Data():
         return _seg_label, _dapi_im
 
     def _load_drift(self, _size=500, _force=False, _dynamic=True, _verbose=True):
+        # if exists:
+        if hasattr(self, 'drift') and not _force:
+            if _verbose:
+                print(f"- drift already exists for cell:{self.cell_id}, skip");
+            return self.drift;
         # load color usage if not given
         if not hasattr(self, 'channels'):
             self._load_color_info();
@@ -509,89 +576,84 @@ class Cell_Data():
 
         return self.drift
 
-    def _load_images(self, _type, _extend_dim=20, _load_in_ram=True, _load_annotated_only=True,
+    def _load_images(self, _type, _splitted_ims=None,
+                     _num_threads=5, _extend_dim=20,
+                     _load_in_ram=False, _load_annotated_only=True,
                      _illumination_correction=True, _chromatic_correction=True,
-                     _save=False, _overwrite=False, _verbose=False):
+                     _save=True, _overwrite=False, _verbose=False):
         """Core function to load images, support different types:"""
-        if not hasattr(self, 'segmentation_label') and _type != 'beads':
+        if not hasattr(self, 'segmentation_label') and _type in ['unique', 'combo', 'sparse']:
             self._load_segmentation();
-        if not hasattr(self, 'channels'):
+        if not hasattr(self, 'channels') or not hasattr(self, 'color_dic'):
             self._load_color_info();
-        # load images if not pre_loaded:
-        if not hasattr(self, 'splitted_ims'):
-            if _verbose:
-                print("- Starting loading images")
-            if _load_annotated_only:
-                _annotated_folders = [_fd for _fd in self.folders if os.path.basename(_fd) in self.color_dic];
-                self.annotated_folders = _annotated_folders
-                _ims, _names = get_img_info.get_img_fov(_annotated_folders, self.fovs, self.fov_id, verbose=False);
-            else:
-                _ims, _names = get_img_info.get_img_fov(self.folders, self.fovs, self.fov_id, verbose=False);
 
-            if '405' in self.channels:
-                _num_ch = len(self.channels) -1;
-            else:
-                _num_ch = len(self.channels);
-            # split images
-            if _verbose:
-                print(f"-- split into {_num_ch} channels")
-            _splitted_ims = get_img_info.split_channels_by_image(_ims, _names,
-                                        num_channel=_num_ch, DAPI=self.use_dapi);
-            # do all corrections
-            if _verbose:
-                print(f"-- do all corrections")
-            for _hyb_fd, _hyb_ims in _splitted_ims.items():
-                for _i, (_channel, _hyb_im) in enumerate(zip(self.channels[:len(_hyb_ims)],_hyb_ims) ):
-                    # correct for z axis shift
-                    _hyb_im = corrections.Z_Shift_Correction(_hyb_im)
-                    # correct for hot pixels
-                    _hyb_im = corrections.Remove_Hot_Pixels(_hyb_im)
-                    if _illumination_correction:
-                        _hyb_im = corrections.Illumination_correction(_hyb_im, correction_channel=_channel,
-                                    correction_folder=self.correction_folder, verbose=False)[0]
-                    if _chromatic_correction:
-                        _hyb_im = corrections.Chromatic_abbrevation_correction(_hyb_im, correction_channel=_channel,
-                                    correction_folder=self.correction_folder, verbose=False)[0]
-                    # replace original image
-                    _splitted_ims[_hyb_fd][_i] = _hyb_im;
+        # annotated folders
+        if _load_annotated_only:
+            self.annotated_folders = []
+            for _hyb_fd in self.color_dic:
+                _matches = [_fd for _fd in self.folders if _hyb_fd in _fd];
+                if len(_matches) == 1:
+                    self.annotated_folders.append(_matches[0]);
         else:
-            _splitted_ims = self.splitted_ims;
-        if str(_type).lower() == 'raw':
-            # Load all splitted images
-            if _load_in_ram:
-                self.splitted_ims = _splitted_ims;
-            return _splitted_ims
-        # if the purpose is to load bead images:
-        if str(_type).lower() == "beads":
-            # check color usage
-            if not hasattr(self, 'color_dic'):
-                self._load_color_info();
-            _drift=False # no need to correct for beads because you are using it to correct
-            _bead_ims = [];
-            _bead_names = [];
-            # load the images in the order of color_dic (which corresponding to experiment order)
-            for _hyb_fd, _info in self.color_dic.items():
-                _img_name = _hyb_fd + os.sep + self.fovs[self.fov_id];
-                if _img_name in _splitted_ims:
-                    _bead_im = _splitted_ims[_img_name][self.bead_channel_index]
-                    # append
-                    _bead_ims.append(_bead_im)
-                    _bead_names.append(_img_name);
-                else:
-                    raise IOError('-- missing image:',_img_name);
-            if _load_in_ram:
-                self.bead_ims = _bead_ims
-                self.bead_names = _bead_names
-            return _bead_ims, _bead_names
+            self.annotated_folders = self.folders
 
-        # load unique images
+        # Case: beads
+        if str(_type).lower() == "beads":
+            if hasattr(self, 'bead_ims') and hasattr(self, 'bead_names'):
+                return self.bead_ims, self.bead_names
+            else:
+                _bead_ims, _bead_names, _ = analysis.load_image_fov(self.annotated_folders, self.fovs, self.fov_id,
+                                                                    self.channels, self.color_dic,
+                                                                    num_threads=_num_threads, loading_type=_type,
+                                                                    correction_folder=self.correction_folder,
+                                                                    temp_folder=self.temp_folder,
+                                                                    return_type='mmap', overwrite_temp=False, verbose=True);
+                if _load_in_ram:
+                    self.bead_ims = _bead_ims
+                    self.bead_names = _bead_names
+                return _bead_ims, _bead_names
+        # Case: raw
+        elif str(_type).lower() == 'raw':
+            if hasattr(self, 'splitted_ims'):
+                return self.splitted_ims
+            elif _splitted_ims:
+                if _load_in_ram:
+                    self.splitted_ims = _splitted_ims
+                return _splitted_ims
+            else:
+                # Load all splitted images
+                _splitted_ims = analysis.load_image_fov(self.annotated_folders, self.fovs, self.fov_id,
+                                                        self.channels, self.color_dic,
+                                                        num_threads=_num_threads, loading_type=_type,
+                                                        correction_folder=self.correction_folder,
+                                                        temp_folder=self.temp_folder,
+                                                        return_type='mmap', overwrite_temp=False, verbose=True);
+                if _load_in_ram:
+                    self.splitted_ims = _splitted_ims;
+                return _splitted_ims
+
+        # Case: unique images
         elif str(_type).lower() == 'unique':
-            # check attributes of color dic
-            if not hasattr(self, 'color_dic'):
-                self._load_color_info();
+            if _verbose:
+                print(f"Loading unique images for cell:{self.cell_id} in fov:{self.fov_id}")
+            # check if images are properly loaded
+            if hasattr(self, 'unique_ims') and hasattr(self, 'unique_ids') and hasattr(self, 'unique_channels') and not _overwrite:
+                return self.unique_ims, self.unique_ids, self.unique_channels
+            elif not _splitted_ims:
+                # Load all splitted images
+                _splitted_ims = analysis.load_image_fov(self.annotated_folders, self.fovs, self.fov_id,
+                                                        self.channels, self.color_dic,
+                                                        num_threads=_num_threads, loading_type=_type,
+                                                        correction_folder=self.correction_folder,
+                                                        temp_folder=self.temp_folder,
+                                                        return_type='mmap', overwrite_temp=False, verbose=True);
+            elif hasattr(self, 'splitted_ims'):
+                _splitted_ims = self.splitted_ims;
+
             # check drift info
             if not hasattr(self, 'drift'):
                  self._load_drift();
+
             # initialize
             _unique_ims = [];
             _unique_ids = [];
@@ -610,30 +672,45 @@ class Cell_Data():
                                 print(f"-- loading unique region {_uid} at {_hyb_fd} and color {self.channels[_i]} ")
                             _channel = str(self.channels[_i]);
                             # cropping
-                            _cropped_im = visual_tools.crop_cell(_corr_im, self.segmentation_label,
-                                                                 drift=self.drift[_img_name])[0]
-
+                            _cropped_im = visual_tools.crop_cell(_channel_im, self.segmentation_label,
+                                                                 drift=self.drift[_img_name],
+                                                                 extend_dim=_extend_dim)[0]
                             _unique_ims.append(_cropped_im)
                             _unique_ids.append(int(_channel_info.split(_unique_marker)[-1]))
                             _unique_channels.append(_channel);
-
                 else:
                     raise IOError('-- missing image:',_img_name);
+            # sort
+            _tp = [(_id,_im,_ch) for _id, _im, _ch in sorted(zip(_unique_ids, _unique_ims, _unique_channels))]
+            _unique_ims = [_t[1] for _t in _tp];
+            _unique_ids = [_t[0] for _t in _tp];
+            _unique_channels = [_t[2] for _t in _tp];
 
             if _load_in_ram:
                 self.unique_ims = _unique_ims;
                 self.unique_ids = _unique_ids;
                 self.unique_channels = _unique_channels
-
             if _save:
                 self._save_to_file('unique', _overwrite=_overwrite);
 
-            return _unique_ims, _unique_ids
+            return _unique_ims, _unique_ids, _unique_channels
 
         elif str(_type).lower() == 'combo' or str(_source).lower() == 'sparse' :
-            # check color usage
-            if not hasattr(self, 'color_dic'):
-                self._load_color_info();
+            # check if images are properly loaded
+            if hasattr(self, 'splitted_ims'):
+                _splitted_ims = self.splitted_ims;
+            else:
+                # Load all splitted images
+                _splitted_ims = analysis.load_image_fov(self.annotated_folders, self.fovs, self.fov_id,
+                                                        self.channels, self.color_dic,
+                                                        num_threads=_num_threads, loading_type=_type,
+                                                        correction_folder=self.correction_folder,
+                                                        temp_folder=self.temp_folder,
+                                                        return_type='mmap', verbose=True);
+
+            # check drift info
+            if not hasattr(self, 'drift'):
+                 self._load_drift();
             # check encoding scheme
             if not hasattr(self, 'encoding_scheme'):
                 self._load_encoding_scheme();
@@ -773,6 +850,19 @@ class Cell_Data():
 
     def _load_from_file(self, _type='all', _save_folder=None, _load_attrs=[],
                         _overwrite=False, _verbose=True):
+        """ Function to load cell_data from existing npz and pickle files
+        Inputs:
+            _type: 'all'/'combo'/'unique'/'decoded', string
+            _save_folder: where did the files save, None or path string (default: None)
+            _load_attrs: list of additional attributes that want to load to RAM, list of string (default: [])
+            _overwrite: whether overwrite existing attributes in class, bool (default: false)
+            _verbose: say something!, bool (default: True)
+        (everything will be loaded into class attributes, so no return )
+        """
+        # check input
+        _type=str(_type).lower();
+        if _type not in ['all', 'unique', 'combo', 'decoded']:
+            raise ValueError("Wrong _type kwd given!")
         if not _save_folder and not hasattr(self, 'save_folder'):
             raise ValueError('Save folder info not given!');
         elif not _save_folder:
@@ -791,7 +881,7 @@ class Cell_Data():
                     elif len(_load_attrs) == 0:
                         setattr(self, _key, _value);
 
-        if _type == 'all' or _type == 'raw_combo':
+        if _type == 'all' or _type == 'combo':
             if not hasattr(self, 'combo_groups'):
                 self.combo_groups = [];
             elif not isinstance(self.combo_groups, list):
@@ -833,7 +923,7 @@ class Cell_Data():
                 # append
                 self.combo_groups.append(_group);
 
-        if _type == 'all' or _type == 'raw_unique':
+        if _type == 'all' or _type == 'unique':
             _unique_fl = 'unique_rounds.npz'
             _unique_savefile = _save_folder + os.sep + _unique_fl;
             if not os.path.exists(_unique_savefile):
@@ -859,6 +949,9 @@ class Cell_Data():
                     if _verbose:
                         print(f"overwriting image with unique_id: {_uid}")
                     self.unique_ims[self.unique_ids.index(int(_uid))] = _uim;
+
+        if _type == 'all' or _type == 'decoded':
+            pass # not created yet
 
     def _generate_chromosome_image(self, _source='combo', _max_count= 30, _verbose=False):
         """Generate chromosome from existing combo / unique images"""

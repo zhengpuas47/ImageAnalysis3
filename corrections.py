@@ -3,15 +3,19 @@ import ImageAnalysis3 as ia
 import numpy as np
 import pickle
 import matplotlib.pylab as plt
-import os, glob, sys
+import os, glob, sys, time
+from scipy.stats import scoreatpercentile
+
+_correction_folder=r'E:\Users\puzheng\Documents\Corrections'
 
 sys.path.append(r'C:\Users\puzheng\Documents\python-functions\python-functions-library')
 
 def get_STD_beaddrift(bead_ims, bead_names, analysis_folder, fovs, fov_id,
                       illumination_correction=False, ic_channel=488,
-                      correction_folder=r'C:\Users\Pu Zheng\Documents\Corrections',
+                      correction_folder=_correction_folder,
                       repeat=True, plt_val=False, cutoff_=3, xyz_res_=1,
-                      coord_sel=None, sz_ex=100, ref=0, force=False, save=True, quiet=False, th_seed=150, dynamic=False):
+                      coord_sel=None, sz_ex=100, ref=0,
+                      force=False, save=True, th_seed=150, dynamic=False, verbose=True):
     """Given a list of bead images This handles the fine bead drift correction.
     If save is true this requires global paramaters analysis_folder,fovs,fov_id
     Inputs:
@@ -31,7 +35,7 @@ def get_STD_beaddrift(bead_ims, bead_names, analysis_folder, fovs, fov_id,
     if save:
         save_cor = analysis_folder+os.sep+fovs[fov_id].replace('.dax','__current_cor.pkl')
         if os.path.exists(save_cor):
-            total_drift = pickle.load(open(save_cor,'rb'), encoding='latin1')
+            total_drift = pickle.load(open(save_cor,'rb'))
             if len(list(total_drift.keys()))==len(bead_ims):
                 repeat=False
     repeat = repeat or force
@@ -48,7 +52,7 @@ def get_STD_beaddrift(bead_ims, bead_names, analysis_folder, fovs, fov_id,
         # choose reference image
         if ref is None: ref = 0
         im_ref = _bead_ims[ref]
-        if not quiet:
+        if verbose:
             print("Fitting reference:", ref)
         if coord_sel is None:
             coord_sel = np.array(im_ref.shape)/2
@@ -73,7 +77,7 @@ def get_STD_beaddrift(bead_ims, bead_names, analysis_folder, fovs, fov_id,
             cents1 = get_STD_centers(im_sm, th_seed=th_seed)#list of fits of beads in the cube 1
             im_sm = vis.grab_block(im,coord_sel2,[sz_ex]*3)
             cents2 = get_STD_centers(im_sm, th_seed=th_seed)#list of fits of beads in the cube 2
-            if not quiet:
+            if verbose:
                 print("Aligning "+str(iim))
             txyz1 = vis.translation_aling_pts(cents_ref1,cents1,cutoff=cutoff_,xyz_res=xyz_res_,plt_val=False)
             txyz2 = vis.translation_aling_pts(cents_ref2,cents2,cutoff=cutoff_,xyz_res=xyz_res_,plt_val=False)
@@ -108,35 +112,35 @@ def get_STD_beaddrift(bead_ims, bead_names, analysis_folder, fovs, fov_id,
 
 ## Fit bead centers
 
-def get_STD_centers(im, th_seed=150, close_threshold=0.01, quiet=False, plt_val=False,
-                    save=False, save_folder='', save_name='', force=False):
+def get_STD_centers(im, th_seed=150, close_threshold=0.01, plt_val=False,
+                    save=False, save_folder='', save_name='', force=False, verbose=False):
     '''Fit beads for one image:
     Inputs:
         im: image, ndarray
         th_seeds: threshold for seeding, float (default: 150)
         close_threshold: threshold for removing duplicates within a distance, float (default: 0.01)
-        quiet: say nothing!, bool (default: False)
         plt_val: whether making plot, bool (default: False)
         save: whether save fitting result, bool (default: False)
         save_folder: full path of save folder, str (default: None)
         save_name: full name of save file, str (default: None)
         force: whether force fitting despite of saved file, bool (default: False)
+        verbose: say something!, bool (default: False)
     Outputs:
         beads: fitted spots with information, n by 4 array'''
     import os
     import pickle as pickle
     if not force and os.path.exists(save_folder+os.sep+save_name) and save_name != '':
-        if not quiet:
+        if verbose:
             print("- loading file:,", save_folder+os.sep+save_name)
         beads = pickle.load(open(save_folder+os.sep+save_name, 'rb'), encoding='latin1');
-        if not quiet:
+        if verbose:
             print("--", len(beads), " of beads loaded.")
         return beads
     else:
         # seeding
-        seeds = vis.get_seed_points_base(im,gfilt_size=0.75,filt_size=3,th_seed=th_seed,hot_pix_th=4)
+        seeds = vis.get_seed_points_base(im, gfilt_size=0.75,filt_size=3,th_seed=th_seed,hot_pix_th=4)
         # fitting
-        pfits = vis.fit_seed_points_base_fast(im,seeds,width_z=1.8*1.5/2,width_xy=1.,radius_fit=5,n_max_iter=10,max_dist_th=0.25,quiet=quiet)
+        pfits = vis.fit_seed_points_base_fast(im,seeds,width_z=1.8*1.5/2,width_xy=1.,radius_fit=5,n_max_iter=10,max_dist_th=0.25,quiet=not verbose)
         # get coordinates for fitted beads
         if len(pfits) > 0:
             beads = pfits[:,1:4];
@@ -148,7 +152,7 @@ def get_STD_centers(im, th_seed=150, close_threshold=0.01, quiet=False, plt_val=
                     remove += 1;
         else:
             beads = None;
-        if not quiet:
+        if verbose:
             print(remove, "points removed given smallest distance", close_threshold)
         # make plot if required
         if plt_val:
@@ -160,7 +164,7 @@ def get_STD_centers(im, th_seed=150, close_threshold=0.01, quiet=False, plt_val=
         if save:
             if not os.path.exists(save_folder):
                 os.makedirs(save_folder)
-            if not quiet:
+            if verbose:
                 print("-- saving beads to", save_folder+os.sep+save_name)
             pickle.dump(beads, open(save_folder+os.sep+save_name, 'wb'));
 
@@ -168,11 +172,11 @@ def get_STD_centers(im, th_seed=150, close_threshold=0.01, quiet=False, plt_val=
 
 
 def STD_beaddrift_sequential(bead_ims, bead_names, drift_folder, fovs, fov_id,
-                      illumination_correction=False, ic_channel=488,
-                      correction_folder=r'C:\Users\Pu Zheng\Documents\Corrections',
+                      illumination_correction=False, ic_channel='488',
+                      correction_folder=_correction_folder,
                       repeat=True, plt_val=False, cutoff_=3, xyz_res_=1,
-                      coord_sel=None, sz_ex=200, force=False, save=True, quiet=False, th_seed=150,
-                      dynamic=False, dynamic_th_percent=80):
+                      coord_sel=None, sz_ex=200, force=False, save=True, th_seed=150,
+                      dynamic=False, dynamic_th_percent=80, verbose=True):
     """Given a list of bead images This handles the fine bead drift correction.
     If save is true this requires global paramaters drift_folder,fovs,fov_id
     Inputs:
@@ -182,13 +186,16 @@ def STD_beaddrift_sequential(bead_ims, bead_names, drift_folder, fovs, fov_id,
         fovs: names for all field of views, list of strings
         fov_id: the id for field of view to be analysed, int
         Illumination_correction: whether do illumination correction, bool
+        ic_channel: illumination_correction channel, str or int (default: 488)
+        correction_folder: folder for correction files, string (path)
+        repeat: whether repeat experiment, bool (default: True)
 
         """
-    # define a sub function to do fitting
-    from scipy.stats import scoreatpercentile
+    if verbose:
+        print("- Drift correction starts!");
     # Initialize failed counts
-    fail_count = 0;
-
+    fail_count = 0
+    _start_time = time.time();
     # if save, check existing pickle file, if exist, don't repeat
     if save:
         save_cor = drift_folder+os.sep+fovs[fov_id].replace('.dax','_sequential_current_cor.pkl')
@@ -196,11 +203,11 @@ def STD_beaddrift_sequential(bead_ims, bead_names, drift_folder, fovs, fov_id,
         if os.path.exists(save_cor):
             total_drift = pickle.load(open(save_cor,'rb'))
             if len(list(total_drift.keys()))==len(bead_ims):
-                if not quiet:
+                if verbose:
                     print("length matches:",len(bead_ims), "and forcing calculation="+str(force))
                 repeat=False
             else:
-                if not quiet:
+                if verbose:
                     print("length doesnot match, redo drift correction!");
     repeat = repeat or force
 
@@ -230,22 +237,21 @@ def STD_beaddrift_sequential(bead_ims, bead_names, drift_folder, fovs, fov_id,
                 th_seed = scoreatpercentile(im_ref, dynamic_th_percent) * 0.5;
             # start fitting image 0
             im_ref_sm = vis.grab_block(im_ref,coord_sel1,[sz_ex]*3)
-            cents_ref1 = get_STD_centers(im_ref_sm, th_seed=th_seed)#list of fits of beads in the ref cube 1
+            cents_ref1 = get_STD_centers(im_ref_sm, th_seed=th_seed, verbose=verbose)#list of fits of beads in the ref cube 1
             im_ref_sm = vis.grab_block(im_ref,coord_sel2,[sz_ex]*3)
-            cents_ref2 = get_STD_centers(im_ref_sm, th_seed=th_seed)#list of fits of beads in the ref cube 2
+            cents_ref2 = get_STD_centers(im_ref_sm, th_seed=th_seed, verbose=verbose)#list of fits of beads in the ref cube 2
 
-
-            for iim,im in enumerate(_bead_ims[1:]):
+            for iim,(im, _name) in enumerate(zip(_bead_ims[1:], bead_names[1:])):
                 if dynamic:
                     th_seed = scoreatpercentile(im, dynamic_th_percent) * 0.45;
                 #print th_seed
                 # fit target image
                 im_sm = vis.grab_block(im,coord_sel1,[sz_ex]*3)
-                cents1 = get_STD_centers(im_sm, th_seed=th_seed)#list of fits of beads in the cube 1
+                cents1 = get_STD_centers(im_sm, th_seed=th_seed, verbose=verbose)#list of fits of beads in the cube 1
                 im_sm = vis.grab_block(im,coord_sel2,[sz_ex]*3)
-                cents2 = get_STD_centers(im_sm, th_seed=th_seed)#list of fits of beads in the cube 2
-                if not quiet:
-                    print("Aligning "+str(iim+1))
+                cents2 = get_STD_centers(im_sm, th_seed=th_seed, verbose=verbose)#list of fits of beads in the cube 2
+                if verbose:
+                    print("Aligning "+str(iim+1), _name)
                 # calculate drift
                 txyz1 = vis.translation_aling_pts(cents_ref1,cents1,cutoff=cutoff_,xyz_res=xyz_res_,plt_val=False)
                 txyz2 = vis.translation_aling_pts(cents_ref2,cents2,cutoff=cutoff_,xyz_res=xyz_res_,plt_val=False)
@@ -257,9 +263,9 @@ def STD_beaddrift_sequential(bead_ims, bead_names, drift_folder, fovs, fov_id,
                     #sz_ex+=10
                     coord_sel3 = np.array([0,sz_ex,-sz_ex])+coord_sel
                     im_ref_sm = vis.grab_block(im_ref,coord_sel3,[sz_ex]*3)
-                    cents_ref3 = get_STD_centers(im_ref_sm, th_seed=th_seed)#list of fits of beads in the ref cube 3
+                    cents_ref3 = get_STD_centers(im_ref_sm, th_seed=th_seed, verbose=verbose)#list of fits of beads in the ref cube 3
                     im_sm = vis.grab_block(im,coord_sel3,[sz_ex]*3)
-                    cents3 = get_STD_centers(im_sm, th_seed=th_seed)#list of fits of beads in the cube 3
+                    cents3 = get_STD_centers(im_sm, th_seed=th_seed, verbose=verbose)#list of fits of beads in the cube 3
                     txyz3 = vis.translation_aling_pts(cents_ref3,cents3,cutoff=cutoff_,xyz_res=xyz_res_,plt_val=False)
                     #print txyz1,txyz2,txyz3
                     if np.sum(np.abs(txyz3-txyz1))<np.sum(np.abs(txyz3-txyz2)):
@@ -283,6 +289,9 @@ def STD_beaddrift_sequential(bead_ims, bead_names, drift_folder, fovs, fov_id,
                 os.makedirs(drift_folder)
             save_cor = drift_folder+os.sep+fovs[fov_id].replace('.dax','_sequential_current_cor.pkl')
             pickle.dump(total_drift,open(save_cor,'wb'))
+
+    if verbose:
+        print("-- total time spent in drift correction:", time.time()-_start_time)
 
     return total_drift, repeat, fail_count
 
@@ -328,7 +337,7 @@ def generate_illumination_correction(ims, threshold_percentile=98, gaussian_sigm
     return fit_im
 
 def Illumination_correction(ims, correction_channel,
-                            correction_folder='C:/Users/puzheng/Documents/Correction_Files', verbose=True):
+                            correction_folder=_correction_folder, verbose=True):
     '''illumination correction for one list of images
     Inputs:
         ims: list of images, list
@@ -364,9 +373,9 @@ def Illumination_correction(ims, correction_channel,
 # Function to generate chromatic abbrevation profile
 def generate_chromatic_abbrevation_correction(ims, names, master_folder, channels, corr_channel, ref_channel,
                                               fitting_save_subdir=r'Analysis\Beads', seed_th_per=99.92,
-                                              correction_folder=r'C:\Users\puzheng\Documents\Correction_Files',
+                                              correction_folder=_correction_folder,
                                               make_plot=False,
-                                              save=True, save_folder=r'C:\Users\puzheng\Documents\Correction_Files',
+                                              save=True, save_folder=_correction_folder,
                                               force=False, verbose=True):
     '''Generate chromatic abbrevation profile from list of images
     Inputs:
@@ -418,13 +427,13 @@ def generate_chromatic_abbrevation_correction(ims, names, master_folder, channel
             # fit correction channel
             _cim = ia.corrections.Illumination_correction(_cim, corr_channel, correction_folder=correction_folder,
                                                         verbose=verbose)[0]
-            _cct = ia.corrections.get_STD_centers(_cim, scoreatpercentile(_cim, seed_th_per), quiet=not verbose,
+            _cct = ia.corrections.get_STD_centers(_cim, scoreatpercentile(_cim, seed_th_per), verbose=verbose,
                                         save=save, force=force, save_folder=master_folder+os.sep+fitting_save_subdir,
                                         save_name=_name.split(os.sep)[-1].replace('.dax', '_'+str(corr_channel)+'_fitting.pkl'))
             # fit reference channel
             _rim = ia.corrections.Illumination_correction(_rim, ref_channel, correction_folder=correction_folder,
                                                         verbose=verbose)[0]
-            _rct = ia.corrections.get_STD_centers(_rim, scoreatpercentile(_rim, seed_th_per), quiet=not verbose,
+            _rct = ia.corrections.get_STD_centers(_rim, scoreatpercentile(_rim, seed_th_per), verbose=verbose,
                                         save=save, force=force, save_folder=master_folder+os.sep+fitting_save_subdir,
                                         save_name=_name.split(os.sep)[-1].replace('.dax', '_'+str(ref_channel)+'_fitting.pkl'))
             # Align points
@@ -489,7 +498,7 @@ def generate_chromatic_abbrevation_correction(ims, names, master_folder, channel
 
 # Function to do chromatic abbrevation
 def Chromatic_abbrevation_correction(ims, correction_channel,
-                                     correction_folder=r'C:/Users/puzheng/Documents/Correction_Files',
+                                     correction_folder=_correction_folder,
                                      target_channel='647', verbose=True):
     '''Chromatic abbrevation correction
         correct everything into 647 channel
@@ -524,7 +533,7 @@ def Chromatic_abbrevation_correction(ims, correction_channel,
     if os.path.isfile(_correction_file):
         _cc_profile = pickle.load(open(_correction_file,'rb'))
     else:
-        print("- No chromatic correction profile file founded!");
+        raise IOError("- No chromatic correction profile file founded!");
         return None
     # check correction profile dimensions
     _shape_im = np.shape(_ims[0])[-2:];
@@ -657,27 +666,25 @@ def Remove_Hot_Pixels(im, hot_pix_th=0.33, interpolation_style='nearest', hot_th
     # create convolution matrix, ignore boundaries for now
     _conv = (np.roll(im,1,1)+np.roll(im,-1,1)+np.roll(im,1,2)+np.roll(im,1,2))/4
     # hot pixels must be have signals higher than average of neighboring pixels by hot_th in more than hot_pix_th*total z-stacks
-    _hotmat = im > hot_th*_conv
+    _hotmat = im > hot_th * _conv
     _hotmat2D = np.sum(_hotmat,0)
-    _hotpix_cand = [np.where(_hotmat2D > hot_pix_th*np.shape(im)[0])]
-    _hotpix = _hotpix_cand[0]
+    _hotpix_cand = np.where(_hotmat2D > hot_pix_th*np.shape(im)[0])
     # if no hot pixel detected, directly exit
-    if len(_hotpix[0]) == 0:
+    if len(_hotpix_cand[0]) == 0:
         return im
     # create new image to interpolate the hot pixels with average of neighboring pixels
     _nim = np.zeros(np.shape(im))+im;
     if interpolation_style == 'nearest':
-        for _p in _hotpix:
-            for _i in range(np.shape(im)[0]):
-                _interp = np.average([im[_i][_p[0]+1][_p[1]],im[_i][_p[0]-1][_p[1]],im[_i][_p[0]][_p[1]+1],im[_i][_p[0]][_p[1]-1]]);
-                _nim[_i][_p[0]][_p[1]] = _interp;
+        for _x,_y in zip(_hotpix_cand[0],_hotpix_cand[1]):
+            _nim[:,_x,_y] = (_nim[:,_x+1,_y]+_nim[:,_x-1,_y]+_nim[:,_x,_y+1]+_nim[:,_x,_y-1])/4
     return _nim.astype(np.uint16)
 
 # wrapper
-def correction_wrapper(im, channel, correction_folder=r'C:\Users\Pu Zheng\Documents\Corrections',
+def correction_wrapper(im, channel, correction_folder=_correction_folder,
                        z_shift_corr=True, hot_pixel_remove=True,
                        illumination_corr=True, chromatic_corr=True,
-                       verbose=False):
+                       temp_folder='I:\Pu_temp',temp_name='',
+                       overwrite_temp=True, return_type='filename', verbose=False):
     """wrapper for all correction steps to one image, used for multi-processing
     Inputs:
         im: image
@@ -689,6 +696,32 @@ def correction_wrapper(im, channel, correction_folder=r'C:\Users\Pu Zheng\Docume
         chromatic_corr: whether do chromatic abbrevation correction, bool (default: True)
         verbose: whether say something!, bool
         """
+    # create temp folder if necessary
+    if not os.path.exists(temp_folder):
+        os.makedirs(temp_folder);
+    if temp_name == '':
+        temp_name = 'temp_'+str(channel)+'_corrected';
+    # temp file
+    _temp_fl = os.path.join(temp_folder,
+                            temp_name)
+    if overwrite_temp and os.path.isfile(_temp_fl):
+        os.remove(_temp_fl);
+    # check return type
+    return_type = return_type.lower()
+    if return_type not in ['filename','mmap','image']:
+        raise ValueError('Wrong kwd return_type given!');
+    # if not overwrite and file exist: directly loading
+    if not overwrite_temp and os.path.isfile(_temp_fl+'.npy'):
+        if verbose:
+            print("-- reading from temp-file:", _temp_fl+'.npy')
+        if return_type == 'filename':
+            return _temp_fl+'.npy'
+        elif return_type == 'mmap':
+            _im_mmap = np.load(_temp_fl+'.npy', mmap_mode='r+')
+            return _im_mmap
+        elif return_type == 'image':
+            _im = np.load(_temp_fl+'.npy', mmap_mode=None)
+            return _im
     # localize
     _corr_im = im;
     if z_shift_corr:
@@ -705,5 +738,17 @@ def correction_wrapper(im, channel, correction_folder=r'C:\Users\Pu Zheng\Docume
         # chromatic correction
         _corr_im = Chromatic_abbrevation_correction(_corr_im, correction_channel=channel,
                     correction_folder=correction_folder, verbose=verbose)[0]
-
-    return _corr_im;
+    # if save temp file, save to a file, release original one, return a memory-map
+    if return_type == 'filename':
+        np.save(_temp_fl, _corr_im)
+        del(_corr_im, im)
+        return _temp_fl+'.npy'
+    elif return_type == 'mmap':
+        np.save(_temp_fl, _corr_im)
+        del(_corr_im, im)
+        _im_mmap = np.load(_temp_fl+'.npy', mmap_mode='r+');
+        return _im_mmap;
+    # else: directly return the array
+    else:
+        del(im)
+        return _corr_im;

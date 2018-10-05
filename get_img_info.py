@@ -14,7 +14,10 @@ def get_folders(master_folder, feature='H', verbose=True):
 	returns folders, field_of_views'''
 	folders = [folder for folder in glob.glob(master_folder+os.sep+'*') if os.path.basename(folder)[0]==feature] # get folders start with 'H'
 	folders = list(np.array(folders)[np.argsort(list(map(get_hybe,folders)))])
-	fovs = list(map(os.path.basename,glob.glob(folders[0]+os.sep+'*.dax')))
+	if len(folders) > 0:
+		fovs = list(map(os.path.basename,glob.glob(folders[0]+os.sep+'*.dax')))
+	else:
+		raise IOError("No folders detected!")
 	if verbose:
 		print("Get Folder Names: (ia.get_img_info.get_folders)")
 		print("- Number of folders:", len(folders));
@@ -35,11 +38,11 @@ def get_img_fov(folders, fovs, fov_id=0, verbose=True):
 	if not isinstance(fov_id, int):
 		raise ValueError('Wrong fov_id input type!')
 	if verbose:
-		print("Get images of a fov (ia.get_img_info.get_img_fov)")
+		print("- get images of a fov (ia.get_img_info.get_img_fov)")
 	_fov = fovs[fov_id]
 	_names, _ims = [],[]
 	if verbose:
-		print("- loading field of view:", _fov);
+		print("-- loading field of view:", _fov);
 	# load images
 	for _folder in folders[:]:
 		_filename= _folder+os.sep+_fov
@@ -128,7 +131,7 @@ def Load_Color_Usage(master_folder, color_filename='Color_Usage', color_format='
 	if DAPI_hyb_name in _color_usage:
 		print(f"-- Hyb {DAPI_hyb_name} exists in this data")
 		if 'dapi' in _color_usage[DAPI_hyb_name] or 'DAPI' in _color_usage[DAPI_hyb_name]:
-			print("-- DAPI exists")
+			print("-- DAPI exists in hyb:", DAPI_hyb_name);
 			_dapi = True
 		else:
 			_dapi = False
