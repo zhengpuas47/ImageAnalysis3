@@ -659,7 +659,7 @@ def Z_Shift_Correction(im, style='mean', normalization=False, verbose=False):
 
     return _nim.astype(np.uint16)
 
-def Remove_Hot_Pixels(im, hot_pix_th=0.33, interpolation_style='nearest', hot_th = 10, verbose=False):
+def Remove_Hot_Pixels(im, hot_pix_th=0.33, interpolation_style='nearest', hot_th=9, verbose=False):
     '''Function to remove hot pixels by interpolation in each single layer'''
     if verbose:
         print("- Remove hot pixels")

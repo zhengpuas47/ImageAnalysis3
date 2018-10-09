@@ -70,6 +70,11 @@ def Segmentation_All(analysis_folder, folders, fovs, ref_name='H0R0',
             _process_markers.append(True)
             _dapi_name = ref_name+os.sep+_fov;
             _dapi_im = _ref_im_dic[_dapi_name][-1];
+            # do some corrections
+            # correct for z axis shift
+            _dapi_im = corrections.Z_Shift_Correction(_dapi_im)
+            # correct for hot pixels
+            _dapi_im = corrections.Remove_Hot_Pixels(_dapi_im)
             # record
             _process_names.append(_dapi_name)
             _process_ims.append(_dapi_im)
@@ -172,6 +177,12 @@ def Segmentation_Fov(analysis_folder, folders, fovs, fov_id, ref_name='H0R0',
         # acquire dapi name and image
         _dapi_name = ref_name+os.sep+fovs[fov_id];
         _dapi_im = _ref_im_dic[_dapi_name][-1];
+        # do some corrections
+        # correct for z axis shift
+        _dapi_im = corrections.Z_Shift_Correction(_dapi_im)
+        # correct for hot pixels
+        _dapi_im = corrections.Remove_Hot_Pixels(_dapi_im)
+        # segmentation!
         _segmentation_label = visual_tools.DAPI_segmentation(_dapi_im, _dapi_name,
                                                     illumination_correction=illumination_corr,
                                                     correction_folder=correction_folder,
@@ -221,7 +232,8 @@ def load_image_fov(folders, fovs, fov_id, channels, color_dic,
         out_channels: which channel this dic is from
         """
     # default settings
-    loading_keys = {'raw':'raw',
+    loading_keys = {'raw':'',
+                    'all':'',
                     'beads':'beads',
                     'dapi':'DAPI',
                     'unique':'u',
@@ -276,7 +288,7 @@ def load_image_fov(folders, fovs, fov_id, channels, color_dic,
                 _cand_names.append(_n)
                 _cand_channels.append(_channels[_dapi_index])
     # for raw, unique and combo:
-    elif loading_type.lower() in ['raw', 'unique', 'combo']:
+    elif loading_type.lower() in ['all', 'raw', 'unique', 'combo']:
         if verbose:
             print("-- Loading all images for this fov")
         _cand_ims, _cand_names, _cand_channels, _cand_ch_id = [],[],[],[]
@@ -292,7 +304,7 @@ def load_image_fov(folders, fovs, fov_id, channels, color_dic,
                     _cand_names.append(_n)
                     _cand_channels.append(_channels[_ch_id])
                     _cand_ch_id.append(_ch_id)
-                elif loading_type.lower() == 'raw':
+                elif loading_type.lower() == 'raw' or loading_type.lower() == 'all':
                     _cand_ims.append(_im)
                     _cand_names.append(_n)
                     _cand_channels.append(_channels[_ch_id])
@@ -327,7 +339,7 @@ def load_image_fov(folders, fovs, fov_id, channels, color_dic,
     if not return_type == 'filename':
         ## return and save
         # re-compile into a dic
-        if loading_type.lower() in ['raw', 'unique', 'combo']:
+        if loading_type.lower() in ['all', 'raw', 'unique', 'combo']:
             _splitted_ims = {};
             for _hyb_fd, _info in color_dic.items():
                 _splitted_ims[_hyb_fd+os.sep+fovs[fov_id]] = [[] for _i in range(len(_info))]
@@ -369,6 +381,7 @@ def reconstruct_from_temp(temp_filelist, folders, fovs, fov_id, channels, color_
     _fov_name = fovs[fov_id];
     # default settings
     loading_keys = {'raw':'',
+                    'all':'',
                     'beads':'beads',
                     'dapi':'DAPI',
                     'unique':'u',
@@ -380,7 +393,7 @@ def reconstruct_from_temp(temp_filelist, folders, fovs, fov_id, channels, color_
         print(f"- Reconstructing images from temp files \n\t temp_directory:{temp_folder}")
         print(f"-- loading type: {loading_type}")
 
-    if loading_type.lower() in ['raw', 'unique', 'combo']:
+    if loading_type.lower() in ['all', 'raw', 'unique', 'combo']:
         _image_ct = 0;
         # initialize a specific _splitted_ims
         _splitted_ims = {};
