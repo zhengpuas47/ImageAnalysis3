@@ -168,7 +168,6 @@ class Cell_List():
         return _encoding_scheme
 
     ## Load segmentations info
-
     def _pick_cell_segmentations(self, _num_threads=None, _allow_manual=True,
                             _shape_ratio_threshold=0.041, _signal_cap_ratio=0.2, _denoise_window=5,
                             _load_in_ram=True, _save=True, _force=False,
@@ -1305,8 +1304,7 @@ class Cell_Data():
             else:
                 raise ValueError('save_folder not given in keys and attributes.')
 
-        _chrom_savefile = os.path.join(_save_folder,
-                                _save_fl.replace('.pkl', '_'+str(self.fov_id)+'_'+str(self.cell_id)+'.pkl'))
+        _chrom_savefile = os.path.join(_save_folder, _save_fl.replace('.pkl', '_'+str(self.fov_id)+'_'+str(self.cell_id)+'.pkl'))
         if not hasattr(self, 'chrom_coords'):
             raise ValueError("chromosome coordinates doesnot exist in attributes.")
         _coord_dic = {'coords': [np.flipud(_coord) for _coord in self.chrom_coords],
@@ -1325,8 +1323,8 @@ class Cell_Data():
                 _save_folder = self.save_folder;
             else:
                 raise ValueError('save_folder not given in keys and attributes.')
-        _chrom_savefile = os.path.join(_save_folder,
-                                _save_fl.replace('.pkl', '_'+str(self.fov_id)+'_'+str(self.cell_id)+'.pkl'))        _coord_dic = pickle.load(open(_chrom_savefile, 'rb'));
+        _chrom_savefile = os.path.join(_save_folder, _save_fl.replace('.pkl', '_'+str(self.fov_id)+'_'+str(self.cell_id)+'.pkl'))
+        _coord_dic = pickle.load(open(_chrom_savefile, 'rb'));
         _chrom_coords = [np.flipud(_coord) for _coord in _coord_dic['coords']];
         if _verbose:
             print(f"-- {len(_chrom_coords)} loaded")
@@ -1347,42 +1345,43 @@ class Cell_Data():
                 self._load_from_file('cell_info');
                 if not hasattr(self, 'chrom_coords'):
                     raise AttributeError("No chrom-coords info found in cell-data and saved cell_info.");
-        if _verbose:
-            print(f"+ Start multi-fitting for {_type} images")
-        # TYPE unique
-        if _type == 'unique':
-            # check attributes
-            if not hasattr(self, 'unique_ims') or not hasattr(self, 'unique_ids'):
-                print("++ no unique image info loaded to this cell, try loading:")
-                self._load_from_file('unique', _overwrite=False, _verbose=_verbose)
-            # initialize a unique spot list
-            self.unique_spots = [];
-            for _im, _id in zip(self.unique_ims, self.unique_ids):
-                if _verbose:
-                    print(f"++ fitting for fov:{self.fov_id}, cell:{self.cell_id}, region:{_id}");
-                _spots_for_chrom = [];
-                for _chrom_coord in self.chrom_coords:
-                    _seeds = visual_tools.get_seed_in_distance(_im, _chrom_coord, num_seeds=0,
-                                            filt_size=_max_filt_size, th_seed_percentile=_seed_th_per,
-                                            dynamic=True, return_h=False);
-                    _fits = visual_tools.fit_multi_gaussian(_im, _seeds, width_zxy=_width_zxy,
-                                            expect_weight=_expect_weight, min_height=_min_height,
-                                            n_max_iter=_max_iter)
-                    _spots_for_chrom.append(_fits);
-                # append
-                self.unique_spots.append(_spots_for_chrom);
-            ## save
-            if _save:
-                # save unique_spots to cell_info.pkl
-                self._save_to_file('cell_info',_save_dic={'unique_spots':self.unique_spots})
+            if _verbose:
+                print(f"+ Start multi-fitting for {_type} images")
+            # TYPE unique
+            if _type == 'unique':
+                # check attributes
+                if not hasattr(self, 'unique_ims') or not hasattr(self, 'unique_ids'):
+                    print("++ no unique image info loaded to this cell, try loading:")
+                    self._load_from_file('unique', _overwrite=False, _verbose=_verbose)
+                # initialize a unique spot list
+                self.unique_spots = [];
+                for _im, _id in zip(self.unique_ims, self.unique_ids):
+                    if _verbose:
+                        print(f"++ fitting for fov:{self.fov_id}, cell:{self.cell_id}, region:{_id}");
+                    _spots_for_chrom = [];
+                    for _chrom_coord in self.chrom_coords:
+                        _seeds = visual_tools.get_seed_in_distance(_im, _chrom_coord, num_seeds=0,
+                                                filt_size=_max_filt_size, th_seed_percentile=_seed_th_per,
+                                                dynamic=True, return_h=False);
+                        _fits = visual_tools.fit_multi_gaussian(_im, _seeds, width_zxy=_width_zxy,
+                                                expect_weight=_expect_weight, min_height=_min_height,
+                                                n_max_iter=_max_iter)
+                        _spots_for_chrom.append(_fits);
+                    # append
+                    self.unique_spots.append(_spots_for_chrom);
+                ## save
+                if _save:
+                    # save unique_spots to cell_info.pkl
+                    self._save_to_file('cell_info',_save_dic={'unique_spots':self.unique_spots})
 
-            return self.unique_spots
+                return self.unique_spots
 
-        elif _type == 'decoded':
-            pass
-            #NOT FINISHED YET
+            elif _type == 'decoded':
+                pass
+                #NOT FINISHED YET
 
-    def _dynamic_picking_spots(self):
+    def _dynamic_picking_spots(self, _type='unique', _use_chrom_coords=True,
+                             _save=True, _verbose=True):
         pass
 
     def _naive_picking_spots(self, _type='unique', _use_chrom_coords=True,
@@ -1394,42 +1393,42 @@ class Cell_Data():
                 self._load_from_file('cell_info');
                 if not hasattr(self, 'chrom_coords'):
                     raise AttributeError("No chrom-coords info found in cell-data and saved cell_info.");
-        if _type == 'unique':
-            # check attributes
-            if not hasattr(self, 'unique_spots'):
-                self._load_from_file('cell_info');
+            if _type == 'unique':
+                # check attributes
                 if not hasattr(self, 'unique_spots'):
-                    raise AttributeError("No unique_spots info found in cell-data and saved cell_info.");
-            if _verbose:
-                print(f"+ Pick {_type} spots for by brightness in fov:{self.fov_id}, cell:{self.cell_id}")
-            # picking spots:
-            self.picked_unique_spots=[];
-            for _cand_lst, _id in zip(self.unique_spots, self.unique_ids):
-                picked_in_im = [];
-                for _chrom_coord, _cand_spots in zip(self.chrom_coords, _cand_lst):
-                    # case 1: no fit at all:
-                    if len(_cand_spots) == 0:
-                        picked_in_im.append(np.inf*np.ones(8));
-                    else:
-                        _intensity_order = np.argsort(_cand_spots[:,0])
-                        print(_intensity_order)
-                        # PICK THE BRIGHTEST ONE
-                        _picked_spot = _cand_spots[_intensity_order[-1]];
-                        picked_in_im.append(_picked_spot);
-                # append
-                self.picked_unique_spots.append(picked_in_im);
-            if _save:
-                self._save_to_file('cell_info', _save_dic={'picked_unique_spots':self.picked_unique_spots})
-            return self.picked_unique_spots;
+                    self._load_from_file('cell_info');
+                    if not hasattr(self, 'unique_spots'):
+                        raise AttributeError("No unique_spots info found in cell-data and saved cell_info.");
+                if _verbose:
+                    print(f"+ Pick {_type} spots for by brightness in fov:{self.fov_id}, cell:{self.cell_id}")
+                # picking spots:
+                self.picked_unique_spots=[];
+                for _cand_lst, _id in zip(self.unique_spots, self.unique_ids):
+                    picked_in_im = [];
+                    for _chrom_coord, _cand_spots in zip(self.chrom_coords, _cand_lst):
+                        # case 1: no fit at all:
+                        if len(_cand_spots) == 0:
+                            picked_in_im.append(np.inf*np.ones(8));
+                        else:
+                            _intensity_order = np.argsort(_cand_spots[:,0])
+                            print(_intensity_order)
+                            # PICK THE BRIGHTEST ONE
+                            _picked_spot = _cand_spots[_intensity_order[-1]];
+                            picked_in_im.append(_picked_spot);
+                    # append
+                    self.picked_unique_spots.append(picked_in_im);
+                if _save:
+                    self._save_to_file('cell_info', _save_dic={'picked_unique_spots':self.picked_unique_spots})
+                return self.picked_unique_spots;
 
-        elif _type == 'decoded':
-            # check attributes
-            if not hasattr(self, 'decoded_spots'):
-                self._load_from_file('cell_info');
+            elif _type == 'decoded':
+                # check attributes
                 if not hasattr(self, 'decoded_spots'):
-                    raise AttributeError("No decoded_spots info found in cell-data and saved cell_info.");
-            if _verbose:
-                print(f"+ Pick {_type} spots for by brightness in fov:{self.fov_id}, cell:{self.cell_id}")
+                    self._load_from_file('cell_info');
+                    if not hasattr(self, 'decoded_spots'):
+                        raise AttributeError("No decoded_spots info found in cell-data and saved cell_info.");
+                if _verbose:
+                    print(f"+ Pick {_type} spots for by brightness in fov:{self.fov_id}, cell:{self.cell_id}")
 
 
 
