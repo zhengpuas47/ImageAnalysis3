@@ -1322,8 +1322,32 @@ class Cell_Data():
 
         return _chrom_coords
 
-    def _multi_fitting(self):
-        pass
+    def _multi_fitting(self, _type='unique',_use_chrom_coords=True, _seed_th_per=30., _max_filt_size=3,
+                       _width_zxy=[1.35,1.9,1.9], _expect_weight=1000, _min_height=100,
+                       _save=True, _verbose=True):
+        # first check Inputs
+        _allowed_types = ['unique', 'decoded'];
+        _type = _type.lower()
+        if _type not in _allowed_types:
+            raise KeyError(f"Wrong input key for _type:{_type}");
+        if _use_chrom_coords:
+            if not hasattr(self, 'chrom_coords'):
+                self._load_from_file('cell_info');
+                if not hasattr(self, 'chrom_coords'):
+
+        if _verbose:
+            print(f"+ Start multi-fitting for {_type} images")
+        # TYPE unique
+        if _type == 'unique':
+            # check attributes
+            if not hasattr(self, 'unique_ims') or not hasattr(self, 'unique_ids'):
+                print("++ no unique image info loaded to this cell, try loading:")
+                self._load_from_file('unique')
+            
+
+
+
+
 
     def _dynamic_picking_spots(self):
         pass

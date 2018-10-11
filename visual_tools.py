@@ -1517,14 +1517,15 @@ def crop_cell(im, segmentation_label, drift=None, extend_dim=20, overlap_thresho
 
 
 # get limitied points of seed within radius of a center
-def get_seed_in_distance(im, center,
-                         num_seeds=-1, seed_radius=20, gfilt_size=0, filt_size=3, th_seed_percentile=30.,
+def get_seed_in_distance(im, center, num_seeds=0, seed_radius=20,
+                         gfilt_size=0, filt_size=3, th_seed_percentile=30,
+                         dynamic=True, dynamic_iters=10,
                          hot_pix_th=0, return_h=False):
     '''Get seed points with in a distance to a center coordinate
     Inputs:
         im: image, 3D-array
         center: center coordinate to get seeds nearby, 1d array / list of 3
-        num_seed: maximum number of seeds kept within radius, -1 means keep all, int (default: -1)
+        num_seed: maximum number of seeds kept within radius, 0 means keep all, int (default: -1)
         seed_radius: distance of seed points to center, float (default: 15)
         gfilt_size: sigma of gaussian filter applied to image before seeding, float (default: 0.5)
         filt_size: getting local maximum and minimum within in size, int (default: 3)
@@ -1540,34 +1541,53 @@ def get_seed_in_distance(im, center,
     from scipy.spatial.distance import cdist
 
     # check input
-    if len(center) != 3:
+    if center and len(center) != 3:
         raise ValueError('wrong input dimension of center!');
     _dim = np.shape(im);
-    _center = np.array(center, dtype=np.float);
-    _limits = np.zeros([2,3], dtype=np.int);
-    _limits[0,1:] = np.array([np.max([x,y]) for x,y in zip(np.zeros(2), _center[1:]-seed_radius)],dtype=np.int)
-    _limits[0,0] = np.array(np.max([0, _center[0]-seed_radius/2]), dtype=np.int)
-    _limits[1,1:] = np.array([np.min([x,y]) for x,y in zip(_dim[1:], _center[1:]+seed_radius)],dtype=np.int)
-    _limits[1,0] = np.array(np.min([_dim[0], _center[0]+seed_radius/2]), dtype=np.int)
-    # crop im
-    _cim = im[_limits[0,0]:_limits[1,0],_limits[0,1]:_limits[1,1],_limits[0,2]:_limits[1,2]];
+    if center:
+        _center = np.array(center, dtype=np.float);
+        _limits = np.zeros([2,3], dtype=np.int);
+        _limits[0,1:] = np.array([np.max([x,y]) for x,y in zip(np.zeros(2), _center[1:]-seed_radius)],dtype=np.int)
+        _limits[0,0] = np.array(np.max([0, _center[0]-seed_radius/2]), dtype=np.int)
+        _limits[1,1:] = np.array([np.min([x,y]) for x,y in zip(_dim[1:], _center[1:]+seed_radius)],dtype=np.int)
+        _limits[1,0] = np.array(np.min([_dim[0], _center[0]+seed_radius/2]), dtype=np.int)
+        _local_center = _center - _limits[0];
+        # crop im
+        _cim = im[_limits[0,0]:_limits[1,0],_limits[0,1]:_limits[1,1],_limits[0,2]:_limits[1,2]];
+        # seeding threshold
+        _th_seed = scoreatpercentile(_cim, th_seed_percentile) * 0.25;
+        if dynamic:
+            _dynamic_range = np.linspace(1, 1 / dynamic_iters, dynamic_iters);
+            for _dy_ratio in _dynamic_range:
+                _dynamic_th = _th_seed * _dy_ratio;
+                # get candidate seeds
+                _cand_seeds = get_seed_points_base(_cim, gfilt_size=gfilt_size, filt_size=filt_size,
+                                                   th_seed=_dynamic_th, hot_pix_th=hot_pix_th, return_h=True);
+                # keep seed within distance
+                _distance = cdist(_cand_seeds[:3].transpose(), _local_center[np.newaxis,:3]).transpose()[0]
+                _keep = _distance < seed_radius;
+                _seeds = _cand_seeds[:,_keep]
+                _seeds[:3,:] += _limits[0][:,np.newaxis]
+                print(_seeds.shape)
+                if len(_seeds.shape) == 2 and _seeds.shape[1] >= num_seeds:
+                    break
+        else:
+            # get candidate seeds
+            _cand_seeds = get_seed_points_base(_cim, gfilt_size=gfilt_size, filt_size=filt_size,
+                                               th_seed=_th_seed, hot_pix_th=hot_pix_th, return_h=True);
 
-    _th_seed = scoreatpercentile(_cim, th_seed_percentile) * 0.25;
-    # crop image
-    # get candidate seeds
-    _cand_seeds = get_seed_points_base(_cim, gfilt_size=gfilt_size, filt_size=filt_size,
-                                       th_seed=_th_seed, hot_pix_th=hot_pix_th, return_h=True);
-    _local_center = _center - _limits[0];
-    # keep seed within distance
-    _distance = cdist(_cand_seeds[:3].transpose(), _local_center[np.newaxis,:3]).transpose()[0]
-    _keep = _distance < seed_radius;
-    _seeds = _cand_seeds[:,_keep]
-    _seeds[:3,:] += _limits[0][:,np.newaxis]
+    else:
+        _cim = im
+        # seeding threshold
+        _th_seed = scoreatpercentile(_cim, th_seed_percentile);
+        # get candidate seeds
+        _seeds = get_seed_points_base(_cim, gfilt_size=gfilt_size, filt_size=filt_size,
+                                           th_seed=_th_seed, hot_pix_th=hot_pix_th, return_h=True);
+
     # if limited seeds reported, report top n
-    if num_seeds != 0:
+    if _seeds.shape[1] > 1:
         _intensity_order = np.argsort(_seeds[-1]);
         _seeds = _seeds[:,np.flipud(_intensity_order[-num_seeds:])]
-        #_seeds = _seeds[:,_intensity_order[-num_seeds:]]
     # if not return height, remove height
     if not return_h:
         _seeds = _seeds[:3].transpose();
@@ -1648,8 +1668,8 @@ def fit_single_gaussian(data, center_zxy, width_zxy=[1.35, 1.9, 1.9], radius=10,
         return None,None
 
 # Multi gaussian fitting
-def fit_multi_gaussian(im, seeds, width_zxy = [1.35,1.9,1.9], fit_radius=5,
-                       height_sensitivity=100., expect_intensity=800., expect_weight=1000.,
+def fit_multi_gaussian(im, seeds, width_zxy = [1.35,1.9,1.9], fit_radius=10,
+                       height_sensitivity=100., expect_intensity=500., expect_weight=1000.,
                        n_max_iter=10, max_dist_th=0.25, min_height=100.0,
                        return_im=False, verbose=True):
     """ Function to fit multiple gaussians (with given prior)
