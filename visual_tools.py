@@ -13,7 +13,7 @@ _z_scale = 1.8 * 1.5 / 2;
 _x_scale = 1.;
 _y_scale = 1.;
 
-def partition_map(list_,map_):
+def partition_map(list_,map_, enumerate_all=False):
     """
     Inputs
     takes a list [e1,e2,e3,e4,e5,e6] and a map (a list of indices [0,0,1,0,1,2]).  map can be a list of symbols too. ['aa','aa','bb','aa','bb','cc']
@@ -22,7 +22,10 @@ def partition_map(list_,map_):
     """
     list__=np.array(list_)
     map__=np.array(map_)
-    return [list(list__[map__==element]) for element in np.unique(map__)]
+    if enumerate_all:
+        return [list(list__[map__==_i]) for _i in np.arange(np.min(map__), np.max(map__)+1)]
+    else:
+        return [list(list__[map__==element]) for element in np.unique(map__)]
 
 def gauss_ker(sig_xyz=[2,2,2],sxyz=16,xyz_disp=[0,0,0]):
     '''Create a gaussian kernal, return standard gaussian level within sxyz size and sigma 2,2,2'''
@@ -41,11 +44,11 @@ def add_source(im_,pos=[0,0,0],h=200,sig=[2,2,2]):
     xyz_disp = -pos_int+pos
     im_ker = gauss_ker(sig_xyz=sig,sxyz=int(np.max(sig)*20),xyz_disp=xyz_disp)
     im_ker_sz = np.array(im_ker.shape,dtype=int)
-    pos_min = pos_int-im_ker_sz/2
-    pos_max = pos_min+im_ker_sz
+    pos_min = np.array(pos_int-im_ker_sz/2, dtype=np.int)
+    pos_max = np.array(pos_min+im_ker_sz, dtype=np.int)
     im_shape = np.array(im.shape)
     def in_im(pos__):
-        pos_=np.array(pos__,dtype=int)
+        pos_=np.array(pos__,dtype=np.int)
         pos_[pos_>=im_shape]=im_shape[pos_>=im_shape]-1
         pos_[pos_<0]=0
         return pos_
@@ -53,7 +56,6 @@ def add_source(im_,pos=[0,0,0],h=200,sig=[2,2,2]):
     pos_max_ = in_im(pos_max)
     pos_min_ker = pos_min_-pos_min
     pos_max_ker = im_ker_sz+pos_max_-pos_max
-    #print zip(pos_min_ker,pos_max_ker),zip(pos_min_,pos_max_),zip(pos_min,pos_max)
     slices_ker = [slice(pm,pM)for pm,pM in zip(pos_min_ker,pos_max_ker)]
     slices_im = [slice(pm,pM)for pm,pM in zip(pos_min_,pos_max_)]
     im[slices_im]+=im_ker[slices_ker]*h
@@ -203,11 +205,11 @@ def fit_seed_points_base(im, centers, width_z=_z_scale, width_xy=_x_scale, radiu
         return ps_2
     else:
         return np.array([])
-def get_seed_points_base(im,gfilt_size=0.75,filt_size=3,th_seed=300.,hot_pix_th=0,return_h=False):
+def get_seed_points_base(im,gfilt_size=0,filt_size=3,th_seed=300.,hot_pix_th=0,return_h=False):
     im_plt = gaussian_filter(im,gfilt_size)
     max_filt = maximum_filter(im_plt,filt_size)
     min_filt = minimum_filter(im_plt,filt_size)
-    im_plt2 = (max_filt==im_plt)&(min_filt!=im_plt)
+    im_plt2 = (max_filt==im_plt) & (min_filt!=im_plt) & (min_filt!=0)
     z,x,y = np.where(im_plt2)
     keep = (max_filt[z,x,y]-min_filt[z,x,y])>th_seed#/np.array(max_filt[z,x,y],dtype=float)>0.5
     x,y,z = x[keep],y[keep],z[keep]
@@ -1516,7 +1518,7 @@ def crop_cell(im, segmentation_label, drift=None, extend_dim=20, overlap_thresho
 
 # get limitied points of seed within radius of a center
 def get_seed_in_distance(im, center,
-                         num_seeds=-1, seed_radius=15, gfilt_size=0.5, filt_size=3, th_seed_percentile=90.,
+                         num_seeds=-1, seed_radius=20, gfilt_size=0, filt_size=3, th_seed_percentile=30.,
                          hot_pix_th=0, return_h=False):
     '''Get seed points with in a distance to a center coordinate
     Inputs:
@@ -1543,11 +1545,15 @@ def get_seed_in_distance(im, center,
     _dim = np.shape(im);
     _center = np.array(center, dtype=np.float);
     _limits = np.zeros([2,3], dtype=np.int);
-    _limits[0] = np.array([np.max([x,y]) for x,y in zip(np.zeros(3), _center-seed_radius)])
-    _limits[1] = np.array([np.min([x,y]) for x,y in zip(_dim, _center+seed_radius)])
-    _th_seed = scoreatpercentile(im, th_seed_percentile);
-    # crop image
+    _limits[0,1:] = np.array([np.max([x,y]) for x,y in zip(np.zeros(2), _center[1:]-seed_radius)],dtype=np.int)
+    _limits[0,0] = np.array(np.max([0, _center[0]-seed_radius/2]), dtype=np.int)
+    _limits[1,1:] = np.array([np.min([x,y]) for x,y in zip(_dim[1:], _center[1:]+seed_radius)],dtype=np.int)
+    _limits[1,0] = np.array(np.min([_dim[0], _center[0]+seed_radius/2]), dtype=np.int)
+    # crop im
     _cim = im[_limits[0,0]:_limits[1,0],_limits[0,1]:_limits[1,1],_limits[0,2]:_limits[1,2]];
+
+    _th_seed = scoreatpercentile(_cim, th_seed_percentile) * 0.25;
+    # crop image
     # get candidate seeds
     _cand_seeds = get_seed_points_base(_cim, gfilt_size=gfilt_size, filt_size=filt_size,
                                        th_seed=_th_seed, hot_pix_th=hot_pix_th, return_h=True);
@@ -1558,17 +1564,19 @@ def get_seed_in_distance(im, center,
     _seeds = _cand_seeds[:,_keep]
     _seeds[:3,:] += _limits[0][:,np.newaxis]
     # if limited seeds reported, report top n
-    if num_seeds > 0:
+    if num_seeds != 0:
         _intensity_order = np.argsort(_seeds[-1]);
         _seeds = _seeds[:,np.flipud(_intensity_order[-num_seeds:])]
+        #_seeds = _seeds[:,_intensity_order[-num_seeds:]]
     # if not return height, remove height
     if not return_h:
-        _seeds = _seeds[:3];
-
+        _seeds = _seeds[:3].transpose();
+    else:
+        _seeds = _seeds[:4].transpose();
     return _seeds
 
 # fit single gaussian with varying width given prior
-def fit_single_gaussian(data, center_zxy, width_zxy=[1.35, 1., 1.], radius=10, n_approx=10,
+def fit_single_gaussian(data, center_zxy, width_zxy=[1.35, 1.9, 1.9], radius=10, n_approx=10,
                         height_sensitivity=100.,
                         expect_intensity=800.,
                         expect_weight = 1000. ):
@@ -1640,9 +1648,10 @@ def fit_single_gaussian(data, center_zxy, width_zxy=[1.35, 1., 1.], radius=10, n
         return None,None
 
 # Multi gaussian fitting
-def fit_multi_gaussian(im, seeds, width_zxy = [1.35,1,1], fit_radius=5,
+def fit_multi_gaussian(im, seeds, width_zxy = [1.35,1.9,1.9], fit_radius=5,
                        height_sensitivity=100., expect_intensity=800., expect_weight=1000.,
-                       n_max_iter = 10, max_dist_th=0.25, return_im=False, verbose=True):
+                       n_max_iter=10, max_dist_th=0.25, min_height=100.0,
+                       return_im=False, verbose=True):
     """ Function to fit multiple gaussians (with given prior)
     Inputs:
         im: image, 3d-array
@@ -1654,6 +1663,7 @@ def fit_multi_gaussian(im, seeds, width_zxy = [1.35,1,1], fit_radius=5,
         expect_weight: L1 norm penalty function applied to widths, float (default: 1000)
         n_max_iter: max iteration count for re-fit existing points, int (default: 10)
         max_dist_th: maximum allowed distance between original fit and re-fit, float (default: 0.25)
+        min_height: miminal heights required for fitted spots, float (default: 100.)
         return_im: whether return images of every single fitting, bool (default: False)
         verbose: whether say something, bool (default: True)
     Outputs:
@@ -1662,9 +1672,10 @@ def fit_multi_gaussian(im, seeds, width_zxy = [1.35,1,1], fit_radius=5,
         the gaussian parameters of a 2D distribution found by a fit"""
 
     if verbose:
-        print("Fitting:" +str(len(seeds[0]))+" points")
+        print(f"-- Multi-Fitting:{len(seeds)} points")
     # transform seeds input
-    _seeds = seeds.transpose() # fitting kernels provided by previous seeding
+    #_seeds = seeds.transpose() # fitting kernels provided by previous seeding
+    _seeds = seeds
     if len(_seeds) > 0:
         # initialize
         ps = []
@@ -1673,7 +1684,7 @@ def fit_multi_gaussian(im, seeds, width_zxy = [1.35,1,1], fit_radius=5,
 
         # loop through seeds
         for _seed in _seeds:
-            p, success = fit_single_gaussian(im_subtr,_seed,
+            p, success = fit_single_gaussian(im_subtr,_seed[:3],
                                           height_sensitivity=height_sensitivity,
                                           expect_intensity=expect_intensity,
                                           expect_weight=expect_weight,
@@ -1696,26 +1707,34 @@ def fit_multi_gaussian(im, seeds, width_zxy = [1.35,1,1], fit_radius=5,
             for p_1 in ps_1:
                 _seed = p_1[1:4]
                 im_add = plus_source(im_add,p_1)
-                p,success = fit_single_gaussian(im_subtr,_seed,
+                p,success = fit_single_gaussian(im_add,_seed,
                                               height_sensitivity=height_sensitivity,
                                               expect_intensity=expect_intensity,
                                               expect_weight=expect_weight,
                                               radius=fit_radius,
                                               width_zxy=width_zxy)
                 if p is not None:
+                    #print('recheck',p[1:4], success)
                     ps.append(p)
                     ps_1_rem.append(p_1)
                     im_add = subtract_source(im_add,p)
             ps_2=np.array(ps)
             ps_1_rem=np.array(ps_1_rem)
+            #print(len(ps_2), len(ps_1_rem))
             dif = ps_1_rem[:,1:4]-ps_2[:,1:4]
             max_dist = np.max(np.sum(dif**2,axis=-1))
             n_iter+=1
             if n_iter>n_max_iter:
                 break
+
+        _kept_fits = ps_2;
+        if len(_kept_fits) > 1:
+            _intensity_order = np.argsort(_kept_fits[:,0]);
+            _kept_fits = _kept_fits[np.flipud(_intensity_order),:]
+        _kept_fits = np.array([_ft for _ft in _kept_fits if _ft[0]>min_height])
         if return_im:
-            return ps_2, sub_ims
+            return _kept_fits, sub_ims
         else:
-            return ps_2
+            return _kept_fits
     else:
         return np.array([])

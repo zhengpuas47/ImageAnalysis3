@@ -113,6 +113,8 @@ class Cell_List():
     def __str__(self):
         if hasattr(self, 'data_folder'):
             print("Data folder:", self.data_folder);
+        if hasattr(self, 'cells'):
+            print("Number of cells in this list:", len(self.cells));
         return 'test'
     # allow iteration of Cell_List
     def __iter__(self):
@@ -273,7 +275,8 @@ class Cell_List():
 
     def _create_cell(self, _parameter, _load_info=True,
                      _load_segmentation=True, _load_drift=True,
-                     _save=True, _append_cell_list=False):
+                     _load_file=True,
+                     _save=False, _append_cell_list=False):
         """Function to create one cell_data object"""
         _cell = Cell_Data(_parameter, _load_all_attr=True)
         if _load_info:
@@ -283,6 +286,9 @@ class Cell_List():
             _cell._load_segmentation();
         if _load_drift:
             _cell._load_drift();
+        if _load_file:
+            if os.path.isfile(os.path.join(_cell.save_folder, 'cell_info.pkl')):
+                _cell._load_from_file('cell_info', _overwrite=False, _verbose=True)
         if _save:
             _cell._save_to_file('cell_info')
 
@@ -373,7 +379,7 @@ class Cell_List():
                   'map_folder': self.map_folder,
                   'drift': _fov_drift,
                   } for _cell_id in _cell_ids];
-        _args = [(_p, True, True, True, True) for _p in _params]
+        _args = [(_p, True, True, True, True, False) for _p in _params]
         _cell_pool = multiprocessing.Pool(_num_threads)
         _cells = _cell_pool.starmap(self._create_cell, _args, chunksize=1)
         _cell_pool.close();
@@ -446,6 +452,10 @@ class Cell_List():
                                    _num_threads=self.num_threads, _extend_dim=20,
                                    _load_in_ram=_load_in_ram, _load_annotated_only=_load_annotated_only,
                                    _save=_save, _overwrite=_overwrite_cell_info, _verbose=_verbose);
+        # save extra cell_info
+        if _save:
+            for _cell in self.cells:
+                _cell._save_to_file('cell_info', _overwrite=_overwrite_cell_info, _verbose=_verbose)
 
     def _load_cells_from_files(self, _type='all', _fov_id=None, _overwrite_cells=False, _verbose=True):
         """Function to load cells from existing files"""
@@ -460,15 +470,10 @@ class Cell_List():
             _cell._load_from_file(_type=_type, _save_folder=None, _load_attrs=[],
                                     _overwrite=_overwrite_cells, _verbose=_verbose)
 
-
-
-
-
-
     def _get_chromosomes_for_cells(self, _source='combo', _max_count= 30,
                                    _gaussian_size=2, _cap_percentile=1, _seed_dim=3,
                                    _th_percentile=99.5, _min_obj_size=125,
-                                   _coord_filename='chrom_coords.pkl', _verbose=True):
+                                   _coord_filename='chrom_coords.pkl', _overwrite=False, _verbose=True):
         """Function to generate chromosome and chromosome coordinates, open a picker to correct for it
         Inputs:
             _source: image source to generate chromosome image, combo requires "combo_gorups",
@@ -479,46 +484,101 @@ class Cell_List():
         # check attribute
         if not hasattr(self, 'cells') or len(self.cells) == 0:
             raise ValueError('No cells are generated in this cell list!');
+        if _verbose:
+            print("+ Generate chromosomes for cells.")
         # chromsome savefile #
-        _chrom_savefile = os.path.join(self.temp_folder, _coord_filename);
+        _fov_ids = [_cell.fov_id for _cell in self.cells];
+        _fov_ids = np.unique(_fov_ids);
+        _chrom_savefile = os.path.join(self.temp_folder, _coord_filename.replace('.pkl', str(_fov_ids)+'.pkl'));
         # loop through cells to generate chromosome
         _chrom_ims = [];
+        _chrom_dims = [];
         _coord_dic = {'coords': [],
                       'class_ids': [],
                       'pfits':{},
                       'dec_text':{},
                       }; # initialize _coord_dic for picking
         for _i, _cell in enumerate(self.cells):
-            _cim = _cell._generate_chromosome_image(_source=_source, _max_count=_max_count, _verbose=_verbose)
+            if hasattr(_cell, 'chrom_im') and not _overwrite:
+                _cim = _cell.chrom_im;
+            else:
+                _cim = _cell._generate_chromosome_image(_source=_source, _max_count=_max_count, _verbose=_verbose)
+                _cell.chrom_im = _cim
             _chrom_ims.append(_cim);
-            _chrom_label, _chrom_coords = _cell._identify_chromosomes(_gaussian_size=_gaussian_size, _cap_percentile=_cap_percentile,
-                                                                      _seed_dim=_seed_dim, _th_percentile=_th_percentile,
-                                                                      _min_obj_size=_min_obj_size,_verbose=_verbose)
+            _chrom_dims.append(np.array(np.shape(_cim)));
+            if hasattr(_cell, 'chrom_coords') and not _overwrite:
+                _chrom_coords = _cell.chrom_coords;
+            else:
+                _, _chrom_coords = _cell._identify_chromosomes(_gaussian_size=_gaussian_size, _cap_percentile=_cap_percentile,
+                                                               _seed_dim=_seed_dim, _th_percentile=_th_percentile,
+                                                               _min_obj_size=_min_obj_size,_verbose=_verbose)
             # build chrom_coord_dic
             _coord_dic['coords'] += [np.flipud(_coord) for _coord in _chrom_coords]
-            _coord_dic['class_ids'] += list(np.ones(len(self.chrom_coords),dtype=np.uint8)*int(_i))
+            _coord_dic['class_ids'] += list(np.ones(len(_chrom_coords),dtype=np.uint8)*int(_i))
+        # create existing coord_dic file
+        if _verbose:
+            print("++ dumping existing info to file:", _chrom_savefile);
+        pickle.dump(_coord_dic, open(_chrom_savefile, 'wb'));
+        # convert to the same dimension
+        _max_dim = np.max(np.concatenate([_d[np.newaxis,:] for _d in _chrom_dims]), axis=0)
+        if _verbose:
+            print("Maximum dimension for these images:", _max_dim)
+        _converted_ims = [np.ones(_max_dim) * np.min(_cim) for _cim in _chrom_ims];
+        for _im, _d, _cim in zip(_converted_ims, _chrom_dims, _chrom_ims):
+            _im[:_d[0], :_d[1],:_d[2]] = _cim
 
-        _chrom_viewer = visual_tools.imshow_mark_3d_v2(_chrom_ims, image_names=['chromosome'], save_file=_chrom_savefile, given_dic=_coord_dic)
+        _chrom_viewer = visual_tools.imshow_mark_3d_v2(_converted_ims, image_names=[f"fov:{_cell.fov_id}, cell:{_cell.cell_id}" for _cell in self.cells],
+                                                       save_file=_chrom_savefile)
+        _chrom_viewer.load_coords();
+
         return _chrom_viewer
 
     def _update_chromosomes_for_cells(self, _coord_filename='chrom_coords.pkl', _save=True, _verbose=True):
         # check attribute
         if not hasattr(self, 'cells') or len(self.cells) == 0:
             raise ValueError('No cells are generated in this cell list!');
+        if _verbose:
+            print("+ Update manually picked chromosomes to cells");
         # chromsome savefile #
-        _chrom_savefile = os.path.join(self.temp_folder, _coord_filename);
+        _fov_ids = [_cell.fov_id for _cell in self.cells];
+        _fov_ids = np.unique(_fov_ids);
+        _chrom_savefile = os.path.join(self.temp_folder, _coord_filename.replace('.pkl', str(_fov_ids)+'.pkl'));
+        # load from chrom-coord and partition it
         _coord_dic = pickle.load(open(_chrom_savefile, 'rb'));
-        _coord_list = visual_tools.partition_map(_coord_dic['coords'], _coord_dic['class_ids']);
-        if len(_coord_list) != len(self.cells):
+        _coord_list = visual_tools.partition_map(_coord_dic['coords'], _coord_dic['class_ids'], enumerate_all=True);
+        if len(_coord_list) > len(self.cells):
             raise ValueError(f'Number of cells doesnot match between cell-list and {_chrom_savefile}')
+        elif len(_coord_list) < len(self.cells):
+            print("++ fewer picked chromosome sets discovered than number of cells, append with empty lists.")
+            for _i in range(len(self.cells) - len(_coord_list)):
+                _coord_list.append([]);
+        # save to attribute first
         for _cell, _coords in zip(self.cells, _coord_list):
             _chrom_coords = [np.flipud(_coord) for _coord in _coords];
             _cell.chrom_coords = _chrom_coords;
+            if _verbose:
+                print(f"++ matching {len(_chrom_coords)} chromosomes for fov:{_cell.fov_id}, cell:{_cell.cell_id}")
+        # then update files if specified
             if _save:
-                _cell._save_to_file('cell_info');
-                _cell._save_to_file('combo', _overwrite=True);
+                _cell._save_to_file('cell_info', _verbose=_verbose);
+                if hasattr(_cell, 'combo_groups'):
+                    _cell._save_to_file('combo', _overwrite=True, _verbose=_verbose);
+    def _remove_temp_fov(self, _fov_id, _temp_marker='corrected.npy', _verbose=True):
+        """Remove all temp files for given fov """
+        _temp_fls = glob.glob(os.path.join(self.temp_folder, '*'))
+        if _verbose:
+            print(f"+ Remove temp file for fov:{_fov_id}")
+        for _fl in _temp_fls:
+            if os.path.isfile(_fl) and _temp_marker in _fl and self.fovs[_fov_id].replace('.dax', '') in _fl:
+                print("++ removing temp file:", os.path.basename(_fl))
+                os.remove(_fl)
 
 
+    def _load_decoded_for_cells(self):
+        pass
+
+    def _spot_finding_for_cells(self):
+        pass
 
 
 class Cell_Data():
@@ -714,7 +774,7 @@ class Cell_Data():
         return self.drift
 
     def _load_images(self, _type, _splitted_ims=None,
-                     _num_threads=5, _extend_dim=20,
+                     _num_threads=5, _extend_dim=10,
                      _load_in_ram=False, _load_annotated_only=True,
                      _illumination_correction=True, _chromatic_correction=True,
                      _save=True, _overwrite=False, _verbose=False):
@@ -871,7 +931,7 @@ class Cell_Data():
                 # loop through groups in each color
                 for _group_id, (_hyb_fds, _matrix) in enumerate(zip(_encoding_info['names'],_encoding_info['matrices'])):
                     if _verbose:
-                        print("-- loading images for group:", _hyb_fds)
+                        print("-- cropping images for group:", _hyb_fds)
                     _combo_images = [];
                     for _hyb_fd in _hyb_fds:
                         # check whether this matches color_usage
@@ -892,9 +952,13 @@ class Cell_Data():
                             # cropping
                             _cropped_im = visual_tools.crop_cell(_raw_im, self.segmentation_label,
                                                                  drift=self.drift[_img_name])[0]
+                            _cropped_im = corrections.Z_Shift_Correction(_cropped_im, verbose=False);
                             # store this image
                             _combo_images.append(_cropped_im);
+                            _cropped_im=None
                     # create a combo group
+                    # special treatment to combo_images:
+
                     _group = Encoding_Group(_combo_images, _hyb_fds, _matrix, self.save_folder,
                                             self.fov_id, self.cell_id, _channel, _group_id);
                     _combo_groups.append(_group);
@@ -925,11 +989,11 @@ class Cell_Data():
         if not os.path.exists(_save_folder):
             os.makedirs(_save_folder);
 
-        if _type=='all' or type=='cell_info':
+        if _type=='all' or _type =='cell_info':
             # save file full name
             _savefile = _save_folder + os.sep + 'cell_info.pkl';
             if _verbose:
-                print("- Save cell_info:")
+                print("- Save cell_info to:", _savefile)
             if os.path.isfile(_savefile) and not _overwrite:
                 if _verbose:
                     print("-- loading existing info from file:", _savefile);
@@ -984,7 +1048,7 @@ class Cell_Data():
                 if hasattr(_group, 'readouts'):
                     _combo_dic['readouts'] = np.array(_group.readouts);
                 # append chromosome info if exists
-                if hasattr(_group, 'chrom_coords'):
+                if hasattr(self, 'chrom_coords'):
                     _combo_dic['chrom_coords'] = self.chrom_coords
                 # save
                 if _verbose:
@@ -1025,7 +1089,7 @@ class Cell_Data():
                 print("-- saving unique to:", _unique_savefile)
             np.savez_compressed(_unique_savefile, **_unique_dic)
 
-    def _load_from_file(self, _type='all', _save_folder=None, _load_attrs=[],
+    def _load_from_file(self, _type='all', _save_folder=None, _decoded_flag=None, _load_attrs=[],
                         _overwrite=False, _verbose=True):
         """ Function to load cell_data from existing npz and pickle files
         Inputs:
@@ -1038,7 +1102,7 @@ class Cell_Data():
         """
         # check input
         _type=str(_type).lower();
-        if _type not in ['all', 'unique', 'combo', 'decoded']:
+        if _type not in ['all', 'cell_info', 'unique', 'combo', 'decoded']:
             raise ValueError("Wrong _type kwd given!")
         if not _save_folder and not hasattr(self, 'save_folder'):
             raise ValueError('Save folder info not given!');
@@ -1074,8 +1138,12 @@ class Cell_Data():
                     _ims = list(handle['observation']);
                     _matrix = handle['encoding']
                     _names = handle['names'];
-                    if 'readout' in handle:
+                    if 'readout' in handle.keys():
                         _readouts = handle['readouts']
+                    if 'chrom_coords' in handle.keys():
+                        _chrom_coords = handle['chrom_coords']
+                        if not hasattr(self, 'chrom_coords'):
+                            self.chrom_coords = _chrom_coords;
                 _name_info = _combo_file.split(os.sep);
                 _fov_id = [int(_i.split('-')[-1]) for _i in _name_info if "fov" in _i][0]
                 _cell_id = [int(_i.split('-')[-1]) for _i in _name_info if "cell" in _i][0]
@@ -1128,7 +1196,15 @@ class Cell_Data():
                     self.unique_ims[self.unique_ids.index(int(_uid))] = _uim;
 
         if _type == 'all' or _type == 'decoded':
-            pass # not created yet
+            if not _decoded_flag and _type == 'decoded':
+                raise ValueError("Kwd _decoded_flag not given, exit!");
+            elif not _decoded_flag:
+                print("Kwd _decoded_flag not given, skip this step.");
+                # load existing combo files
+                _raw_combo_fl = "rounds.npz"
+                _combo_files = glob.glob(os.path.join(_save_folder, "group-*", "channel-*", _raw_combo_fl));
+
+            # look for decoded _results
 
     def _generate_chromosome_image(self, _source='combo', _max_count= 30, _verbose=False):
         """Generate chromosome from existing combo / unique images"""
@@ -1227,7 +1303,8 @@ class Cell_Data():
                       'dec_text':{},
                       };
         #pickle.dump(_coord_dic, open(_chrom_savefile, 'wb'));
-        _viewer = visual_tools.imshow_mark_3d_v2([self.chrom_im], image_names=['chromosome'], save_file=_chrom_savefile, given_dic=_coord_dic)
+        _viewer = visual_tools.imshow_mark_3d_v2([self.chrom_im], image_names=['chromosome'],
+                                                 save_file=_chrom_savefile, given_dic=_coord_dic)
         return _viewer
 
     def _update_chromosome_from_file(self, _save_folder=None, _save_fl='chrom_coord.pkl', _verbose=True):
@@ -1244,6 +1321,15 @@ class Cell_Data():
         self.chrom_coords = _chrom_coords;
 
         return _chrom_coords
+
+    def _multi_fitting(self):
+        pass
+
+    def _dynamic_picking_spots(self):
+        pass
+
+    def _naive_picking_spots(self):
+        pass
 
 class Encoding_Group():
     """defined class for each group of encoded images"""

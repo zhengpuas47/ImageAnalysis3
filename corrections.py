@@ -557,11 +557,11 @@ def Chromatic_abbrevation_correction(ims, correction_channel,
     for _im in _ims:
 
         if len(_im.shape) == 2: # if 2D
-            _cim = map_coordinates(_im, _coord.reshape(2,-1))
+            _cim = map_coordinates(_im, _coord.reshape(2,-1), mode='nearest')
             _cim = _cim.reshape(_im.shape)
             _corr_ims.append(_cim.astype(np.uint16))
         else: # else, 3D
-            _cim = map_coordinates(_im, _coord.reshape(3,-1))
+            _cim = map_coordinates(_im, _coord.reshape(3,-1), mode='nearest')
             _cim = _cim.reshape(_im.shape)
             _corr_ims.append(_cim.astype(np.uint16))
 
@@ -629,7 +629,8 @@ def fast_translate(im,trans):
 	im_base_0[(im_zmin-zmin):(im_zmax-zmin),(im_xmin-xmin):(im_xmax-xmin),(im_ymin-ymin):(im_ymax-ymin)]=im[im_zmin:im_zmax,im_xmin:im_xmax,im_ymin:im_ymax]
 	return im_base_0
 
-
+def Remove_Constant_Junk(ims, std_th_ratio=6, median_th_ratio=3):
+    pass
 
 # correct for illumination _shifts across z layers
 def Z_Shift_Correction(im, style='mean', normalization=False, verbose=False):
@@ -652,14 +653,17 @@ def Z_Shift_Correction(im, style='mean', normalization=False, verbose=False):
         _norm_factors = _interpolation;
     # loop through layers
     for _i, _lyr in enumerate(im):
-        _nim[_i] = _lyr / _norm_factors[_i];
+        if _norm_factors[_i] > 0:
+            _nim[_i] = _lyr / _norm_factors[_i];
+        else:
+            _nim[_i] = _lyr / np.mean(im)
     # if not normalization
     if not normalization:
         _nim = _nim * np.mean(im);
 
     return _nim.astype(np.uint16)
 
-def Remove_Hot_Pixels(im, hot_pix_th=0.33, interpolation_style='nearest', hot_th=9, verbose=False):
+def Remove_Hot_Pixels(im, hot_pix_th=0.50, interpolation_style='nearest', hot_th=6, verbose=False):
     '''Function to remove hot pixels by interpolation in each single layer'''
     if verbose:
         print("- Remove hot pixels")
