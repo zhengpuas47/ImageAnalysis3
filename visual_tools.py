@@ -1518,7 +1518,7 @@ def crop_cell(im, segmentation_label, drift=None, extend_dim=20, overlap_thresho
 
 # get limitied points of seed within radius of a center
 def get_seed_in_distance(im, center, num_seeds=0, seed_radius=20,
-                         gfilt_size=0, filt_size=3, th_seed_percentile=30,
+                         gfilt_size=0, filt_size=3, th_seed_percentile=50,
                          dynamic=True, dynamic_iters=10,
                          hot_pix_th=0, return_h=False):
     '''Get seed points with in a distance to a center coordinate
@@ -1541,10 +1541,10 @@ def get_seed_in_distance(im, center, num_seeds=0, seed_radius=20,
     from scipy.spatial.distance import cdist
 
     # check input
-    if center and len(center) != 3:
+    if center is not None and len(center) != 3:
         raise ValueError('wrong input dimension of center!');
     _dim = np.shape(im);
-    if center:
+    if center is not None:
         _center = np.array(center, dtype=np.float);
         _limits = np.zeros([2,3], dtype=np.int);
         _limits[0,1:] = np.array([np.max([x,y]) for x,y in zip(np.zeros(2), _center[1:]-seed_radius)],dtype=np.int)
@@ -1555,7 +1555,7 @@ def get_seed_in_distance(im, center, num_seeds=0, seed_radius=20,
         # crop im
         _cim = im[_limits[0,0]:_limits[1,0],_limits[0,1]:_limits[1,1],_limits[0,2]:_limits[1,2]];
         # seeding threshold
-        _th_seed = scoreatpercentile(_cim, th_seed_percentile) * 0.25;
+        _th_seed = scoreatpercentile(_cim, th_seed_percentile) * 0.5;
         if dynamic:
             _dynamic_range = np.linspace(1, 1 / dynamic_iters, dynamic_iters);
             for _dy_ratio in _dynamic_range:
@@ -1568,7 +1568,6 @@ def get_seed_in_distance(im, center, num_seeds=0, seed_radius=20,
                 _keep = _distance < seed_radius;
                 _seeds = _cand_seeds[:,_keep]
                 _seeds[:3,:] += _limits[0][:,np.newaxis]
-                print(_seeds.shape)
                 if len(_seeds.shape) == 2 and _seeds.shape[1] >= num_seeds:
                     break
         else:

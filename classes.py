@@ -1322,8 +1322,8 @@ class Cell_Data():
 
         return _chrom_coords
 
-    def _multi_fitting(self, _type='unique',_use_chrom_coords=True, _seed_th_per=30., _max_filt_size=3,
-                       _width_zxy=[1.35,1.9,1.9], _expect_weight=1000, _min_height=100,
+    def _multi_fitting(self, _type='unique',_use_chrom_coords=True, _seed_th_per=50., _max_filt_size=3,
+                       _width_zxy=[1.35,1.9,1.9], _expect_weight=1000, _min_height=100, _max_iter=10,
                        _save=True, _verbose=True):
         # first check Inputs
         _allowed_types = ['unique', 'decoded'];
@@ -1334,7 +1334,7 @@ class Cell_Data():
             if not hasattr(self, 'chrom_coords'):
                 self._load_from_file('cell_info');
                 if not hasattr(self, 'chrom_coords'):
-
+                    raise AttributeError("No chrom-coords info found in cell-data and saved cell_info.");
         if _verbose:
             print(f"+ Start multi-fitting for {_type} images")
         # TYPE unique
@@ -1342,8 +1342,25 @@ class Cell_Data():
             # check attributes
             if not hasattr(self, 'unique_ims') or not hasattr(self, 'unique_ids'):
                 print("++ no unique image info loaded to this cell, try loading:")
-                self._load_from_file('unique')
-            
+                self._load_from_file('unique', _overwrite=False, _verbose=_verbose)
+            # initialize a unique spot list
+            self.unique_spots = [];
+            for _im, _id in zip(self.unique_ims, self.unique_ids):
+                if _verbose:
+                    print(f"++ fitting for fov:{self.fov_id}, cell:{self.cell_id}, region:{_id}");
+                _spots_for_chrom = [];
+                for _chrom_coord in self.chrom_coords:
+                    _seeds = visual_tools.get_seed_in_distance(_im, _chrom_coord, num_seeds=0,
+                                            filt_size=_max_filt_size, th_seed_percentile=_seed_th_per,
+                                            dynamic=True, return_h=False);
+                    _fits = visual_tools.fit_multi_gaussian(_im, _seeds, width_zxy=_width_zxy,
+                                            expect_weight=_expect_weight, min_height=_min_height,
+                                            n_max_iter=_max_iter)
+                    _spots_for_chrom.append(_fits);
+                # append
+                self.unique_spots.append(_spots_for_chrom);
+
+
 
 
 
