@@ -9,10 +9,14 @@ from scipy import ndimage
 from scipy import stats
 from skimage import morphology
 from skimage.segmentation import random_walker
+import matplotlib
+from scipy.spatial.distance import pdist,squareform
+
 
 # global variables
 _correction_folder=r'E:\Users\puzheng\Documents\Corrections'
 _temp_folder = r'I:\Pu_temp'
+_distance_zxy = np.array([200, 106, 106]);
 
 class Cell_List():
     """
@@ -82,6 +86,8 @@ class Cell_List():
 
         ## list to store Cell_data
         self.cells = [];
+        # distance from pixel to nm:
+        self.distance_zxy = _distance_zxy;
 
         ## chosen field of views
         if len(_chosen_fovs) == 0: # no specification
@@ -378,6 +384,7 @@ class Cell_List():
                   'drift_folder': self.drift_folder,
                   'map_folder': self.map_folder,
                   'drift': _fov_drift,
+                  'distance_zxy' : self.distance_zxy,
                   } for _cell_id in _cell_ids];
         _args = [(_p, True, True, True, True, False) for _p in _params]
         _cell_pool = multiprocessing.Pool(_num_threads)
@@ -563,6 +570,7 @@ class Cell_List():
                 _cell._save_to_file('cell_info', _verbose=_verbose);
                 if hasattr(_cell, 'combo_groups'):
                     _cell._save_to_file('combo', _overwrite=True, _verbose=_verbose);
+
     def _remove_temp_fov(self, _fov_id, _temp_marker='corrected.npy', _verbose=True):
         """Remove all temp files for given fov """
         _temp_fls = glob.glob(os.path.join(self.temp_folder, '*'))
@@ -572,7 +580,6 @@ class Cell_List():
             if os.path.isfile(_fl) and _temp_marker in _fl and self.fovs[_fov_id].replace('.dax', '') in _fl:
                 print("++ removing temp file:", os.path.basename(_fl))
                 os.remove(_fl)
-
 
     def _load_decoded_for_cells(self):
         pass
@@ -615,6 +622,7 @@ class Cell_Data():
         # fov id and cell id given
         self.fov_id = int(parameters['fov_id'])
         self.cell_id = int(parameters['cell_id'])
+
         # segmentation_folder, save_folder, correction_folder,map_folder
         if 'segmentation_folder' in parameters:
             self.segmentation_folder = parameters['segmentation_folder'];
@@ -636,6 +644,8 @@ class Cell_Data():
             self.map_folder = parameters['map_folder'];
         else:
             self.map_folder = self.analysis_folder+os.sep+'distmap'
+        # distance zxy
+        self.distance_zxy = _distance_zxy;
         # if loading all remaining attr in parameter
         if _load_all_attr:
             for _key, _value in parameters.items():
@@ -1294,7 +1304,9 @@ class Cell_Data():
                 _save_folder = self.save_folder;
             else:
                 raise ValueError('save_folder not given in keys and attributes.')
-        _chrom_savefile = _save_folder + os.sep + _save_fl;
+
+        _chrom_savefile = os.path.join(_save_folder,
+                                _save_fl.replace('.pkl', '_'+str(self.fov_id)+'_'+str(self.cell_id)+'.pkl'))
         if not hasattr(self, 'chrom_coords'):
             raise ValueError("chromosome coordinates doesnot exist in attributes.")
         _coord_dic = {'coords': [np.flipud(_coord) for _coord in self.chrom_coords],
@@ -1313,8 +1325,8 @@ class Cell_Data():
                 _save_folder = self.save_folder;
             else:
                 raise ValueError('save_folder not given in keys and attributes.')
-        _chrom_savefile = _save_folder + os.sep + _save_fl;
-        _coord_dic = pickle.load(open(_chrom_savefile, 'rb'));
+        _chrom_savefile = os.path.join(_save_folder,
+                                _save_fl.replace('.pkl', '_'+str(self.fov_id)+'_'+str(self.cell_id)+'.pkl'))        _coord_dic = pickle.load(open(_chrom_savefile, 'rb'));
         _chrom_coords = [np.flipud(_coord) for _coord in _coord_dic['coords']];
         if _verbose:
             print(f"-- {len(_chrom_coords)} loaded")
@@ -1359,18 +1371,67 @@ class Cell_Data():
                     _spots_for_chrom.append(_fits);
                 # append
                 self.unique_spots.append(_spots_for_chrom);
+            ## save
+            if _save:
+                # save unique_spots to cell_info.pkl
+                self._save_to_file('cell_info',_save_dic={'unique_spots':self.unique_spots})
 
+            return self.unique_spots
 
-
-
-
-
+        elif _type == 'decoded':
+            pass
+            #NOT FINISHED YET
 
     def _dynamic_picking_spots(self):
         pass
 
-    def _naive_picking_spots(self):
-        pass
+    def _naive_picking_spots(self, _type='unique', _use_chrom_coords=True,
+                             _save=True, _verbose=True):
+        """Given selected spots, do picking by the brightness
+        Input:"""
+        if _use_chrom_coords:
+            if not hasattr(self, 'chrom_coords'):
+                self._load_from_file('cell_info');
+                if not hasattr(self, 'chrom_coords'):
+                    raise AttributeError("No chrom-coords info found in cell-data and saved cell_info.");
+        if _type == 'unique':
+            # check attributes
+            if not hasattr(self, 'unique_spots'):
+                self._load_from_file('cell_info');
+                if not hasattr(self, 'unique_spots'):
+                    raise AttributeError("No unique_spots info found in cell-data and saved cell_info.");
+            if _verbose:
+                print(f"+ Pick {_type} spots for by brightness in fov:{self.fov_id}, cell:{self.cell_id}")
+            # picking spots:
+            self.picked_unique_spots=[];
+            for _cand_lst, _id in zip(self.unique_spots, self.unique_ids):
+                picked_in_im = [];
+                for _chrom_coord, _cand_spots in zip(self.chrom_coords, _cand_lst):
+                    # case 1: no fit at all:
+                    if len(_cand_spots) == 0:
+                        picked_in_im.append(np.inf*np.ones(8));
+                    else:
+                        _intensity_order = np.argsort(_cand_spots[:,0])
+                        print(_intensity_order)
+                        # PICK THE BRIGHTEST ONE
+                        _picked_spot = _cand_spots[_intensity_order[-1]];
+                        picked_in_im.append(_picked_spot);
+                # append
+                self.picked_unique_spots.append(picked_in_im);
+            if _save:
+                self._save_to_file('cell_info', _save_dic={'picked_unique_spots':self.picked_unique_spots})
+            return self.picked_unique_spots;
+
+        elif _type == 'decoded':
+            # check attributes
+            if not hasattr(self, 'decoded_spots'):
+                self._load_from_file('cell_info');
+                if not hasattr(self, 'decoded_spots'):
+                    raise AttributeError("No decoded_spots info found in cell-data and saved cell_info.");
+            if _verbose:
+                print(f"+ Pick {_type} spots for by brightness in fov:{self.fov_id}, cell:{self.cell_id}")
+
+
 
 class Encoding_Group():
     """defined class for each group of encoded images"""
