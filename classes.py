@@ -1,6 +1,5 @@
 import sys,glob,os,time, copy
 import numpy as np
-sys.path.append(r'C:\Users\puzheng\Documents\python-functions\python-functions-library')
 import pickle as pickle
 import matplotlib.pyplot as plt
 from . import get_img_info, corrections, visual_tools, analysis
@@ -583,7 +582,9 @@ class Cell_List():
     def _load_decoded_for_cells(self):
         pass
 
-    def _spot_finding_for_cells(self):
+    def _spot_finding_for_cells(self, _type='unique',_use_chrom_coords=True, _seed_th_per=50, _max_filt_size=3,
+                        _expect_weight=1000, _min_height=100, _max_iter=10, _save=True, _verbose=True):
+        fit_pool = 0
         pass
 
 
@@ -645,6 +646,15 @@ class Cell_Data():
             self.map_folder = self.analysis_folder+os.sep+'distmap'
         # distance zxy
         self.distance_zxy = _distance_zxy;
+        # load color info
+        # annotated folders
+        self.annotated_folders = []
+        for _hyb_fd in self.color_dic:
+            _matches = [_fd for _fd in self.folders if _hyb_fd in _fd];
+            if len(_matches) == 1:
+                self.annotated_folders.append(_matches[0]);
+        print(f"{len(self.annotated_folders)} folders are found according to color-usage annotation.")
+
         # if loading all remaining attr in parameter
         if _load_all_attr:
             for _key, _value in parameters.items():
@@ -769,7 +779,7 @@ class Cell_Data():
         if not hasattr(self, 'bead_ims'):
             if _verbose:
                 print("- Loading beads images for drift correction")
-            _bead_ims, _bead_names = self._load_images('beads', _load_in_ram=False);
+            _bead_ims, _bead_names = self._load_images('beads', _chromatic_correction=False, _load_in_ram=False);
         else:
              _bead_ims, _bead_names = self.bead_ims, self.bead_names
         # do drift correction
@@ -794,22 +804,16 @@ class Cell_Data():
             self._load_color_info();
 
         # annotated folders
-        if _load_annotated_only and not hasattr(self, 'annotated_folders'):
-            self.annotated_folders = []
-            if not hasattr(self, 'annotated_folders'):
-                for _hyb_fd in self.color_dic:
-                    _matches = [_fd for _fd in self.folders if _hyb_fd in _fd];
-                    if len(_matches) == 1:
-                        self.annotated_folders.append(_matches[0]);
+        if _load_annotated_only:
+            _folders = self.annotated_folders
         else:
-            self.annotated_folders = self.folders
-
+            _folders = self.folders
         # Case: beads
         if str(_type).lower() == "beads":
             if hasattr(self, 'bead_ims') and hasattr(self, 'bead_names'):
                 return self.bead_ims, self.bead_names
             else:
-                _bead_ims, _bead_names, _ = analysis.load_image_fov(self.annotated_folders, self.fovs, self.fov_id,
+                _bead_ims, _bead_names, _ = analysis.load_image_fov(_folders, self.fovs, self.fov_id,
                                                                     self.channels, self.color_dic,
                                                                     num_threads=_num_threads, loading_type=_type,
                                                                     correction_folder=self.correction_folder,
@@ -819,6 +823,7 @@ class Cell_Data():
                     self.bead_ims = _bead_ims
                     self.bead_names = _bead_names
                 return _bead_ims, _bead_names
+
         # Case: raw
         elif str(_type).lower() == 'raw':
             if hasattr(self, 'splitted_ims'):
@@ -829,7 +834,7 @@ class Cell_Data():
                 return _splitted_ims
             else:
                 # Load all splitted images
-                _splitted_ims = analysis.load_image_fov(self.annotated_folders, self.fovs, self.fov_id,
+                _splitted_ims = analysis.load_image_fov(_folders, self.fovs, self.fov_id,
                                                         self.channels, self.color_dic,
                                                         num_threads=_num_threads, loading_type=_type,
                                                         correction_folder=self.correction_folder,
@@ -850,7 +855,7 @@ class Cell_Data():
                 _splitted_ims = self.splitted_ims;
             elif not _splitted_ims:
                 # Load all splitted images
-                _splitted_ims = analysis.load_image_fov(self.annotated_folders, self.fovs, self.fov_id,
+                _splitted_ims = analysis.load_image_fov(_folders, self.fovs, self.fov_id,
                                                         self.channels, self.color_dic,
                                                         num_threads=_num_threads, loading_type=_type,
                                                         correction_folder=self.correction_folder,
@@ -913,7 +918,7 @@ class Cell_Data():
                 _splitted_ims = self.splitted_ims;
             elif not _splitted_ims:
                 # Load all splitted images
-                _splitted_ims = analysis.load_image_fov(self.annotated_folders, self.fovs, self.fov_id,
+                _splitted_ims = analysis.load_image_fov(_folders, self.fovs, self.fov_id,
                                                         self.channels, self.color_dic,
                                                         num_threads=_num_threads, loading_type='combo',
                                                         correction_folder=self.correction_folder,
@@ -1333,13 +1338,15 @@ class Cell_Data():
         return _chrom_coords
 
     def _multi_fitting(self, _type='unique',_use_chrom_coords=True, _seed_th_per=50., _max_filt_size=3,
-                       _width_zxy=[1.35,1.9,1.9], _expect_weight=1000, _min_height=100, _max_iter=10,
+                       _width_zxy=None, _expect_weight=1000, _min_height=100, _max_iter=10,
                        _save=True, _verbose=True):
         # first check Inputs
         _allowed_types = ['unique', 'decoded'];
         _type = _type.lower()
         if _type not in _allowed_types:
             raise KeyError(f"Wrong input key for _type:{_type}");
+        if _width_zxy is None:
+            _width_zxy = self.distance_zxy;
         if _use_chrom_coords:
             if not hasattr(self, 'chrom_coords'):
                 self._load_from_file('cell_info');
