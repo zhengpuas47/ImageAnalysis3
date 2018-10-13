@@ -2,6 +2,7 @@ import sys,glob,os,time, copy
 import numpy as np
 import pickle as pickle
 import matplotlib.pyplot as plt
+from matplotlib.cm import seismic_r
 from . import get_img_info, corrections, visual_tools, analysis
 import multiprocessing
 from scipy import ndimage
@@ -9,13 +10,14 @@ from scipy import stats
 from skimage import morphology
 from skimage.segmentation import random_walker
 import matplotlib
-from scipy.spatial.distance import pdist,squareform
+from scipy.spatial.distance import pdist,cdist,squareform
 
 
 # global variables
 _correction_folder=r'E:\Users\puzheng\Documents\Corrections'
 _temp_folder = r'I:\Pu_temp'
 _distance_zxy = np.array([200, 106, 106]);
+_sigma_zxy = np.array([1.35, 1.9, 1.9])
 
 class Cell_List():
     """
@@ -87,6 +89,7 @@ class Cell_List():
         self.cells = [];
         # distance from pixel to nm:
         self.distance_zxy = _distance_zxy;
+        self.sigma_zxy = _sigma_zxy;
 
         ## chosen field of views
         if len(_chosen_fovs) == 0: # no specification
@@ -383,6 +386,7 @@ class Cell_List():
                   'map_folder': self.map_folder,
                   'drift': _fov_drift,
                   'distance_zxy' : self.distance_zxy,
+                  'sigma_zxy': self.sigma_zxy,
                   } for _cell_id in _cell_ids];
         _args = [(_p, True, True, True, True, False) for _p in _params]
         _cell_pool = multiprocessing.Pool(_num_threads)
@@ -622,6 +626,16 @@ class Cell_Data():
         # fov id and cell id given
         self.fov_id = int(parameters['fov_id'])
         self.cell_id = int(parameters['cell_id'])
+        ## Constants
+        # distance zxy
+        self.distance_zxy = _distance_zxy;
+        self.sigma_zxy = _sigma_zxy;
+        if 'num_threads' in parameters:
+            self.num_threads = parameters['num_threads'];
+        if 'distance_reference' in parameters:
+            self.distance_reference = parameters['distance_reference']
+        else:
+            self.distance_reference = os.path.join(self.analysis_folder, 'distance_ref.npz')
 
         # segmentation_folder, save_folder, correction_folder,map_folder
         if 'segmentation_folder' in parameters:
@@ -644,9 +658,9 @@ class Cell_Data():
             self.map_folder = parameters['map_folder'];
         else:
             self.map_folder = self.analysis_folder+os.sep+'distmap'
-        # distance zxy
-        self.distance_zxy = _distance_zxy;
+
         # load color info
+        self._load_color_info();
         # annotated folders
         self.annotated_folders = []
         for _hyb_fd in self.color_dic:
@@ -997,7 +1011,7 @@ class Cell_Data():
     # saving
     def _save_to_file(self, _type='all', _save_dic={}, _save_folder=None, _overwrite=False, _verbose=True):
         # special keys don't save in the 'cell_info' file. They are images!
-        _special_keys = ['unique_ims', 'combo_groups','bead_ims', 'splitted_ims']
+        _special_keys = ['unique_ims', 'combo_groups','bead_ims', 'splitted_ims', 'decoded_ims']
         if _save_folder == None:
             _save_folder = self.save_folder;
         if not os.path.exists(_save_folder):
@@ -1011,17 +1025,23 @@ class Cell_Data():
             if os.path.isfile(_savefile) and not _overwrite:
                 if _verbose:
                     print("-- loading existing info from file:", _savefile);
-                _save_dic = pickle.load(open(_savefile, 'rb'));
+                _file_dic = pickle.load(open(_savefile, 'rb'));
             else: # no existing file:
-                _save_dic = {}; # create an empty dic
+                _file_dic = {}; # create an empty dic
+
             _existing_attributes = [_attr for _attr in dir(self) if not _attr.startswith('_') and _attr not in _special_keys];
             # store updated information
             _updated_info = [];
             for _attr in _existing_attributes:
                 if _attr not in _special_keys:
-                    if _attr not in _save_dic:
-                        _save_dic[_attr] = getattr(self, _attr);
+                    if _attr not in _file_dic:
+                        _file_dic[_attr] = getattr(self, _attr);
                         _updated_info.append(_attr);
+
+            # if specified in save_dic, overwrite
+            for _k,_v in _save_dic.items():
+                _updated_info.append(_k);
+                _file_dic[_k] = _v
 
             if _verbose and len(_updated_info) > 0:
                 print("-- information updated in cell_info.pkl:", _updated_info);
@@ -1029,7 +1049,7 @@ class Cell_Data():
             with open(_savefile, 'wb') as output_handle:
                 if _verbose:
                     print("- Writing cell data to file:", _savefile);
-                pickle.dump(_save_dic, output_handle);
+                pickle.dump(_file_dic, output_handle);
 
         # save combo
         if _type =='all' or _type == 'combo':
@@ -1337,7 +1357,8 @@ class Cell_Data():
 
         return _chrom_coords
 
-    def _multi_fitting(self, _type='unique',_use_chrom_coords=True, _seed_th_per=50., _max_filt_size=3,
+    def _multi_fitting(self, _type='unique',_use_chrom_coords=True,
+                       _seed_th_per=50., _max_filt_size=3, _max_seed_count=0, _min_seed_count=1,
                        _width_zxy=None, _expect_weight=1000, _min_height=100, _max_iter=10,
                        _save=True, _verbose=True):
         # first check Inputs
@@ -1346,7 +1367,7 @@ class Cell_Data():
         if _type not in _allowed_types:
             raise KeyError(f"Wrong input key for _type:{_type}");
         if _width_zxy is None:
-            _width_zxy = self.distance_zxy;
+            _width_zxy = self.sigma_zxy;
         if _use_chrom_coords:
             if not hasattr(self, 'chrom_coords'):
                 self._load_from_file('cell_info');
@@ -1354,42 +1375,160 @@ class Cell_Data():
                     raise AttributeError("No chrom-coords info found in cell-data and saved cell_info.");
             if _verbose:
                 print(f"+ Start multi-fitting for {_type} images")
-            # TYPE unique
+            # check specific attributes
             if _type == 'unique':
                 # check attributes
                 if not hasattr(self, 'unique_ims') or not hasattr(self, 'unique_ids'):
                     print("++ no unique image info loaded to this cell, try loading:")
                     self._load_from_file('unique', _overwrite=False, _verbose=_verbose)
-                # initialize a unique spot list
-                self.unique_spots = [];
-                for _im, _id in zip(self.unique_ims, self.unique_ids):
-                    if _verbose:
-                        print(f"++ fitting for fov:{self.fov_id}, cell:{self.cell_id}, region:{_id}");
-                    _spots_for_chrom = [];
-                    for _chrom_coord in self.chrom_coords:
-                        _seeds = visual_tools.get_seed_in_distance(_im, _chrom_coord, num_seeds=0,
-                                                filt_size=_max_filt_size, th_seed_percentile=_seed_th_per,
-                                                dynamic=True, return_h=False);
-                        _fits = visual_tools.fit_multi_gaussian(_im, _seeds, width_zxy=_width_zxy,
-                                                expect_weight=_expect_weight, min_height=_min_height,
-                                                n_max_iter=_max_iter)
-                        _spots_for_chrom.append(_fits);
-                    # append
-                    self.unique_spots.append(_spots_for_chrom);
-                ## save
-                if _save:
-                    # save unique_spots to cell_info.pkl
-                    self._save_to_file('cell_info',_save_dic={'unique_spots':self.unique_spots})
+                _spots = [];
+                _ims = self.unique_ims
+                _ids = self.unique_ids
+            elif _type == 'decoded':
+                _spots = [];
+                _ims = self.decoded_ims;
+                _ids = self.decoded_ids;
 
+            ## Do the multi-fitting
+            for _im, _id in zip(_ims, _ids):
+                if _verbose:
+                    print(f"++ fitting for fov:{self.fov_id}, cell:{self.cell_id}, region:{_id}");
+                _spots_for_chrom = [];
+                for _chrom_coord in self.chrom_coords:
+                    _seeds = visual_tools.get_seed_in_distance(_im, _chrom_coord, num_seeds=_max_seed_count,
+                                            filt_size=_max_filt_size, th_seed_percentile=_seed_th_per,
+                                            dynamic=True, min_dynamic_seeds=_min_seed_count, return_h=False);
+                    _fits = visual_tools.fit_multi_gaussian(_im, _seeds, width_zxy=_width_zxy,
+                                            expect_weight=_expect_weight, min_height=_min_height,
+                                            n_max_iter=_max_iter)
+                    _spots_for_chrom.append(_fits);
+                # append
+                _spots.append(_spots_for_chrom);
+
+            ## return and save
+            if _type == 'unique':
+                self.unique_spots = _spots
+                if _save:
+                    self._save_to_file('cell_info',_save_dic={'unique_spots':self.unique_spots})
                 return self.unique_spots
+            elif _type == 'decoded':
+                self.decoded_spots = _spots
+                if _save:
+                    self._save_to_file('cell_info',_save_dic={'decoded_spots':self.decoded_spots})
+                return self.decoded_spots
 
             elif _type == 'decoded':
                 pass
                 #NOT FINISHED YET
 
     def _dynamic_picking_spots(self, _type='unique', _use_chrom_coords=True,
-                             _save=True, _verbose=True):
-        pass
+                               _distance_zxy=None, _w_int = 1, _w_dist = 2,
+                               _dist_ref = None, _penalty_type='trapezoidal', _penalty_factor=5,
+                               _save=True, _verbose=True):
+        """Given selected spots, do picking by dynamic programming
+        Input:"""
+        ## check inputs
+        if _distance_zxy is None: # dimension for distance trasfromation
+            _distance_zxy = self.distance_zxy;
+        if _dist_ref is None: # full filename for distance reference npz file
+            _dist_ref = self.distance_reference;
+        # load distance_reference:
+        with np.load(_dist_ref) as data:
+            ref_matrix = data['distance_map']
+        # penalty function for distance
+        def distance_penalty(real_dist, exp_dist, __type='trapezoidal', _factor=5):
+            """Penalty function for distance, given matrix of real_dist and float exp_dist, return [0,1] penalty funciton"""
+            real_dist = np.array(real_dist)
+            if __type == 'gaussian':
+                return np.exp(-(real_dist-exp_dist)**2/2/(exp_dist/_factor)**2)
+            elif __type == 'spike':
+                return np.max(np.stack([(exp_dist-np.abs(real_dist-exp_dist)/_factor)/exp_dist, np.zeros(real_dist.shape)]),0)
+            elif __type == 'trapezoidal':
+                return np.max(np.stack([np.zeros(real_dist.shape)**(real_dist>exp_dist),(exp_dist-np.abs(real_dist-exp_dist)/_factor)/exp_dist, np.zeros(real_dist.shape)]),0)
+            elif __type == 'triangle':
+                return np.max(np.stack([1-real_dist/exp_dist/_factor, np.zeros(real_dist.shape)]), 0)
+            else:
+                raise KeyError("Wrong input __type kwd!");
+        # if isolate chromosomes:
+        if _use_chrom_coords:
+            if not hasattr(self, 'chrom_coords'):
+                self._load_from_file('cell_info');
+                if not hasattr(self, 'chrom_coords'):
+                    raise AttributeError("No chrom-coords info found in cell-data and saved cell_info.");
+            # check specific attributes and initialize
+            if _type == 'unique':
+                # check attributes
+                if not hasattr(self, 'unique_spots'):
+                    self._load_from_file('cell_info');
+                    if not hasattr(self, 'unique_spots'):
+                        raise AttributeError("No unique_spots info found in cell-data and saved cell_info.");
+                if _verbose:
+                    print(f"+ Pick {_type} spots for by brightness in fov:{self.fov_id}, cell:{self.cell_id}")
+                # spots for unique:
+                _cand_spots = self.unique_spots;
+                _ids = self.unique_ids;
+                _picked_spots = []; # initialize
+            elif _type == 'decoded':
+                # check attributes
+                if not hasattr(self, 'decoded_spots'):
+                    self._load_from_file('cell_info');
+                    if not hasattr(self, 'decoded_spots'):
+                        raise AttributeError("No decoded_spots info found in cell-data and saved cell_info.");
+                if _verbose:
+                    print(f"+ Pick {_type} spots for by brightness in fov:{self.fov_id}, cell:{self.cell_id}")
+                # spots for unique:
+                _cand_spots = self.decoded_spots;
+                _ids = self.decoded_ids;
+                _picked_spots = []; # initialize
+
+            ## dynamic progamming
+            for _chrom_id, _coord in enumerate(self.chrom_coords):
+                _ch_pts = [chrpts[_chrom_id][:,1:4]*_distance_zxy for chrpts in _cand_spots if len(chrpts[_chrom_id]>0)][:];
+                _ch_ids = [_id for chrpts,_id in zip(_cand_spots, _ids) if len(chrpts[_chrom_id]>0)][:]
+                # initialize two stucture:
+                _dy_values = [np.log10(pt[:,1])*_w_int for pt in _ch_pts] # store maximum values
+                _dy_pointers = [-np.ones(len(pt), dtype=np.int) for pt in _ch_pts] # store pointer to previous level
+                # Forward
+                for _j, (_pts, _id) in enumerate(zip(_ch_pts[1:], _ch_ids[1:])):
+                    _dists = cdist(_ch_pts[_j], _ch_pts[_j+1]) # real pair-wise distance
+                    _ref_dist = ref_matrix[_ch_ids[_j], _ch_ids[_j+1]] # distance inferred by Hi-C as prior
+                    # two components in dynamic progamming: distance and intensity
+                    _measure =  distance_penalty(_dists, _ref_dist, _penalty_type, _penalty_factor) * _w_dist + _dy_values[_j][:,np.newaxis]
+                    # update maximum values and maximum pointers
+                    _dy_values[_j+1] += np.max(_measure, axis=0)
+                    _dy_pointers[_j+1] = np.argmax(_measure, axis=0)
+                # backward
+                _picked_ids = [np.argmax(_dy_values[-1])];
+                for _j in range(len(_ch_pts)-1):
+                    _picked_ids.append(_dy_pointers[-(_j+1)][_picked_ids[-1]])
+                _picked_ids = np.flip(_picked_ids, axis=0)
+                # clean up and match candidate spots
+                _picked_chrom_pts = [];
+                _counter = 0;
+                for _j, (_cand_list, _id) in enumerate(zip(_cand_spots, _ids)):
+                    _cands = _cand_list[_chrom_id]
+                    if len(_cands) > 0 and _id in _ch_ids:
+                        _picked_chrom_pts.append(_cands[_picked_ids[_counter]]);
+                        _counter += 1
+                    else:
+                        _picked_chrom_pts.append(np.inf*np.ones(8));
+                _picked_spots.append(_picked_chrom_pts)
+
+            ## dump into attribute and save
+            if _type == 'unique':
+                self.picked_unique_spots = _picked_spots;
+                # save
+                if _save:
+                    self._save_to_file('cell_info', _save_dic={'picked_unique_spots':self.picked_unique_spots})
+                # return
+                return self.picked_unique_spots;
+            if _type == 'decoded':
+                self.picked_decoded_spots = _picked_spots;
+                # save
+                if _save:
+                    self._save_to_file('cell_info', _save_dic={'picked_decoded_spots':self.picked_decoded_spots})
+                # return
+                return self.picked_decoded_spots;
 
     def _naive_picking_spots(self, _type='unique', _use_chrom_coords=True,
                              _save=True, _verbose=True):
@@ -1400,6 +1539,7 @@ class Cell_Data():
                 self._load_from_file('cell_info');
                 if not hasattr(self, 'chrom_coords'):
                     raise AttributeError("No chrom-coords info found in cell-data and saved cell_info.");
+            # check specific attributes and initialize
             if _type == 'unique':
                 # check attributes
                 if not hasattr(self, 'unique_spots'):
@@ -1408,26 +1548,10 @@ class Cell_Data():
                         raise AttributeError("No unique_spots info found in cell-data and saved cell_info.");
                 if _verbose:
                     print(f"+ Pick {_type} spots for by brightness in fov:{self.fov_id}, cell:{self.cell_id}")
-                # picking spots:
-                self.picked_unique_spots=[];
-                for _cand_lst, _id in zip(self.unique_spots, self.unique_ids):
-                    picked_in_im = [];
-                    for _chrom_coord, _cand_spots in zip(self.chrom_coords, _cand_lst):
-                        # case 1: no fit at all:
-                        if len(_cand_spots) == 0:
-                            picked_in_im.append(np.inf*np.ones(8));
-                        else:
-                            _intensity_order = np.argsort(_cand_spots[:,0])
-                            print(_intensity_order)
-                            # PICK THE BRIGHTEST ONE
-                            _picked_spot = _cand_spots[_intensity_order[-1]];
-                            picked_in_im.append(_picked_spot);
-                    # append
-                    self.picked_unique_spots.append(picked_in_im);
-                if _save:
-                    self._save_to_file('cell_info', _save_dic={'picked_unique_spots':self.picked_unique_spots})
-                return self.picked_unique_spots;
-
+                # spots for unique:
+                _cand_spots = self.unique_spots;
+                _ids = self.unique_ids;
+                _picked_spots = []; # initialize
             elif _type == 'decoded':
                 # check attributes
                 if not hasattr(self, 'decoded_spots'):
@@ -1436,6 +1560,115 @@ class Cell_Data():
                         raise AttributeError("No decoded_spots info found in cell-data and saved cell_info.");
                 if _verbose:
                     print(f"+ Pick {_type} spots for by brightness in fov:{self.fov_id}, cell:{self.cell_id}")
+                # spots for unique:
+                _cand_spots = self.decoded_spots;
+                _ids = self.decoded_ids;
+                _picked_spots = []; # initialize
+
+            # picking spots
+            for _chrom_id, _chrom_coord in enumerate(self.chrom_coords):
+                _picked_in_chrom = [];
+                for _cand_lst, _id in zip(_cand_spots, _ids):
+                    # extract candidate spots for this
+                    _cands = _cand_lst[_chrom_id];
+                    # case 1: no fit at all:
+                    if len(_cands) == 0:
+                        _picked_in_chrom.append(np.inf*np.ones(8));
+                    else:
+                        _intensity_order = np.argsort(_cands[:,0])
+                        # PICK THE BRIGHTEST ONE
+                        _pspt = _cands[_intensity_order[-1]];
+                        _picked_in_chrom.append(_pspt);
+                # append
+                _picked_spots.append(_picked_in_chrom);
+
+            ## dump into attribute and save
+            if _type == 'unique':
+                self.picked_unique_spots = _picked_spots;
+                # save
+                if _save:
+                    self._save_to_file('cell_info', _save_dic={'picked_unique_spots':self.picked_unique_spots})
+                # return
+                return self.picked_unique_spots;
+            if _type == 'decoded':
+                self.picked_decoded_spots = _picked_spots;
+                # save
+                if _save:
+                    self._save_to_file('cell_info', _save_dic={'picked_decoded_spots':self.picked_decoded_spots})
+                # return
+                return self.picked_decoded_spots;
+
+    def _generate_distance_map(self, _type='unique', _distance_zxy=None, _save_info=True, _save_plot=True,
+                               _limits=[200,1000], _verbose=True):
+        """Function to generate distance map"""
+        ## check inputs
+        if _distance_zxy is None: # dimension for distance trasfromation
+            _distance_zxy = self.distance_zxy;
+        if not hasattr(self, 'chrom_coords'):
+            self._load_from_file('cell_info');
+            if not hasattr(self, 'chrom_coords'):
+                raise AttributeError("No chrom_coords info found in cell-data and saved cell_info.");
+        ## check specific attributes and initialize
+        if _type == 'unique':
+            # check attributes
+            if not hasattr(self, 'picked_unique_spots'):
+                self._load_from_file('cell_info');
+                if not hasattr(self, 'picked_unique_spots'):
+                    raise AttributeError("No picked_unique_spots info found in cell-data and saved cell_info.");
+            _picked_spots = self.picked_unique_spots
+        elif _type == 'decoded' or _type == 'combo':
+            # check attributes
+            if not hasattr(self, 'picked_decoded_spots'):
+                self._load_from_file('cell_info');
+                if not hasattr(self, 'picked_decoded_spots'):
+                    raise AttributeError("No picked_decoded_spots info found in cell-data and saved cell_info.");
+            _picked_spots = self.picked_decoded_spots
+
+        ## loop through chrom_coords and make distance map
+        _distance_maps = []
+        for _chrom_id, _coord in enumerate(self.chrom_coords):
+            if _verbose:
+                print(f"++ generate {_type} dist-map for fov:{self.fov_id}, cell:{self.cell_id}, chrom:{_chrom_id}")
+            # get coordiates
+            _coords_in_pxl = np.stack([s[1:4] for s in _picked_spots[_chrom_id]]) # extract only coordnates
+            # convert to nm
+            _coords_in_nm = _coords_in_pxl * _distance_zxy
+            # calculate dist-map
+            _distmap = squareform(pdist(_coords_in_nm))
+            # append
+            _distance_maps.append(_distmap)
+            # make plot
+            plt.figure()
+            plt.title(f"{_type} dist-map for fov:{self.fov_id}, cell:{self.cell_id}, chrom:{_chrom_id}")
+            plt.imshow(_distmap, interpolation='nearest', cmap=seismic_r, vmin=np.min(_limits), vmax=np.max(_limits))
+            plt.colorbar(ticks=range(np.min(_limits),np.max(_limits),200), label='distance (nm)')
+            if _save_plot:
+                if not os.path.exists(os.path.join(self.map_folder, self.fovs[self.fov_id].replace('.dax','')) ):
+                    if _verbose:
+                        print(f"++ Make directory:",os.path.join(self.map_folder, self.fovs[self.fov_id].replace('.dax','')))
+                    os.makedirs(os.path.join(self.map_folder, self.fovs[self.fov_id].replace('.dax','')))
+                _save_fl = os.path.join(self.map_folder,
+                                        self.fovs[self.fov_id].replace('.dax',''),
+                                        f"dist-map_{_type}_{self.cell_id}_{_chrom_id}.png")
+                plt.savefig(_save_fl, transparent=True)
+            plt.show()
+
+        ## dump into attribute and save
+        if _type == 'unique':
+            self.unique_distance_map = _distance_maps;
+            # save
+            if _save_info:
+                self._save_to_file('cell_info', _save_dic={'unique_distance_map':self.unique_distance_map})
+            # return
+            return self.unique_distance_map;
+        elif _type == 'decoded' or _type == 'combo':
+            self.decoded_distance_map = _distance_maps;
+            # save
+            if _save_info:
+                self._save_to_file('cell_info', _save_dic={'decoded_distance_map':self.decoded_distance_map})
+            # return
+            return self.decoded_distance_map;
+
 
 
 
