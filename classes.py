@@ -19,6 +19,10 @@ _temp_folder = r'I:\Pu_temp'
 _distance_zxy = np.array([200, 106, 106]);
 _sigma_zxy = np.array([1.35, 1.9, 1.9])
 
+
+def _do_multi_fitting_for_cell(_cell, _fitting_args):
+    return _cell._multi_fitting(*_fitting_args)
+
 class Cell_List():
     """
     Class Cell_List:
@@ -115,7 +119,6 @@ class Cell_List():
             if len(_matches)==1:
                 self.annotated_folders.append(_matches[0])
         print(f"{len(self.annotated_folders)} folders are found according to color-usage annotation.")
-
 
     # allow print info of Cell_List
     def __str__(self):
@@ -586,10 +589,42 @@ class Cell_List():
     def _load_decoded_for_cells(self):
         pass
 
-    def _spot_finding_for_cells(self, _type='unique',_use_chrom_coords=True, _seed_th_per=50, _max_filt_size=3,
-                        _expect_weight=1000, _min_height=100, _max_iter=10, _save=True, _verbose=True):
-        fit_pool = 0
-        pass
+
+
+    def _spot_finding_for_cells(self, _type='unique', _max_fitting_threads=5,
+                                _use_chrom_coords=True, _seed_th_per=50, _max_filt_size=3, _min_seeds=3,
+                                _expect_weight=1000, _min_height=100, _max_iter=10, _save=True, _verbose=True):
+        """Function to allow multi-fitting in cell_list"""
+        ## Check attributes
+        for _cell in self.cells:
+            if _type == 'unique':
+                if not hasattr(_cell, 'unique_ims') or not hasattr(_cell, 'unique_ids'):
+                    try:
+                        self._load_cells_from_files('unique');
+                    except:
+                        self._crop_image_for_cells('unique', _load_in_ram=True);
+            elif _type == 'combo' or _type == 'decoded':
+                if not hasattr(_cell, 'decoded_ims') or not hasattr(_cell, 'unique_ids'):
+                    try:
+                        self._load_cells_from_files('decoded');
+                    except:
+                        raise IOError("Cannot load decoded files!");
+
+        _start_time = time.time();
+        ## multi-threading for multi-fitting
+        _fitting_args = (_type, _use_chrom_coords, _seed_th_per, _max_filt_size, 0, _min_seeds, self.sigma_zxy,
+                         _expect_weight, _min_height, _max_iter, _save, _verbose)
+        _pool_args = [(_cell, _fitting_args) for _cell_id, _cell in enumerate(self.cells)];
+        _fitting_threads = int(min(_max_fitting_threads, self.num_threads))
+        if _verbose:
+            print(f"++ Spot finding with {_fitting_threads} threads")
+        _fitting_pool = multiprocessing.Pool(_fitting_threads)
+        _fitting_pool.starmap(_do_multi_fitting_for_cell, _pool_args, chunksize=1)
+        _fitting_pool.close()
+        _fitting_pool.join()
+        if _verbose:
+            print(f"+++ time cost in multi-fitting: {time.time()-_start_time} ")
+        _fitting_pool.terminate()
 
 
 class Cell_Data():
