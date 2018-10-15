@@ -1,4 +1,4 @@
-import sys,os,re
+import sys,os,re, time
 sys.path.append(r'C:\Users\puzheng\Documents\python-functions\python-functions-library')
 import numpy as np
 import pickle as pickle
@@ -27,22 +27,29 @@ def partition_map(list_,map_, enumerate_all=False):
     else:
         return [list(list__[map__==element]) for element in np.unique(map__)]
 
-def gauss_ker(sig_xyz=[2,2,2],sxyz=16,xyz_disp=[0,0,0]):
+def old_gauss_ker(sig_xyz=[2,2,2],sxyz=16,xyz_disp=[0,0,0]):
     '''Create a gaussian kernal, return standard gaussian level within sxyz size and sigma 2,2,2'''
     dim = len(xyz_disp)
     xyz=np.indices([sxyz+1]*dim)
+    print(sxyz)
     for i in range(len(xyz.shape)-1):
         sig_xyz=np.expand_dims(sig_xyz,axis=-1)
         xyz_disp=np.expand_dims(xyz_disp,axis=-1)
     im_ker = np.exp(-np.sum(((xyz-xyz_disp-sxyz/2.)/sig_xyz**2)**2,axis=0)/2.)
     return im_ker
 
-def add_source(im_,pos=[0,0,0],h=200,sig=[2,2,2]):
+def gauss_ker(sig_xyz=[2,2,2],sxyz=16,xyz_disp=[0,0,0]):
+    """Faster version of gaussian kernel"""
+    dim = len(xyz_disp)
+    xyz=np.swapaxes(np.indices([sxyz+1]*dim), 0,dim);
+    return np.exp(-np.sum(((xyz-np.array(xyz_disp)-sxyz/2.)/np.array(sig_xyz)**2)**2,axis=dim)/2.)
+
+def add_source(im_,pos=[0,0,0],h=200,sig=[2,2,2],size_fold=10):
     '''Impose a guassian distribution with given position, height and sigma, onto an existing figure'''
     im=np.array(im_,dtype=float)
     pos_int = np.array(pos,dtype=int)
     xyz_disp = -pos_int+pos
-    im_ker = gauss_ker(sig_xyz=sig,sxyz=int(np.max(sig)*20),xyz_disp=xyz_disp)
+    im_ker = gauss_ker(sig, int(np.max(sig)*size_fold), xyz_disp)
     im_ker_sz = np.array(im_ker.shape,dtype=int)
     pos_min = np.array(pos_int-im_ker_sz/2, dtype=np.int)
     pos_max = np.array(pos_min+im_ker_sz, dtype=np.int)
@@ -1568,7 +1575,7 @@ def get_seed_in_distance(im, center, num_seeds=0, seed_radius=20,
                 _keep = _distance < seed_radius;
                 _seeds = _cand_seeds[:,_keep]
                 _seeds[:3,:] += _limits[0][:,np.newaxis]
-                if len(_seeds.shape) == 2 and _seeds.shape[1] >= max(num_seeds, min_dynamic_seeds):
+                if len(_seeds.shape) == 2 and _seeds.shape[1] >= min(num_seeds, min_dynamic_seeds):
                     break
         else:
             # get candidate seeds
@@ -1598,7 +1605,8 @@ def get_seed_in_distance(im, center, num_seeds=0, seed_radius=20,
 def fit_single_gaussian(data, center_zxy, width_zxy=[1.35, 1.9, 1.9], radius=10, n_approx=10,
                         height_sensitivity=100.,
                         expect_intensity=800.,
-                        expect_weight = 1000. ):
+                        expect_weight = 1000.,
+                        th_to_end=1e-4):
     """ Function to fit single gaussian with given prior
     Inputs:
         data: image, 3d-array
@@ -1659,7 +1667,7 @@ def fit_single_gaussian(data, center_zxy, width_zxy=[1.35, 1.9, 1.9], radius=10,
             #err=np.ravel(f-g-g*np.log(f/g))
             err=np.ravel(f-g) + expect_weight * (np.linalg.norm(p[-3:]-width_zxy, 1) + 0.2 * (p[0]*height_sensitivity/expect_intensity)*int(p[0]<expect_intensity));
             return err
-        p = scipy.optimize.least_squares(errorfunction,  params_, bounds=(0, np.inf))
+        p = scipy.optimize.least_squares(errorfunction,  params_, bounds=(0, np.inf), ftol=th_to_end, xtol=th_to_end)
         p.x[0] *= height_sensitivity
 
         return  p.x, p.success
@@ -1668,7 +1676,7 @@ def fit_single_gaussian(data, center_zxy, width_zxy=[1.35, 1.9, 1.9], radius=10,
 
 # Multi gaussian fitting
 def fit_multi_gaussian(im, seeds, width_zxy = [1.35,1.9,1.9], fit_radius=10,
-                       height_sensitivity=100., expect_intensity=500., expect_weight=1000.,
+                       height_sensitivity=100., expect_intensity=500., expect_weight=1000., th_to_end=1e-4,
                        n_max_iter=10, max_dist_th=0.25, min_height=100.0,
                        return_im=False, verbose=True):
     """ Function to fit multiple gaussians (with given prior)
@@ -1690,6 +1698,7 @@ def fit_multi_gaussian(im, seeds, width_zxy = [1.35,1.9,1.9], fit_radius=10,
         Returns (height, x, y,z, width_x, width_y,width_z,bk)
         the gaussian parameters of a 2D distribution found by a fit"""
 
+    _start = time.time()
     if verbose:
         print(f"-- Multi-Fitting:{len(seeds)} points")
     # transform seeds input
@@ -1708,16 +1717,17 @@ def fit_multi_gaussian(im, seeds, width_zxy = [1.35,1.9,1.9], fit_radius=10,
                                           expect_intensity=expect_intensity,
                                           expect_weight=expect_weight,
                                           radius=fit_radius,
-                                          width_zxy=width_zxy)
+                                          width_zxy=width_zxy,
+                                          th_to_end=th_to_end)
             if p is not None and success: # If got any successful fitting, substract fitted profile
                 ps.append(p)
                 sub_ims.append(im_subtr)
                 im_subtr = subtract_source(im_subtr,p)
 
         # recheck fitting
-        im_add = np.array(im_subtr)
         max_dist=np.inf
         n_iter = 0
+        print('s1:',time.time()-_start);
         while max_dist > max_dist_th:
             ps_1=np.array(ps)
             ps_1=ps_1[np.argsort(ps_1[:,0])[::-1]]
@@ -1725,18 +1735,18 @@ def fit_multi_gaussian(im, seeds, width_zxy = [1.35,1.9,1.9], fit_radius=10,
             ps_1_rem=[]
             for p_1 in ps_1:
                 _seed = p_1[1:4]
-                im_add = plus_source(im_add,p_1)
+                im_add = plus_source(np.array(im_subtr),p_1)
                 p,success = fit_single_gaussian(im_add,_seed,
                                               height_sensitivity=height_sensitivity,
                                               expect_intensity=expect_intensity,
                                               expect_weight=expect_weight,
                                               radius=fit_radius,
-                                              width_zxy=width_zxy)
-                if p is not None:
+                                              width_zxy=width_zxy,
+                                              th_to_end=th_to_end)
+                if p is not None and success:
                     #print('recheck',p[1:4], success)
                     ps.append(p)
                     ps_1_rem.append(p_1)
-                    im_add = subtract_source(im_add,p)
             ps_2=np.array(ps)
             ps_1_rem=np.array(ps_1_rem)
             #print(len(ps_2), len(ps_1_rem))
@@ -1745,7 +1755,7 @@ def fit_multi_gaussian(im, seeds, width_zxy = [1.35,1.9,1.9], fit_radius=10,
             n_iter+=1
             if n_iter>n_max_iter:
                 break
-
+        print('s2:',time.time()-_start);
         _kept_fits = ps_2;
         if len(_kept_fits) > 1:
             _intensity_order = np.argsort(_kept_fits[:,0]);
@@ -1755,5 +1765,6 @@ def fit_multi_gaussian(im, seeds, width_zxy = [1.35,1.9,1.9], fit_radius=10,
             return _kept_fits, sub_ims
         else:
             return _kept_fits
+
     else:
         return np.array([])

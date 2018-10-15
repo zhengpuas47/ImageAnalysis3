@@ -1297,7 +1297,7 @@ def generate_distance_map(cand_cell_list, master_folder, fov_name, encoding_type
                     _map_folder = master_folder + os.sep + map_subfolder + os.sep + fov_name.split('.dax')[0]
                     if not os.path.exists(_map_folder): # if folder not exist, Create
                         os.makedirs(_map_folder);
-                    plt.savefig(_map_folder+os.sep+'dist_map_'+str(encoding_type)+'_'+str(_cell_id)+'_'+str(_i)+'.png' , transparent=True)
+                    plt.savefig(_map_folder+os.sep+'dist-map_'+str(encoding_type)+'_'+str(_cell_id)+'_'+str(_i)+'.png' , transparent=True)
     return _cand_cell_list
 
 # load distance map
