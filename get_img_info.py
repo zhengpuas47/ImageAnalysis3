@@ -1,6 +1,5 @@
 import sys,glob,os
 import numpy as np
-sys.path.append(r'C:\Users\puzheng\Documents\python-functions\python-functions-library')
 
 def get_hybe(folder):
 	#this sorts by the region number Rx.

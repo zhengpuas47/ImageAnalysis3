@@ -1,24 +1,18 @@
 import sys,glob,os,time, copy
 import numpy as np
 import pickle as pickle
-import matplotlib.pyplot as plt
-from matplotlib.cm import seismic_r
-from . import get_img_info, corrections, visual_tools, analysis
 import multiprocessing
-from scipy import ndimage
-from scipy import stats
+
+from . import get_img_info, corrections, visual_tools, analysis
+from . import _correction_folder,_temp_folder,_distance_zxy,_sigma_zxy
+from scipy import ndimage, stats
+from scipy.spatial.distance import pdist,cdist,squareform
 from skimage import morphology
 from skimage.segmentation import random_walker
+
 import matplotlib
-from scipy.spatial.distance import pdist,cdist,squareform
-
-
-# global variables
-_correction_folder=r'E:\Users\puzheng\Documents\Corrections'
-_temp_folder = r'I:\Pu_temp'
-_distance_zxy = np.array([200, 106, 106]);
-_sigma_zxy = np.array([1.35, 1.9, 1.9])
-
+import matplotlib.pyplot as plt
+from matplotlib.cm import seismic_r
 
 def _do_multi_fitting_for_cell(_cell, _fitting_args):
     _cell._multi_fitting(*_fitting_args)
@@ -586,9 +580,6 @@ class Cell_List():
                 print("++ removing temp file:", os.path.basename(_fl))
                 os.remove(_fl)
 
-    def _load_decoded_for_cells(self):
-        pass
-
 
     def _spot_finding_for_cells(self, _type='unique', _max_fitting_threads=5,
                                 _use_chrom_coords=True, _seed_th_per=50, _max_filt_size=3, _min_seeds=3,
@@ -604,7 +595,7 @@ class Cell_List():
                     except:
                         self._crop_image_for_cells('unique', _load_in_ram=True);
             elif _type == 'combo' or _type == 'decoded':
-                if not hasattr(_cell, 'decoded_ims') or not hasattr(_cell, 'unique_ids'):
+                if not hasattr(_cell, 'decoded_ims') or not hasattr(_cell, 'decoded_ids'):
                     try:
                         self._load_cells_from_files('decoded');
                     except:
@@ -615,6 +606,7 @@ class Cell_List():
         _fitting_args = (_type, _use_chrom_coords, _seed_th_per, _max_filt_size, 0, _min_seeds, self.sigma_zxy,
                          _expect_weight, _min_height, _max_iter, _th_to_end, _save, _verbose)
         _pool_args = [(_cell, _fitting_args) for _cell_id, _cell in enumerate(self.cells)];
+        print(len(_pool_args))
         _fitting_threads = int(min(_max_fitting_threads, self.num_threads))
         if _verbose:
             print(f"++ Spot finding with {_fitting_threads} threads")
@@ -626,22 +618,55 @@ class Cell_List():
             print(f"+++ time cost in multi-fitting: {time.time()-_start_time} ")
         _fitting_pool.terminate()
 
-    def _pick_spots_for_cells(self):
-        
+    def _pick_spots_for_cells(self, _type='unique', _pick_type='dynamic', _use_chrom_coords=True, _distance_zxy=None,
+                              _w_dist=2, _dist_ref=None, _penalty_type='trapezoidal', _penalty_factor=5,
+                              _gen_distmap=True, _save_plot=True, _plot_limits=[200,1000],
+                              _save=True, _verbose=True):
+        """Function to pick spots given candidates."""
         ## Check attributes
+        if _verbose:
+            print("+ Pick spots and convert to distmap.")
+        if _pick_type not in ['dynamic', 'naive']:
+            raise ValueError(f"Wrong _pick_type kwd given ({_pick_type}), should be dynamic or naive.")
         for _cell in self.cells:
             if _type == 'unique':
-                if not hasattr(_cell, 'unique_ims') or not hasattr(_cell, 'unique_ids'):
+                if not hasattr(_cell, 'unique_ids'):
                     try:
-                        self._load_cells_from_files('unique');
+                        _cell._load_from_file('unique');
                     except:
-                        self._crop_image_for_cells('unique', _load_in_ram=True);
+                        _cell._load_images('unique', _load_in_ram=True);
+                elif not hasattr(_cell, 'unique_spots'):
+                    _cell._load_from_file('cell_info');
+                    if not hasattr(_cell, 'unique_spots'):
+                        raise ValueError(f"No unique spots info detected for cell:{_cell.cell_id}");
             elif _type == 'combo' or _type == 'decoded':
-                if not hasattr(_cell, 'decoded_ims') or not hasattr(_cell, 'unique_ids'):
+                if not hasattr(_cell, 'decoded_ims') or not hasattr(_cell, 'decoded_ids'):
                     try:
-                        self._load_cells_from_files('decoded');
+                        _cell._load_from_file('decoded');
                     except:
                         raise IOError("Cannot load decoded files!");
+            else:
+                raise ValueError(f"Wrong _type kwd given ({_type}), should be unique or decoded.")
+        ## start pick chromosome
+        for _cell in self.cells:
+            if _verbose:
+                print(f"++ picking spots for cell:{_cell.cell_id} by {_pick_type} method:")
+            # pick spots
+            if _pick_type == 'dynamic':
+                _cell._dynamic_picking_spots(_type=_type, _use_chrom_coords=_use_chrom_coords,
+                                             _distance_zxy=_distance_zxy, _w_int=1, _w_dist=_w_dist,
+                                             _dist_ref=_dist_ref, _penalty_type=_penalty_type, _penalty_factor=_penalty_factor,
+                                             _save=_save, _verbose=_verbose);
+            elif _pick_type == 'naive':
+                _cell._naive_picking_spots(_type=_type, _use_chrom_coords=_use_chrom_coords,
+                                           _save=_save, _verbose=_verbose);
+            # make map:
+            if _gen_distmap:
+                if _verbose:
+                    print(f"+++ generating distance map for cell:{_cell.cell_id}");
+                _cell._generate_distance_map(_type=_type, _distance_zxy=_distance_zxy, _save_info=_save,
+                                             _save_plot=_save_plot, _limits=_plot_limits, _verbose=_verbose)
+
 
 
 class Cell_Data():
@@ -1411,7 +1436,7 @@ class Cell_Data():
 
     def _multi_fitting(self, _type='unique',_use_chrom_coords=True,
                        _seed_th_per=50., _max_filt_size=3, _max_seed_count=0, _min_seed_count=1,
-                       _width_zxy=None, _expect_weight=1000, _min_height=100, _max_iter=10, _th_to_end=1e-4,
+                       _width_zxy=None, _expect_weight=1000, _min_height=100, _max_iter=10, _th_to_end=1e-5,
                        _save=True, _verbose=True):
         # first check Inputs
         _allowed_types = ['unique', 'decoded'];

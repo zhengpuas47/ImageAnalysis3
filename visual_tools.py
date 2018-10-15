@@ -1,5 +1,4 @@
 import sys,os,re, time
-sys.path.append(r'C:\Users\puzheng\Documents\python-functions\python-functions-library')
 import numpy as np
 import pickle as pickle
 import matplotlib.pylab as plt
@@ -7,11 +6,9 @@ from mpl_toolkits.axes_grid1 import ImageGrid
 import scipy
 from scipy.signal import fftconvolve
 from scipy.ndimage.filters import maximum_filter,minimum_filter,median_filter,gaussian_filter
-from ImageAnalysis3 import corrections, visual_tools
+from . import get_img_info, corrections, visual_tools, analysis
+from . import _correction_folder,_temp_folder,_distance_zxy,_sigma_zxy
 
-_z_scale = 1.8 * 1.5 / 2;
-_x_scale = 1.;
-_y_scale = 1.;
 
 def partition_map(list_,map_, enumerate_all=False):
     """
@@ -107,7 +104,7 @@ def grab_block(im,center,block_sizes):
     return im[slices]
 
 # fit single gaussian
-def fitsinglegaussian_fixed_width(data,center,radius=10,n_approx=10,width_zxy=[_z_scale,_x_scale,_y_scale]):
+def fitsinglegaussian_fixed_width(data,center,radius=10,n_approx=10,width_zxy=_sigma_zxy):
     """Returns (height, x, y,z, width_x, width_y,width_z,bk)
     the gaussian parameters of a 2D distribution found by a fit"""
     data_=np.array(data,dtype=float)
@@ -160,7 +157,8 @@ def fitsinglegaussian_fixed_width(data,center,radius=10,n_approx=10,width_zxy=[_
         return  p,success
     else:
         return None,None
-def fit_seed_points_base(im, centers, width_z=_z_scale, width_xy=_x_scale, radius_fit=5, n_max_iter = 10, max_dist_th=0.25):
+def fit_seed_points_base(im, centers, width_z=_sigma_zxy[0], width_xy=_sigma_zxy[1],
+                         radius_fit=5, n_max_iter = 10, max_dist_th=0.25):
     '''Basic function used for multiple gaussian fitting, given image:im, seeding_result:centers '''
     print("Fitting:" +str(len(centers[0]))+" points")
     z,x,y = centers # fitting kernels provided by previous seeding
@@ -234,7 +232,7 @@ def get_seed_points_base(im,gfilt_size=0,filt_size=3,th_seed=300.,hot_pix_th=0,r
         centers = np.array([z,x,y,h])
     return centers
 
-def fit_seed_points_base_fast(im,centers,width_z=_z_scale,width_xy=_x_scale,radius_fit=5,n_max_iter = 10,max_dist_th=0.25, quiet=False):
+def fit_seed_points_base_fast(im,centers,width_z=_sigma_zxy[0],width_xy=_sigma_zxy[1],radius_fit=5,n_max_iter = 10,max_dist_th=0.25, quiet=False):
     if not quiet:
         print("Fitting:" +str(len(centers[0]))+" points")
     z,x,y = centers
@@ -965,7 +963,7 @@ def DAPI_segmentation(ims, names,
                       cap_percentile=0.5,
                       illumination_correction=True,
                       illumination_correction_channel=405,
-                      correction_folder=r'C:\Users\Pu Zheng\Documents\Corrections',
+                      correction_folder=_correction_folder,
                       merge_layer_num = 11,
                       denoise_window = 5,
                       log_window = 13,
@@ -1667,7 +1665,7 @@ def fit_single_gaussian(data, center_zxy, width_zxy=[1.35, 1.9, 1.9], radius=10,
             #err=np.ravel(f-g-g*np.log(f/g))
             err=np.ravel(f-g) + expect_weight * (np.linalg.norm(p[-3:]-width_zxy, 1) + 0.2 * (p[0]*height_sensitivity/expect_intensity)*int(p[0]<expect_intensity));
             return err
-        p = scipy.optimize.least_squares(errorfunction,  params_, bounds=(0, np.inf), ftol=th_to_end, xtol=th_to_end)
+        p = scipy.optimize.least_squares(errorfunction,  params_, bounds=(0, np.inf), ftol=th_to_end, xtol=th_to_end, gtol=th_to_end/10.)
         p.x[0] *= height_sensitivity
 
         return  p.x, p.success
@@ -1676,7 +1674,7 @@ def fit_single_gaussian(data, center_zxy, width_zxy=[1.35, 1.9, 1.9], radius=10,
 
 # Multi gaussian fitting
 def fit_multi_gaussian(im, seeds, width_zxy = [1.35,1.9,1.9], fit_radius=10,
-                       height_sensitivity=100., expect_intensity=500., expect_weight=1000., th_to_end=1e-4,
+                       height_sensitivity=100., expect_intensity=500., expect_weight=1000., th_to_end=1e-5,
                        n_max_iter=10, max_dist_th=0.25, min_height=100.0,
                        return_im=False, verbose=True):
     """ Function to fit multiple gaussians (with given prior)
@@ -1725,6 +1723,7 @@ def fit_multi_gaussian(im, seeds, width_zxy = [1.35,1.9,1.9], fit_radius=10,
                 im_subtr = subtract_source(im_subtr,p)
 
         # recheck fitting
+        im_add = np.array(im_subtr);
         max_dist=np.inf
         n_iter = 0
         print('s1:',time.time()-_start);
@@ -1735,7 +1734,7 @@ def fit_multi_gaussian(im, seeds, width_zxy = [1.35,1.9,1.9], fit_radius=10,
             ps_1_rem=[]
             for p_1 in ps_1:
                 _seed = p_1[1:4]
-                im_add = plus_source(np.array(im_subtr),p_1)
+                im_add = plus_source(im_add, p_1)
                 p,success = fit_single_gaussian(im_add,_seed,
                                               height_sensitivity=height_sensitivity,
                                               expect_intensity=expect_intensity,
@@ -1743,8 +1742,9 @@ def fit_multi_gaussian(im, seeds, width_zxy = [1.35,1.9,1.9], fit_radius=10,
                                               radius=fit_radius,
                                               width_zxy=width_zxy,
                                               th_to_end=th_to_end)
-                if p is not None and success:
+                if p is not None:
                     #print('recheck',p[1:4], success)
+                    im_add = subtract_source(im_add, p)
                     ps.append(p)
                     ps_1_rem.append(p_1)
             ps_2=np.array(ps)

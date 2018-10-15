@@ -3,15 +3,16 @@ import numpy as np
 sys.path.append(r'C:\Users\puzheng\Documents\python-functions\python-functions-library')
 import pickle as pickle
 import matplotlib.pyplot as plt
-from ImageAnalysis3 import get_img_info, visual_tools, corrections
 import multiprocessing
+from . import get_img_info, corrections, visual_tools, analysis
+from . import _correction_folder,_temp_folder,_distance_zxy,_sigma_zxy
 
 # function to do segmentation
 def Segmentation_All(analysis_folder, folders, fovs, ref_name='H0R0',
                      num_channel=4, dapi_channel=-1,
                      num_threads=5,
                      illumination_corr=True,
-                     correction_folder='',
+                     correction_folder=_correction_folder,
                      denoise_window=5,
                      signal_cap_ratio=0.15,
                      cell_min_size=2000,
@@ -127,7 +128,7 @@ def Segmentation_All(analysis_folder, folders, fovs, ref_name='H0R0',
 
 def Segmentation_Fov(analysis_folder, folders, fovs, fov_id, ref_name='H0R0',
                      num_channel=5, dapi_channel=-1, illumination_corr=True,
-                     correction_folder='',
+                     correction_folder=_correction_folder,
                      shape_ratio_threshold=0.041,signal_cap_ratio=0.2,
                      denoise_window=5,
                      segmentation_path='segmentation',
@@ -202,8 +203,8 @@ def load_image_fov(folders, fovs, fov_id, channels, color_dic,
                    num_threads=12, loading_type='raw', type_key=None,
                    max_chunk_size=5,
                    z_shift_corr=True, hot_pixel_remove=True, illumination_corr=True, chromatic_corr=True,
-                   correction_folder=r'C:\Users\Pu Zheng\Documents\Corrections',
-                   temp_folder=r'I:\Pu_temp', overwrite_temp=True,
+                   correction_folder=_correction_folder,
+                   temp_folder=_temp_folder, overwrite_temp=True,
                    return_type='filename', verbose=False):
     """Wrapped function to do batch image loading and processing.
     Inputs:
@@ -355,7 +356,7 @@ def load_image_fov(folders, fovs, fov_id, channels, color_dic,
 
 # load from temp, follow-up for function load_image_fov
 def reconstruct_from_temp(temp_filelist, folders, fovs, fov_id, channels, color_dic,
-                          temp_folder=r'I:\Pu_temp', find_all=False,
+                          temp_folder=_temp_folder, find_all=False,
                           num_threads=15, loading_type='raw', type_key=None, verbose=False):
     """Function to reconstruct image object from temp files by loading memory maps.
     Inputs
@@ -494,7 +495,7 @@ def Crop_Images_Field_of_View(master_folder, folders, fovs, fov_id,
                               th_seed=300,dynamic=False,
                               color_filename='',
                               encoding_filename='',
-                              correction_folder=r'C:\Users\Pu Zheng\Documents\Corrections',
+                              correction_folder=_correction_folder,
                               save=False, verbose=True):
     '''Crop images for a certain field of view
     Inputs:

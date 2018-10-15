@@ -1,14 +1,12 @@
 from ImageAnalysis3 import visual_tools as vis
 import ImageAnalysis3 as ia
+from . import get_img_info, corrections, visual_tools, analysis
+from . import _correction_folder,_temp_folder,_distance_zxy,_sigma_zxy
 import numpy as np
 import pickle
 import matplotlib.pylab as plt
 import os, glob, sys, time
 from scipy.stats import scoreatpercentile
-
-_correction_folder=r'E:\Users\puzheng\Documents\Corrections'
-
-sys.path.append(r'C:\Users\puzheng\Documents\python-functions\python-functions-library')
 
 def get_STD_beaddrift(bead_ims, bead_names, analysis_folder, fovs, fov_id,
                       illumination_correction=False, ic_channel=488,
