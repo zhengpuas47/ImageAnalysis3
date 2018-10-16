@@ -606,7 +606,6 @@ class Cell_List():
         _fitting_args = (_type, _use_chrom_coords, _seed_th_per, _max_filt_size, 0, _min_seeds, self.sigma_zxy,
                          _expect_weight, _min_height, _max_iter, _th_to_end, _save, _verbose)
         _pool_args = [(_cell, _fitting_args) for _cell_id, _cell in enumerate(self.cells)];
-        print(len(_pool_args))
         _fitting_threads = int(min(_max_fitting_threads, self.num_threads))
         if _verbose:
             print(f"++ Spot finding with {_fitting_threads} threads")

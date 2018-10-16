@@ -1,6 +1,5 @@
-from ImageAnalysis3 import visual_tools as vis
 import ImageAnalysis3 as ia
-from . import get_img_info, corrections, visual_tools, analysis
+from . import get_img_info, visual_tools, analysis
 from . import _correction_folder,_temp_folder,_distance_zxy,_sigma_zxy
 import numpy as np
 import pickle
@@ -23,7 +22,6 @@ def get_STD_beaddrift(bead_ims, bead_names, analysis_folder, fovs, fov_id,
         fov_id: the id for field of view to be analysed, int
         """
     # define a sub function to do fitting
-    import ia.visual_tools as vis
     from scipy.stats import scoreatpercentile
 
     # Initialize failed counts
@@ -57,10 +55,10 @@ def get_STD_beaddrift(bead_ims, bead_names, analysis_folder, fovs, fov_id,
         coord_sel1 = np.array([0,-sz_ex,-sz_ex]) + coord_sel
         if dynamic:
             th_seed = scoreatpercentile(im_ref, 99) * 0.5
-        im_ref_sm = vis.grab_block(im_ref,coord_sel1,[sz_ex]*3)
+        im_ref_sm = visual_tools.grab_block(im_ref,coord_sel1,[sz_ex]*3)
         cents_ref1 = get_STD_centers(im_ref_sm, th_seed=th_seed)#list of fits of beads in the ref cube 1
         coord_sel2 = np.array([0,sz_ex,sz_ex]) + coord_sel
-        im_ref_sm = vis.grab_block(im_ref,coord_sel2,[sz_ex]*3)
+        im_ref_sm = visual_tools.grab_block(im_ref,coord_sel2,[sz_ex]*3)
         cents_ref2 = get_STD_centers(im_ref_sm, th_seed=th_seed)#list of fits of beads in the ref cube 2
 
         txyzs = []
@@ -71,14 +69,14 @@ def get_STD_beaddrift(bead_ims, bead_names, analysis_folder, fovs, fov_id,
                 continue;
             if dynamic:
                 th_seed = scoreatpercentile(im,99)*0.5
-            im_sm = vis.grab_block(im,coord_sel1,[sz_ex]*3)
+            im_sm = visual_tools.grab_block(im,coord_sel1,[sz_ex]*3)
             cents1 = get_STD_centers(im_sm, th_seed=th_seed)#list of fits of beads in the cube 1
-            im_sm = vis.grab_block(im,coord_sel2,[sz_ex]*3)
+            im_sm = visual_tools.grab_block(im,coord_sel2,[sz_ex]*3)
             cents2 = get_STD_centers(im_sm, th_seed=th_seed)#list of fits of beads in the cube 2
             if verbose:
                 print("Aligning "+str(iim))
-            txyz1 = vis.translation_aling_pts(cents_ref1,cents1,cutoff=cutoff_,xyz_res=xyz_res_,plt_val=False)
-            txyz2 = vis.translation_aling_pts(cents_ref2,cents2,cutoff=cutoff_,xyz_res=xyz_res_,plt_val=False)
+            txyz1 = visual_tools.translation_aling_pts(cents_ref1,cents1,cutoff=cutoff_,xyz_res=xyz_res_,plt_val=False)
+            txyz2 = visual_tools.translation_aling_pts(cents_ref2,cents2,cutoff=cutoff_,xyz_res=xyz_res_,plt_val=False)
 
             txyz = (txyz1+txyz2)/2.
             if np.sum(np.abs(txyz1-txyz2))>3:
@@ -86,11 +84,11 @@ def get_STD_beaddrift(bead_ims, bead_names, analysis_folder, fovs, fov_id,
                 print("Suspecting failure.")
                 #sz_ex+=10
                 coord_sel3 = np.array([0,sz_ex,-sz_ex])+coord_sel
-                im_ref_sm = vis.grab_block(im_ref,coord_sel3,[sz_ex]*3)
+                im_ref_sm = visual_tools.grab_block(im_ref,coord_sel3,[sz_ex]*3)
                 cents_ref3 = get_STD_centers(im_ref_sm, th_seed=th_seed)#list of fits of beads in the ref cube 3
-                im_sm = vis.grab_block(im,coord_sel3,[sz_ex]*3)
+                im_sm = visual_tools.grab_block(im,coord_sel3,[sz_ex]*3)
                 cents3 = get_STD_centers(im_sm, th_seed=th_seed)#list of fits of beads in the cube 3
-                txyz3 = vis.translation_aling_pts(cents_ref3,cents3,cutoff=cutoff_,xyz_res=xyz_res_,plt_val=False)
+                txyz3 = visual_tools.translation_aling_pts(cents_ref3,cents3,cutoff=cutoff_,xyz_res=xyz_res_,plt_val=False)
                 #print txyz1,txyz2,txyz3
                 if np.sum(np.abs(txyz3-txyz1))<np.sum(np.abs(txyz3-txyz2)):
                     txyz = (txyz1+txyz3)/2.
@@ -136,9 +134,9 @@ def get_STD_centers(im, th_seed=150, close_threshold=0.01, plt_val=False,
         return beads
     else:
         # seeding
-        seeds = vis.get_seed_points_base(im, gfilt_size=0.75,filt_size=3,th_seed=th_seed,hot_pix_th=4)
+        seeds = visual_tools.get_seed_points_base(im, gfilt_size=0.75,filt_size=3,th_seed=th_seed,hot_pix_th=4)
         # fitting
-        pfits = vis.fit_seed_points_base_fast(im,seeds,width_z=1.8*1.5/2,width_xy=1.,radius_fit=5,n_max_iter=10,max_dist_th=0.25,quiet=not verbose)
+        pfits = visual_tools.fit_seed_points_base_fast(im,seeds,width_z=1.8*1.5/2,width_xy=1.,radius_fit=5,n_max_iter=10,max_dist_th=0.25,quiet=not verbose)
         # get coordinates for fitted beads
         if len(pfits) > 0:
             beads = pfits[:,1:4];
@@ -234,9 +232,9 @@ def STD_beaddrift_sequential(bead_ims, bead_names, drift_folder, fovs, fov_id,
             if dynamic:
                 th_seed = scoreatpercentile(im_ref, dynamic_th_percent) * 0.5;
             # start fitting image 0
-            im_ref_sm = vis.grab_block(im_ref,coord_sel1,[sz_ex]*3)
+            im_ref_sm = visual_tools.grab_block(im_ref,coord_sel1,[sz_ex]*3)
             cents_ref1 = get_STD_centers(im_ref_sm, th_seed=th_seed, verbose=verbose)#list of fits of beads in the ref cube 1
-            im_ref_sm = vis.grab_block(im_ref,coord_sel2,[sz_ex]*3)
+            im_ref_sm = visual_tools.grab_block(im_ref,coord_sel2,[sz_ex]*3)
             cents_ref2 = get_STD_centers(im_ref_sm, th_seed=th_seed, verbose=verbose)#list of fits of beads in the ref cube 2
 
             for iim,(im, _name) in enumerate(zip(_bead_ims[1:], bead_names[1:])):
@@ -244,15 +242,15 @@ def STD_beaddrift_sequential(bead_ims, bead_names, drift_folder, fovs, fov_id,
                     th_seed = scoreatpercentile(im, dynamic_th_percent) * 0.45;
                 #print th_seed
                 # fit target image
-                im_sm = vis.grab_block(im,coord_sel1,[sz_ex]*3)
+                im_sm = visual_tools.grab_block(im,coord_sel1,[sz_ex]*3)
                 cents1 = get_STD_centers(im_sm, th_seed=th_seed, verbose=verbose)#list of fits of beads in the cube 1
-                im_sm = vis.grab_block(im,coord_sel2,[sz_ex]*3)
+                im_sm = visual_tools.grab_block(im,coord_sel2,[sz_ex]*3)
                 cents2 = get_STD_centers(im_sm, th_seed=th_seed, verbose=verbose)#list of fits of beads in the cube 2
                 if verbose:
                     print("Aligning "+str(iim+1), _name)
                 # calculate drift
-                txyz1 = vis.translation_aling_pts(cents_ref1,cents1,cutoff=cutoff_,xyz_res=xyz_res_,plt_val=False)
-                txyz2 = vis.translation_aling_pts(cents_ref2,cents2,cutoff=cutoff_,xyz_res=xyz_res_,plt_val=False)
+                txyz1 = visual_tools.translation_aling_pts(cents_ref1,cents1,cutoff=cutoff_,xyz_res=xyz_res_,plt_val=False)
+                txyz2 = visual_tools.translation_aling_pts(cents_ref2,cents2,cutoff=cutoff_,xyz_res=xyz_res_,plt_val=False)
                 txyz = (txyz1+txyz2)/2.
                 # if two drifts are really different:
                 if np.sum(np.abs(txyz1-txyz2))>3:
@@ -260,11 +258,11 @@ def STD_beaddrift_sequential(bead_ims, bead_names, drift_folder, fovs, fov_id,
                     print("Suspecting failure.")
                     #sz_ex+=10
                     coord_sel3 = np.array([0,sz_ex,-sz_ex])+coord_sel
-                    im_ref_sm = vis.grab_block(im_ref,coord_sel3,[sz_ex]*3)
+                    im_ref_sm = visual_tools.grab_block(im_ref,coord_sel3,[sz_ex]*3)
                     cents_ref3 = get_STD_centers(im_ref_sm, th_seed=th_seed, verbose=verbose)#list of fits of beads in the ref cube 3
-                    im_sm = vis.grab_block(im,coord_sel3,[sz_ex]*3)
+                    im_sm = visual_tools.grab_block(im,coord_sel3,[sz_ex]*3)
                     cents3 = get_STD_centers(im_sm, th_seed=th_seed, verbose=verbose)#list of fits of beads in the cube 3
-                    txyz3 = vis.translation_aling_pts(cents_ref3,cents3,cutoff=cutoff_,xyz_res=xyz_res_,plt_val=False)
+                    txyz3 = visual_tools.translation_aling_pts(cents_ref3,cents3,cutoff=cutoff_,xyz_res=xyz_res_,plt_val=False)
                     #print txyz1,txyz2,txyz3
                     if np.sum(np.abs(txyz3-txyz1))<np.sum(np.abs(txyz3-txyz2)):
                         txyz = (txyz1+txyz3)/2.
@@ -413,7 +411,7 @@ def generate_chromatic_abbrevation_correction(ims, names, master_folder, channel
     import scipy.linalg
 
     # split images into channels
-    _splitted_ims = ia.get_img_info.split_channels(ims, names, num_channel=len(_channels), buffer_frames=10, DAPI=False)
+    _splitted_ims = get_img_info.split_channels(ims, names, num_channel=len(_channels), buffer_frames=10, DAPI=False)
     _cims = _splitted_ims[_channels.index(str(corr_channel))]
     _rims = _splitted_ims[_channels.index(str(ref_channel))]
     # initialize list of beads centers:
@@ -423,19 +421,19 @@ def generate_chromatic_abbrevation_correction(ims, names, master_folder, channel
     for _cim,_rim,_name in zip(_cims,_rims,names):
         try:
             # fit correction channel
-            _cim = ia.corrections.Illumination_correction(_cim, corr_channel, correction_folder=correction_folder,
+            _cim = corrections.Illumination_correction(_cim, corr_channel, correction_folder=correction_folder,
                                                         verbose=verbose)[0]
-            _cct = ia.corrections.get_STD_centers(_cim, scoreatpercentile(_cim, seed_th_per), verbose=verbose,
+            _cct = corrections.get_STD_centers(_cim, scoreatpercentile(_cim, seed_th_per), verbose=verbose,
                                         save=save, force=force, save_folder=master_folder+os.sep+fitting_save_subdir,
                                         save_name=_name.split(os.sep)[-1].replace('.dax', '_'+str(corr_channel)+'_fitting.pkl'))
             # fit reference channel
-            _rim = ia.corrections.Illumination_correction(_rim, ref_channel, correction_folder=correction_folder,
+            _rim = corrections.Illumination_correction(_rim, ref_channel, correction_folder=correction_folder,
                                                         verbose=verbose)[0]
-            _rct = ia.corrections.get_STD_centers(_rim, scoreatpercentile(_rim, seed_th_per), verbose=verbose,
+            _rct = corrections.get_STD_centers(_rim, scoreatpercentile(_rim, seed_th_per), verbose=verbose,
                                         save=save, force=force, save_folder=master_folder+os.sep+fitting_save_subdir,
                                         save_name=_name.split(os.sep)[-1].replace('.dax', '_'+str(ref_channel)+'_fitting.pkl'))
             # Align points
-            _aligned_cct, _aligned_rct, _shift = ia.visual_tools.beads_alignment_fast(_cct ,_rct, outlier_sigma=1, unique_cutoff=2)
+            _aligned_cct, _aligned_rct, _shift = visual_tools.beads_alignment_fast(_cct ,_rct, outlier_sigma=1, unique_cutoff=2)
             # append
             _ccts.append(_aligned_cct);
             _rcts.append(_aligned_rct);

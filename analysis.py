@@ -4,7 +4,7 @@ sys.path.append(r'C:\Users\puzheng\Documents\python-functions\python-functions-l
 import pickle as pickle
 import matplotlib.pyplot as plt
 import multiprocessing
-from . import get_img_info, corrections, visual_tools, analysis
+from . import get_img_info, corrections, visual_tools
 from . import _correction_folder,_temp_folder,_distance_zxy,_sigma_zxy
 
 # function to do segmentation
