@@ -25,4 +25,3 @@ from . import corrections
 from . import classes
 # depriciated functions:
 #from . import fitting
-print("ImageAnalysis3 loaded")

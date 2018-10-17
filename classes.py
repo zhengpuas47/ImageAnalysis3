@@ -444,11 +444,11 @@ class Cell_List():
             # record start time
             _start_time = time.time();
             ## multi-threading for multi-fitting
-            _cropping_args = (_type, _fov_dic[_cell.fov_id], self.num_threads, 10, _load_in_ram, _load_annotated_only,\
-                              True, True, _save, _overwrite_cell_info, _verbose)
-            _pool_args = [(_cell, _cropping_args) for _cell_id, _cell in enumerate(self.cells)];
+            _cropping_args = [(_type, _fov_dic[_cell.fov_id], self.num_threads, 10, _load_in_ram, _load_annotated_only,\
+                              True, True, _save, _overwrite_cell_info, _verbose) for _cell in self.cells];
+            _pool_args = [(_cell, _cropping_arg) for _cell, _cropping_arg in zip(self.cells, _cropping_args)];
             if _verbose:
-                print(f"++ cropping combo with {_fitting_threads} threads")
+                print(f"++ cropping combo with {self.num_threads} threads")
             _cropping_pool = multiprocessing.Pool(self.num_threads)
             _cropping_pool.starmap_async(_do_cropping_for_cell, _pool_args, chunksize=1)
             _cropping_pool.close()
@@ -464,11 +464,11 @@ class Cell_List():
             # record start time
             _start_time = time.time();
             ## multi-threading for multi-fitting
-            _cropping_args = (_type, _fov_dic[_cell.fov_id], self.num_threads, 10, _load_in_ram, _load_annotated_only,\
-                              True, True, _save, _overwrite_cell_info, _verbose)
-            _pool_args = [(_cell, _cropping_args) for _cell_id, _cell in enumerate(self.cells)];
+            _cropping_args = [(_type, _fov_dic[_cell.fov_id], self.num_threads, 10, _load_in_ram, _load_annotated_only,\
+                              True, True, _save, _overwrite_cell_info, _verbose) for _cell in self.cells];
+            _pool_args = [(_cell, _cropping_arg) for _cell, _cropping_arg in zip(self.cells, _cropping_args)];
             if _verbose:
-                print(f"++ cropping unique with {_fitting_threads} threads")
+                print(f"++ cropping unique with {self.num_threads} threads")
             _cropping_pool = multiprocessing.Pool(self.num_threads)
             _cropping_pool.starmap_async(_do_cropping_for_cell, _pool_args, chunksize=1)
             _cropping_pool.close()

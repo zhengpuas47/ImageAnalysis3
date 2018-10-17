@@ -12,5 +12,4 @@ import multiprocessing
 from importlib import reload
 # add Document to path
 sys.path.append(r'E:\Users\puzheng\Documents')
-# image analysis functions for python3
-import ImageAnalysis3 as ia
+

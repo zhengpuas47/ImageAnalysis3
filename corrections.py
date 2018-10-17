@@ -739,10 +739,12 @@ def correction_wrapper(im, channel, correction_folder=_correction_folder,
                     correction_folder=correction_folder, verbose=verbose)[0]
     # if save temp file, save to a file, release original one, return a memory-map
     if return_type == 'filename':
+        print(f"--- saving temp to file:{_temp_fl}")
         np.save(_temp_fl, _corr_im)
         del(_corr_im, im)
         return _temp_fl+'.npy'
     elif return_type == 'mmap':
+        print(f"--- saving temp to file for mmap:{_temp_fl}")
         np.save(_temp_fl, _corr_im)
         del(_corr_im, im)
         _im_mmap = np.load(_temp_fl+'.npy', mmap_mode='r+');
