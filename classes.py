@@ -17,6 +17,9 @@ from matplotlib.cm import seismic_r
 def _do_multi_fitting_for_cell(_cell, _fitting_args):
     _cell._multi_fitting(*_fitting_args)
 
+def _do_cropping_for_cell(_cell, _cropping_args):
+    _cell._load_images(*_cropping_args)
+
 class Cell_List():
     """
     Class Cell_List:
@@ -428,7 +431,7 @@ class Cell_List():
                 print(f"++ loading image for fov:{_id}");
             _temp_files, _, _ = analysis.load_image_fov(_folders, self.fovs, _id,
                                 self.channels,  self.color_dic, self.num_threads, loading_type=_type,
-                                max_chunk_size=6, correction_folder=self.correction_folder, overwrite_temp=_overwrite_temp,
+                                max_chunk_size=5, correction_folder=self.correction_folder, overwrite_temp=_overwrite_temp,
                                 temp_folder=self.temp_folder, return_type='filename', verbose=_verbose)
             _fov_dic[_id] = analysis.reconstruct_from_temp(_temp_files, _folders, self.fovs, _id,
                                                        self.channels, self.color_dic, temp_folder=self.temp_folder,
@@ -437,27 +440,42 @@ class Cell_List():
         # Load for combo
         if _type == 'all' or _type == 'combo':
             if _verbose:
-                print("++ processing combo for cells")
-            # loop through all cells
-            for _cell in self.cells:
-                if _verbose:
-                    print(f"+++ crop images for cell:{_cell.cell_id} in fov:{_cell.fov_id}")
-                _cell._load_images('combo', _splitted_ims=_fov_dic[_cell.fov_id],
-                                   _num_threads=self.num_threads, _extend_dim=20,
-                                   _load_in_ram=_load_in_ram, _load_annotated_only=_load_annotated_only,
-                                   _save=_save, _overwrite=_overwrite_cell_info, _verbose=_verbose);
+                print(f"++ cropping combo for cells")
+            # record start time
+            _start_time = time.time();
+            ## multi-threading for multi-fitting
+            _cropping_args = (_type, _fov_dic[_cell.fov_id], self.num_threads, 10, _load_in_ram, _load_annotated_only,\
+                              True, True, _save, _overwrite_cell_info, _verbose)
+            _pool_args = [(_cell, _cropping_args) for _cell_id, _cell in enumerate(self.cells)];
+            if _verbose:
+                print(f"++ cropping combo with {_fitting_threads} threads")
+            _cropping_pool = multiprocessing.Pool(self.num_threads)
+            _cropping_pool.starmap_async(_do_cropping_for_cell, _pool_args, chunksize=1)
+            _cropping_pool.close()
+            _cropping_pool.join()
+            if _verbose:
+                print(f"+++ time cost in cropping combo: {time.time()-_start_time} ")
+            _cropping_pool.terminate()
 
         # load for unique
         if _type == 'all' or _type == 'unique':
             if _verbose:
-                print("++ processing unique for cells")
-            for _cell in self.cells:
-                if _verbose:
-                    print(f"+++ crop images for cell:{_cell.cell_id} in fov:{_cell.fov_id}")
-                _cell._load_images('unique', _splitted_ims=_fov_dic[_cell.fov_id],
-                                   _num_threads=self.num_threads, _extend_dim=20,
-                                   _load_in_ram=_load_in_ram, _load_annotated_only=_load_annotated_only,
-                                   _save=_save, _overwrite=_overwrite_cell_info, _verbose=_verbose);
+                print("++ cropping unique for cells")
+            # record start time
+            _start_time = time.time();
+            ## multi-threading for multi-fitting
+            _cropping_args = (_type, _fov_dic[_cell.fov_id], self.num_threads, 10, _load_in_ram, _load_annotated_only,\
+                              True, True, _save, _overwrite_cell_info, _verbose)
+            _pool_args = [(_cell, _cropping_args) for _cell_id, _cell in enumerate(self.cells)];
+            if _verbose:
+                print(f"++ cropping unique with {_fitting_threads} threads")
+            _cropping_pool = multiprocessing.Pool(self.num_threads)
+            _cropping_pool.starmap_async(_do_cropping_for_cell, _pool_args, chunksize=1)
+            _cropping_pool.close()
+            _cropping_pool.join()
+            if _verbose:
+                print(f"+++ time cost in cropping unique: {time.time()-_start_time} ")
+            _cropping_pool.terminate()
         # save extra cell_info
         if _save:
             for _cell in self.cells:
@@ -566,7 +584,7 @@ class Cell_List():
                 print(f"++ matching {len(_chrom_coords)} chromosomes for fov:{_cell.fov_id}, cell:{_cell.cell_id}")
         # then update files if specified
             if _save:
-                _cell._save_to_file('cell_info', _verbose=_verbose);
+                _cell._save_to_file('cell_info', _save_dic={'chrom_coords': _cell.chrom_coords},  _verbose=_verbose);
                 if hasattr(_cell, 'combo_groups'):
                     _cell._save_to_file('combo', _overwrite=True, _verbose=_verbose);
 
@@ -579,7 +597,6 @@ class Cell_List():
             if os.path.isfile(_fl) and _temp_marker in _fl and self.fovs[_fov_id].replace('.dax', '') in _fl:
                 print("++ removing temp file:", os.path.basename(_fl))
                 os.remove(_fl)
-
 
     def _spot_finding_for_cells(self, _type='unique', _max_fitting_threads=5,
                                 _use_chrom_coords=True, _seed_th_per=50, _max_filt_size=3, _min_seeds=3,
@@ -1162,7 +1179,11 @@ class Cell_Data():
                     _combo_dic['chrom_coords'] = self.chrom_coords
                 # save
                 if _verbose:
-                    print("-- saving combo to:", _combo_savefile)
+                    print("-- saving combo to:", _combo_savefile, end="\t")
+                    if 'chrom_coords' in _combo_dic:
+                        print("with chrom_coords info.")
+                    else:
+                        print("")
                 np.savez_compressed(_combo_savefile, **_combo_dic)
         # save unique
         if _type == 'all' or _type == 'unique':
@@ -1306,15 +1327,46 @@ class Cell_Data():
                     self.unique_ims[self.unique_ids.index(int(_uid))] = _uim;
 
         if _type == 'all' or _type == 'decoded':
-            if not _decoded_flag and _type == 'decoded':
+            if _type == 'decoded' and not _decoded_flag:
                 raise ValueError("Kwd _decoded_flag not given, exit!");
             elif not _decoded_flag:
                 print("Kwd _decoded_flag not given, skip this step.");
-                # load existing combo files
-                _raw_combo_fl = "rounds.npz"
-                _combo_files = glob.glob(os.path.join(_save_folder, "group-*", "channel-*", _raw_combo_fl));
+            else:
+                # check combo_groups
+                # look for decoded _results
+                if not hasattr(self, 'combo_groups'):
+                    try:
+                        self._load_from_file('combo');
+                    except:
+                        raise IOError(f"Cannot load combo groups for fov:{self.fov_id} cell:{self.cell_id}")
+                # scan existing combo files
+                _raw_decoded_fl = "regions.npz"
+                _decoded_files = glob.glob(os.path.join(_save_folder, "group-*", "channel-*", _decoded_flag, _raw_decoded_fl));
+                # intialize list to store images
+                _decoded_ims, _decoded_ids = [],[];
+                # loop through files and
+                for _decoded_file in _decoded_files:
+                    if _verbose:
+                        print("-- loading decoded result from file:", _decoded_file);
+                    with np.load(_decoded_file) as handle:
+                        _ims = handle['observation'];
+                        _ims = _ims.swapaxes(0,3).swapaxes(1,2);
+                    _name_info = _decoded_file.split(os.sep);
+                    _fov_id = [int(_i.split('-')[-1]) for _i in _name_info if "fov" in _i][0]
+                    _cell_id = [int(_i.split('-')[-1]) for _i in _name_info if "cell" in _i][0]
+                    _group_id = [int(_i.split('-')[-1]) for _i in _name_info if "group" in _i][0]
+                    _color = [_i.split('-')[-1] for _i in _name_info if "channel" in _i][0]
+                    # check duplication
+                    _matches = [(_g.fov_id==_fov_id) and (_g.cell_id==_cell_id) and (_g.group_id==_group_id) and (_g.color==_color) for _g in self.combo_groups];
+                    if sum(_matches) == 1: #duplicate found:
+                        if _verbose:
+                            print(f"--- decoded result matched for group:{_group_id}, color:{_color}");
+                        _matched_group = self.combo_groups[_matches.index(True)];
 
-            # look for decoded _results
+                        print(_matched_group.matrix)
+
+
+
 
     def _generate_chromosome_image(self, _source='combo', _max_count= 30, _verbose=False):
         """Generate chromosome from existing combo / unique images"""

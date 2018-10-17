@@ -1,4 +1,3 @@
-import ImageAnalysis3 as ia
 from . import get_img_info, visual_tools, analysis
 from . import _correction_folder,_temp_folder,_distance_zxy,_sigma_zxy
 import numpy as np
