@@ -443,39 +443,25 @@ class Cell_List():
                 print(f"++ cropping combo for cells")
             # record start time
             _start_time = time.time();
-            ## multi-threading for multi-fitting
-            _cropping_args = [(_type, _fov_dic[_cell.fov_id], self.num_threads, 10, _load_in_ram, _load_annotated_only,\
-                              True, True, _save, _overwrite_cell_info, _verbose) for _cell in self.cells];
-            _pool_args = [(_cell, _cropping_arg) for _cell, _cropping_arg in zip(self.cells, _cropping_args)];
-            if _verbose:
-                print(f"++ cropping combo with {self.num_threads} threads")
-            _cropping_pool = multiprocessing.Pool(self.num_threads)
-            _cropping_pool.starmap_async(_do_cropping_for_cell, _pool_args, chunksize=1)
-            _cropping_pool.close()
-            _cropping_pool.join()
-            if _verbose:
-                print(f"+++ time cost in cropping combo: {time.time()-_start_time} ")
-            _cropping_pool.terminate()
-
+            # loop through all cells
+            for _cell in self.cells:
+                if _verbose:
+                    print(f"+++ crop combo images for cell:{_cell.cell_id} in fov:{_cell.fov_id}")
+                _cell._load_images('combo', _splitted_ims=_fov_dic[_cell.fov_id],
+                                   _num_threads=self.num_threads, _extend_dim=20,
+                                   _load_in_ram=_load_in_ram, _load_annotated_only=_load_annotated_only,
+                                   _save=_save, _overwrite=_overwrite_cell_info, _verbose=_verbose);
         # load for unique
         if _type == 'all' or _type == 'unique':
             if _verbose:
                 print("++ cropping unique for cells")
-            # record start time
-            _start_time = time.time();
-            ## multi-threading for multi-fitting
-            _cropping_args = [(_type, _fov_dic[_cell.fov_id], self.num_threads, 10, _load_in_ram, _load_annotated_only,\
-                              True, True, _save, _overwrite_cell_info, _verbose) for _cell in self.cells];
-            _pool_args = [(_cell, _cropping_arg) for _cell, _cropping_arg in zip(self.cells, _cropping_args)];
-            if _verbose:
-                print(f"++ cropping unique with {self.num_threads} threads")
-            _cropping_pool = multiprocessing.Pool(self.num_threads)
-            _cropping_pool.starmap_async(_do_cropping_for_cell, _pool_args, chunksize=1)
-            _cropping_pool.close()
-            _cropping_pool.join()
-            if _verbose:
-                print(f"+++ time cost in cropping unique: {time.time()-_start_time} ")
-            _cropping_pool.terminate()
+            for _cell in self.cells:
+                if _verbose:
+                    print(f"+++ crop unique images for cell:{_cell.cell_id} in fov:{_cell.fov_id}")
+                _cell._load_images('unique', _splitted_ims=_fov_dic[_cell.fov_id],
+                                   _num_threads=self.num_threads, _extend_dim=20,
+                                   _load_in_ram=_load_in_ram, _load_annotated_only=_load_annotated_only,
+                                   _save=_save, _overwrite=_overwrite_cell_info, _verbose=_verbose);
         # save extra cell_info
         if _save:
             for _cell in self.cells:
