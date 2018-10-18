@@ -1356,7 +1356,7 @@ class Cell_Data():
                         _kept_ims = [_im for _im,_id in zip(_ims, _ids) if _id >=0];
                         _kept_ids = [_id for _im,_id in zip(_ims, _ids) if _id >=0];
                         # append
-                        _decoded_ims += _kept_ids;
+                        _decoded_ids += _kept_ids;
                         _decoded_ims += _kept_ims;
                         print("--- kept ids:",_kept_ids);
                 # sort
