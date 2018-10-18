@@ -739,6 +739,9 @@ def correction_wrapper(im, channel, correction_folder=_correction_folder,
                     correction_folder=correction_folder, verbose=verbose)[0]
     # if save temp file, save to a file, release original one, return a memory-map
     if return_type == 'filename':
+        if not os.path.exists(temp_folder):
+            print(f"Create Temp folder:{temp_folder}")
+            os.makedirs(_temp_folder);
         print(f"--- saving temp to file:{_temp_fl}")
         np.save(_temp_fl, _corr_im)
         del(_corr_im, im)

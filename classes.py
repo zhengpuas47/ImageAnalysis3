@@ -1348,10 +1348,20 @@ class Cell_Data():
                         if _verbose:
                             print(f"--- decoded result matched for group:{_group_id}, color:{_color}");
                         _matched_group = self.combo_groups[_matches.index(True)];
-
-                        print(_matched_group.matrix)
-
-
+                        _matrix = _matched_group.matrix;
+                        _n_hyb, _n_reg = np.shape(_matrix)
+                        _ims = _ims[:_n_reg]
+                        _ids = [np.unique(_matrix[:,_col_id])[-1] for _col_id in range(_n_reg)]
+                        # filter by reg name
+                        _kept_ims = [_im for _im,_id in zip(_ims, _ids) if _id >=0];
+                        _kept_ids = [_id for _im,_id in zip(_ims, _ids) if _id >=0];
+                        # append
+                        _decoded_ims += _kept_ids;
+                        _decoded_ims += _kept_ims;
+                        print("--- kept ids:",_kept_ids);
+                # sort
+                self.decoded_ims = [_im for _id,_im in sorted(zip(_decoded_ids, _decoded_ims))]
+                self.decoded_ids = [_id for _id in sorted(_decoded_ids)]
 
 
     def _generate_chromosome_image(self, _source='combo', _max_count= 30, _verbose=False):
