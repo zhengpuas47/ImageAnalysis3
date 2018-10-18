@@ -1622,7 +1622,9 @@ def fit_single_gaussian(data, center_zxy, width_zxy=[1.35, 1.9, 1.9], radius=10,
 
     data_=np.array(data,dtype=float)
     dims = np.array(data_.shape)
-
+    # dynamic adjust height_sensitivity
+    if np.max(data_) < height_sensitivity:
+        height_sensitivity = np.ceil(np.max(data_))
     if len(center_zxy)==3:
         center_z,center_x,center_y = center_zxy
     else:
@@ -1639,6 +1641,8 @@ def fit_single_gaussian(data, center_zxy, width_zxy=[1.35, 1.9, 1.9], radius=10,
         if bk < 0:
             bk = 0;
         height = (np.median(sorted_data[-n_approx:])-bk) / height_sensitivity
+        if height < 0:
+            height=0;
         width_z,width_x,width_y = np.array(width_zxy)
         params_ = (height,center_z,center_x,center_y,bk, width_z,width_x,width_y)
 
@@ -1674,7 +1678,8 @@ def fit_single_gaussian(data, center_zxy, width_zxy=[1.35, 1.9, 1.9], radius=10,
 
 # Multi gaussian fitting
 def fit_multi_gaussian(im, seeds, width_zxy = [1.35,1.9,1.9], fit_radius=10,
-                       height_sensitivity=100., expect_intensity=500., expect_weight=1000., th_to_end=1e-5,
+                       height_sensitivity=100., expect_intensity=500., expect_weight=1000.,
+                       th_to_end=1e-5,
                        n_max_iter=10, max_dist_th=0.25, min_height=100.0,
                        return_im=False, verbose=True):
     """ Function to fit multiple gaussians (with given prior)
@@ -1699,8 +1704,10 @@ def fit_multi_gaussian(im, seeds, width_zxy = [1.35,1.9,1.9], fit_radius=10,
     _start = time.time()
     if verbose:
         print(f"-- Multi-Fitting:{len(seeds)} points")
-    # transform seeds input
-    #_seeds = seeds.transpose() # fitting kernels provided by previous seeding
+    # adjust min_height:
+    if np.max(im) * 0.1 < min_height:
+        min_height = np.max(im)*0.1
+    # seeds
     _seeds = seeds
     if len(_seeds) > 0:
         # initialize
