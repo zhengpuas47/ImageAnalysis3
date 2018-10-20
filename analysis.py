@@ -540,12 +540,12 @@ def Crop_Images_Field_of_View(master_folder, folders, fovs, fov_id,
     _bead_channel = get_img_info.find_bead_channel(_color_dic);
     _bead_ims = [v[_bead_channel] for k,v in sorted(list(_im_dic.items()), key=lambda k_v: int(k_v[0].split('H')[1].split('R')[0]))]
     _bead_names = [k for k,v in sorted(list(_im_dic.items()), key=lambda k_v1: int(k_v1[0].split('H')[1].split('R')[0]))]
-    _total_drift, _drift_rep, _fail_count = corrections.STD_beaddrift_sequential(_bead_ims,_bead_names,
+    _total_drift, _fail_count = corrections.STD_beaddrift_sequential(_bead_ims,_bead_names,
                                                     drift_folder=master_folder+os.sep+analysis_path,
                                                     fovs=fovs,
                                                     fov_id=fov_id,
-                                                    sz_ex=drift_corr_size,
-                                                    force=False, save=True,
+                                                    drift_size=drift_corr_size,
+                                                    overwrite=False, save=True,
                                                     correction_folder=correction_folder,
                                                     th_seed=th_seed, dynamic=dynamic, verbose=True)
 

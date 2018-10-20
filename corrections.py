@@ -167,11 +167,11 @@ def get_STD_centers(im, th_seed=150, close_threshold=0.01, plt_val=False,
 
 
 def STD_beaddrift_sequential(bead_ims, bead_names, drift_folder, fovs, fov_id,
-                      illumination_correction=False, ic_channel='488',
-                      correction_folder=_correction_folder,
-                      repeat=True, plt_val=False, cutoff_=3, xyz_res_=1,
-                      coord_sel=None, sz_ex=200, force=False, save=True, th_seed=150,
-                      dynamic=False, dynamic_th_percent=80, verbose=True):
+                             drift_size=200, coord_sel=None, cutoff_=3, xyz_res_=1,
+                             dynamic=False, dynamic_th_percent=80, th_seed=150,
+                             illumination_correction=False, ic_channel='488', correction_folder=_correction_folder,
+                             overwrite=False, plt_val=False, save=True, save_postfix='_sequential_current_cor.pkl',
+                             verbose=True):
     """Given a list of bead images This handles the fine bead drift correction.
     If save is true this requires global paramaters drift_folder,fovs,fov_id
     Inputs:
@@ -180,32 +180,37 @@ def STD_beaddrift_sequential(bead_ims, bead_names, drift_folder, fovs, fov_id,
         drift_folder: full directory to store analysis files, string
         fovs: names for all field of views, list of strings
         fov_id: the id for field of view to be analysed, int
+        drift_size: size of window used in drift correction, int (defualt: 200)
+        coord_sel: whether select a coordinate as center, None or len-3 vector (default:None, means middle of image)
+        cutoff_: point alignment cutoff, int (default: 3)
+        xyz_res_: resolution in xyz during alignment, int (default: 1)
+        dynamic: whether use dynamic seeding threashold, bool (default: False)
+        dynamic_th_percent: if dynamic, the threshold is this percentile of total image intensity, float in [0,100] (default:80)
+        th_seed: fixed seed threshold if not dynamic, float (default:150)
         Illumination_correction: whether do illumination correction, bool
         ic_channel: illumination_correction channel, str or int (default: 488)
         correction_folder: folder for correction files, string (path)
-        repeat: whether repeat experiment, bool (default: True)
-
+        overwrite: whether overwrite existing drifts, bool (default: False)
+        plt_val: whether plot alignment result, bool (default: False)
+        save: whether save drift to file, bool (default: True)
+        save_postfix: postfix for save filename after field-of-view name, str(default:'_sequential_current_cor.pkl')
+        verbose: Say something during the process! bool (default: True)
+    Outputs:
+        total_drift: dictionary from bead_names to len=3 vector representing drifts in z,x,y, dict
+        _failed_count: number of suspicious failures during drifts, int
         """
     if verbose:
         print("- Drift correction starts!");
     # Initialize failed counts
     fail_count = 0
     _start_time = time.time();
-    # if save, check existing pickle file, if exist, don't repeat
-    if save:
-        save_cor = drift_folder+os.sep+fovs[fov_id].replace('.dax','_sequential_current_cor.pkl')
-        # if savefile already exists, check whether dimension was correct
-        if os.path.exists(save_cor):
-            total_drift = pickle.load(open(save_cor,'rb'))
-            if len(list(total_drift.keys()))==len(bead_ims):
-                if verbose:
-                    print("length matches:",len(bead_ims), "and forcing calculation="+str(force))
-                repeat=False
-            else:
-                if verbose:
-                    print("length doesnot match, redo drift correction!");
-    repeat = repeat or force
-
+    # check existing pickle file, if exist, don't repeat
+    save_filename = os.path.join(drift_folder, fovs[fov_id].replace('.dax', save_postfix))
+    # if savefile already exists, load
+    if os.path.exists(save_filename):
+        total_drift = pickle.load(open(save_filename,'rb'))
+    else: # else create an empty dic
+        total_drift = {};
     # if do illumination_correction:
     if illumination_correction:
         _bead_ims = [Illumination_correction(_im,ic_channel, correction_folder=correction_folder, verbose=False) for _im in bead_ims]
@@ -213,82 +218,92 @@ def STD_beaddrift_sequential(bead_ims, bead_names, drift_folder, fovs, fov_id,
         _bead_ims = bead_ims;
 
     # repeat if no fitted data exist
-    if repeat:
-        # initialize drifts
-        txyzs = [];
-        txyzs.append(np.array([0.,0.,0.]));
-        # define selected coordinates in each field of view
-        if coord_sel is None:
-            coord_sel = np.array(_bead_ims[0].shape)/2
-        coord_sel1 = np.array([0,-sz_ex,-sz_ex]) + coord_sel
-        coord_sel2 = np.array([0,sz_ex,sz_ex]) + coord_sel
+    # initialize drifts
+    if len(_bead_ims) == 0:
+        raise ValueError("Wrong dimension of _bead_ims, at least 1 image required")
+    else:
+        txyzs = [np.array([0.,0.,0.])]; # initialize with zeros, representing image0 itself
+        if len(total_drift) > 0 and bead_names[0] in total_drift:
+            change_markers = [False] # marker for whether made any changes
+        else:
+            change_markers = [True];
+    # define selected coordinates in each field of view
+    if coord_sel is None:
+        coord_sel = np.array(_bead_ims[0].shape)/2
+    coord_sel1 = np.array([0,-drift_size,-drift_size]) + coord_sel
+    coord_sel2 = np.array([0,drift_size,drift_size]) + coord_sel
 
-        # if more than one image provided:
-        if len(_bead_ims) > 1:
+    # initialize ref image
+    ref = 0; # initialize reference id
+    im_ref = _bead_ims[ref]; # initialize reference image
+    # dynamic seeding threhold
+    if dynamic:
+        th_seed = scoreatpercentile(im_ref, dynamic_th_percent) * 0.5;
+    # start fitting image 0
+    im_ref_sm = visual_tools.grab_block(im_ref,coord_sel1,[drift_size]*3)
+    cents_ref1 = get_STD_centers(im_ref_sm, th_seed=th_seed, verbose=verbose)#list of fits of beads in the ref cube 1
+    im_ref_sm = visual_tools.grab_block(im_ref,coord_sel2,[drift_size]*3)
+    cents_ref2 = get_STD_centers(im_ref_sm, th_seed=th_seed, verbose=verbose)#list of fits of beads in the ref cube 2
 
-            ref = 0; # initialize reference id
-            im_ref = _bead_ims[ref]; # initialize reference image
+    for iim,(im, _name) in enumerate(zip(_bead_ims[1:], bead_names[1:])):
+        # check if key exists
+        if _name in total_drift and not overwrite:
+            change_markers.append(False)
+            continue;
+        else:
+            change_markers.append(True)
+            # dynamic seeding
             if dynamic:
-                th_seed = scoreatpercentile(im_ref, dynamic_th_percent) * 0.5;
-            # start fitting image 0
-            im_ref_sm = visual_tools.grab_block(im_ref,coord_sel1,[sz_ex]*3)
-            cents_ref1 = get_STD_centers(im_ref_sm, th_seed=th_seed, verbose=verbose)#list of fits of beads in the ref cube 1
-            im_ref_sm = visual_tools.grab_block(im_ref,coord_sel2,[sz_ex]*3)
-            cents_ref2 = get_STD_centers(im_ref_sm, th_seed=th_seed, verbose=verbose)#list of fits of beads in the ref cube 2
+                th_seed = scoreatpercentile(im, dynamic_th_percent) * 0.45;
+            # fit target image
+            im_sm = visual_tools.grab_block(im,coord_sel1,[drift_size]*3)
+            cents1 = get_STD_centers(im_sm, th_seed=th_seed, verbose=verbose)#list of fits of beads in the cube 1
+            im_sm = visual_tools.grab_block(im,coord_sel2,[drift_size]*3)
+            cents2 = get_STD_centers(im_sm, th_seed=th_seed, verbose=verbose)#list of fits of beads in the cube 2
+            if verbose:
+                print("Aligning "+str(iim+1), _name)
+            # calculate drift
+            txyz1 = visual_tools.translation_aling_pts(cents_ref1,cents1,cutoff=cutoff_,xyz_res=xyz_res_,plt_val=plt_val)
+            txyz2 = visual_tools.translation_aling_pts(cents_ref2,cents2,cutoff=cutoff_,xyz_res=xyz_res_,plt_val=plt_val)
+            txyz = (txyz1+txyz2)/2.
+            # if two drifts are really different:
+            if np.sum(np.abs(txyz1-txyz2))>3:
+                fail_count += 1; # count times of suspected failure
+                print("Suspecting failure.")
+                #drift_size+=10
+                coord_sel3 = np.array([0,drift_size,-drift_size])+coord_sel
+                im_ref_sm = visual_tools.grab_block(im_ref,coord_sel3,[drift_size]*3)
+                cents_ref3 = get_STD_centers(im_ref_sm, th_seed=th_seed, verbose=verbose)#list of fits of beads in the ref cube 3
+                im_sm = visual_tools.grab_block(im,coord_sel3,[drift_size]*3)
+                cents3 = get_STD_centers(im_sm, th_seed=th_seed, verbose=verbose)#list of fits of beads in the cube 3
+                txyz3 = visual_tools.translation_aling_pts(cents_ref3,cents3,cutoff=cutoff_,xyz_res=xyz_res_,plt_val=plt_val)
+                #print txyz1,txyz2,txyz3
+                if np.sum(np.abs(txyz3-txyz1))<np.sum(np.abs(txyz3-txyz2)):
+                    txyz = (txyz1+txyz3)/2.
+                    print(txyz1,txyz3)
+                else:
+                    txyz = (txyz2+txyz3)/2.
+                    print(txyz2,txyz3)
 
-            for iim,(im, _name) in enumerate(zip(_bead_ims[1:], bead_names[1:])):
-                if dynamic:
-                    th_seed = scoreatpercentile(im, dynamic_th_percent) * 0.45;
-                #print th_seed
-                # fit target image
-                im_sm = visual_tools.grab_block(im,coord_sel1,[sz_ex]*3)
-                cents1 = get_STD_centers(im_sm, th_seed=th_seed, verbose=verbose)#list of fits of beads in the cube 1
-                im_sm = visual_tools.grab_block(im,coord_sel2,[sz_ex]*3)
-                cents2 = get_STD_centers(im_sm, th_seed=th_seed, verbose=verbose)#list of fits of beads in the cube 2
-                if verbose:
-                    print("Aligning "+str(iim+1), _name)
-                # calculate drift
-                txyz1 = visual_tools.translation_aling_pts(cents_ref1,cents1,cutoff=cutoff_,xyz_res=xyz_res_,plt_val=False)
-                txyz2 = visual_tools.translation_aling_pts(cents_ref2,cents2,cutoff=cutoff_,xyz_res=xyz_res_,plt_val=False)
-                txyz = (txyz1+txyz2)/2.
-                # if two drifts are really different:
-                if np.sum(np.abs(txyz1-txyz2))>3:
-                    fail_count += 1; # count times of suspected failure
-                    print("Suspecting failure.")
-                    #sz_ex+=10
-                    coord_sel3 = np.array([0,sz_ex,-sz_ex])+coord_sel
-                    im_ref_sm = visual_tools.grab_block(im_ref,coord_sel3,[sz_ex]*3)
-                    cents_ref3 = get_STD_centers(im_ref_sm, th_seed=th_seed, verbose=verbose)#list of fits of beads in the ref cube 3
-                    im_sm = visual_tools.grab_block(im,coord_sel3,[sz_ex]*3)
-                    cents3 = get_STD_centers(im_sm, th_seed=th_seed, verbose=verbose)#list of fits of beads in the cube 3
-                    txyz3 = visual_tools.translation_aling_pts(cents_ref3,cents3,cutoff=cutoff_,xyz_res=xyz_res_,plt_val=False)
-                    #print txyz1,txyz2,txyz3
-                    if np.sum(np.abs(txyz3-txyz1))<np.sum(np.abs(txyz3-txyz2)):
-                        txyz = (txyz1+txyz3)/2.
-                        print(txyz1,txyz3)
-                    else:
-                        txyz = (txyz2+txyz3)/2.
-                        print(txyz2,txyz3)
+            txyzs.append(txyz)
+            # store in total_drift if overwrite / not exist
+            total_drift[_name] = sum(txyzs)
+            # inherit centers and ref image
+            cents_ref1 = cents1;
+            cents_ref2 = cents2;
+            ref += 1;
+            im_ref = _bead_ims[ref];
 
-                txyzs.append(txyz)
-                # use this centers as reference for the next hyb
-                cents_ref1 = cents1;
-                cents_ref2 = cents2;
-                ref += 1;
-                im_ref = _bead_ims[ref];
-
-        # convert to total drift
-        total_drift = {_name: sum(txyzs[:_i+1]) for _i, _name in enumerate(bead_names)}
-        if save:
-            if not os.path.exists(drift_folder):
-                os.makedirs(drift_folder)
-            save_cor = drift_folder+os.sep+fovs[fov_id].replace('.dax','_sequential_current_cor.pkl')
-            pickle.dump(total_drift,open(save_cor,'wb'))
-
+    # if any_changes exist and save, do save
+    if true in change_markers and save:
+        if not os.path.exists(drift_folder):
+            os.makedirs(drift_folder)
+        pickle.dump(total_drift,open(save_filename,'wb'))
     if verbose:
         print("-- total time spent in drift correction:", time.time()-_start_time)
 
-    return total_drift, repeat, fail_count
+    return total_drift, fail_count
+
 
 # function to generate illumination profiles
 def generate_illumination_correction(ims, threshold_percentile=98, gaussian_sigma=40,

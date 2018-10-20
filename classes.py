@@ -362,15 +362,14 @@ class Cell_List():
             if _verbose:
                 print ("++ do drift correction!")
             # do drift corrections
-            _fov_drift, _, _failed_count = corrections.STD_beaddrift_sequential(_bead_ims, _bead_names,
-                                                                                self.drift_folder,
-                                                                                self.fovs, _fov_id,
-                                                                                sz_ex=_drift_size,
-                                                                                force=True, dynamic=_drift_dynamic, verbose=_verbose)
+            _fov_drift, _failed_count = corrections.STD_beaddrift_sequential(_bead_ims, _bead_names,
+                                                                            self.drift_folder, self.fovs, _fov_id,
+                                                                            drift_size=_drift_size, force=False,
+                                                                            dynamic=_drift_dynamic, verbose=_verbose)
             if _failed_count > 0:
                 print(f"++ {_failed_count} suspected failures detected in drift correction.");
             # release
-            del(_bead_ims, _)
+            del(_bead_ims)
         # create cells in parallel
         if _verbose:
             print("+ Create cell_data objects!");
@@ -398,9 +397,8 @@ class Cell_List():
         self.cells += _cells
 
     def _crop_image_for_cells(self, _type='all', _load_in_ram=True, _load_annotated_only=True,
-                              _save=True, _force=False,
-                              _overwrite_temp=True, _overwrite_cell_info=False,
-                              _verbose=True):
+                              _max_loading_chunk=5, _overwrite_temp=True, _overwrite_cell_info=False,
+                              _save=True, _force=False, _verbose=True):
         """Load images for all cells in this cell_list
         Inputs:
             _type: loading type for this """
@@ -431,7 +429,7 @@ class Cell_List():
                 print(f"++ loading image for fov:{_id}");
             _temp_files, _, _ = analysis.load_image_fov(_folders, self.fovs, _id,
                                 self.channels,  self.color_dic, self.num_threads, loading_type=_type,
-                                max_chunk_size=5, correction_folder=self.correction_folder, overwrite_temp=_overwrite_temp,
+                                max_chunk_size=_max_loading_chunk, correction_folder=self.correction_folder, overwrite_temp=_overwrite_temp,
                                 temp_folder=self.temp_folder, return_type='filename', verbose=_verbose)
             _fov_dic[_id] = analysis.reconstruct_from_temp(_temp_files, _folders, self.fovs, _id,
                                                        self.channels, self.color_dic, temp_folder=self.temp_folder,
@@ -876,10 +874,9 @@ class Cell_Data():
         else:
              _bead_ims, _bead_names = self.bead_ims, self.bead_names
         # do drift correction
-        self.drift, _, _failed_count = corrections.STD_beaddrift_sequential(_bead_ims, _bead_names,
-                                                                    self.drift_folder,
-                                                                    self.fovs, self.fov_id,
-                                                                    sz_ex=_size, force=_force, dynamic=_dynamic)
+        self.drift, _failed_count = corrections.STD_beaddrift_sequential(_bead_ims, _bead_names,
+                                                            self.drift_folder, self.fovs, self.fov_id,
+                                                            drift_size=_size, overwrite=_force, dynamic=_dynamic)
         if _failed_count > 0:
             print('Failed drift noticed! total failure:', _failed_count);
 
@@ -1615,7 +1612,7 @@ class Cell_Data():
                 # Forward
                 for _j, (_pts, _id) in enumerate(zip(_ch_pts[1:], _ch_ids[1:])):
                     _dists = cdist(_ch_pts[_j], _ch_pts[_j+1]) # real pair-wise distance
-                    _ref_dist = ref_matrix[_ch_ids[_j], _ch_ids[_j+1]] # distance inferred by Hi-C as prior
+                    _ref_dist = ref_matrix[_ch_ids[_j]-1, _ch_ids[_j+1]-1] # distance inferred by Hi-C as prior
                     # two components in dynamic progamming: distance and intensity
                     _measure =  distance_penalty(_dists, _ref_dist, _penalty_type, _penalty_factor) * _w_dist + _dy_values[_j][:,np.newaxis]
                     # update maximum values and maximum pointers

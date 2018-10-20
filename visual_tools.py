@@ -1700,13 +1700,11 @@ def fit_multi_gaussian(im, seeds, width_zxy = [1.35,1.9,1.9], fit_radius=10,
         p: parameters
         Returns (height, x, y,z, width_x, width_y,width_z,bk)
         the gaussian parameters of a 2D distribution found by a fit"""
-
-    _start = time.time()
     if verbose:
         print(f"-- Multi-Fitting:{len(seeds)} points")
     # adjust min_height:
     if np.max(im) * 0.1 < min_height:
-        min_height = np.max(im)*0.1
+        min_height = np.max(im)*0.05
     # seeds
     _seeds = seeds
     if len(_seeds) > 0:
@@ -1733,7 +1731,6 @@ def fit_multi_gaussian(im, seeds, width_zxy = [1.35,1.9,1.9], fit_radius=10,
         im_add = np.array(im_subtr);
         max_dist=np.inf
         n_iter = 0
-        print('s1:',time.time()-_start);
         while max_dist > max_dist_th:
             ps_1=np.array(ps)
             ps_1=ps_1[np.argsort(ps_1[:,0])[::-1]]
@@ -1762,12 +1759,14 @@ def fit_multi_gaussian(im, seeds, width_zxy = [1.35,1.9,1.9], fit_radius=10,
             n_iter+=1
             if n_iter>n_max_iter:
                 break
-        print('s2:',time.time()-_start);
         _kept_fits = ps_2;
         if len(_kept_fits) > 1:
             _intensity_order = np.argsort(_kept_fits[:,0]);
             _kept_fits = _kept_fits[np.flipud(_intensity_order),:]
-        _kept_fits = np.array([_ft for _ft in _kept_fits if _ft[0]>min_height])
+        if len(_kept_fits) > 0 and sum([_ft[0]>min_height for _ft in _kept_fits]) > 0:
+            _kept_fits = np.array([_ft for _ft in _kept_fits if _ft[0]>min_height])
+        elif len(_kept_fits) > 0:
+            _kept_fits = np.array([_kept_fits[0]])
         if return_im:
             return _kept_fits, sub_ims
         else:
