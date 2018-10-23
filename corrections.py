@@ -203,6 +203,9 @@ def STD_beaddrift_sequential(bead_ims, bead_names, drift_folder, fovs, fov_id,
         print("- Drift correction starts!");
     # Initialize failed counts
     fail_count = 0
+    # whether drift for this frame chagnes
+    change_markers = {};
+    # record start time
     _start_time = time.time();
     # check existing pickle file, if exist, don't repeat
     save_filename = os.path.join(drift_folder, fovs[fov_id].replace('.dax', save_postfix))
@@ -224,9 +227,23 @@ def STD_beaddrift_sequential(bead_ims, bead_names, drift_folder, fovs, fov_id,
     else:
         txyzs = [np.array([0.,0.,0.])]; # initialize with zeros, representing image0 itself
         if len(total_drift) > 0 and bead_names[0] in total_drift:
-            change_markers = [False] # marker for whether made any changes
-        else:
-            change_markers = [True];
+            change_markers[bead_names[0]] = False # marker for whether made any changes
+        else: # ref frame is not in total_drift dic: create a zero array
+            if verbose:
+                print("Ref frame changed")
+            # old ref-frame
+            old_ref_frame = None
+            for _hyb_name, _dft in list(total_drift.items()):
+                if np.sum(_dft == 0 ) == len(_dft):
+                    print('old-ref:',_hyb_name)
+                    old_ref_frame = _hyb_name
+                    del total_drift[_hyb_name]
+            # new ref-frame
+            change_markers[bead_names[0]] = True
+            total_drift[bead_names[0]] = np.array([0,0,0]);
+            if verbose:
+                print(f"-- Modifying existing refrence frame to {bead_names[0]}")
+
     # define selected coordinates in each field of view
     if coord_sel is None:
         coord_sel = np.array(_bead_ims[0].shape)/2
@@ -248,10 +265,10 @@ def STD_beaddrift_sequential(bead_ims, bead_names, drift_folder, fovs, fov_id,
     for iim,(im, _name) in enumerate(zip(_bead_ims[1:], bead_names[1:])):
         # check if key exists
         if _name in total_drift and not overwrite:
-            change_markers.append(False)
+            change_markers[_name] = False
             continue;
         else:
-            change_markers.append(True)
+            change_markers[_name] = True
             # dynamic seeding
             if dynamic:
                 th_seed = scoreatpercentile(im, dynamic_th_percent) * 0.45;
@@ -269,7 +286,7 @@ def STD_beaddrift_sequential(bead_ims, bead_names, drift_folder, fovs, fov_id,
             # if two drifts are really different:
             if np.sum(np.abs(txyz1-txyz2))>3:
                 fail_count += 1; # count times of suspected failure
-                print("Suspecting failure.")
+                print(f"Suspecting failure for {_name}")
                 #drift_size+=10
                 coord_sel3 = np.array([0,drift_size,-drift_size])+coord_sel
                 im_ref_sm = visual_tools.grab_block(im_ref,coord_sel3,[drift_size]*3)
@@ -291,11 +308,19 @@ def STD_beaddrift_sequential(bead_ims, bead_names, drift_folder, fovs, fov_id,
             # inherit centers and ref image
             cents_ref1 = cents1;
             cents_ref2 = cents2;
-            ref += 1;
-            im_ref = _bead_ims[ref];
+            ref = iim;
+            im_ref = im;
+    # if ref-frame changed, modify old drift files:
+    if old_ref_frame is not None:
+        ref_drift = total_drift[old_ref_frame];
+        for _hyb_name, _mk in change_markers.items():
+            if not _mk: # if not changed
+                total_drift[_hyb_name] += ref_drift;
+                if verbose:
+                    print(f"Update drift for {_hyb_name}")
 
     # if any_changes exist and save, do save
-    if true in change_markers and save:
+    if True in list(change_markers.values()) and save:
         if not os.path.exists(drift_folder):
             os.makedirs(drift_folder)
         pickle.dump(total_drift,open(save_filename,'wb'))

@@ -343,12 +343,24 @@ class Cell_List():
             print("+ Drift correction for fov", _fov_id);
         _drift_fl = self.drift_folder+os.sep+self.fovs[_fov_id].replace('.dax', "*_cor.pkl");
         _drift_fl = glob.glob(_drift_fl);
-        if len(_drift_fl) == 1 and os.path.isfile(_drift_fl[0]):
+        _do_drift_marker = False
+        if len(_drift_fl) != 1 or not os.path.isfile(_drift_fl[0]):
+            if _verbose:
+                print("+++ drift file not unique or not exist, proceed to do drift correction");
+            _do_drift_marker = True
+        else:
             _drift_fl = _drift_fl[0];
             if _verbose:
-                print("++ Directly load drift correction from file:", _drift_fl)
+                print("+++ try to load drift correction from file:", _drift_fl)
             _fov_drift = pickle.load(open(_drift_fl, 'rb'))
-        else:
+            for _fd in _folders:
+                _hyb_name = os.path.join(os.path.basename(_fd), self.fovs[_fov_id] );
+                if _hyb_name not in _fov_drift:
+                    if _verbose:
+                        print(f"+++ drift info for {_hyb_name} not exists, proceed to do drift correction");
+                    _do_drift_marker = True
+
+        if _do_drift_marker:
             if _verbose:
                 print("++ loading bead images for drift correction.")
             # load bead images
@@ -364,7 +376,7 @@ class Cell_List():
             # do drift corrections
             _fov_drift, _failed_count = corrections.STD_beaddrift_sequential(_bead_ims, _bead_names,
                                                                             self.drift_folder, self.fovs, _fov_id,
-                                                                            drift_size=_drift_size, force=False,
+                                                                            drift_size=_drift_size, overwrite=False,
                                                                             dynamic=_drift_dynamic, verbose=_verbose)
             if _failed_count > 0:
                 print(f"++ {_failed_count} suspected failures detected in drift correction.");
@@ -379,6 +391,7 @@ class Cell_List():
                   'data_folder': self.data_folder,
                   'temp_folder': self.temp_folder,
                   'analysis_folder':self.analysis_folder,
+                  'save_folder': self.save_folder,
                   'segmentation_folder': self.segmentation_folder,
                   'correction_folder': self.correction_folder,
                   'drift_folder': self.drift_folder,
@@ -465,7 +478,7 @@ class Cell_List():
             for _cell in self.cells:
                 _cell._save_to_file('cell_info', _overwrite=_overwrite_cell_info, _verbose=_verbose)
 
-    def _load_cells_from_files(self, _type='all', _fov_id=None, _overwrite_cells=False, _verbose=True):
+    def _load_cells_from_files(self, _type='all', _decoded_flag=None, _overwrite_cells=False, _verbose=True):
         """Function to load cells from existing files"""
         if _verbose:
             print("+ Load cells from existing files.");
@@ -475,8 +488,12 @@ class Cell_List():
         for _cell in self.cells:
             if _verbose:
                 print(f"++ loading info for fov:{_cell.fov_id}, cell:{_cell.cell_id}");
-            _cell._load_from_file(_type=_type, _save_folder=None, _load_attrs=[],
-                                    _overwrite=_overwrite_cells, _verbose=_verbose)
+            if _type == 'decoded':
+                _cell._load_from_file(_type=_type, _save_folder=None, _load_attrs=[], _decoded_flag=_decoded_flag,
+                                        _overwrite=_overwrite_cells, _verbose=_verbose)
+            else:
+                _cell._load_from_file(_type=_type, _save_folder=None, _load_attrs=[],
+                                        _overwrite=_overwrite_cells, _verbose=_verbose)
 
     def _get_chromosomes_for_cells(self, _source='combo', _max_count= 30,
                                    _gaussian_size=2, _cap_percentile=1, _seed_dim=3,
@@ -590,12 +607,14 @@ class Cell_List():
         ## Check attributes
         for _cell in self.cells:
             if _type == 'unique':
+                _result_attr='unique_spots'
                 if not hasattr(_cell, 'unique_ims') or not hasattr(_cell, 'unique_ids'):
                     try:
                         self._load_cells_from_files('unique');
                     except:
                         self._crop_image_for_cells('unique', _load_in_ram=True);
-            elif _type == 'combo' or _type == 'decoded':
+            elif _type == 'decoded':
+                _result_attr='decoded_spots'
                 if not hasattr(_cell, 'decoded_ims') or not hasattr(_cell, 'decoded_ids'):
                     try:
                         self._load_cells_from_files('decoded');
@@ -606,7 +625,7 @@ class Cell_List():
         ## multi-threading for multi-fitting
         _fitting_args = (_type, _use_chrom_coords, _seed_th_per, _max_filt_size, 0, _min_seeds, self.sigma_zxy,
                          _expect_weight, _min_height, _max_iter, _th_to_end, _save, _verbose)
-        _pool_args = [(_cell, _fitting_args) for _cell_id, _cell in enumerate(self.cells)];
+        _pool_args = [(_cell, _fitting_args) for _cell_id, _cell in enumerate(self.cells) if not hasattr(_cell, _result_attr)];
         _fitting_threads = int(min(_max_fitting_threads, self.num_threads))
         if _verbose:
             print(f"++ Spot finding with {_fitting_threads} threads")
@@ -720,9 +739,14 @@ class Cell_Data():
         else:
             self.segmentation_folder = self.analysis_folder+os.sep+'segmentation'
         if 'save_folder' in parameters:
-            self.save_folder = parameters['save_folder'];
+            self.save_folder = os.path.join(parameters['save_folder'],
+                                            'fov-'+str(self.fov_id),
+                                            'cell-'+str(self.cell_id))
         else:
-            self.save_folder = self.analysis_folder+os.sep+'5x10'+os.sep+'fov-'+str(self.fov_id)+os.sep+'cell-'+str(self.cell_id);
+            self.save_folder = os.path.join(self.analysis_folder,
+                                            '5x10',
+                                            'fov-'+str(self.fov_id),
+                                            'cell-'+str(self.cell_id))
         if 'correction_folder' in parameters:
             self.correction_folder = parameters['correction_folder'];
         else:
