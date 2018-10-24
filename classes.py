@@ -617,18 +617,21 @@ class Cell_List():
         """Function to allow multi-fitting in cell_list"""
         ## Check attributes
         for _cell_id, _cell in enumerate(self.cells):
+            _clear_image_for_cell = _clear_image; # whether clear image for this cell
             if _type == 'unique':
                 _result_attr='unique_spots'
                 if not hasattr(_cell, 'unique_ims') or not hasattr(_cell, 'unique_ids'):
+                    _clear_image_for_cell = True;
                     try:
-                        self._load_cells_from_files('unique');
+                        _cell._load_from_file('unique');
                     except:
-                        self._crop_image_for_cells('unique', _load_in_ram=True);
+                        raise IOError("Cannot load unique files")
             elif _type == 'decoded':
                 _result_attr='decoded_spots'
                 if not hasattr(_cell, 'decoded_ims') or not hasattr(_cell, 'decoded_ids'):
+                    _clear_image_for_cell = True;
                     try:
-                        self._load_cells_from_files('decoded',_decoded_flag=_decoded_flag);
+                        _cell._load_from_file('decoded',_decoded_flag=_decoded_flag);
                     except:
                         raise IOError("Cannot load decoded files")
             else:
@@ -639,7 +642,7 @@ class Cell_List():
                                  _min_seed_count=_min_seed_count, _width_zxy=self.sigma_zxy, _fit_radius=10,
                                  _expect_weight=_expect_weight, _min_height=_min_height, _max_iter=_max_iter,
                                  _save=_save, _verbose=_verbose)
-            if _clear_image:
+            if _clear_image_for_cell:
                 if _verbose:
                     print(f"++ clear images for {_type} in fov:{_cell.fov_id}, cell:{_cell.cell_id}")
                 if _type == 'unique':
