@@ -460,15 +460,15 @@ def generate_chromatic_abbrevation_correction(ims, names, master_folder, channel
     for _cim,_rim,_name in zip(_cims,_rims,names):
         try:
             # fit correction channel
-            _cim = corrections.Illumination_correction(_cim, corr_channel, correction_folder=correction_folder,
+            _cim = Illumination_correction(_cim, corr_channel, correction_folder=correction_folder,
                                                         verbose=verbose)[0]
-            _cct = corrections.get_STD_centers(_cim, scoreatpercentile(_cim, seed_th_per), verbose=verbose,
+            _cct = get_STD_centers(_cim, scoreatpercentile(_cim, seed_th_per), verbose=verbose,
                                         save=save, force=force, save_folder=master_folder+os.sep+fitting_save_subdir,
                                         save_name=_name.split(os.sep)[-1].replace('.dax', '_'+str(corr_channel)+'_fitting.pkl'))
             # fit reference channel
-            _rim = corrections.Illumination_correction(_rim, ref_channel, correction_folder=correction_folder,
+            _rim = Illumination_correction(_rim, ref_channel, correction_folder=correction_folder,
                                                         verbose=verbose)[0]
-            _rct = corrections.get_STD_centers(_rim, scoreatpercentile(_rim, seed_th_per), verbose=verbose,
+            _rct = get_STD_centers(_rim, scoreatpercentile(_rim, seed_th_per), verbose=verbose,
                                         save=save, force=force, save_folder=master_folder+os.sep+fitting_save_subdir,
                                         save_name=_name.split(os.sep)[-1].replace('.dax', '_'+str(ref_channel)+'_fitting.pkl'))
             # Align points

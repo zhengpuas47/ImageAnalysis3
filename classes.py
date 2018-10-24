@@ -20,6 +20,16 @@ def _do_multi_fitting_for_cell(_cell, _fitting_args):
 def _do_cropping_for_cell(_cell, _cropping_args):
     _cell._load_images(*_cropping_args)
 
+def _fit_single_image(_im, _id, _chrom_coords, _seeding_args, _fitting_args, _verbose):
+    if _verbose:
+        print(f"+++ fitting for region:{_id}");
+    _spots_for_chrom = [];
+    for _chrom_coord in _chrom_coords:
+        _seeds = visual_tools.get_seed_in_distance(_im, _chrom_coord, *_seeding_args)
+        _fits = visual_tools.fit_multi_gaussian(_im, _seeds, *_fitting_args);
+        _spots_for_chrom.append(_fits);
+    return _spots_for_chrom;
+
 class Cell_List():
     """
     Class Cell_List:
@@ -600,12 +610,13 @@ class Cell_List():
                 os.remove(_fl)
 
     def _spot_finding_for_cells(self, _type='unique', _max_fitting_threads=5,
-                                _use_chrom_coords=True, _seed_th_per=50, _max_filt_size=3, _min_seeds=3,
+                                _use_chrom_coords=True, _seed_th_per=50, _max_filt_size=3,
+                                _max_seed_count=6, _min_seed_count=3,
                                 _expect_weight=1000, _min_height=100, _max_iter=10, _th_to_end=1e-5,
                                 _save=True, _verbose=True):
         """Function to allow multi-fitting in cell_list"""
         ## Check attributes
-        for _cell in self.cells:
+        for _cell_id, _cell in enumerate(self.cells):
             if _type == 'unique':
                 _result_attr='unique_spots'
                 if not hasattr(_cell, 'unique_ims') or not hasattr(_cell, 'unique_ids'):
@@ -619,23 +630,16 @@ class Cell_List():
                     try:
                         self._load_cells_from_files('decoded');
                     except:
-                        raise IOError("Cannot load decoded files!");
+                        raise IOError("Cannot load decoded files")
+            else:
+                raise ValueError("Wrong _type keyword given!")
+            # do multi_fitting
+            _cell._multi_fitting(_type=_type, _use_chrom_coords=_use_chrom_coords, _num_threads=min(_max_fitting_threads, self.num_threads),
+                                 _seed_th_per=_seed_th_per, _max_filt_size=_max_filt_size, _max_seed_count=_max_seed_count,
+                                 _min_seed_count=_min_seed_count, _width_zxy=self.sigma_zxy, _fit_radius=10,
+                                 _expect_weight=_expect_weight, _min_height=_min_height, _max_iter=_max_iter,
+                                 _save=_save, _verbose=_verbose)
 
-        _start_time = time.time();
-        ## multi-threading for multi-fitting
-        _fitting_args = (_type, _use_chrom_coords, _seed_th_per, _max_filt_size, 0, _min_seeds, self.sigma_zxy,
-                         _expect_weight, _min_height, _max_iter, _th_to_end, _save, _verbose)
-        _pool_args = [(_cell, _fitting_args) for _cell_id, _cell in enumerate(self.cells) if not hasattr(_cell, _result_attr)];
-        _fitting_threads = int(min(_max_fitting_threads, self.num_threads))
-        if _verbose:
-            print(f"++ Spot finding with {_fitting_threads} threads")
-        _fitting_pool = multiprocessing.Pool(_fitting_threads)
-        _fitting_pool.starmap_async(_do_multi_fitting_for_cell, _pool_args, chunksize=1)
-        _fitting_pool.close()
-        _fitting_pool.join()
-        if _verbose:
-            print(f"+++ time cost in multi-fitting: {time.time()-_start_time} ")
-        _fitting_pool.terminate()
 
     def _pick_spots_for_cells(self, _type='unique', _pick_type='dynamic', _use_chrom_coords=True, _distance_zxy=None,
                               _w_dist=2, _dist_ref=None, _penalty_type='trapezoidal', _penalty_factor=5,
@@ -1502,9 +1506,9 @@ class Cell_Data():
 
         return _chrom_coords
 
-    def _multi_fitting(self, _type='unique',_use_chrom_coords=True,
+    def _multi_fitting(self, _type='unique',_use_chrom_coords=True, _num_threads=5,
                        _seed_th_per=50., _max_filt_size=3, _max_seed_count=0, _min_seed_count=1,
-                       _width_zxy=None, _expect_weight=1000, _min_height=100, _max_iter=10, _th_to_end=1e-5,
+                       _width_zxy=None, _fit_radius=10, _expect_weight=1000, _min_height=100, _max_iter=10, _th_to_end=1e-5,
                        _save=True, _verbose=True):
         # first check Inputs
         _allowed_types = ['unique', 'decoded'];
@@ -1526,30 +1530,27 @@ class Cell_Data():
                 if not hasattr(self, 'unique_ims') or not hasattr(self, 'unique_ids'):
                     print("++ no unique image info loaded to this cell, try loading:")
                     self._load_from_file('unique', _overwrite=False, _verbose=_verbose)
-                _spots = [];
                 _ims = self.unique_ims
                 _ids = self.unique_ids
             elif _type == 'decoded':
-                _spots = [];
                 _ims = self.decoded_ims;
                 _ids = self.decoded_ids;
 
             ## Do the multi-fitting
-            for _im, _id in zip(_ims, _ids):
-                if _verbose:
-                    print(f"++ fitting for fov:{self.fov_id}, cell:{self.cell_id}, region:{_id}");
-                _spots_for_chrom = [];
-                for _chrom_coord in self.chrom_coords:
-                    _seeds = visual_tools.get_seed_in_distance(_im, _chrom_coord, num_seeds=_max_seed_count,
-                                            filt_size=_max_filt_size, th_seed_percentile=_seed_th_per,
-                                            dynamic=True, min_dynamic_seeds=_min_seed_count, return_h=False);
-                    _fits = visual_tools.fit_multi_gaussian(_im, _seeds, width_zxy=_width_zxy,
-                                            expect_weight=_expect_weight, min_height=_min_height,
-                                            n_max_iter=_max_iter, th_to_end=_th_to_end)
-                    _spots_for_chrom.append(_fits);
-                # append
-                _spots.append(_spots_for_chrom);
-
+            _seeding_args = (_max_seed_count, 20, 0, _max_filt_size, _seed_th_per, True, 10, _min_seed_count, 0, False);
+            _fitting_args = (_width_zxy, _fit_radius, 100, 500, _expect_weight, _th_to_end, _max_iter, 0.25, _min_height, False, _verbose)
+            _args = [(_im, _id, self.chrom_coords, _seeding_args, _fitting_args, _verbose) for _im, _id in zip(_ims, _ids)]
+            # multi-processing for multi-Fitting
+            if _verbose:
+                print(f"++ start fitting {_type} for fov:{self.fov_id}, cell:{self.cell_id} with {_num_threads} threads")
+            _start_time = time.time();
+            _fitting_pool = multiprocessing.Pool(_num_threads);
+            _spots = _fitting_pool.starmap(_fit_single_image, _args, chunksize=1);
+            _fitting_pool.close();
+            _fitting_pool.join();
+            _fitting_pool.terminate();
+            if _verbose:
+                print(f"++ total time in fitting {_type}: {time.time()-_start_time}")
             ## return and save
             if _type == 'unique':
                 self.unique_spots = _spots

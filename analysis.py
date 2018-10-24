@@ -81,9 +81,7 @@ def Segmentation_All(analysis_folder, folders, fovs, ref_name='H0R0',
             _process_ims.append(_dapi_im)
     ## segmentation in parallel
     _args = [(_im,_nm, 0.5, illumination_corr, 405, correction_folder, 11, denoise_window, 13, signal_cap_ratio, cell_min_size, shape_ratio_threshold) for _im,_nm in zip(_process_ims, _process_names)];
-    _chunk_size = int(np.round(len(_args)/num_threads));
-    if _chunk_size < 1:
-        _chunk_size = 1;
+    _chunk_size = int(np.ceil(len(_args)/num_threads))
     if verbose:
         print(f"--- {len(_args)} of fovs are being processed by {num_threads} threads, chunk_size={_chunk_size}");
     # start parallel computing
