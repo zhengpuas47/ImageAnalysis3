@@ -609,7 +609,7 @@ class Cell_List():
                 print("++ removing temp file:", os.path.basename(_fl))
                 os.remove(_fl)
 
-    def _spot_finding_for_cells(self, _type='unique', _max_fitting_threads=5,
+    def _spot_finding_for_cells(self, _type='unique', _decoded_flag=None, _max_fitting_threads=5, _clear_image=False,
                                 _use_chrom_coords=True, _seed_th_per=50, _max_filt_size=3,
                                 _max_seed_count=6, _min_seed_count=3,
                                 _expect_weight=1000, _min_height=100, _max_iter=10, _th_to_end=1e-5,
@@ -628,7 +628,7 @@ class Cell_List():
                 _result_attr='decoded_spots'
                 if not hasattr(_cell, 'decoded_ims') or not hasattr(_cell, 'decoded_ids'):
                     try:
-                        self._load_cells_from_files('decoded');
+                        self._load_cells_from_files('decoded',_decoded_flag=_decoded_flag);
                     except:
                         raise IOError("Cannot load decoded files")
             else:
@@ -639,7 +639,13 @@ class Cell_List():
                                  _min_seed_count=_min_seed_count, _width_zxy=self.sigma_zxy, _fit_radius=10,
                                  _expect_weight=_expect_weight, _min_height=_min_height, _max_iter=_max_iter,
                                  _save=_save, _verbose=_verbose)
-
+            if _clear_image:
+                if _verbose:
+                    print(f"++ clear images for {_type} in fov:{_cell.fov_id}, cell:{_cell.cell_id}")
+                if _type == 'unique':
+                    _cell.unique_ims = None;
+                elif _type == 'decoded':
+                    _cell.decoded_ims = None;
 
     def _pick_spots_for_cells(self, _type='unique', _pick_type='dynamic', _use_chrom_coords=True, _distance_zxy=None,
                               _w_dist=2, _dist_ref=None, _penalty_type='trapezoidal', _penalty_factor=5,
@@ -663,7 +669,7 @@ class Cell_List():
                     if not hasattr(_cell, 'unique_spots'):
                         raise ValueError(f"No unique spots info detected for cell:{_cell.cell_id}");
             elif _type == 'combo' or _type == 'decoded':
-                if not hasattr(_cell, 'decoded_ims') or not hasattr(_cell, 'decoded_ids'):
+                if not hasattr(_cell, 'decoded_ids'):
                     try:
                         _cell._load_from_file('decoded');
                     except:
@@ -1549,6 +1555,8 @@ class Cell_Data():
             _fitting_pool.close();
             _fitting_pool.join();
             _fitting_pool.terminate();
+            # release
+            _ims, _ids = None, None
             if _verbose:
                 print(f"++ total time in fitting {_type}: {time.time()-_start_time}")
             ## return and save
