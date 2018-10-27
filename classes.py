@@ -14,9 +14,6 @@ import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.cm import seismic_r
 
-def _do_multi_fitting_for_cell(_cell, _fitting_args):
-    _cell._multi_fitting(*_fitting_args)
-
 def _do_cropping_for_cell(_cell, _cropping_args):
     _cell._load_images(*_cropping_args)
 
@@ -25,9 +22,12 @@ def _fit_single_image(_im, _id, _chrom_coords, _seeding_args, _fitting_args, _ve
         print(f"+++ fitting for region:{_id}");
     _spots_for_chrom = [];
     for _chrom_coord in _chrom_coords:
-        _seeds = visual_tools.get_seed_in_distance(_im, _chrom_coord, *_seeding_args)
-        _fits = visual_tools.fit_multi_gaussian(_im, _seeds, *_fitting_args);
-        _spots_for_chrom.append(_fits);
+        if _im is None:
+            _spots_for_chrom.append(np.array([]));
+        else:
+            _seeds = visual_tools.get_seed_in_distance(_im, _chrom_coord, *_seeding_args)
+            _fits = visual_tools.fit_multi_gaussian(_im, _seeds, *_fitting_args);
+            _spots_for_chrom.append(_fits);
     return _spots_for_chrom;
 
 class Cell_List():
@@ -293,38 +293,41 @@ class Cell_List():
     def _create_cell(self, _parameter, _load_info=True,
                      _load_segmentation=True, _load_drift=True,
                      _load_file=True,
-                     _save=False, _append_cell_list=False):
+                     _save=False, _directly_append_cell_list=False, _verbose=True):
         """Function to create one cell_data object"""
+        if _verbose:
+            print(f"+ creating cell for fov:{_parameter['fov_id']}, cell:{_parameter['cell_id']}")
         _cell = Cell_Data(_parameter, _load_all_attr=True)
         if _load_info:
-            if not hasattr(_cell, 'color_dic') or not hasattr(_cell, 'use_dapi') or not hasattr(_cell, 'channels') or not hasattr(_cell, 'bead_channel_index') or not hasattr(_cell, 'dapi_channel_index'):
+            if not hasattr(_cell, 'color_dic') or not hasattr(_cell, 'channels'):
                 _cell._load_color_info();
             if not hasattr(_cell, 'encoding_scheme'):
                 _cell._load_encoding_scheme();
         if _load_segmentation and not hasattr(_cell, 'segmentation_label'):
-            _cell._load_segmentation() and not hasattr(_cell, 'drift');
-        if _load_drift:
+            _cell._load_segmentation();
+        if _load_drift and not hasattr(_cell, 'drift'):
             _cell._load_drift();
         if _load_file:
             if os.path.isfile(os.path.join(_cell.save_folder, 'cell_info.pkl')):
                 _cell._load_from_file('cell_info', _overwrite=False, _verbose=True)
         if _save:
             _cell._save_to_file('cell_info')
-
         # whether directly store
-        if _append_cell_list:
+        if _directly_append_cell_list:
             self.cells.append(_cell);
-
         return _cell
 
-    def _create_cells_fov(self, _fov_id, _num_threads=None, _load_annotated_only=True, _overwrite_temp=True,
+    def _create_cells_fov(self, _fov_ids, _num_threads=None, _load_annotated_only=True, _overwrite_temp=True,
                           _drift_size=550, _drift_dynamic=True, _verbose=True):
         """Create Cele_data objects for one field of view"""
         if not _num_threads:
             _num_threads = int(self.num_threads);
-        if _fov_id not in self.fov_ids:
-            raise ValueError("Wrong fov_id kwd given! \
-                this should be real fov-number that allowed during intiation of class.")
+        if not isinstance(_fov_ids, list):
+            _fov_ids = [_fov_ids];
+        for _fov_id in _fov_ids:
+            if _fov_id not in self.fov_ids:
+                raise ValueError("Wrong fov_id kwd given! \
+                    this should be real fov-number that allowed during intiation of class.")
         if _verbose:
             print("+ Create Cell_Data objects for field of view:", self.fovs[_fov_id], _fov_id);
             print("++ preparing variables");
@@ -337,88 +340,99 @@ class Cell_List():
         else:
             _folders = self.folders;
         # load segmentation for this fov
-        if _verbose:
-            print("+ Load segmentation for fov", _fov_id)
-        # do segmentation if necessary, or just load existing segmentation file
-        _fov_segmentation_label, _fov_dapi_im  = analysis.Segmentation_Fov(self.analysis_folder,
-                                                _folders, self.fovs, _fov_id,
-                                                num_channel=len(self.channels),
-                                                dapi_channel=self.dapi_channel_index,
-                                                illumination_corr=True,
-                                                correction_folder=self.correction_folder,
-                                                segmentation_path=os.path.basename(self.segmentation_folder),
-                                                save=True, force=False, verbose=_verbose)
-        plt.figure()
-        plt.imshow(_fov_segmentation_label)
-        # do drift for this fov
-        if _verbose:
-            print("+ Drift correction for fov", _fov_id);
-        _drift_fl = self.drift_folder+os.sep+self.fovs[_fov_id].replace('.dax', "*_cor.pkl");
-        _drift_fl = glob.glob(_drift_fl);
-        _do_drift_marker = False
-        if len(_drift_fl) != 1 or not os.path.isfile(_drift_fl[0]):
+        _args = [];
+        for _fov_id in _fov_ids:
             if _verbose:
-                print("+++ drift file not unique or not exist, proceed to do drift correction");
-            _do_drift_marker = True
-        else:
-            _drift_fl = _drift_fl[0];
+                print("+ Load segmentation for fov", _fov_id)
+            # do segmentation if necessary, or just load existing segmentation file
+            _fov_segmentation_label, _fov_dapi_im  = analysis.Segmentation_Fov(self.analysis_folder,
+                                                    _folders, self.fovs, _fov_id,
+                                                    num_channel=len(self.channels),
+                                                    dapi_channel=self.dapi_channel_index,
+                                                    illumination_corr=True,
+                                                    correction_folder=self.correction_folder,
+                                                    segmentation_path=os.path.basename(self.segmentation_folder),
+                                                    save=True, force=False, verbose=_verbose)
+            plt.figure()
+            plt.imshow(_fov_segmentation_label)
+            plt.show()
+            # do drift for this fov
             if _verbose:
-                print("+++ try to load drift correction from file:", _drift_fl)
-            _fov_drift = pickle.load(open(_drift_fl, 'rb'))
-            for _fd in _folders:
-                _hyb_name = os.path.join(os.path.basename(_fd), self.fovs[_fov_id] );
-                if _hyb_name not in _fov_drift:
-                    if _verbose:
-                        print(f"+++ drift info for {_hyb_name} not exists, proceed to do drift correction");
-                    _do_drift_marker = True
+                print("+ Drift correction for fov", _fov_id);
+            _drift_fl = self.drift_folder+os.sep+self.fovs[_fov_id].replace('.dax', "*_cor.pkl");
+            _drift_fl = glob.glob(_drift_fl);
+            _do_drift_marker = False
+            if len(_drift_fl) != 1 or not os.path.isfile(_drift_fl[0]):
+                if _verbose:
+                    print("+++ drift file not unique or not exist, proceed to do drift correction");
+                _do_drift_marker = True
+            else:
+                _drift_fl = _drift_fl[0];
+                if _verbose:
+                    print("+++ try to load drift correction from file:", _drift_fl)
+                _fov_drift = pickle.load(open(_drift_fl, 'rb'))
+                for _fd in _folders:
+                    _hyb_name = os.path.join(os.path.basename(_fd), self.fovs[_fov_id] );
+                    if _hyb_name not in _fov_drift:
+                        if _verbose:
+                            print(f"+++ drift info for {_hyb_name} not exists, proceed to do drift correction");
+                        _do_drift_marker = True
 
-        if _do_drift_marker:
+            if _do_drift_marker:
+                if _verbose:
+                    print("++ loading bead images for drift correction.")
+                # load bead images
+                _bead_temp_files, _,_ = analysis.load_image_fov(_folders, self.fovs, _fov_id, self.channels,  self.color_dic,
+                                                    self.num_threads, loading_type='beads', max_chunk_size=6,
+                                                    correction_folder=self.correction_folder, overwrite_temp=_overwrite_temp,
+                                                    temp_folder=self.temp_folder, return_type='filename', verbose=_verbose)
+                _bead_ims, _bead_names = analysis.reconstruct_from_temp(_bead_temp_files, _folders, self.fovs, _fov_id,
+                                                           self.channels, self.color_dic, temp_folder=self.temp_folder,
+                                                           find_all=True, num_threads=self.num_threads, loading_type='beads', verbose=_verbose)
+                if _verbose:
+                    print ("++ do drift correction!")
+                # do drift corrections
+                _fov_drift, _failed_count = corrections.STD_beaddrift_sequential(_bead_ims, _bead_names,
+                                                                                self.drift_folder, self.fovs, _fov_id,
+                                                                                drift_size=_drift_size, overwrite=False,
+                                                                                dynamic=_drift_dynamic, verbose=_verbose)
+                if _failed_count > 0:
+                    print(f"++ {_failed_count} suspected failures detected in drift correction.");
+                # release
+                del(_bead_ims)
+
+            # create cells in parallel
             if _verbose:
-                print("++ loading bead images for drift correction.")
-            # load bead images
-            _bead_temp_files, _,_ = analysis.load_image_fov(_folders, self.fovs, _fov_id, self.channels,  self.color_dic,
-                                                self.num_threads, loading_type='beads', max_chunk_size=6,
-                                                correction_folder=self.correction_folder, overwrite_temp=_overwrite_temp,
-                                                temp_folder=self.temp_folder, return_type='filename', verbose=_verbose)
-            _bead_ims, _bead_names = analysis.reconstruct_from_temp(_bead_temp_files, _folders, self.fovs, _fov_id,
-                                                       self.channels, self.color_dic, temp_folder=self.temp_folder,
-                                                       find_all=True, num_threads=self.num_threads, loading_type='beads', verbose=_verbose)
-            if _verbose:
-                print ("++ do drift correction!")
-            # do drift corrections
-            _fov_drift, _failed_count = corrections.STD_beaddrift_sequential(_bead_ims, _bead_names,
-                                                                            self.drift_folder, self.fovs, _fov_id,
-                                                                            drift_size=_drift_size, overwrite=False,
-                                                                            dynamic=_drift_dynamic, verbose=_verbose)
-            if _failed_count > 0:
-                print(f"++ {_failed_count} suspected failures detected in drift correction.");
-            # release
-            del(_bead_ims)
-        # create cells in parallel
+                print("+ Create cell_data objects!");
+            _cell_ids = range(int(np.max(_fov_segmentation_label)-1));
+            _params = [{'fov_id': _fov_id,
+                      'cell_id': _cell_id,
+                      'folders': self.folders,
+                      'fovs': self.fovs,
+                      'data_folder': self.data_folder,
+                      'color_dic': self.color_dic,
+                      'use_dapi': self.use_dapi,
+                      'channels': self.channels,
+                      'bead_channel_index': self.bead_channel_index,
+                      'dapi_channel_index': self.dapi_channel_index,
+                      'encoding_scheme': self.encoding_scheme,
+                      'annotated_folders': self.annotated_folders,
+                      'temp_folder': self.temp_folder,
+                      'analysis_folder':self.analysis_folder,
+                      'save_folder': self.save_folder,
+                      'segmentation_folder': self.segmentation_folder,
+                      'correction_folder': self.correction_folder,
+                      'drift_folder': self.drift_folder,
+                      'map_folder': self.map_folder,
+                      'drift': _fov_drift,
+                      'distance_zxy' : self.distance_zxy,
+                      'sigma_zxy': self.sigma_zxy,
+                      } for _cell_id in _cell_ids];
+            _args += [(_p, True, True, True, True, False) for _p in _params]
+            del(_fov_drift, _fov_segmentation_label, _fov_dapi_im, _params, _cell_ids);
+        # do multi-processing to create cells!
         if _verbose:
-            print("+ Create cell_data objects!");
-        _cell_ids = range(int(np.max(_fov_segmentation_label)-1));
-        _params = [{'fov_id': _fov_id,
-                  'cell_id': _cell_id,
-                  'data_folder': self.data_folder,
-                  'color_dic': self.color_dic,
-                  'use_dapi': self.use_dapi,
-                  'channels': self.channels,
-                  'bead_channel_index': self.bead_channel_index,
-                  'dapi_channel_index': self.dapi_channel_index,
-                  'encoding_scheme': self.encoding_scheme,
-                  'temp_folder': self.temp_folder,
-                  'analysis_folder':self.analysis_folder,
-                  'save_folder': self.save_folder,
-                  'segmentation_folder': self.segmentation_folder,
-                  'correction_folder': self.correction_folder,
-                  'drift_folder': self.drift_folder,
-                  'map_folder': self.map_folder,
-                  'drift': _fov_drift,
-                  'distance_zxy' : self.distance_zxy,
-                  'sigma_zxy': self.sigma_zxy,
-                  } for _cell_id in _cell_ids];
-        _args = [(_p, True, True, True, True, False) for _p in _params]
+            print("+ Creating cells!")
         _cell_pool = multiprocessing.Pool(_num_threads)
         _cells = _cell_pool.starmap(self._create_cell, _args, chunksize=1)
         _cell_pool.close();
@@ -709,8 +723,8 @@ class Cell_List():
 
     def _calculate_population_map(self, _type='unique', _max_loss_prob=0.15,
                                   _ignore_inf=True, _stat_type='median',
-                                  _make_plot=True, _save_plot=True, _save_name='_distance_map',
-                                  _plot_limits=[300,1300], _verbose=True):
+                                  _make_plot=True, _save_plot=True, _save_name='distance_map',
+                                  _plot_limits=[300,1500], _verbose=True):
         """Calculate 'averaged' map for all cells in this list
         Inputs:
             _type: unique or decoded
@@ -726,15 +740,28 @@ class Cell_List():
             _distmap_attr = 'decoded_distance_map';
         if _stat_type not in ['median', 'mean']:
             raise ValueError(f"Wrong _stat_type({_stat_type}) kwd is given!");
-
+        # detect distmap shape
+        _distmap_shape=[];
+        for _cell in self.cells:
+            for _distmap in getattr(_cell, _distmap_attr):
+                if np.shape(_distmap)[0] not in _distmap_shape:
+                    _distmap_shape.append(np.shape(_distmap)[0])
+        if _verbose:
+            print(f"+++ maximum distance-map size is {max(_distmap_shape)}")
         _cand_distmaps = [];
         ## check and collect distance maps
         for _cell in self.cells:
             for _picked_spots, _distmap in zip(getattr(_cell, _picked_spots_attr), getattr(_cell, _distmap_attr)):
+
                 _failed_count = sum([np.inf in _coord or len(_coord)==0 for _coord in _picked_spots])
                 if _failed_count / len(_picked_spots) > _max_loss_prob:
                     if _verbose:
                         print(f"+++ chromosome filtered out by loss probability in fov:{_cell.fov_id}, cell:{_cell.cell_id}")
+                    continue
+                elif np.shape(_distmap)[0] != max(_distmap_shape):
+                    if _verbose:
+                        print(f"+++ chromosome filtered out by dist-map shape in fov:{_cell.fov_id}, cell:{_cell.cell_id}")
+                    continue
                 else:
                     _cand_distmaps.append(_distmap);
         if len(_cand_distmaps) == 0:
@@ -753,6 +780,11 @@ class Cell_List():
         if _make_plot:
             if _verbose:
                 print(f"++ generating distance map for {len(_cand_distmaps)} chromosomes.");
+            _used_fovs = [];
+            for _cell in self.cells:
+                if _cell.fov_id not in _used_fovs:
+                    _used_fovs.append(_cell.fov_id);
+            _used_fovs = sorted(_used_fovs);
             plt.figure();
             plt.title(f"{_stat_type} distance map, num of chrom:{len(_cand_distmaps)}");
             plt.imshow(_averaged_map, interpolation='nearest', cmap=matplotlib.cm.seismic_r,
@@ -761,7 +793,7 @@ class Cell_List():
             if _save_plot:
                 if _verbose:
                     print(f"++ saving {_stat_type} distance map.")
-                _filename = os.path.join(self.map_folder, f"{_stat_type}_{_save_name}.png")
+                _filename = os.path.join(self.map_folder, f"{_stat_type}_{_save_name}_fov{_used_fovs}.png")
                 if not os.path.exists(self.map_folder):
                     os.makedirs(self.map_folder)
                 plt.savefig(_filename, transparent=True)
@@ -796,10 +828,14 @@ class Cell_Data():
         else:
             self.temp_folder = _temp_folder
         # extract hybe folders and field-of-view names
-        self.folders = []
-        for _fd in self.data_folder:
-            _hyb_fds, self.fovs = get_img_info.get_folders(_fd, feature='H', verbose=True)
-            self.folders += _hyb_fds;
+        if 'folders' in parameters and 'fovs' in parameters:
+            self.folders = parameters['folders']
+            self.fovs = parameters['fovs']
+        else:
+            self.folders = []
+            for _fd in self.data_folder:
+                _hyb_fds, self.fovs = get_img_info.get_folders(_fd, feature='H', verbose=True)
+                self.folders += _hyb_fds;
         # fov id and cell id given
         self.fov_id = int(parameters['fov_id'])
         self.cell_id = int(parameters['cell_id'])
@@ -840,22 +876,25 @@ class Cell_Data():
             self.map_folder = parameters['map_folder'];
         else:
             self.map_folder = self.analysis_folder+os.sep+'distmap'
-
-        # load color info
-        self._load_color_info();
-        # annotated folders
-        self.annotated_folders = []
-        for _hyb_fd in self.color_dic:
-            _matches = [_fd for _fd in self.folders if _hyb_fd in _fd];
-            if len(_matches) == 1:
-                self.annotated_folders.append(_matches[0]);
-        print(f"{len(self.annotated_folders)} folders are found according to color-usage annotation.")
-
         # if loading all remaining attr in parameter
         if _load_all_attr:
             for _key, _value in parameters.items():
                 if not hasattr(self, _key):
                     setattr(self, _key, _value);
+
+        # load color info
+        if not hasattr(self, 'color_dic') or not hasattr(self, 'channels'):
+            self._load_color_info();
+        # annotated folders
+        if not hasattr(self, 'annotated_folders'):
+            self.annotated_folders = []
+            for _hyb_fd in self.color_dic:
+                _matches = [_fd for _fd in self.folders if _hyb_fd in _fd];
+                if len(_matches) == 1:
+                    self.annotated_folders.append(_matches[0]);
+            print(f"-- {len(self.annotated_folders)} folders are found according to color-usage annotation.")
+
+
 
     # allow print info of Cell_List
     def __str__(self):
@@ -926,7 +965,7 @@ class Cell_Data():
                                                 illumination_corr=True,
                                                 correction_folder=self.correction_folder,
                                                 segmentation_path=os.path.basename(self.segmentation_folder),
-                                                save=_save, force=_force)
+                                                save=_save, force=_force, verbose=False)
         # exclude special cases
         if not hasattr(self, 'cell_id'):
             raise AttributeError('no cell_id attribute for this cell_data class object!');
@@ -1461,9 +1500,19 @@ class Cell_Data():
                         _decoded_ids += _kept_ids;
                         _decoded_ims += _kept_ims;
                         print("--- kept ids:",_kept_ids);
+                # check with combo groups
+                for _group in self.combo_groups:
+                    _ids = [np.unique(_group.matrix[:,_col_id])[-1] for _col_id in range(_group.matrix.shape[1])]
+                    for _id in _ids:
+                        if _id not in _decoded_ids and _id > 0:
+                            if _verbose:
+                                print(f"--- filling up not decoded region:{_id}")
+                            _decoded_ids.append(_id)
+                            _decoded_ims.append(None)
                 # sort
                 self.decoded_ims = [_im for _id,_im in sorted(zip(_decoded_ids, _decoded_ims))]
                 self.decoded_ids = [_id for _id in sorted(_decoded_ids)]
+
 
 
     def _generate_chromosome_image(self, _source='combo', _max_count= 30, _verbose=False):
