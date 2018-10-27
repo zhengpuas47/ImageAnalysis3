@@ -297,10 +297,12 @@ class Cell_List():
         """Function to create one cell_data object"""
         _cell = Cell_Data(_parameter, _load_all_attr=True)
         if _load_info:
-            _cell._load_color_info();
-            _cell._load_encoding_scheme();
-        if _load_segmentation:
-            _cell._load_segmentation();
+            if not hasattr(_cell, 'color_dic') or not hasattr(_cell, 'use_dapi') or not hasattr(_cell, 'channels') or not hasattr(_cell, 'bead_channel_index') or not hasattr(_cell, 'dapi_channel_index'):
+                _cell._load_color_info();
+            if not hasattr(_cell, 'encoding_scheme'):
+                _cell._load_encoding_scheme();
+        if _load_segmentation and not hasattr(_cell, 'segmentation_label'):
+            _cell._load_segmentation() and not hasattr(_cell, 'drift');
         if _load_drift:
             _cell._load_drift();
         if _load_file:
@@ -399,6 +401,12 @@ class Cell_List():
         _params = [{'fov_id': _fov_id,
                   'cell_id': _cell_id,
                   'data_folder': self.data_folder,
+                  'color_dic': self.color_dic,
+                  'use_dapi': self.use_dapi,
+                  'channels': self.channels,
+                  'bead_channel_index': self.bead_channel_index,
+                  'dapi_channel_index': self.dapi_channel_index,
+                  'encoding_scheme': self.encoding_scheme,
                   'temp_folder': self.temp_folder,
                   'analysis_folder':self.analysis_folder,
                   'save_folder': self.save_folder,
@@ -699,6 +707,66 @@ class Cell_List():
                 _cell._generate_distance_map(_type=_type, _distance_zxy=_distance_zxy, _save_info=_save,
                                              _save_plot=_save_plot, _limits=_plot_limits, _verbose=_verbose)
 
+    def _calculate_population_map(self, _type='unique', _max_loss_prob=0.15,
+                                  _ignore_inf=True, _stat_type='median',
+                                  _make_plot=True, _save_plot=True, _save_name='_distance_map',
+                                  _plot_limits=[300,1300], _verbose=True):
+        """Calculate 'averaged' map for all cells in this list
+        Inputs:
+            _type: unique or decoded
+            _max_loss_prob: maximum """
+        ## check inputs:
+        if _type not in ['unique','decoded']:
+            raise ValueError(f"Wrong _type kwd given, should be unique or decoded, {_type} is given!");
+        elif _type == 'unique':
+            _picked_spots_attr = 'picked_unique_spots'
+            _distmap_attr = 'unique_distance_map';
+        elif _type == 'decoded':
+            _picked_spots_attr = 'picked_decoded_spots'
+            _distmap_attr = 'decoded_distance_map';
+        if _stat_type not in ['median', 'mean']:
+            raise ValueError(f"Wrong _stat_type({_stat_type}) kwd is given!");
+
+        _cand_distmaps = [];
+        ## check and collect distance maps
+        for _cell in self.cells:
+            for _picked_spots, _distmap in zip(getattr(_cell, _picked_spots_attr), getattr(_cell, _distmap_attr)):
+                _failed_count = sum([np.inf in _coord or len(_coord)==0 for _coord in _picked_spots])
+                if _failed_count / len(_picked_spots) > _max_loss_prob:
+                    if _verbose:
+                        print(f"+++ chromosome filtered out by loss probability in fov:{_cell.fov_id}, cell:{_cell.cell_id}")
+                else:
+                    _cand_distmaps.append(_distmap);
+        if len(_cand_distmaps) == 0:
+            print("No distant map loaded, return.")
+            return None, 0
+
+        ## calculate averaged map
+        _total_map = np.array(_cand_distmaps, dtype=np.float);
+        if _ignore_inf:
+            _total_map[_total_map == np.inf] = np.nan;
+        if _stat_type == 'median':
+            _averaged_map = np.nanmedian(_total_map, axis=0)
+        elif _stat_type == 'mean':
+            _averaged_map = np.nanmean(_total_map, axis=0)
+        ## make plots
+        if _make_plot:
+            if _verbose:
+                print(f"++ generating distance map for {len(_cand_distmaps)} chromosomes.");
+            plt.figure();
+            plt.title(f"{_stat_type} distance map, num of chrom:{len(_cand_distmaps)}");
+            plt.imshow(_averaged_map, interpolation='nearest', cmap=matplotlib.cm.seismic_r,
+                       vmin=min(_plot_limits), vmax=max(_plot_limits))
+            plt.colorbar(ticks=range(min(_plot_limits),max(_plot_limits),200), label='distance (nm)')
+            if _save_plot:
+                if _verbose:
+                    print(f"++ saving {_stat_type} distance map.")
+                _filename = os.path.join(self.map_folder, f"{_stat_type}_{_save_name}.png")
+                if not os.path.exists(self.map_folder):
+                    os.makedirs(self.map_folder)
+                plt.savefig(_filename, transparent=True)
+
+        return _averaged_map, len(_cand_distmaps);
 
 
 class Cell_Data():

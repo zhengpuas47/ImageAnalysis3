@@ -1138,6 +1138,8 @@ def DAPI_segmentation(ims, names,
 
     # return segmentation results
     return _ft_seg_labels;
+
+
 # segmentation with convolution of DAPI images
 def DAPI_convolution_segmentation(ims, names,
                                   cap_percentile=0.5,
