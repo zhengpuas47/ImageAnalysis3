@@ -1757,8 +1757,8 @@ class Cell_Data():
 
             ## dynamic progamming
             for _chrom_id, _coord in enumerate(self.chrom_coords):
-                _ch_pts = [chrpts[_chrom_id][:,1:4]*_distance_zxy for chrpts in _cand_spots if len(chrpts[_chrom_id]>0)][:];
-                _ch_ids = [_id for chrpts,_id in zip(_cand_spots, _ids) if len(chrpts[_chrom_id]>0)][:]
+                _ch_pts = [chrpts[_chrom_id][:,1:4]*_distance_zxy for chrpts in _cand_spots if len(chrpts[_chrom_id]>0)];
+                _ch_ids = [_id for chrpts,_id in zip(_cand_spots, _ids) if len(chrpts[_chrom_id]>0)]
                 # initialize two stucture:
                 _dy_values = [np.log10(pt[:,1])*_w_int for pt in _ch_pts] # store maximum values
                 _dy_pointers = [-np.ones(len(pt), dtype=np.int) for pt in _ch_pts] # store pointer to previous level
@@ -1772,7 +1772,10 @@ class Cell_Data():
                     _dy_values[_j+1] += np.max(_measure, axis=0)
                     _dy_pointers[_j+1] = np.argmax(_measure, axis=0)
                 # backward
-                _picked_ids = [np.argmax(_dy_values[-1])];
+                if len(_dy_values) > 0:
+                    _picked_ids = [np.argmax(_dy_values[-1])];
+                else:
+                    _picked_ids = [];
                 for _j in range(len(_ch_pts)-1):
                     _picked_ids.append(_dy_pointers[-(_j+1)][_picked_ids[-1]])
                 _picked_ids = np.flip(_picked_ids, axis=0)

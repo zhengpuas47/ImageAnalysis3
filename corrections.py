@@ -371,12 +371,13 @@ def generate_illumination_correction(ims, threshold_percentile=98, gaussian_sigm
             plt.savefig(save_filename.replace('.pkl','.png'));
     return fit_im
 
-def Illumination_correction(ims, correction_channel,
+def Illumination_correction(ims, correction_channel, correction_power=1.75,
                             correction_folder=_correction_folder, verbose=True):
     '''illumination correction for one list of images
     Inputs:
         ims: list of images, list
         correction_channel: '750','647','561','488','405'
+        correction_power: power correction
         correction_folder: path to correction pickle files, string
     Outputs:
         _ims: corrected images, list'''
@@ -401,7 +402,7 @@ def Illumination_correction(ims, correction_channel,
     if len(_ims[0].shape) == 2: # if 2D
         _ims = [(_im/_ic_profile**1.75).astype(np.unit16) for _im in _ims];
     else: # else, 3D
-        _ims = [(_im/_ic_profile[np.newaxis,:,:]**1.75).astype(np.uint16) for _im in _ims];
+        _ims = [(_im/_ic_profile[np.newaxis,:,:]**correction_power).astype(np.uint16) for _im in _ims];
 
     return _ims
 
