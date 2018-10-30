@@ -394,6 +394,8 @@ def Illumination_correction(ims, correction_channel, correction_power=1.75,
         _ims = ims
     # load correcton profile
     _corr_filename = os.path.join(correction_folder, 'Illumination_correction_'+str(correction_channel)+'.pkl')
+    if not os.path.exists(_corr_filename):
+        raise IOError(f"Required illumiation correction file {_corr_filename} does not exist!")
     with open(_corr_filename, 'rb') as handle:
         _ic_profile = pickle.load(handle)
     # do correction
@@ -736,6 +738,7 @@ def correction_wrapper(im, channel, correction_folder=_correction_folder,
         chromatic_corr: whether do chromatic abbrevation correction, bool (default: True)
         verbose: whether say something!, bool
         """
+
     # create temp folder if necessary
     if not os.path.exists(temp_folder):
         os.makedirs(temp_folder);
@@ -783,12 +786,14 @@ def correction_wrapper(im, channel, correction_folder=_correction_folder,
         if not os.path.exists(temp_folder):
             print(f"Create Temp folder:{temp_folder}")
             os.makedirs(_temp_folder);
-        print(f"--- saving temp to file:{_temp_fl}")
+        if verbose:
+            print(f"--- saving temp to file:{_temp_fl}")
         np.save(_temp_fl, _corr_im)
         del(_corr_im, im)
         return _temp_fl+'.npy'
     elif return_type == 'mmap':
-        print(f"--- saving temp to file for mmap:{_temp_fl}")
+        if verbose:
+            print(f"--- saving temp to file for mmap:{_temp_fl}")
         np.save(_temp_fl, _corr_im)
         del(_corr_im, im)
         _im_mmap = np.load(_temp_fl+'.npy', mmap_mode='r+');
