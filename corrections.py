@@ -717,8 +717,9 @@ def Remove_Hot_Pixels(im, hot_pix_th=0.50, interpolation_style='nearest', hot_th
     # create new image to interpolate the hot pixels with average of neighboring pixels
     _nim = np.zeros(np.shape(im))+im;
     if interpolation_style == 'nearest':
-        for _x,_y in zip(_hotpix_cand[0],_hotpix_cand[1]):
-            _nim[:,_x,_y] = (_nim[:,_x+1,_y]+_nim[:,_x-1,_y]+_nim[:,_x,_y+1]+_nim[:,_x,_y-1])/4
+        for _x, _y in zip(_hotpix_cand[0],_hotpix_cand[1]):
+            if _x > 0 and  _y > 0 and _x < im.shape[1]-1 and  _y < im.shape[2]-1:
+                _nim[:,_x,_y] = (_nim[:,_x+1,_y]+_nim[:,_x-1,_y]+_nim[:,_x,_y+1]+_nim[:,_x,_y-1])/4
     return _nim.astype(np.uint16)
 
 # wrapper
@@ -770,17 +771,21 @@ def correction_wrapper(im, channel, correction_folder=_correction_folder,
     if z_shift_corr:
         # correct for z axis shift
         _corr_im = Z_Shift_Correction(_corr_im, verbose=verbose)
+    print("pass1")
     if hot_pixel_remove:
         # correct for hot pixels
         _corr_im = Remove_Hot_Pixels(_corr_im, verbose=verbose)
+    print("pass2")
     if illumination_corr:
         # illumination correction
         _corr_im = Illumination_correction(_corr_im, correction_channel=channel,
                     correction_folder=correction_folder, verbose=verbose)[0]
+    print("pass3")
     if chromatic_corr:
         # chromatic correction
         _corr_im = Chromatic_abbrevation_correction(_corr_im, correction_channel=channel,
                     correction_folder=correction_folder, verbose=verbose)[0]
+    print("pass4")
     # if save temp file, save to a file, release original one, return a memory-map
     if return_type == 'filename':
         if not os.path.exists(temp_folder):

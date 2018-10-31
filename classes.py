@@ -1668,7 +1668,7 @@ class Cell_Data():
                 _fitting_args = (_width_zxy, _fit_radius, 100, 500, _expect_weight, _th_to_end, _max_iter, 0.25, _min_height, False, _verbose)
             elif _type ==' decoded':
                 _seeding_args = (_max_seed_count, 20, 0, _max_filt_size, _seed_th_per, True, 10, _min_seed_count, 0, False);
-                _fitting_args = (_width_zxy, _fit_radius, 0.5, 0.5, _expect_weight/100, _th_to_end, _max_iter, 0.25, 0.1, False, _verbose)
+                _fitting_args = (_width_zxy, _fit_radius, 0.1, 0.5, _expect_weight/1000, _th_to_end, _max_iter, 0.25, 0.1, False, _verbose)
 
             _args = [(_im, _id, self.chrom_coords, _seeding_args, _fitting_args, _verbose) for _im, _id in zip(_ims, _ids)]
             # multi-processing for multi-Fitting
