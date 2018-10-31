@@ -1606,7 +1606,7 @@ def fit_single_gaussian(data, center_zxy, width_zxy=[1.35, 1.9, 1.9], radius=10,
                         height_sensitivity=100.,
                         expect_intensity=800.,
                         expect_weight = 1000.,
-                        th_to_end=1e-4):
+                        th_to_end=1e-6):
     """ Function to fit single gaussian with given prior
     Inputs:
         data: image, 3d-array
@@ -1626,7 +1626,9 @@ def fit_single_gaussian(data, center_zxy, width_zxy=[1.35, 1.9, 1.9], radius=10,
     dims = np.array(data_.shape)
     # dynamic adjust height_sensitivity
     if np.max(data_) < height_sensitivity:
-        height_sensitivity = np.ceil(np.max(data_))
+        height_sensitivity = np.ceil(np.max(data_)) * 0.5
+    if np.max(data_) < expect_intensity:
+        expect_intensity = np.max(data_) * 0.1
     if len(center_zxy)==3:
         center_z,center_x,center_y = center_zxy
     else:
@@ -1646,7 +1648,7 @@ def fit_single_gaussian(data, center_zxy, width_zxy=[1.35, 1.9, 1.9], radius=10,
         if height < 0:
             height=0;
         width_z,width_x,width_y = np.array(width_zxy)
-        params_ = (height,center_z,center_x,center_y,bk, width_z,width_x,width_y)
+        params_ = (height, center_z,center_x,center_y, bk, width_z,width_x,width_y)
 
         def gaussian(height,center_z, center_x, center_y,
                      bk=0,
@@ -1671,6 +1673,7 @@ def fit_single_gaussian(data, center_zxy, width_zxy=[1.35, 1.9, 1.9], radius=10,
             #err=np.ravel(f-g-g*np.log(f/g))
             err=np.ravel(f-g) + expect_weight * (np.linalg.norm(p[-3:]-width_zxy, 1) + 0.2 * (p[0]*height_sensitivity/expect_intensity)*int(p[0]<expect_intensity));
             return err
+
         p = scipy.optimize.least_squares(errorfunction,  params_, bounds=(0, np.inf), ftol=th_to_end, xtol=th_to_end, gtol=th_to_end/10.)
         p.x[0] *= height_sensitivity
 
@@ -1681,7 +1684,7 @@ def fit_single_gaussian(data, center_zxy, width_zxy=[1.35, 1.9, 1.9], radius=10,
 # Multi gaussian fitting
 def fit_multi_gaussian(im, seeds, width_zxy = [1.35,1.9,1.9], fit_radius=10,
                        height_sensitivity=100., expect_intensity=500., expect_weight=1000.,
-                       th_to_end=1e-5,
+                       th_to_end=1e-7,
                        n_max_iter=10, max_dist_th=0.25, min_height=100.0,
                        return_im=False, verbose=True):
     """ Function to fit multiple gaussians (with given prior)
