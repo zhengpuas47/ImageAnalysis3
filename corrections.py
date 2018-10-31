@@ -771,21 +771,21 @@ def correction_wrapper(im, channel, correction_folder=_correction_folder,
     if z_shift_corr:
         # correct for z axis shift
         _corr_im = Z_Shift_Correction(_corr_im, verbose=verbose)
-    print("pass1")
+    #print("pass1")
     if hot_pixel_remove:
         # correct for hot pixels
         _corr_im = Remove_Hot_Pixels(_corr_im, verbose=verbose)
-    print("pass2")
+    #print("pass2")
     if illumination_corr:
         # illumination correction
         _corr_im = Illumination_correction(_corr_im, correction_channel=channel,
                     correction_folder=correction_folder, verbose=verbose)[0]
-    print("pass3")
+    #print("pass3")
     if chromatic_corr:
         # chromatic correction
         _corr_im = Chromatic_abbrevation_correction(_corr_im, correction_channel=channel,
                     correction_folder=correction_folder, verbose=verbose)[0]
-    print("pass4")
+    #print("pass4")
     # if save temp file, save to a file, release original one, return a memory-map
     if return_type == 'filename':
         if not os.path.exists(temp_folder):
