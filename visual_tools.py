@@ -6,8 +6,14 @@ from mpl_toolkits.axes_grid1 import ImageGrid
 import scipy
 from scipy.signal import fftconvolve
 from scipy.ndimage.filters import maximum_filter,minimum_filter,median_filter,gaussian_filter
+from scipy import ndimage, stats
+from skimage import morphology, restoration, measure
+from skimage.segmentation import random_walker
+from scipy.ndimage import gaussian_laplace
+
 from . import get_img_info, corrections, visual_tools, analysis
 from . import _correction_folder,_temp_folder,_distance_zxy,_sigma_zxy
+
 
 
 def partition_map(list_,map_, enumerate_all=False):
@@ -959,7 +965,7 @@ class DaxReader(Reader):
         return image_data
 
 ## segmentation with DAPI
-def DAPI_segmentation(ims, names,
+def old_DAPI_segmentation(ims, names,
                       cap_percentile=0.5,
                       illumination_correction=True,
                       illumination_correction_channel=405,
@@ -1141,218 +1147,7 @@ def DAPI_segmentation(ims, names,
 
 
 # segmentation with convolution of DAPI images
-def DAPI_convolution_segmentation(ims, names,
-                                  cap_percentile=0.5,
-                                  image3D=False,
-                                  illumination_correction=True,
-                                  denoise='bilateral',
-                                  zoom_ratio = 8,
-                                  conv_kernel_dims = [2,1],
-                                  conv_threshold = 0.1,
-                                  obj_size_limit=1300,
-                                  total_size_limit = 275,
-                                  remove_fov_boundary = 6,
-                                  segment_method='random_walker',
-                                  make_plot=False, verbose=True):
-    '''cell segmentation for DAPI images with pooling and convolution layers
-    Inputs:
-        ims: list of images
-        names: list of names, same length as ims
-        cap_percentile: removing top and bottom percentile in each image, float from 0-100
-        image3D: whether process images with 3D or 2D, bool
-        illumination_correction: whether correct illumination for each field of view, bool
-        denoise: method of denoise, 'bilateral'/'gaussian'/'None'
-        zoom_ratio: ratio to zoom out (as pooling layer), float > 1
-        conv_kernel: convolution laplacial-like kernel with [inner_dim, outer_dim], array-like
-        obj_size_limit: smallest object size allowed as nucleus, int (default:1300 for 2d, 35000 for 3D)
-        total_size_limit: upper limit for all dimensions, int (default: 300 for 2d, 350 for 3D)
-        remove_fov_boundary: if certain label is too close to fov boundary, remove, float
-        segmentation_method: method of segmentation, 'random_walker'/'watershed'
-        make_plot: whether making plots for checking purpose, bool
-        verbose: whether say something during the process, bool
-    Output:
-        _seg_labels: list of labels, same dimension as ims, list of bool matrix
-        '''
-    # Imports
-    from scipy import ndimage
-    from skimage import morphology
-    from scipy import stats
-    from skimage import restoration
-    from ImageAnalysis3.corrections import Illumination_correction
 
-    # check whether input is a list of images or just one image
-    if isinstance(ims, list):
-        if verbose:
-            print("Start segmenting list of images");
-        _ims = ims;
-        _names = names;
-    else:
-        if verbose:
-            print("Start segmenting one image");
-        _ims = [ims];
-        _names = [names];
-
-    # check input length
-    if len(_names) != len(_ims):
-        raise ValueError('input images and names length not compatible!');
-
-    # 2D or 3D:
-    if not image3D:
-        if verbose:
-            print("Converting images to 2D");
-        _ims = [np.mean(_im,0).astype(np.float) for _im in _ims]; # do z-stack if not 3D
-        print(_ims[0].shape)
-
-    # illumination correction
-    if illumination_correction:
-        #import corrections
-        correction_channel = 405 # DAPI is in 405 channel
-        if verbose:
-            print("Correcting illuminations");
-        _ims = Illumination_correction(_ims, correction_channel);
-
-    # normalize image
-    _limits = [stats.scoreatpercentile(_im, (cap_percentile, 100.-cap_percentile)).astype(np.float) for _im in _ims];
-    _norm_ims = [(_im-np.min(_limit))/(np.max(_limit)-np.min(_limit)) for _im,_limit in zip(_ims, _limits)]
-    for _im in _norm_ims: # cap image
-        _im[_im > 1] = 1;
-        _im[_im < 0] = 0;
-    if verbose:
-        print("Normalize image intensities to real number within 0-1");
-
-    # denoise
-    if denoise:
-        if verbose:
-            print("Denoising images");
-        if denoise == 'bilateral':
-            if verbose:
-                print("- denoising with bilateral")
-            _norm_ims = [restoration.denoise_bilateral(_im, multichannel=image3D) for _im in _norm_ims]
-        if denoise == 'wavelet':
-            if verbose:
-                print("- denoising with wavelet")
-            _norm_ims = [restoration.denoise_nl_means(_im, multichannel=False) for _im in _norm_ims]
-
-    # zoom out (pooling layer)
-    if verbose:
-        print("Pooling images");
-    _zims = [restoration.denoise_nl_means(ndimage.zoom(_norm_im, 1./zoom_ratio)) for _norm_im in _norm_ims];
-
-    ## convolution
-    if verbose:
-        print("Convolution with pooled images")
-    _inner, _outer = conv_kernel_dims[0], conv_kernel_dims[-1];
-    _conv_zims = []; # initialize
-    if image3D: # if 3D:
-        _kernel = np.zeros([_inner+2*_outer]*(2+int(image3D)))
-        _kernel[:,_outer:_outer+_inner,_outer:_outer+_inner] = -1;
-        _kernel[_outer:_outer+_inner,:,_outer:_outer+_inner] = -1;
-        _kernel[_outer:_outer+_inner,_outer:_outer+_inner,:] = -1;
-        _kernel[_outer:_outer+_inner,_outer:_outer+_inner]= (2+int(image3D)) * 2 * _outer / float(_inner)
-        # convolution
-        for _zim in _zims:
-            _conv_zim = ndimage.convolve(_zim, _kernel)
-            _conv_zim[0,:,:] = 0;
-            _conv_zim[-1,:,:] = 0;
-            _conv_zim[:,0,:] = 0;
-            _conv_zim[:,-1,:] = 0;
-            _conv_zim[:,:,0] = 0;
-            _conv_zim[:,:,-1] = 0;
-            _conv_zims.append(_conv_zim);
-    else: # if 2D
-        _kernel = np.zeros([_inner+2*_outer]*2)
-        _kernel[_outer:_outer+_inner,:] = -1;
-        _kernel[:,_outer:_outer+_inner] = -1;
-        _kernel[_outer:_outer+_inner,_outer:_outer+_inner]= 4 * _outer / float(_inner)
-        # convolution
-        for _zim in _zims:
-            _conv_zim = ndimage.convolve(_zim, _kernel)
-            _conv_zim[0,:] = 0;
-            _conv_zim[-1,:] = 0;
-            _conv_zim[:,0] = 0;
-            _conv_zim[:,-1] = 0;
-            _conv_zims.append(_conv_zim);
-    # thresholding convoluted images to get seeds
-    if verbose:
-        print("Thresholding convoluted images")
-    _bims = [ndimage.zoom(_conv_zim, zoom_ratio) for _conv_zim in _conv_zims] # zoom in again (reverse pooling)
-    _bims = [_bim > conv_threshold for _bim in _bims] # thresholding convoluted images
-    if image3D:
-        _bims = [ndimage.binary_fill_holes(_bim, structure=morphology.ball(2)) for _bim in _bims];
-    else:
-        _bims = [ndimage.binary_fill_holes(_bim, structure=morphology.disk(2)) for _bim in _bims];
-
-
-    # acquiring contours
-    if image3D:
-        _open_objects = [morphology.opening(_bim, morphology.ball(3)) for _bim in _bims];
-        _close_objects = [morphology.closing(_open, morphology.ball(3)) for _open in _open_objects]
-        _close_objects = [morphology.remove_small_objects(_close, obj_size_limit*32) for _close in _close_objects];
-    else:
-        _open_objects = [morphology.opening(_bim, morphology.disk(3)) for _bim in _bims];
-        _close_objects = [morphology.closing(_open, morphology.disk(3)) for _open in _open_objects]
-        _close_objects = [morphology.remove_small_objects(_close, obj_size_limit) for _close in _close_objects];
-
-    # labelling for erosion images, used for further segmentation
-    _bboxes = [ndimage.find_objects(_close) for _close in _close_objects];
-    _masks = [_close[_bbox[0]] for _bbox, _close in zip(_bboxes, _close_objects)];
-    _roi_images = [_im[_bbox[0]] for _bbox, _im in zip(_bboxes, _norm_ims)];
-    if make_plot and not image3D:
-        for _roi, _mask,_name in zip(_roi_images, _masks, _names):
-            plt.figure()
-            plt.imshow(_roi, cmap='gray'); plt.colorbar();
-            plt.contour(_mask);
-            plt.title(_name)
-            plt.show()
-    _labels, _nums = [],[]; # initialize labels
-    for _close,_name in zip(_close_objects, _names):
-        _label, _num = ndimage.label(_close);
-        _label[_label==0] = -1;
-        # remove labels too close to field of view boundary
-        i = 1;
-        while i < np.max(_label):
-            _total_size = 0; # initialzie total size
-            for _d in range(2+int(image3D)):
-                _total_size += np.sum(np.sum(_label == i ,_d)>0)
-            _center = np.round(ndimage.measurements.center_of_mass(_label==i));
-            for _coord,_dim in zip(_center[-2:], _label.shape[-2:]):
-                if _coord < remove_fov_boundary*zoom_ratio or _coord > _dim - remove_fov_boundary*zoom_ratio:
-                    print("-- remove a label near boundary in", _name, i)
-                    _label[_label == i] = -1;
-                    _label[_label > i] -= 1;
-                    break;
-                elif _total_size > total_size_limit + 50 * int(image3D):
-                    print("-- remove a label with total size: "+str(_total_size) + ', '+str(i), 'in', _name)
-                    _label[_label == i] = -1;
-                    _label[_label > i] -= 1;
-                    break
-            i += 1;
-        _labels.append(_label);
-        _nums.append(i);
-
-    # Segmentation, using previous labelling as seed
-    if segment_method == 'random_walker':
-        if verbose:
-            print("Segmentation by random_walker");
-        from skimage.segmentation import random_walker
-        _seg_labels = [random_walker(_im, _label, beta=1000, mode='bf') for _im, _label in zip(_ims, _labels)];
-    elif segment_method == 'watershed':
-        if verbose:
-            print("Segmentation by watershed");
-        _seg_labels = [ndimage.watershed_ift(_im.astype(np.uint8), _label.astype(np.int)) for _im, _label in zip(_ims, _labels)];
-
-    if make_plot:
-        if image3D:
-            imshow_mark_3d_v2(_seg_labels,image_names=_names);
-        else:
-            for _seg_label, _name in zip(_seg_labels, _names):
-                plt.figure();
-                plt.imshow(_seg_label)
-                plt.title(_name)
-                plt.colorbar();plt.show();
-
-    # return segmentation results
-    return _seg_labels;
 
 # merge images to generate "chromosome"
 def generate_chromosome_from_dic(im_dic, merging_channel, color_dic,  bead_label='beads',

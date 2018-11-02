@@ -318,7 +318,7 @@ class Cell_List():
         return _cell
 
     def _create_cells_fov(self, _fov_ids, _num_threads=None, _load_annotated_only=True, _overwrite_temp=True,
-                          _drift_size=550, _drift_dynamic=True, _verbose=True):
+                          _drift_size=550, _drift_dynamic=True, _plot_segmentation=False, _verbose=True):
         """Create Cele_data objects for one field of view"""
         if not _num_threads:
             _num_threads = int(self.num_threads);
@@ -353,9 +353,10 @@ class Cell_List():
                                                     correction_folder=self.correction_folder,
                                                     segmentation_path=os.path.basename(self.segmentation_folder),
                                                     save=True, force=False, verbose=_verbose)
-            plt.figure()
-            plt.imshow(_fov_segmentation_label)
-            plt.show()
+            if _plot_segmentation:
+                plt.figure()
+                plt.imshow(_fov_segmentation_label)
+                plt.show()
             # do drift for this fov
             if _verbose:
                 print("+ Drift correction for fov", _fov_id);
@@ -1214,7 +1215,6 @@ class Cell_Data():
 
             if _load_in_ram:
                 self.combo_groups = _combo_groups;
-
                 if _save:
                     self._save_to_file('combo', _overwrite=_overwrite)
             else: # not in RAM
@@ -1666,7 +1666,7 @@ class Cell_Data():
             if _type == 'unique':
                 _seeding_args = (_max_seed_count, 20, 0, _max_filt_size, _seed_th_per, True, 10, _min_seed_count, 0, False);
                 _fitting_args = (_width_zxy, _fit_radius, 100, 500, _expect_weight, _th_to_end, _max_iter, 0.25, _min_height, False, _verbose)
-            elif _type ==' decoded':
+            elif _type == 'decoded':
                 _seeding_args = (_max_seed_count, 20, 0, _max_filt_size, _seed_th_per, True, 10, _min_seed_count, 0, False);
                 _fitting_args = (_width_zxy, _fit_radius, 0.1, 0.5, _expect_weight/1000, _th_to_end, _max_iter, 0.25, 0.1, False, _verbose)
 
