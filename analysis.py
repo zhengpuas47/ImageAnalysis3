@@ -8,13 +8,13 @@ from . import get_img_info, corrections, visual_tools
 from . import _correction_folder,_temp_folder,_distance_zxy,_sigma_zxy
 
 # function to do segmentation
-def Segmentation_All(analysis_folder, folders, fovs, ref_name='H0R0',
-                     num_channel=4, dapi_channel=-1,
+def Segmentation_All(analysis_folder, folders, fovs, type='small_conv',
+                     ref_name='H0R0', num_channel=4, dapi_channel=-1,
                      num_threads=5,
-                     illumination_corr=True,
-                     correction_folder=_correction_folder,
-                     denoise_window=5,
-                     signal_cap_ratio=0.15,
+                     illumination_corr=True, correction_folder=_correction_folder, corr_channel='405',
+                     denoise_window=5, max_ft_size=25, gl_ft_size=35,
+                     conv_th=-5e-5, boundary_th=0.55,
+                     signal_cap_ratio=0.20,
                      cell_min_size=2000,
                      shape_ratio_threshold=0.030,
                      segmentation_path='segmentation',
@@ -43,9 +43,10 @@ def Segmentation_All(analysis_folder, folders, fovs, ref_name='H0R0',
     _dapi_ims: original images for DAPI, list of 3D images
     '''
 
+    # check inputs
+    
     # path to store segmentation result
     _savefolder = analysis_folder+os.sep+segmentation_path;
-
     # check dir and savefile
     if not os.path.isdir(_savefolder): # if save folder doesnt exist, create
         if verbose:

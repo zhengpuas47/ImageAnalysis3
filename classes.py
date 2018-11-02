@@ -318,7 +318,7 @@ class Cell_List():
         return _cell
 
     def _create_cells_fov(self, _fov_ids, _num_threads=None, _load_annotated_only=True, _overwrite_temp=True,
-                          _drift_size=550, _drift_dynamic=True, _plot_segmentation=False, _verbose=True):
+                          _drift_size=550, _drift_dynamic=True, _plot_segmentation=True, _verbose=True):
         """Create Cele_data objects for one field of view"""
         if not _num_threads:
             _num_threads = int(self.num_threads);
@@ -1260,7 +1260,8 @@ class Cell_Data():
 
             # if specified in save_dic, overwrite
             for _k,_v in _save_dic.items():
-                _updated_info.append(_k);
+                if _k not in _updated_info:
+                    _updated_info.append(_k);
                 _file_dic[_k] = _v
 
             if _verbose and len(_updated_info) > 0:
@@ -1701,7 +1702,7 @@ class Cell_Data():
                 #NOT FINISHED YET
 
     def _dynamic_picking_spots(self, _type='unique', _use_chrom_coords=True,
-                               _distance_zxy=None, _w_int = 1, _w_dist = 2,
+                               _distance_zxy=None, _w_int=1, _w_dist=2,
                                _dist_ref = None, _penalty_type='trapezoidal', _penalty_factor=5,
                                _save=True, _verbose=True):
         """Given selected spots, do picking by dynamic programming
