@@ -1656,8 +1656,8 @@ class Cell_Data():
                 if not hasattr(self, 'unique_ims') or not hasattr(self, 'unique_ids'):
                     print("++ no unique image info loaded to this cell, try loading:")
                     self._load_from_file('unique', _overwrite=False, _verbose=_verbose)
-                _ims = self.unique_ims
-                _ids = self.unique_ids
+                _ims = self.unique_ims;
+                _ids = self.unique_ids;
             elif _type == 'decoded':
                 _ims = self.decoded_ims;
                 _ids = self.decoded_ids;

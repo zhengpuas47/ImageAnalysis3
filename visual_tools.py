@@ -965,7 +965,7 @@ class DaxReader(Reader):
         return image_data
 
 ## segmentation with DAPI
-def old_DAPI_segmentation(ims, names,
+def DAPI_segmentation(ims, names,
                       cap_percentile=0.5,
                       illumination_correction=True,
                       illumination_correction_channel=405,
@@ -1147,7 +1147,267 @@ def old_DAPI_segmentation(ims, names,
 
 
 # segmentation with convolution of DAPI images
+def DAPI_convoluted_segmentation(ims, names, cap_percentile=0.5,
+      illumination_correction=True, illumination_correction_channel=405, correction_folder=_correction_folder,
+      merge_layer_num=13, denoise_window=5, mft_size=25, glft_size=35,
+      max_conv_th=-5e-5, min_boundary_th=0.55, signal_cap_ratio=0.20,
+      max_cell_size=30000, min_cell_size=5000, min_shape_ratio=0.040, max_iter=3, shrink_percent=13,
+      dialation_dim=10, random_walker_beta=0.1, remove_fov_boundary=50,
+      make_plot=False, verbose=True):
+    """cell segmentation for DAPI images with pooling and convolution layers
+    Inputs:
+        ims: list of images
+        names: list of names, same length as ims
+        cap_percentile: removing top and bottom percentile in each image, float from 0-100 (default: 0.5)
+        illumination_correction: whether correct illumination for each field of view, bool (default: True)
+        illumination_correction_channel: which color channel to correct illumination for each field of view, int or str (default: 405)
+        correction_folder: full directory that contains such correction files, string (default: )
+        merge_layer_num: number of z-stack layers to merge, int (default: 11)
+        denoise_window: window size used for billateral denoising method, int (default: 31)
+        mft_size: size of max-min filters to get cell boundaries, int (default: 25)
+        glft_size: window size for laplacian-gaussian filter, int (default: 35)
+        binarilize image:
+        max_conv_th: maximum convolution threshold, float(default: -5e-5)
+        min_boundary_th: minimal boundary im threshold, float(default: 0.55)
+        signal_cap_ratio: intensity ratio that considered as signal if intensity over max intensity larger than this, float between 0-1, (default: 0.15)
+        max_cell_size: upper limit for object otherwise undergoes extra screening, int(default: 30000)
+        min_cell_size: smallest object size allowed as nucleus, int (default:5000 for 2D)
+        min_shape_ratio: min threshold for: areasize of one label / (contour length of a label)^2, float (default: 0.15)
+        random_walker_beta: beta used for random walker segementation algorithm, float (default: 0.1)
+        remove_fov_boundary: if certain label is too close to fov boundary within this number of pixels, remove, int (default: 50)
+        make_plot: whether making plots for checking purpose, bool
+        verbose: whether say something during the process, bool
+    Output:
+        _seg_labels: list of labels, same dimension as ims, list of bool matrix"""
+    ## checks
+    # check whether input is a list of images or just one image
+    if isinstance(ims, list):
+        if verbose:
+            print("Start segmenting list of images");
+        _ims = ims;
+        _names = names;
+    else:
+        if verbose:
+            print("Start segmenting one image");
+        _ims = [ims];
+        _names = [names];
+    # check input length
+    if len(_names) != len(_ims):
+        raise ValueError('input images and names length not compatible!');
 
+    ## corrections
+    # correction for hot_pixel and z-shift
+    _ims = [corrections.Z_Shift_Correction(_im, verbose=verbose) for _im in _ims]
+    _ims = [corrections.Remove_Hot_Pixels(_im, hot_th=4, verbose=verbose) for _im in _ims]
+    # illumination correction
+    if illumination_correction:
+        _ims = corrections.Illumination_correction(_ims, illumination_correction_channel, correction_power=3, correction_folder=correction_folder,
+                                                   verbose=verbose);
+
+    ## rescaling and stack
+    # rescale image to 0-1 gray scale
+    _limits = [stats.scoreatpercentile(_im, (cap_percentile, 100.-cap_percentile)).astype(np.float) for _im in _ims];
+    _norm_ims = [(_im-np.min(_limit))/(np.max(_limit)-np.min(_limit)) for _im,_limit in zip(_ims, _limits)]
+    for _im in _norm_ims:
+        _im[_im < 0] = 0
+        _im[_im > 1] = 1
+    # find the layer that on focus
+    _focus_layers = [np.argmin(np.array([np.sum(_layer > signal_cap_ratio) for _layer in _im])) for _im in _norm_ims]
+    # stack images close to this focal layer
+    if verbose:
+        print('-- find focal plane and slice')
+    _stack_ims = [];
+    for _im, _layer in zip(_norm_ims, _focus_layers):
+        if _im.shape[0] - _layer < np.ceil((merge_layer_num-1)/2):
+            _stack_lims = [_im.shape[0]-merge_layer_num, _im.shape[0]];
+        elif _layer < np.floor((merge_layer_num-1)/2):
+            _stack_lims = [0, merge_layer_num];
+        else:
+            _stack_lims = [_layer-np.ceil((merge_layer_num-1)/2), _layer+np.floor((merge_layer_num-1)/2)]
+        _stack_lims = np.array(_stack_lims, dtype=np.int)
+        # extract image
+        _stack_im = np.zeros([np.max(_stack_lims)-np.min(_stack_lims), np.shape(_im)[1], np.shape(_im)[2]]);
+        # denoise and merge
+        if denoise_window:
+            for _i,_l in enumerate(range(np.min(_stack_lims), np.max(_stack_lims))):
+                _stack_im[_i] = restoration.denoise_bilateral(_im[_l], win_size=int(denoise_window), mode='edge', multichannel=False)
+        else:
+            for _i,_l in enumerate(range(np.min(_stack_lims), np.max(_stack_lims))):
+                _stack_im[_i] = _im[_l]
+        _stack_im = np.mean(_stack_im, axis=0)
+        _stack_ims.append(_stack_im)
+
+    ## Get boundaries of cells and apply Gaussian-Laplacian filter
+    # get boundaries of cells
+    _diff_ims = [2*ndimage.filters.maximum_filter(_stack_im, mft_size)-ndimage.filters.minimum_filter(_stack_im, mft_size) for _stack_im in _stack_ims]
+    # laplace of gaussian filter
+    if verbose:
+        print("- apply by laplace-of-gaussian filter");
+    _conv_ims = [gaussian_laplace(_im, glft_size) for _im in _diff_ims]
+
+    ## get rough labels
+    # binarilize the image
+    _supercell_masks = [(_cim < max_conv_th) *( _sim > min_boundary_th) for _cim, _sim in zip(_conv_ims, _diff_ims)]
+    # erosion and dialation
+    _supercell_masks = [ndimage.binary_erosion(_im, structure=morphology.disk(3)) for _im in _supercell_masks];
+    _supercell_masks = [ndimage.binary_dilation(_im, structure=morphology.disk(4)) for _im in _supercell_masks];
+    # filling holes
+    _supercell_masks = [ndimage.binary_fill_holes(_im, structure=morphology.disk(4)) for _im in _supercell_masks];
+    # acquire labels
+    if verbose:
+        print("- acquire labels")
+    _open_objects = [morphology.opening(_im, morphology.disk(3)) for _im in _supercell_masks];
+    _close_objects = [morphology.closing(_open, morphology.disk(3)) for _open in _open_objects]
+    _close_objects = [morphology.remove_small_objects(_close, min_cell_size) for _close in _close_objects];
+    # labeling
+    _labels = [ np.array(ndimage.label(_close)[0], dtype=np.int) for _close in _close_objects];
+
+    ## Tuning labels
+    def _label_binary_im(_im, obj_size=3):
+        '''Given an binary image, find labels for all isolated objects with given size'''
+        # make sure image is binary
+        _bim = np.array(_im > 0, dtype=np.int);
+        # find objects
+        _open = morphology.opening(_bim, morphology.disk(obj_size))
+        _close = morphology.closing(_open, morphology.disk(obj_size))
+        # label objects
+        _label, _num = ndimage.label(_close.astype(bool));
+        # return
+        return _label, _num
+
+    def _check_label(_label, _id, _min_shape_ratio, _max_size, verbose=False):
+        """Check whether the label is qualified as a cell"""
+        # get features
+        _length,_size,_center,_ratio = _get_label_features(_label, _id);
+        if _ratio < _min_shape_ratio:
+            if verbose:
+                print(f"--- {_ratio} is smaller than minimum shape ratio, failed")
+            return False
+        if _size > _max_size:
+            if verbose:
+                print(f"--- {_size} is larger than maximum shape size, failed")
+            return False
+        return True
+
+    def _get_label_features(_label, _id):
+        """Given a label and corresponding label id, return four features of this label"""
+        # get features
+        _contour = measure.find_contours(np.array(_label==_id, dtype=np.int), 0)[0]
+        _length = np.sum(np.sqrt(np.sum((_contour[1:] - _contour[:-1])**2, axis=1)))
+        _size = np.sum(_label==_id)
+        _center = np.round(ndimage.measurements.center_of_mass(_label==_id));
+        _shape_ratio = _size/_length**2
+        return _length, _size, _center, _shape_ratio
+
+    def _split_single_label(_stack_im, _conv_im, _label, _id,
+                     min_size=5000, shrink_percent=15,
+                     erosion_dim=2, dialation_dim=6):
+        """Function to split suspicious labels and validate"""
+        if shrink_percent > 50 or shrink_percent < 0:
+            raise ValueError(f"Wrong shrink_percent kwd ({shrink_percent}) is given, should be in [0,50]");
+        # get features
+        _length,_size,_center,_ratio = _get_label_features(_label, _id);
+        _mask = np.array(_label == _id, dtype=np.int)
+        _mask *= np.array(_stack_im > stats.scoreatpercentile(_stack_im[_label==_id], shrink_percent), dtype=int)
+        _mask *= np.array(_conv_im < stats.scoreatpercentile(_conv_im[_label==_id], 100-2*shrink_percent), dtype=int)
+        _mask = ndimage.binary_erosion(_mask, structure=morphology.disk(erosion_dim))
+        _mask = morphology.remove_small_objects(_mask.astype(bool), min_size)
+        _new_label, _num = _label_binary_im(_mask, 3)
+        for _l in range(_num):
+            _single_label = np.array(_new_label==_l+1, dtype=np.int)
+            _single_label = ndimage.binary_dilation(_single_label, structure=morphology.disk(dialation_dim));
+            _new_label[_single_label>0] = _l+1;
+        return _new_label, _num
+
+    def _iterative_split_labels(_stack_im, _conv_im, _label, max_iter=3,
+                                min_shape_ratio=0.040, max_size=30000,
+                                min_size=5000, shrink_percent=15,
+                                erosion_dim=2, dialation_dim=10,
+                                verbose=False):
+        """Function to iteratively split labels within one fov"""
+        _single_labels = [np.array(_label==_i+1,dtype=np.int) for _i in range(int(np.max(_label))) if np.sum(np.array(_label==_i+1,dtype=np.int))>0];
+        _iter_counts = [0 for _i in range(len(_single_labels))]
+        _final_label = np.zeros(np.shape(_label), dtype=np.int)
+        # start selecting labels
+        while(len(_single_labels)) > 0:
+            _sg_label = _single_labels.pop(0);
+            _iter_ct = _iter_counts.pop(0);
+            if verbose:
+                print(f"- Remaining labels:{len(_single_labels)}, iter_num:{_iter_ct}")
+            # if this cell passes the filter
+            if _check_label(_sg_label, 1, min_shape_ratio, max_size, verbose=verbose):
+                if verbose:
+                    print(f"-- saving label: {np.max(_final_label)+1}")
+                _save_label = ndimage.binary_dilation(_sg_label, structure=morphology.disk(int(dialation_dim/2)))
+                _final_label[_save_label==1] = np.max(_final_label)+1
+                continue
+            # not pass, try to split
+            else:
+                _new_label, _num = _split_single_label(_stack_im, _conv_im, _sg_label, 1,
+                                                       min_size=min_size*(1-shrink_percent/100)**_iter_ct,
+                                                       shrink_percent=shrink_percent,
+                                                       erosion_dim=erosion_dim, dialation_dim=dialation_dim)
+                for _i in range(_num):
+                    _cand_label = np.array(_new_label==_i+1, dtype=np.int)
+                    if _check_label(_cand_label, 1, min_shape_ratio, max_size, verbose=verbose):
+                        if verbose:
+                            print(f"-- saving label: {np.max(_final_label)+1}")
+                        _save_label = ndimage.binary_dilation(_cand_label, structure=morphology.disk(int(dialation_dim/2)))
+                        _final_label[_save_label==1] = np.max(_final_label)+1
+                    elif _iter_ct > max_iter:
+                        if verbose:
+                            print("--- Exceeding max-iteration count, skip.")
+                        continue;
+                    else:
+                        if verbose:
+                            print("--- Append this cell back to pool")
+                        _single_labels.append(_cand_label)
+                        _iter_counts.append(_iter_ct+1)
+        return _final_label
+
+    # initialize updated labels and call functions
+    if verbose:
+        print("- start iterative segmentation")
+    _seg_labels = []
+    for _i, (_sim, _cim, _label) in enumerate(zip(_stack_ims, _conv_ims, _labels)):
+        _updated_label = _iterative_split_labels(_sim, _cim, _label, max_iter=max_iter,
+                                                 min_shape_ratio=min_shape_ratio, shrink_percent=shrink_percent,
+                                                 max_size=max_cell_size, min_size=min_cell_size,
+                                                 dialation_dim=dialation_dim)
+        for _l in range(int(np.max(_updated_label))):
+            _, _, _center, _ = _get_label_features(_updated_label, _l+1);
+            if _center[0] < remove_fov_boundary or _center[1] < remove_fov_boundary or _center[0] >= _updated_label.shape[0]-remove_fov_boundary or _center[1] >= _updated_label.shape[1]-remove_fov_boundary:
+                if verbose:
+                    print(f"-- Remove im:{_i}, label {_l+1} for center coordiate too close to edge.")
+                _updated_label[_updated_label==_l+1] = 0
+        # relabel
+        _relabel_id = 1
+        _seg_label = np.zeros(np.shape(_updated_label), dtype=np.int)
+        for _l in range(int(np.max(_updated_label))):
+            if np.sum(np.array(_updated_label == _l+1,dtype=np.int)) > 0:
+                _seg_label[_updated_label==_l+1] = _relabel_id;
+                _relabel_id += 1;
+        # label background
+        _dialated_mask = ndimage.binary_dilation(np.array(_seg_label>0, dtype=np.int), structure=morphology.disk(int(dialation_dim/2)))
+        _seg_label[(_seg_label==0)*(_dialated_mask==0)] = -1
+        # save
+        _seg_labels.append(_seg_label)
+
+    ## random walker segmentation
+    if random_walker_beta:
+        if verbose:
+            print ("- random walker segmentation!")
+        _seg_labels = [random_walker(_im, _label, beta=random_walker_beta, mode='bf') for _im, _label in zip(_stack_ims, _seg_labels)];
+
+    ## plot
+    if make_plot:
+        for _seg_label, _name in zip(_seg_labels, _names):
+            plt.figure();
+            plt.imshow(_seg_label)
+            plt.title(_name)
+            plt.colorbar();plt.show();
+
+    return _seg_labels
 
 # merge images to generate "chromosome"
 def generate_chromosome_from_dic(im_dic, merging_channel, color_dic,  bead_label='beads',
@@ -1533,7 +1793,8 @@ def fit_multi_gaussian(im, seeds, width_zxy = [1.35,1.9,1.9], fit_radius=10,
         n_iter = 0
         while max_dist > max_dist_th:
             ps_1=np.array(ps)
-            ps_1=ps_1[np.argsort(ps_1[:,0])[::-1]]
+            if len(ps_1)>0:
+                ps_1=ps_1[np.argsort(ps_1[:,0])[::-1]]
             ps = []
             ps_1_rem=[]
             for p_1 in ps_1:
