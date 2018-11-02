@@ -1795,6 +1795,8 @@ def fit_multi_gaussian(im, seeds, width_zxy = [1.35,1.9,1.9], fit_radius=10,
             ps_1=np.array(ps)
             if len(ps_1)>0:
                 ps_1=ps_1[np.argsort(ps_1[:,0])[::-1]]
+            else:
+                return np.array([])
             ps = []
             ps_1_rem=[]
             for p_1 in ps_1:
