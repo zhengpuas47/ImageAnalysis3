@@ -241,7 +241,8 @@ class Cell_List():
 
     def _update_cell_segmentations(self, _cell_coord_fl='cell_coords.pkl',
                                   _overwrite_segmentation=True,
-                                  _marker_displace_th = 900,
+                                  _marker_displace_th = 2700,
+                                  _append_new=True, _append_radius=100,
                                   _verbose=True):
         """Function to update cell segmentation info from saved file,
             - usually do this after automatic segmentation"""
@@ -257,7 +258,7 @@ class Cell_List():
 
         # initialize
         _new_seg_labels, _dapi_ims = [], [];
-        _remove_cts = [];
+        _remove_cts, _append_cts = [], [];
         for _i, (_cell_coords, _new_cell_coords) in enumerate(zip(_ccd, _new_ccd)):
             # now we are taking care of one specific field of view
             if _verbose:
@@ -270,7 +271,7 @@ class Cell_List():
                 # save original seg label into another file
                 _old_seg_file = _seg_file.replace('_segmentation.pkl', '_segmentation_old.pkl');
                 pickle.dump([_seg_label, _dapi_im], open(_old_seg_file, 'wb'));
-
+            # keep cells in original segmentation with markers
             for _l, _coord in enumerate(_cell_coords):
                 _dist = [np.sum((_c-_coord)**2) for _c in _new_cell_coords];
                 _match = [_d < _marker_displace_th for _d in _dist]
@@ -278,6 +279,38 @@ class Cell_List():
                     _seg_label[_seg_label==_l+1-_remove] = -1;
                     _seg_label[_seg_label >_l+1-_remove] -= 1;
                     _remove += 1;
+            if _append_new:
+                _append = 0;
+                if _verbose:
+                    print(f"-- Appending manually added markers with radius={_append_radius}")
+                def _add_round_marker(_label, _center, _radius, overwrite_marker=False):
+                    """Function to add round-marker with given center and radius"""
+                    if len(_label.shape) != len(_center):
+                        raise ValueError("Dimension of label and center doesn't match")
+                    # convert format
+                    _center = np.array(_center, dtype=np.int);
+                    _radius = np.int(_radius);
+                    # generate mask
+                    _shape_lst = (list(range(_label.shape[i])) for i in range(len(_label.shape)))
+                    _coord_lst = np.meshgrid(*_shape_lst, indexing='ij')
+                    _dist = np.sqrt(np.sum(np.stack([(_coords - _ct)**2 for _coords, _ct in zip(_coord_lst, _center)]), axis=0))
+                    _new_mask = np.array(_dist<=_radius, dtype=np.int)
+                    if not overwrite_marker:
+                        _new_mask *= np.array(_label<=0, dtype=np.int)
+                    # create new label
+                    _new_label = _label;
+                    _new_label[_new_mask > 0] = int(np.max(_label))+1
+                    return _new_label
+                for _l, _new_coord in enumerate(_new_cell_coords):
+                    _dist = [np.sum((_c-_new_coord)**2) for _c in _cell_coords];
+                    _match = [_d < _marker_displace_th for _d in _dist]
+                    if sum(_match) == 0:
+                        if _verbose:
+                            print(f"--- adding manually picked new label in {_i}, label={np.max(_seg_label)+1} ")
+                        _seg_label = _add_round_marker(_seg_label, np.flipud(_new_coord)[-len(_seg_label.shape):], _append_radius)
+                        _append += 1;
+                _append_cts.append(_append)
+
             if _verbose:
                 print(f"--- {_remove} label(s) got removed!");
             _new_seg_labels.append(_seg_label)
@@ -286,9 +319,9 @@ class Cell_List():
             # save
             if _verbose:
                 print(f"--- save updated segmentation to {os.path.basename(_seg_file)}");
-            pickle.dump([_seg_label, _dapi_im], open(_seg_file, 'wb'))
+            #pickle.dump([_seg_label, _dapi_im], open(_seg_file, 'wb'))
 
-        return _new_seg_labels, _dapi_ims, _remove_cts
+        return _new_seg_labels, _dapi_ims, _remove_cts, _append_cts
 
     def _create_cell(self, _parameter, _load_info=True,
                      _load_segmentation=True, _load_drift=True,
@@ -949,16 +982,16 @@ class Cell_Data():
         return _encoding_scheme
 
     ## load cell specific info
-    def _load_segmentation(self, _min_shape_ratio=0.030, _signal_cap_ratio=0.15, _denoise_window=5,
+    def _load_segmentation(self, _type='small', _min_shape_ratio=0.038, _signal_cap_ratio=0.20, _denoise_window=5,
                            _shrink_percent=14, _conv_th=-5e-5, _boundary_th=0.55,
-                           _load_in_ram=True, _save=True, _force=False):
+                           _load_in_ram=True, _save=True, _force=False, _verbose=False):
         # check attributes
         if not hasattr(self, 'channels'):
             self._load_color_info()
 
         # do segmentation if necessary, or just load existing segmentation file
         fov_segmentation_label, fov_dapi_im  = analysis.Segmentation_Fov(self.analysis_folder,
-                                                self.folders, self.fovs, self.fov_id,
+                                                self.folders, self.fovs, self.fov_id, type=_type,
                                                 min_shape_ratio=_min_shape_ratio,
                                                 signal_cap_ratio=_signal_cap_ratio,
                                                 denoise_window=_denoise_window,
@@ -968,7 +1001,7 @@ class Cell_Data():
                                                 dapi_channel=self.dapi_channel_index,
                                                 illumination_corr=True, correction_folder=self.correction_folder,
                                                 segmentation_path=os.path.basename(self.segmentation_folder),
-                                                save=_save, force=_force, verbose=False)
+                                                save=_save, force=_force, verbose=_verbose)
         # exclude special cases
         if not hasattr(self, 'cell_id'):
             raise AttributeError('no cell_id attribute for this cell_data class object!');

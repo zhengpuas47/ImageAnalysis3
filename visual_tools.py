@@ -1296,8 +1296,15 @@ def DAPI_convoluted_segmentation(ims, names, cap_percentile=0.5,
     def _get_label_features(_label, _id):
         """Given a label and corresponding label id, return four features of this label"""
         # get features
-        _contour = measure.find_contours(np.array(_label==_id, dtype=np.int), 0)[0]
-        _length = np.sum(np.sqrt(np.sum((_contour[1:] - _contour[:-1])**2, axis=1)))
+        _contours = measure.find_contours(np.array(_label==_id, dtype=np.int), 0)
+        if len(_contours) > 0:
+            _length = np.sum(np.sqrt(np.sum((np.roll(_contours[0],1,axis=0) - _contours[0])**2, axis=1)))
+        else:
+            _length = 0
+            print(_id)
+            plt.figure()
+            plt.imshow(_label)
+            plt.show()
         _size = np.sum(_label==_id)
         _center = np.round(ndimage.measurements.center_of_mass(_label==_id));
         _shape_ratio = _size/_length**2
@@ -1345,6 +1352,7 @@ def DAPI_convoluted_segmentation(ims, names, cap_percentile=0.5,
                 if verbose:
                     print(f"-- saving label: {np.max(_final_label)+1}")
                 _save_label = ndimage.binary_dilation(_sg_label, structure=morphology.disk(int(dialation_dim/2)))
+                _save_label = ndimage.binary_fill_holes(_save_label, structure=morphology.disk(int(dialation_dim/2)))
                 print('save1', _get_label_features(_save_label, 1))
                 _final_label[_save_label==1] = np.max(_final_label)+1
                 continue
@@ -1360,6 +1368,7 @@ def DAPI_convoluted_segmentation(ims, names, cap_percentile=0.5,
                         if verbose:
                             print(f"-- saving label: {np.max(_final_label)+1}")
                         _save_label = ndimage.binary_dilation(_cand_label, structure=morphology.disk(int(dialation_dim/2)))
+                        _save_label = ndimage.binary_fill_holes(_save_label, structure=morphology.disk(int(dialation_dim/2)))
                         print('save2', _get_label_features(_save_label, 1))
                         _final_label[_save_label==1] = np.max(_final_label)+1
                     elif _iter_ct > max_iter:

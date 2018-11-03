@@ -14,7 +14,7 @@ def get_folders(master_folder, feature='H', verbose=True):
 	folders = [folder for folder in glob.glob(master_folder+os.sep+'*') if os.path.basename(folder)[0]==feature] # get folders start with 'H'
 	folders = list(np.array(folders)[np.argsort(list(map(get_hybe,folders)))])
 	if len(folders) > 0:
-		fovs = list(map(os.path.basename,glob.glob(folders[0]+os.sep+'*.dax')))
+		fovs = sorted(list(map(os.path.basename,glob.glob(folders[0]+os.sep+'*.dax'))),key=lambda l:int(l.split('.dax')[0].split('_')[-1]))
 	else:
 		raise IOError("No folders detected!")
 	if verbose:
