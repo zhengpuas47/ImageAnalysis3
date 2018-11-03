@@ -1766,7 +1766,7 @@ class Cell_Data():
                 _ch_pts = [chrpts[_chrom_id][:,1:4]*_distance_zxy for chrpts in _cand_spots if len(chrpts[_chrom_id]>0)];
                 _ch_ids = [_id for chrpts,_id in zip(_cand_spots, _ids) if len(chrpts[_chrom_id]>0)]
                 # initialize two stucture:
-                _dy_values = [np.log10(pt[:,1])*_w_int for pt in _ch_pts] # store maximum values
+                _dy_values = [np.log(chrpts[_chrom_id][:,0]*_w_int) for chrpts in _cand_spots if len(chrpts[_chrom_id]>0)] # store maximum values
                 _dy_pointers = [-np.ones(len(pt), dtype=np.int) for pt in _ch_pts] # store pointer to previous level
                 # Forward
                 for _j, (_pts, _id) in enumerate(zip(_ch_pts[1:], _ch_ids[1:])):
