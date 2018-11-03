@@ -100,16 +100,15 @@ def Segmentation_All(analysis_folder, folders, fovs, type='small',
                   max_cell_size, min_cell_size, min_shape_ratio,
                   max_iter, shrink_percent,
                   dialation_dim, 0.1, 50, False, verbose) for _im,_nm in zip(_process_ims, _process_names)];
-    _chunk_size = int(np.ceil(len(_args)/num_threads))
     if verbose:
         print(f"--- {len(_args)} of fovs are being processed by {num_threads} threads, chunk_size={_chunk_size}");
     # start parallel computing
     start_time = time.time();
     pool = multiprocessing.Pool(num_threads);
     if type =='small':
-        _process_labels = pool.starmap(visual_tools.DAPI_segmentation, _args, chunksize=_chunk_size);
+        _process_labels = pool.starmap(visual_tools.DAPI_segmentation, _args, chunksize=1);
     elif type=='large':
-        _process_labels = pool.starmap(visual_tools.DAPI_convoluted_segmentation, _args, chunksize=_chunk_size);
+        _process_labels = pool.starmap(visual_tools.DAPI_convoluted_segmentation, _args, chunksize=1);
     pool.close()
     pool.join()
     pool.terminate()
