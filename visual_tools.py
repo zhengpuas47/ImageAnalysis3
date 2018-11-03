@@ -1151,7 +1151,8 @@ def DAPI_convoluted_segmentation(ims, names, cap_percentile=0.5,
       illumination_correction=True, illumination_correction_channel=405, correction_folder=_correction_folder,
       merge_layer_num=13, denoise_window=5, mft_size=25, glft_size=35,
       max_conv_th=-5e-5, min_boundary_th=0.55, signal_cap_ratio=0.20,
-      max_cell_size=30000, min_cell_size=5000, min_shape_ratio=0.040, max_iter=3, shrink_percent=13,
+      max_cell_size=30000, min_cell_size=5000, min_shape_ratio=0.040,
+      max_iter=3, shrink_percent=13,
       dialation_dim=10, random_walker_beta=0.1, remove_fov_boundary=50,
       make_plot=False, verbose=True):
     """cell segmentation for DAPI images with pooling and convolution layers
@@ -1173,6 +1174,9 @@ def DAPI_convoluted_segmentation(ims, names, cap_percentile=0.5,
         max_cell_size: upper limit for object otherwise undergoes extra screening, int(default: 30000)
         min_cell_size: smallest object size allowed as nucleus, int (default:5000 for 2D)
         min_shape_ratio: min threshold for: areasize of one label / (contour length of a label)^2, float (default: 0.15)
+        max_iter: maximum iterations allowed in splitting shapes, int (default:3)
+        shrink_percent: percentage of label areas removed during splitting, float (0-100, default: 13)
+        dialation_dim: dimension for dialation after splitting objects, int (default:10)
         random_walker_beta: beta used for random walker segementation algorithm, float (default: 0.1)
         remove_fov_boundary: if certain label is too close to fov boundary within this number of pixels, remove, int (default: 50)
         make_plot: whether making plots for checking purpose, bool
@@ -1307,6 +1311,8 @@ def DAPI_convoluted_segmentation(ims, names, cap_percentile=0.5,
             raise ValueError(f"Wrong shrink_percent kwd ({shrink_percent}) is given, should be in [0,50]");
         # get features
         _length,_size,_center,_ratio = _get_label_features(_label, _id);
+        if _size < 2*min_size: # adjust shrink percentage if shape is small
+            shrink_percent = shrink_percent * 0.8
         _mask = np.array(_label == _id, dtype=np.int)
         _mask *= np.array(_stack_im > stats.scoreatpercentile(_stack_im[_label==_id], shrink_percent), dtype=int)
         _mask *= np.array(_conv_im < stats.scoreatpercentile(_conv_im[_label==_id], 100-2*shrink_percent), dtype=int)
@@ -1339,6 +1345,7 @@ def DAPI_convoluted_segmentation(ims, names, cap_percentile=0.5,
                 if verbose:
                     print(f"-- saving label: {np.max(_final_label)+1}")
                 _save_label = ndimage.binary_dilation(_sg_label, structure=morphology.disk(int(dialation_dim/2)))
+                print('save1', _get_label_features(_save_label, 1))
                 _final_label[_save_label==1] = np.max(_final_label)+1
                 continue
             # not pass, try to split
@@ -1349,10 +1356,11 @@ def DAPI_convoluted_segmentation(ims, names, cap_percentile=0.5,
                                                        erosion_dim=erosion_dim, dialation_dim=dialation_dim)
                 for _i in range(_num):
                     _cand_label = np.array(_new_label==_i+1, dtype=np.int)
-                    if _check_label(_cand_label, 1, min_shape_ratio, max_size, verbose=verbose):
+                    if _check_label(_cand_label, 1, min_shape_ratio*0.9, max_size, verbose=verbose):
                         if verbose:
                             print(f"-- saving label: {np.max(_final_label)+1}")
                         _save_label = ndimage.binary_dilation(_cand_label, structure=morphology.disk(int(dialation_dim/2)))
+                        print('save2', _get_label_features(_save_label, 1))
                         _final_label[_save_label==1] = np.max(_final_label)+1
                     elif _iter_ct > max_iter:
                         if verbose:
@@ -1373,7 +1381,7 @@ def DAPI_convoluted_segmentation(ims, names, cap_percentile=0.5,
         _updated_label = _iterative_split_labels(_sim, _cim, _label, max_iter=max_iter,
                                                  min_shape_ratio=min_shape_ratio, shrink_percent=shrink_percent,
                                                  max_size=max_cell_size, min_size=min_cell_size,
-                                                 dialation_dim=dialation_dim)
+                                                 dialation_dim=dialation_dim, verbose=verbose)
         for _l in range(int(np.max(_updated_label))):
             _, _, _center, _ = _get_label_features(_updated_label, _l+1);
             if _center[0] < remove_fov_boundary or _center[1] < remove_fov_boundary or _center[0] >= _updated_label.shape[0]-remove_fov_boundary or _center[1] >= _updated_label.shape[1]-remove_fov_boundary:

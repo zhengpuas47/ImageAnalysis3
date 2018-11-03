@@ -180,8 +180,9 @@ class Cell_List():
         return _encoding_scheme
 
     ## Load segmentations info
-    def _pick_cell_segmentations(self, _num_threads=None, _allow_manual=True,
-                            _shape_ratio_threshold=0.041, _signal_cap_ratio=0.2, _denoise_window=5,
+    def _pick_cell_segmentations(self, _type='small', _num_threads=None, _allow_manual=True,
+                            _min_shape_ratio=0.038, _signal_cap_ratio=0.2, _denoise_window=5,
+                            _shrink_percent=14, _conv_th=-5e-5, _boundary_th=0.55,
                             _load_in_ram=True, _save=True, _force=False,
                             _cell_coord_fl='cell_coords.pkl', _verbose=True):
         ## load segmentation
@@ -197,16 +198,15 @@ class Cell_List():
             print(f"{len(self.chosen_fovs)} of field-of-views are selected to load segmentation.");
         # do segmentation if necessary, or just load existing segmentation file
         _segmentation_labels, _dapi_ims  = analysis.Segmentation_All(self.analysis_folder,
-                                        self.folders, self.chosen_fovs, ref_name='H0R0',
-                                        num_threads=_num_threads,
-                                        shape_ratio_threshold=_shape_ratio_threshold,
-                                        signal_cap_ratio=_signal_cap_ratio,
-                                        denoise_window=_denoise_window,
-                                        num_channel=len(self.channels),
-                                        dapi_channel=self.dapi_channel_index,
-                                        correction_folder=self.correction_folder,
-                                        segmentation_path=os.path.basename(self.segmentation_folder),
-                                        save=_save, force=_force)
+                    self.folders, self.chosen_fovs, _type, ref_name='H0R0',
+                    num_threads=_num_threads,
+                    min_shape_ratio=_min_shape_ratio, signal_cap_ratio=_signal_cap_ratio,
+                    conv_th=_conv_th, boundary_th=_boundary_th,
+                    denoise_window=_denoise_window,
+                    num_channel=len(self.channels), dapi_channel=self.dapi_channel_index,
+                    correction_folder=self.correction_folder,
+                    segmentation_path=os.path.basename(self.segmentation_folder),
+                    save=_save, force=_force, verbose=_verbose)
         _dapi_ims = [corrections.Remove_Hot_Pixels(_im) for _im in _dapi_ims];
         _dapi_ims = [corrections.Z_Shift_Correction(_im) for _im in _dapi_ims];
 
@@ -317,7 +317,7 @@ class Cell_List():
             self.cells.append(_cell);
         return _cell
 
-    def _create_cells_fov(self, _fov_ids, _num_threads=None, _load_annotated_only=True, _overwrite_temp=True,
+    def _create_cells_fov(self, _fov_ids, _segmentation_type='small', _num_threads=None, _load_annotated_only=True, _overwrite_temp=True,
                           _drift_size=550, _drift_dynamic=True, _plot_segmentation=True, _verbose=True):
         """Create Cele_data objects for one field of view"""
         if not _num_threads:
@@ -346,7 +346,7 @@ class Cell_List():
                 print("+ Load segmentation for fov", _fov_id)
             # do segmentation if necessary, or just load existing segmentation file
             _fov_segmentation_label, _fov_dapi_im  = analysis.Segmentation_Fov(self.analysis_folder,
-                                                    _folders, self.fovs, _fov_id,
+                                                    _folders, self.fovs, _fov_id, _segmentation_type,
                                                     num_channel=len(self.channels),
                                                     dapi_channel=self.dapi_channel_index,
                                                     illumination_corr=True,
@@ -949,7 +949,8 @@ class Cell_Data():
         return _encoding_scheme
 
     ## load cell specific info
-    def _load_segmentation(self, _shape_ratio_threshold=0.030, _signal_cap_ratio=0.15, _denoise_window=5,
+    def _load_segmentation(self, _min_shape_ratio=0.030, _signal_cap_ratio=0.15, _denoise_window=5,
+                           _shrink_percent=14, _conv_th=-5e-5, _boundary_th=0.55,
                            _load_in_ram=True, _save=True, _force=False):
         # check attributes
         if not hasattr(self, 'channels'):
@@ -958,13 +959,14 @@ class Cell_Data():
         # do segmentation if necessary, or just load existing segmentation file
         fov_segmentation_label, fov_dapi_im  = analysis.Segmentation_Fov(self.analysis_folder,
                                                 self.folders, self.fovs, self.fov_id,
-                                                shape_ratio_threshold=_shape_ratio_threshold,
+                                                min_shape_ratio=_min_shape_ratio,
                                                 signal_cap_ratio=_signal_cap_ratio,
                                                 denoise_window=_denoise_window,
+                                                shrink_percent=_shrink_percent,
+                                                conv_th=_conv_th, boundary_th=_boundary_th,
                                                 num_channel=len(self.channels),
                                                 dapi_channel=self.dapi_channel_index,
-                                                illumination_corr=True,
-                                                correction_folder=self.correction_folder,
+                                                illumination_corr=True, correction_folder=self.correction_folder,
                                                 segmentation_path=os.path.basename(self.segmentation_folder),
                                                 save=_save, force=_force, verbose=False)
         # exclude special cases

@@ -8,15 +8,14 @@ from . import get_img_info, corrections, visual_tools
 from . import _correction_folder,_temp_folder,_distance_zxy,_sigma_zxy
 
 # function to do segmentation
-def Segmentation_All(analysis_folder, folders, fovs, type='small_conv',
-                     ref_name='H0R0', num_channel=4, dapi_channel=-1,
+def Segmentation_All(analysis_folder, folders, fovs, type='small',
+                     ref_name='H0R0', num_channel=5, dapi_channel=-1,
                      num_threads=5,
                      illumination_corr=True, correction_folder=_correction_folder, corr_channel='405',
                      denoise_window=5, max_ft_size=25, gl_ft_size=35,
-                     conv_th=-5e-5, boundary_th=0.55,
-                     signal_cap_ratio=0.20,
-                     cell_min_size=2000,
-                     shape_ratio_threshold=0.030,
+                     conv_th=-5e-5, boundary_th=0.55, signal_cap_ratio=0.20,
+                     max_cell_size=30000, min_cell_size=5000, min_shape_ratio=0.038,
+                     max_iter=3, shrink_percent=14, dialation_dim=10,
                      segmentation_path='segmentation',
                      save=True, force=False, verbose=True):
     '''wrapped function to do DAPI segmentation
@@ -24,6 +23,7 @@ def Segmentation_All(analysis_folder, folders, fovs, type='small_conv',
         analysis_folder: directory of this data, string
         folders: list of sub-folder names, list of string
         fovs: list of field of view names, list of string
+        type: type of algorithm used, small or large (for gaussian-laplacian window)
         ref_name: name of reference folder with DAPI in it, string (default: 'H0R0')
         num_channel: total color channel for ref images, int (default: 5)
         dapi_channel: index of channel having dapi, int (default: -1)
@@ -31,9 +31,17 @@ def Segmentation_All(analysis_folder, folders, fovs, type='small_conv',
         illumination_corr: whether do illumination correction, bool (default: True)
         correction_folder: full directory for illumination correction profiles, string (default: '')
         denoise_window: window size of denoise filter used in segmentation, int (default: 5)
+        max_ft_size: size of max-min filters to get cell boundaries, int (default: 25)
+        gl_ft_size: window size for laplacian-gaussian filter, int (default: 35)
+        conv_th: maximal convolution threshold, float(default: -5e-5)
+        boundary_th: minimal boundary im threshold, float(default: 0.55)
         signal_cap_ratio: ratio to maximum for setting threshold considered as signal, float(default: 0.15)
-        cell_min_size: minimal cell size expected in 2D, int or float (default: 2000)
-        shape_ratio_threshold: lower bound of A(x)/I(x)^2 for each nucleus, float (default: 0.041 for IMR90)
+        max_cell_size: upper limit for object otherwise undergoes extra screening, int(default: 30000)
+        min_cell_size: smallest object size allowed as nucleus, int (default:5000 for 2D)
+        min_shape_ratio: lower bound of A(x)/I(x)^2 for each nucleus, float (default: 0.041 for IMR90)
+        max_iter: maximum iterations allowed in splitting shapes, int (default:3)
+        shrink_percent: percentage of label areas removed during splitting, float (0-100, default: 13)
+        dialation_dim: dimension for dialation after splitting objects, int (default:10)
         segmentation_path: subfolder of segmentation result, string (default: 'Analysis/segmentation')
         save: whether save segmentation result, bool (default: True)
         force: whether do segmentation despite of existing file, bool (default: False)
@@ -44,7 +52,8 @@ def Segmentation_All(analysis_folder, folders, fovs, type='small_conv',
     '''
 
     # check inputs
-    
+    if type not in ['small', 'large']:
+        raise ValueError(f"type keyword should be 'small' or 'large', but {type} is given!")
     # path to store segmentation result
     _savefolder = analysis_folder+os.sep+segmentation_path;
     # check dir and savefile
@@ -81,14 +90,26 @@ def Segmentation_All(analysis_folder, folders, fovs, type='small_conv',
             _process_names.append(_dapi_name)
             _process_ims.append(_dapi_im)
     ## segmentation in parallel
-    _args = [(_im,_nm, 0.5, illumination_corr, 405, correction_folder, 11, denoise_window, 13, signal_cap_ratio, cell_min_size, shape_ratio_threshold) for _im,_nm in zip(_process_ims, _process_names)];
+    if type =='small':
+        _args = [(_im,_nm, 0.5, illumination_corr, 405, correction_folder, 11, denoise_window, 13, signal_cap_ratio, min_cell_size, min_shape_ratio) for _im,_nm in zip(_process_ims, _process_names)];
+    elif type=='large':
+        _args = [(_im, _nm, 0.5,
+                  illumination_corr, 405, correction_folder,
+                  13, denoise_window, max_ft_size, gl_ft_size,
+                  conv_th, boundary_th, signal_cap_ratio,
+                  max_cell_size, min_cell_size, min_shape_ratio,
+                  max_iter, shrink_percent,
+                  dialation_dim, 0.1, 50, False, verbose) for _im,_nm in zip(_process_ims, _process_names)];
     _chunk_size = int(np.ceil(len(_args)/num_threads))
     if verbose:
         print(f"--- {len(_args)} of fovs are being processed by {num_threads} threads, chunk_size={_chunk_size}");
     # start parallel computing
     start_time = time.time();
     pool = multiprocessing.Pool(num_threads);
-    _process_labels = pool.starmap(visual_tools.DAPI_segmentation, _args, chunksize=_chunk_size);
+    if type =='small':
+        _process_labels = pool.starmap(visual_tools.DAPI_segmentation, _args, chunksize=_chunk_size);
+    elif type=='large':
+        _process_labels = pool.starmap(visual_tools.DAPI_convoluted_segmentation, _args, chunksize=_chunk_size);
     pool.close()
     pool.join()
     pool.terminate()
@@ -125,30 +146,42 @@ def Segmentation_All(analysis_folder, folders, fovs, type='small_conv',
 
     return _segmentation_labels, _dapi_ims
 
-def Segmentation_Fov(analysis_folder, folders, fovs, fov_id, ref_name='H0R0',
-                     num_channel=5, dapi_channel=-1, illumination_corr=True,
-                     correction_folder=_correction_folder,
-                     shape_ratio_threshold=0.041,signal_cap_ratio=0.2,
-                     denoise_window=5,
+def Segmentation_Fov(analysis_folder, folders, fovs, fov_id, type='small',
+                     ref_name='H0R0', num_channel=5, dapi_channel=-1,
+                     illumination_corr=True, correction_folder=_correction_folder, corr_channel='405',
+                     denoise_window=5, max_ft_size=25, gl_ft_size=35,
+                     conv_th=-5e-5, boundary_th=0.55, signal_cap_ratio=0.20,
+                     max_cell_size=30000, min_cell_size=5000, min_shape_ratio=0.038,
+                     max_iter=3, shrink_percent=14, dialation_dim=10,
                      segmentation_path='segmentation',
-                     save=True, force=False, verbose=True):
-    '''wrapped function to do DAPI segmentation for one field of view
+                     make_plot=False, save=True, force=False, verbose=True):
+    '''wrapped function to do DAPI segmentation
     Inputs:
-        analysis_folder: directory of this data analysis result, string
+        analysis_folder: directory of this data, string
         folders: list of sub-folder names, list of string
         fovs: list of field of view names, list of string
-        fov_id: field of view id to be segmentated, int
+        type: type of algorithm used, small or large (for gaussian-laplacian window)
         ref_name: name of reference folder with DAPI in it, string (default: 'H0R0')
         num_channel: total color channel for ref images, int (default: 5)
         dapi_channel: index of channel having dapi, int (default: -1)
+        num_threads ** Number of threads used in parallel computing, int (default: 4);
         illumination_corr: whether do illumination correction, bool (default: True)
         correction_folder: full directory for illumination correction profiles, string (default: '')
-        shape_ratio_threshold: lower bound of A(x)/I(x)^2 for each nucleus, float (default: 0.041 for IMR90)
         denoise_window: window size of denoise filter used in segmentation, int (default: 5)
+        max_ft_size: size of max-min filters to get cell boundaries, int (default: 25)
+        gl_ft_size: window size for laplacian-gaussian filter, int (default: 35)
+        conv_th: maximal convolution threshold, float(default: -5e-5)
+        boundary_th: minimal boundary im threshold, float(default: 0.55)
+        signal_cap_ratio: ratio to maximum for setting threshold considered as signal, float(default: 0.15)
+        max_cell_size: upper limit for object otherwise undergoes extra screening, int(default: 30000)
+        min_cell_size: smallest object size allowed as nucleus, int (default:5000 for 2D)
+        min_shape_ratio: lower bound of A(x)/I(x)^2 for each nucleus, float (default: 0.041 for IMR90)
+        max_iter: maximum iterations allowed in splitting shapes, int (default:3)
+        shrink_percent: percentage of label areas removed during splitting, float (0-100, default: 13)
+        dialation_dim: dimension for dialation after splitting objects, int (default:10)
         segmentation_path: subfolder of segmentation result, string (default: 'Analysis/segmentation')
         save: whether save segmentation result, bool (default: True)
         force: whether do segmentation despite of existing file, bool (default: False)
-        filename: name of saved file for segmentation, string (default: 'segmentation.pkl')
         verbose: say something!, bool (default: True)
     Outputs:
     _segmentation_label: list of images with segmentation results, list of images
@@ -160,11 +193,11 @@ def Segmentation_Fov(analysis_folder, folders, fovs, fov_id, ref_name='H0R0',
     # check dir and savefile
     if not os.path.isdir(_savefolder): # if save folder doesnt exist, create
         if verbose:
-            print("- create segmentation saving folder", _savefolder)
+            print("-- create segmentation saving folder", _savefolder)
         os.makedirs(_savefolder);
     if os.path.isfile(_savefile) and not force: # load existing file
         if verbose:
-            print("- load segmentation result from filename:", _savefile);
+            print("-- load segmentation result from filename:", _savefile);
         _segmentation_label, _dapi_im = pickle.load(open(_savefile, 'rb'))
         return _segmentation_label, _dapi_im
     else: # do segmentation
@@ -183,13 +216,23 @@ def Segmentation_Fov(analysis_folder, folders, fovs, fov_id, ref_name='H0R0',
         # correct for hot pixels
         _dapi_im = corrections.Remove_Hot_Pixels(_dapi_im)
         # segmentation!
-        _segmentation_label = visual_tools.DAPI_segmentation(_dapi_im, _dapi_name,
+        if type == 'small':
+            _segmentation_label = visual_tools.DAPI_segmentation(_dapi_im, _dapi_name,
                                                     illumination_correction=illumination_corr,
                                                     correction_folder=correction_folder,
-                                                    shape_ratio_threshold=shape_ratio_threshold,
+                                                    shape_ratio_threshold=min_shape_ratio,
                                                     signal_cap_ratio=signal_cap_ratio,
                                                     denoise_window=denoise_window,
-                                                    verbose=verbose)[0]
+                                                    make_plot=make_plot, verbose=verbose)[0]
+        elif type == 'large':
+            _segmentation_label = visual_tools.DAPI_convoluted_segmentation(_dapi_im, _dapi_name,
+                      illumination_correction=illumination_corr, correction_folder=correction_folder,
+                      denoise_window=denoise_window, mft_size=max_ft_size, glft_size=gl_ft_size,
+                      max_conv_th=conv_th, min_boundary_th=boundary_th, signal_cap_ratio=signal_cap_ratio,
+                      max_cell_size=max_cell_size, min_cell_size=min_cell_size, min_shape_ratio=min_shape_ratio,
+                      max_iter=max_iter, shrink_percent=shrink_percent,
+                      dialation_dim=dialation_dim, make_plot=make_plot, verbose=verbose)[0]
+
         # save
         if save:
             if verbose:
