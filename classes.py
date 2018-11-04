@@ -215,7 +215,7 @@ class Cell_List():
             # generate coordinates
             _coord_list, _index_list = [],[];
             for _i, _label in enumerate(_segmentation_labels):
-                for _j in range(np.max(_label)-1):
+                for _j in range(np.max(_label)):
                     _center = np.round(ndimage.measurements.center_of_mass(_label==_j+1));
                     _center = list(np.flipud(_center));
                     _center.append(_dapi_ims[0].shape[0]/2)
@@ -242,7 +242,7 @@ class Cell_List():
     def _update_cell_segmentations(self, _cell_coord_fl='cell_coords.pkl',
                                   _overwrite_segmentation=True,
                                   _marker_displace_th = 2700,
-                                  _append_new=True, _append_radius=100,
+                                  _append_new=True, _append_radius=90,
                                   _verbose=True):
         """Function to update cell segmentation info from saved file,
             - usually do this after automatic segmentation"""
@@ -319,7 +319,7 @@ class Cell_List():
             # save
             if _verbose:
                 print(f"--- save updated segmentation to {os.path.basename(_seg_file)}");
-            #pickle.dump([_seg_label, _dapi_im], open(_seg_file, 'wb'))
+            pickle.dump([_seg_label, _dapi_im], open(_seg_file, 'wb'))
 
         return _new_seg_labels, _dapi_ims, _remove_cts, _append_cts
 
@@ -1670,7 +1670,7 @@ class Cell_Data():
 
     def _multi_fitting(self, _type='unique',_use_chrom_coords=True, _num_threads=5,
                        _seed_th_per=50., _max_filt_size=3, _max_seed_count=0, _min_seed_count=1,
-                       _width_zxy=None, _fit_radius=10, _expect_weight=1000, _min_height=100, _max_iter=10, _th_to_end=1e-5,
+                       _width_zxy=None, _fit_radius=10, _expect_weight=500, _min_height=100, _max_iter=10, _th_to_end=1e-5,
                        _save=True, _verbose=True):
         # first check Inputs
         _allowed_types = ['unique', 'decoded'];
@@ -1915,6 +1915,10 @@ class Cell_Data():
                     self._save_to_file('cell_info', _save_dic={'picked_decoded_spots':self.picked_decoded_spots})
                 # return
                 return self.picked_decoded_spots;
+
+    def _match_regions(self):
+        """Function to match decoded and unique"""
+        pass
 
     def _generate_distance_map(self, _type='unique', _distance_zxy=None, _save_info=True, _save_plot=True,
                                _limits=[200,1000], _verbose=True):
