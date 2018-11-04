@@ -362,7 +362,7 @@ class Cell_List():
                 raise ValueError("Wrong fov_id kwd given! \
                     this should be real fov-number that allowed during intiation of class.")
         if _verbose:
-            print("+ Create Cell_Data objects for field of view:", self.fovs[_fov_id], _fov_id);
+            print(f"+ Create Cell_Data objects for field of view: {_fov_ids}", );
             print("++ preparing variables");
         # check attributes
         if not hasattr(self, 'channels') or not hasattr(self, 'color_dic'):

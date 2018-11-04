@@ -255,7 +255,8 @@ def STD_beaddrift_sequential(bead_ims, bead_names, drift_folder, fovs, fov_id,
     im_ref = _bead_ims[ref]; # initialize reference image
     # dynamic seeding threhold
     if dynamic:
-        th_seed = scoreatpercentile(im_ref, dynamic_th_percent) * 0.5;
+        if np.max(im_ref) < 30000:
+            th_seed = scoreatpercentile(im_ref, dynamic_th_percent) * 0.5;
     # start fitting image 0
     im_ref_sm = visual_tools.grab_block(im_ref,coord_sel1,[drift_size]*3)
     cents_ref1 = get_STD_centers(im_ref_sm, th_seed=th_seed, verbose=verbose)#list of fits of beads in the ref cube 1
