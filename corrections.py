@@ -225,15 +225,15 @@ def STD_beaddrift_sequential(bead_ims, bead_names, drift_folder, fovs, fov_id,
     if len(_bead_ims) == 0:
         raise ValueError("Wrong dimension of _bead_ims, at least 1 image required")
     else:
+        # initialize old_ref_frame
+        old_ref_frame = ''
         txyzs = [np.array([0.,0.,0.])]; # initialize with zeros, representing image0 itself
         if len(total_drift) > 0 and bead_names[0] in total_drift:
             change_markers[bead_names[0]] = False # marker for whether made any changes
-            old_ref_frame = None
         else: # ref frame is not in total_drift dic: create a zero array
             if verbose:
                 print("Ref frame changed")
             # old ref-frame
-            old_ref_frame = None
             for _hyb_name, _dft in list(total_drift.items()):
                 if np.sum(_dft == 0 ) == len(_dft):
                     print('old-ref:',_hyb_name)
@@ -268,7 +268,7 @@ def STD_beaddrift_sequential(bead_ims, bead_names, drift_folder, fovs, fov_id,
         # check if key exists
         if _name in total_drift and not overwrite:
             change_markers[_name] = False
-            continue;
+            continue
         else:
             change_markers[_name] = True
             # dynamic seeding
@@ -313,7 +313,7 @@ def STD_beaddrift_sequential(bead_ims, bead_names, drift_folder, fovs, fov_id,
             ref = iim;
             im_ref = im;
     # if ref-frame changed, modify old drift files:
-    if old_ref_frame is not None:
+    if old_ref_frame != '':
         ref_drift = total_drift[old_ref_frame]
         for _hyb_name, _mk in change_markers.items():
             if not _mk: # if not changed
@@ -341,8 +341,8 @@ def generate_illumination_correction(ims, threshold_percentile=98, gaussian_sigm
     import pickle as pickle
     from scipy.stats import scoreatpercentile
     # initialize total image
-    _ims = ims;
-    total_ims = [];
+    _ims = ims
+    total_ims = []
     # calculate total(average) image
     for _i,_im in enumerate(_ims):
         im_stack = _im.mean(0)
