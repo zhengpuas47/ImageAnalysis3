@@ -1569,10 +1569,11 @@ class Cell_Data():
 
         elif _source == 'unique':
             if not hasattr(self, 'unique_ims'):
-                raise AttributeError('cell_data doesnot have unique images')
+                print('cell_data doesnot have unique images')
+
             # sum up existing Images
             _picking_freq = int(np.ceil(len(self.unique_ims)/_max_count))
-            _selected_ims = unique_ims::_picking_freq]
+            _selected_ims = unique_ims[::_picking_freq]
             _chrom_im = np.mean(np.stack(_selected_ims), axis=0)
 
         # final correction
@@ -1910,9 +1911,14 @@ class Cell_Data():
                 # return
                 return self.picked_decoded_spots;
 
-    def _match_regions(self):
-        """Function to match decoded and unique"""
-        pass
+    def _match_regions(self, _save=True, _save_map=True):
+        """Function to match decoded and unique regions and generate matched ids, spots, distance maps etc.
+        Inputs:
+            _save: whether save matched info to cell_info, bool (default:True)
+            _save_map: whether save matched distance map, bool (default:True)
+        """
+        if not hasattr(self, 'decoded_ids'):
+            pass
 
     def _generate_distance_map(self, _type='unique', _distance_zxy=None, _save_info=True, _save_plot=True,
                                _limits=[200,1000], _verbose=True):
