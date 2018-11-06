@@ -522,16 +522,16 @@ def generate_chromatic_abbrevation_correction(ims, names, master_folder, channel
         _cc_profiles.append(_cc_profile);
     if save:
         if not os.path.exists(save_folder):
-            os.mkdir(save_folder);
+            os.mkdir(save_folder)
         _save_file = save_folder + os.sep + "Chromatic_correction_"+str(corr_channel)+'_'+str(ref_channel)+'.pkl';
         if verbose:
             print("-- save chromatic abbrevation correction to file", _save_file)
         pickle.dump(_cc_profiles, open(_save_file, 'wb'))
         if make_plot:
             for _d, _cc in enumerate(_cc_profiles):
-                plt.figure();
+                plt.figure()
                 plt.imshow(_cc)
-                plt.colorbar();
+                plt.colorbar()
                 plt.savefig(_save_file.replace('.pkl', '_'+str(_d)+'.png'))
 
     return _cc_profiles
@@ -556,16 +556,12 @@ def Chromatic_abbrevation_correction(ims, correction_channel,
     else:
         _ims = ims
     # check correction_channel input
-    _channel_names = ['750','647','561','488','405'];
+    _channel_names = ['750','647','561','488','405']
     if str(correction_channel) not in _channel_names:
         raise ValueError('wrong channel name input! should be among '+str(_channel_names));
     elif str(correction_channel) == str(target_channel):
         return _ims
 
-    # imports
-    import pickle as pickle;
-    import os;
-    import numpy as np;
     from scipy.ndimage.interpolation import map_coordinates
 
     # load correcton profile
@@ -576,7 +572,7 @@ def Chromatic_abbrevation_correction(ims, correction_channel,
         raise IOError("- No chromatic correction profile file founded!");
         return None
     # check correction profile dimensions
-    _shape_im = np.shape(_ims[0])[-2:];
+    _shape_im = np.shape(_ims[0])[-2:]
     _shape_cc = np.shape(_cc_profile[0])[-2:]
     for _si, _sc in zip(_shape_im, _shape_cc):
         if _si != _sc:
@@ -605,7 +601,7 @@ def Chromatic_abbrevation_correction(ims, correction_channel,
             _cim = _cim.reshape(_im.shape)
             _corr_ims.append(_cim.astype(np.uint16))
 
-    return _corr_ims;
+    return _corr_ims
 
 
 
@@ -642,7 +638,7 @@ def fftalign(im1,im2,dm=100,plt_val=False):
 		plt.plot([y],[x],'ko')
 		plt.imshow(im_cor_2d,interpolation='nearest')
 		plt.show()
-	xyz=np.round(-np.array(im_cor.shape)/2.+xyz).astype(int)
+	xyz=np.round(-1 * np.array(im_cor.shape)/2.+xyz).astype(int)
 	return xyz
 
 ## Translate images given drift
@@ -678,28 +674,28 @@ def Z_Shift_Correction(im, style='mean', normalization=False, verbose=False):
     if verbose:
         print("- Correct Z axis illumination shifts.")
     if style not in ['mean','median','interpolation']:
-        raise ValueError('wrong style input for Z shift correction!');
-    _nim = np.zeros(np.shape(im));
+        raise ValueError('wrong style input for Z shift correction!')
+    _nim = np.zeros(np.shape(im))
     if style == 'mean':
-        _norm_factors = [np.mean(_lyr) for _lyr in im];
+        _norm_factors = [np.mean(_lyr) for _lyr in im]
     elif style == 'median':
-        _norm_factors = [np.median(_lyr) for _lyr in im];
+        _norm_factors = [np.median(_lyr) for _lyr in im]
     elif stype == 'interpolation':
-        _means = np.array([np.mean(_lyr) for _lyr in im]);
-        _interpolation = _means;
-        _interpolation[1:-1] += _means[:-2];
-        _interpolation[1:-1] += _means[2:];
-        _interpolation[1:-1] = _interpolation[1:-1]/3;
-        _norm_factors = _interpolation;
+        _means = np.array([np.mean(_lyr) for _lyr in im])
+        _interpolation = _means
+        _interpolation[1:-1] += _means[:-2]
+        _interpolation[1:-1] += _means[2:]
+        _interpolation[1:-1] = _interpolation[1:-1]/3
+        _norm_factors = _interpolation
     # loop through layers
     for _i, _lyr in enumerate(im):
         if _norm_factors[_i] > 0:
-            _nim[_i] = _lyr / _norm_factors[_i];
+            _nim[_i] = _lyr / _norm_factors[_i]
         else:
             _nim[_i] = _lyr / np.mean(im)
     # if not normalization
     if not normalization:
-        _nim = _nim * np.mean(im);
+        _nim = _nim * np.mean(im)
 
     return _nim.astype(np.uint16)
 
@@ -717,7 +713,7 @@ def Remove_Hot_Pixels(im, hot_pix_th=0.50, interpolation_style='nearest', hot_th
     if len(_hotpix_cand[0]) == 0:
         return im
     # create new image to interpolate the hot pixels with average of neighboring pixels
-    _nim = np.zeros(np.shape(im))+im;
+    _nim = np.zeros(np.shape(im))+im
     if interpolation_style == 'nearest':
         for _x, _y in zip(_hotpix_cand[0],_hotpix_cand[1]):
             if _x > 0 and  _y > 0 and _x < im.shape[1]-1 and  _y < im.shape[2]-1:
