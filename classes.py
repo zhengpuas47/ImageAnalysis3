@@ -1112,7 +1112,7 @@ class Cell_Data():
                                                         temp_folder=self.temp_folder,
                                                         return_type='mmap', overwrite_temp=False, verbose=True);
                 if _load_in_ram:
-                    self.splitted_ims = _splitted_ims;
+                    self.splitted_ims = _splitted_ims
                 return _splitted_ims
 
         # Case: unique images
@@ -1123,7 +1123,7 @@ class Cell_Data():
             if hasattr(self, 'unique_ims') and hasattr(self, 'unique_ids') and hasattr(self, 'unique_channels') and not _overwrite:
                 return self.unique_ims, self.unique_ids, self.unique_channels
             elif hasattr(self, 'splitted_ims'):
-                _splitted_ims = self.splitted_ims;
+                _splitted_ims = self.splitted_ims
             elif not _splitted_ims:
                 # Load all splitted images
                 _splitted_ims = analysis.load_image_fov(_folders, self.fovs, self.fov_id,
@@ -1168,13 +1168,16 @@ class Cell_Data():
             _unique_ims = [_t[1] for _t in _tp];
             _unique_ids = [_t[0] for _t in _tp];
             _unique_channels = [_t[2] for _t in _tp];
-
+            # release:
             if _load_in_ram:
                 self.unique_ims = _unique_ims;
                 self.unique_ids = _unique_ids;
                 self.unique_channels = _unique_channels
                 if _save:
-                    self._save_to_file('unique', _overwrite=_overwrite);
+                    _dc = {'unique_ims':_unique_ims,
+                           'unique_ids':_unique_ids,
+                           'unique_channels': _unique_channels}
+                    self._save_to_file('unique', _save_dic=_dc, _overwrite=_overwrite)
             else:
                 if _save:
                     _dc = {'unique_ims':_unique_ims,
