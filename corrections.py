@@ -228,6 +228,12 @@ def STD_beaddrift_sequential(bead_ims, bead_names, drift_folder, fovs, fov_id,
         txyzs = [np.array([0.,0.,0.])]; # initialize with zeros, representing image0 itself
         if len(total_drift) > 0 and bead_names[0] in total_drift:
             change_markers[bead_names[0]] = False # marker for whether made any changes
+            old_ref_frame = None
+            for _hyb_name, _dft in list(total_drift.items()):
+                if np.sum(_dft == 0 ) == len(_dft):
+                    print('old-ref:',_hyb_name)
+                    old_ref_frame = _hyb_name
+                    del total_drift[_hyb_name]
         else: # ref frame is not in total_drift dic: create a zero array
             if verbose:
                 print("Ref frame changed")
