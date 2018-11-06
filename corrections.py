@@ -229,11 +229,6 @@ def STD_beaddrift_sequential(bead_ims, bead_names, drift_folder, fovs, fov_id,
         if len(total_drift) > 0 and bead_names[0] in total_drift:
             change_markers[bead_names[0]] = False # marker for whether made any changes
             old_ref_frame = None
-            for _hyb_name, _dft in list(total_drift.items()):
-                if np.sum(_dft == 0 ) == len(_dft):
-                    print('old-ref:',_hyb_name)
-                    old_ref_frame = _hyb_name
-                    del total_drift[_hyb_name]
         else: # ref frame is not in total_drift dic: create a zero array
             if verbose:
                 print("Ref frame changed")
@@ -246,7 +241,7 @@ def STD_beaddrift_sequential(bead_ims, bead_names, drift_folder, fovs, fov_id,
                     del total_drift[_hyb_name]
             # new ref-frame
             change_markers[bead_names[0]] = True
-            total_drift[bead_names[0]] = np.array([0,0,0]);
+            total_drift[bead_names[0]] = np.array([0,0,0])
             if verbose:
                 print(f"-- Modifying existing refrence frame to {bead_names[0]}")
 
@@ -319,10 +314,10 @@ def STD_beaddrift_sequential(bead_ims, bead_names, drift_folder, fovs, fov_id,
             im_ref = im;
     # if ref-frame changed, modify old drift files:
     if old_ref_frame is not None:
-        ref_drift = total_drift[old_ref_frame];
+        ref_drift = total_drift[old_ref_frame]
         for _hyb_name, _mk in change_markers.items():
             if not _mk: # if not changed
-                total_drift[_hyb_name] += ref_drift;
+                total_drift[_hyb_name] += ref_drift
                 if verbose:
                     print(f"Update drift for {_hyb_name}")
 
