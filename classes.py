@@ -1472,14 +1472,16 @@ class Cell_Data():
                 print(f"- savefile {_unique_savefile} not exists, exit.")
                 return False
             if _verbose:
-                print("- Loading unique from file:", _unique_savefile);
+                print("- Loading unique from file:", _unique_savefile)
             with np.load(_unique_savefile) as handle:
-                _unique_ims = list(handle['observation']);
-                _unique_ids = list(handle['ids']);
-                _unique_channels = list(handle['channels']);
+                _unique_ims = list(handle['observation'])
+                _unique_ids = list(handle['ids'])
+                _unique_channels = list(handle['channels'])
             # save
             if not hasattr(self, 'unique_ids') or not hasattr(self, 'unique_ims'):
-                self.unique_ids, self.unique_ims, self.unique_channels = [], [], [];
+                self.unique_ids, self.unique_ims, self.unique_channels = [], [], []
+            elif len(self.unique_ims) == 0 or len(self.unique_ids) == 0:
+                self.unique_ids, self.unique_ims, self.unique_channels = [], [], []
             for _uim, _uid, _channel in zip(_unique_ims, _unique_ids, _unique_channels):
                 if int(_uid) not in self.unique_ids:
                     if _verbose:
@@ -1490,19 +1492,19 @@ class Cell_Data():
                 elif int(_uid) in self.unique_ids and _overwrite:
                     if _verbose:
                         print(f"overwriting image with unique_id: {_uid}")
-                    self.unique_ims[self.unique_ids.index(int(_uid))] = _uim;
+                    self.unique_ims[self.unique_ids.index(int(_uid))] = _uim
 
         if _type == 'all' or _type == 'decoded':
             if _type == 'decoded' and not _decoded_flag:
-                raise ValueError("Kwd _decoded_flag not given, exit!");
+                raise ValueError("Kwd _decoded_flag not given, exit!")
             elif not _decoded_flag:
-                print("Kwd _decoded_flag not given, skip this step.");
+                print("Kwd _decoded_flag not given, skip this step.")
             else:
                 # check combo_groups
                 # look for decoded _results
                 if not hasattr(self, 'combo_groups'):
                     try:
-                        self._load_from_file('combo');
+                        self._load_from_file('combo')
                     except:
                         raise IOError(f"Cannot load combo groups for fov:{self.fov_id} cell:{self.cell_id}")
                 # scan existing combo files
@@ -1680,15 +1682,15 @@ class Cell_Data():
                        _width_zxy=None, _fit_radius=10, _expect_weight=500, _min_height=100, _max_iter=10, _th_to_end=1e-5,
                        _save=True, _verbose=True):
         # first check Inputs
-        _allowed_types = ['unique', 'decoded'];
+        _allowed_types = ['unique', 'decoded']
         _type = _type.lower()
         if _type not in _allowed_types:
-            raise KeyError(f"Wrong input key for _type:{_type}");
+            raise KeyError(f"Wrong input key for _type:{_type}")
         if _width_zxy is None:
-            _width_zxy = self.sigma_zxy;
+            _width_zxy = self.sigma_zxy
         if _use_chrom_coords:
             if not hasattr(self, 'chrom_coords'):
-                self._load_from_file('cell_info');
+                self._load_from_file('cell_info')
                 if not hasattr(self, 'chrom_coords'):
                     raise AttributeError("No chrom-coords info found in cell-data and saved cell_info.");
             if _verbose:
@@ -1702,11 +1704,11 @@ class Cell_Data():
                     self._load_from_file('unique', _overwrite=False, _verbose=_verbose)
                 else:
                     _temp_flag = False # not temporarily loaded
-                _ims = self.unique_ims;
-                _ids = self.unique_ids;
+                _ims = self.unique_ims
+                _ids = self.unique_ids
             elif _type == 'decoded':
-                _ims = self.decoded_ims;
-                _ids = self.decoded_ids;
+                _ims = self.decoded_ims
+                _ids = self.decoded_ids
 
             ## Do the multi-fitting
             if _type == 'unique':
@@ -1720,19 +1722,19 @@ class Cell_Data():
             # multi-processing for multi-Fitting
             if _verbose:
                 print(f"++ start fitting {_type} for fov:{self.fov_id}, cell:{self.cell_id} with {_num_threads} threads")
-            _start_time = time.time();
-            _fitting_pool = multiprocessing.Pool(_num_threads);
-            _spots = _fitting_pool.starmap(_fit_single_image, _args, chunksize=1);
-            _fitting_pool.close();
-            _fitting_pool.join();
-            _fitting_pool.terminate();
+            _start_time = time.time()
+            _fitting_pool = multiprocessing.Pool(_num_threads)
+            _spots = _fitting_pool.starmap(_fit_single_image, _args, chunksize=1)
+            _fitting_pool.close()
+            _fitting_pool.join()
+            _fitting_pool.terminate()
             # release
             _ims, _ids = None, None
             if _temp_flag:
                 if _type == 'unique':
-                    self.unique_ims = None
+                    delattr(self, 'unique_ims')
                 elif _type == 'decoded':
-                    self.decoded_ims = None
+                    delattr(self, 'decoded_ims')
             if _verbose:
                 print(f"++ total time in fitting {_type}: {time.time()-_start_time}")
             ## return and save
@@ -1746,7 +1748,6 @@ class Cell_Data():
                 if _save:
                     self._save_to_file('cell_info',_save_dic={'decoded_spots':self.decoded_spots})
                 return self.decoded_spots
-
 
     def _dynamic_picking_spots(self, _type='unique', _use_chrom_coords=True,
                                _distance_zxy=None, _w_int=1, _w_dist=2,
