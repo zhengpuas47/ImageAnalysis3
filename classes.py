@@ -467,7 +467,8 @@ class Cell_List():
                       'distance_zxy' : self.distance_zxy,
                       'sigma_zxy': self.sigma_zxy,
                       } for _cell_id in _cell_ids]
-            _args += [(_p, True, True, True, True, False, False, True) for _p in _params]
+            _args += [(_p, True, True, True, _load_exist_info,
+                       False, False, True) for _p in _params]
             del(_fov_drift, _fov_segmentation_label, _fov_dapi_im, _params, _cell_ids)
         # do multi-processing to create cells!
         if _verbose:
