@@ -1413,7 +1413,7 @@ class Cell_Data():
 
         if _type == 'all' or _type == 'cell_info':
             _infofile = _save_folder + os.sep + 'cell_info.pkl'
-            if os.path.exist(_infofile):
+            if os.path.exists(_infofile):
                 _info_dic = pickle.load(open(_infofile, 'rb'))
                 #loading keys from info_dic
                 for _key, _value in _info_dic.items():
