@@ -1439,7 +1439,7 @@ class Cell_Data():
             for _combo_file in _combo_files:
                 if _verbose:
                     print("-- loading combo from file:", _combo_file)
-                with np.load(_combo_file) as handle:
+                with np.load(_combo_file, mmap_mode='r+') as handle:
                     _ims = list(handle['observation'])
                     _matrix = handle['encoding']
                     _names = handle['names']
@@ -1481,7 +1481,7 @@ class Cell_Data():
                 return False
             if _verbose:
                 print("- Loading unique from file:", _unique_savefile)
-            with np.load(_unique_savefile) as handle:
+            with np.load(_unique_savefile, mmap_mode='r+') as handle:
                 _unique_ims = list(handle['observation'])
                 _unique_ids = list(handle['ids'])
                 _unique_channels = list(handle['channels'])
@@ -1526,7 +1526,7 @@ class Cell_Data():
                 for _decoded_file in _decoded_files:
                     if _verbose:
                         print("-- loading decoded result from file:", _decoded_file)
-                    with np.load(_decoded_file) as handle:
+                    with np.load(_decoded_file, mmap_mode='r+') as handle:
                         _ims = handle['observation']
                         _ims = _ims.swapaxes(0,3).swapaxes(1,2)
                     _name_info = _decoded_file.split(os.sep)

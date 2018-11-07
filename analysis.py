@@ -290,10 +290,10 @@ def load_image_fov(folders, fovs, fov_id, channels, color_dic,
 
     # Load image
     _ims, _names = get_img_info.get_img_fov(folders, fovs, fov_id, verbose=verbose);
-    _channels = [str(ch) for ch in channels];
+    _channels = [str(ch) for ch in channels]
     # number of channels and whether use dapi
     if '405' in _channels:
-        _num_ch = len(_channels) - 1;
+        _num_ch = len(_channels) - 1
         _use_dapi = True
     else:
         _num_ch = len(_channels)
@@ -335,22 +335,23 @@ def load_image_fov(folders, fovs, fov_id, channels, color_dic,
             print("-- Loading all images for this fov")
         _cand_ims, _cand_names, _cand_channels, _cand_ch_id = [],[],[],[]
         for _n, _ims in _splitted_ims.items():
-            for _ch_id, _im in enumerate(_ims):
-                if loading_type.lower() == 'unique' and type_key in color_dic[_n.split(os.sep)[0]][_ch_id]:
-                    _cand_ims.append(_im)
-                    _cand_names.append(_n)
-                    _cand_channels.append(_channels[_ch_id])
-                    _cand_ch_id.append(_ch_id)
-                elif loading_type.lower() == 'combo' and type_key in color_dic[_n.split(os.sep)[0]][_ch_id]:
-                    _cand_ims.append(_im)
-                    _cand_names.append(_n)
-                    _cand_channels.append(_channels[_ch_id])
-                    _cand_ch_id.append(_ch_id)
-                elif loading_type.lower() == 'raw' or loading_type.lower() == 'all':
-                    _cand_ims.append(_im)
-                    _cand_names.append(_n)
-                    _cand_channels.append(_channels[_ch_id])
-                    _cand_ch_id.append(_ch_id)
+            if _n.split(os.sep)[0] in color_dic: # if this hyb is given in color_dic
+                for _ch_id, _im in enumerate(_ims):
+                    if loading_type.lower() == 'unique' and type_key in color_dic[_n.split(os.sep)[0]][_ch_id]:
+                        _cand_ims.append(_im)
+                        _cand_names.append(_n)
+                        _cand_channels.append(_channels[_ch_id])
+                        _cand_ch_id.append(_ch_id)
+                    elif loading_type.lower() == 'combo' and type_key in color_dic[_n.split(os.sep)[0]][_ch_id]:
+                        _cand_ims.append(_im)
+                        _cand_names.append(_n)
+                        _cand_channels.append(_channels[_ch_id])
+                        _cand_ch_id.append(_ch_id)
+                    elif loading_type.lower() == 'raw' or loading_type.lower() == 'all':
+                        _cand_ims.append(_im)
+                        _cand_names.append(_n)
+                        _cand_channels.append(_channels[_ch_id])
+                        _cand_ch_id.append(_ch_id)
     # release!
     del(_splitted_ims)
 
