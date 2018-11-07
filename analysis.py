@@ -460,7 +460,7 @@ def reconstruct_from_temp(temp_filelist, folders, fovs, fov_id, channels, color_
                 _fl_ch = _fl.split('_corrected.npy')[0].split('_')[-1]
                 # load raw/combo/unique
                 if _fl_fd+os.sep+_fov_name in _splitted_ims and type_key in color_dic[_fl_fd][_channels.index(_fl_ch)]:
-                    _splitted_ims[_fl_fd+os.sep+_fov_name][_channels.index(_fl_ch)] = np.load(_fl, mmap_mode='r+')
+                    _splitted_ims[_fl_fd+os.sep+_fov_name][_channels.index(_fl_ch)] = np.load(_fl, mmap_mode='r')
                     _image_ct += 1;
         if verbose:
             print("-- number of images loaded:", _image_ct)
@@ -486,8 +486,8 @@ def reconstruct_from_temp(temp_filelist, folders, fovs, fov_id, channels, color_
             _im_name = _hyb_fd +'-'+_fov_name.replace('.dax','_')
             matches = [_im_name.replace(os.sep,'-').replace('.dax','') in _fl and _channels[_bead_index] in _fl for _fl in temp_filelist]
             _fl = temp_filelist[matches.index(True)]
-            _bead_ims.append(np.load(_fl, mmap_mode='r+'));
-            _bead_names.append(_hyb_fd+os.sep+_fov_name);
+            _bead_ims.append(np.load(_fl, mmap_mode='r'))
+            _bead_names.append(_hyb_fd+os.sep+_fov_name)
         if verbose:
             print("-- number of beads images loaded:", len(_bead_ims))
 
@@ -515,7 +515,7 @@ def reconstruct_from_temp(temp_filelist, folders, fovs, fov_id, channels, color_
                 _im_name = _hyb_fd +'-'+_fov_name.replace('.dax','_')
                 matches = [_im_name.replace(os.sep,'-').replace('.dax','') in _fl and _channels[_dapi_index] in _fl for _fl in temp_filelist]
                 _fl = temp_filelist[matches.index(True)]
-                _dapi_ims.append(np.load(_fl, mmap_mode='r+'))
+                _dapi_ims.append(np.load(_fl, mmap_mode='r'))
                 _dapi_names.append(_hyb_fd +os.sep+_fov_name);
         if verbose:
             print("-- number of dapi images loaded:", len(_dapi_ims))
