@@ -342,9 +342,8 @@ class Cell_List():
             _cell._load_segmentation()
         if _load_drift and not hasattr(_cell, 'drift'):
             _cell._load_drift()
-        if _load_file:
-            if os.path.isfile(os.path.join(_cell.save_folder, 'cell_info.pkl')):
-                _cell._load_from_file('cell_info', _overwrite=False, _verbose=True)
+        if _load_file and os.path.exists(os.path.join(_cell.save_folder, 'cell_info.pkl')):
+            _cell._load_from_file('cell_info', _overwrite=False, _verbose=True)
         if _save:
             _cell._save_to_file('cell_info')
         # whether directly store
@@ -352,7 +351,8 @@ class Cell_List():
             self.cells.append(_cell)
         return _cell
 
-    def _create_cells_fov(self, _fov_ids, _segmentation_type='small', _num_threads=None, _load_annotated_only=True, _overwrite_temp=True,
+    def _create_cells_fov(self, _fov_ids, _segmentation_type='small', _num_threads=None, _missing_last=False,
+                          _load_exist_info=False, _load_annotated_only=True, _overwrite_temp=True,
                           _drift_size=550, _drift_dynamic=True, _plot_segmentation=True, _verbose=True):
         """Create Cele_data objects for one field of view"""
         if not _num_threads:
@@ -439,7 +439,9 @@ class Cell_List():
                 del(_bead_ims)
 
             # create cells in parallel
-            _cell_ids = range(int(np.max(_fov_segmentation_label)-1))
+            _cell_ids = np.array(np.unique(_fov_segmentation_label[_fov_segmentation_label>0])-1, dtype=np.int)
+            if _missing_last:
+                _cell_ids = _cell_ids[:-1]
             if _verbose:
                 print(f"+ Create cell_data objects, num_of_cell:{len(_cell_ids)}")
             _params = [{'fov_id': _fov_id,
@@ -465,7 +467,7 @@ class Cell_List():
                       'distance_zxy' : self.distance_zxy,
                       'sigma_zxy': self.sigma_zxy,
                       } for _cell_id in _cell_ids]
-            _args += [(_p, True, True, True, True, False) for _p in _params]
+            _args += [(_p, True, True, True, True, False, False, True) for _p in _params]
             del(_fov_drift, _fov_segmentation_label, _fov_dapi_im, _params, _cell_ids)
         # do multi-processing to create cells!
         if _verbose:
@@ -1589,7 +1591,7 @@ class Cell_Data():
                 print('-- cell_data doesnot have unique images, trying to load now.')
                 self._load_from_file('unique', _verbose=False)
             else:
-                _temp_flag = False                
+                _temp_flag = False
             # sum up existing Images
             _picking_freq = int(np.ceil(len(self.unique_ims)/_max_count))
             _selected_ims = self.unique_ims[::_picking_freq]
