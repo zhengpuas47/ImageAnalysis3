@@ -1413,16 +1413,19 @@ class Cell_Data():
 
         if _type == 'all' or _type == 'cell_info':
             _infofile = _save_folder + os.sep + 'cell_info.pkl'
-            _info_dic = pickle.load(open(_infofile, 'rb'))
-            #loading keys from info_dic
-            for _key, _value in _info_dic.items():
-                if not hasattr(self, _key) or _overwrite:
-                    # if (load_attrs) specified:
-                    if len(_load_attrs) > 0 and _key in _load_attrs:
-                        setattr(self, _key, _value)
-                    # no load_attr specified
-                    elif len(_load_attrs) == 0:
-                        setattr(self, _key, _value)
+            if os.path.exist(_infofile):
+                _info_dic = pickle.load(open(_infofile, 'rb'))
+                #loading keys from info_dic
+                for _key, _value in _info_dic.items():
+                    if not hasattr(self, _key) or _overwrite:
+                        # if (load_attrs) specified:
+                        if len(_load_attrs) > 0 and _key in _load_attrs:
+                            setattr(self, _key, _value)
+                        # no load_attr specified
+                        elif len(_load_attrs) == 0:
+                            setattr(self, _key, _value)
+            else:
+                print(f"No cell-info file found for fov:{self.fov_id}, cell:{self.cell_id}, skip!")
 
         if _type == 'all' or _type == 'combo':
             if not hasattr(self, 'combo_groups'):
