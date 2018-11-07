@@ -126,6 +126,8 @@ class Cell_List():
             if len(_matches)==1:
                 self.annotated_folders.append(_matches[0])
         print(f"{len(self.annotated_folders)} folders are found according to color-usage annotation.")
+        # tool for iteration
+        self.index = 0
 
     # allow print info of Cell_List
     def __str__(self):
@@ -136,7 +138,7 @@ class Cell_List():
         return 'test'
     # allow iteration of Cell_List
     def __iter__(self):
-        return self
+        return self.cells
     def __next__(self):
         if not hasattr(self, 'cells') or not not hasattr(self, 'index'):
             raise StopIteration
@@ -1503,10 +1505,12 @@ class Cell_Data():
                 # check combo_groups
                 # look for decoded _results
                 if not hasattr(self, 'combo_groups'):
-                    try:
-                        self._load_from_file('combo')
-                    except:
-                        raise IOError(f"Cannot load combo groups for fov:{self.fov_id} cell:{self.cell_id}")
+                    _temp_flag = True
+                    if _verbose:
+                        print(f"No combo groups loaded in fov:{self.fov_id}, cell:{self.cell_id}, start loading combo!")
+                    self._load_from_file('combo', _overwrite=_overwrite, _verbose=_verbose)
+                else:
+                    _temp_flag = False
                 # scan existing combo files
                 _raw_decoded_fl = "regions.npz"
                 _decoded_files = glob.glob(os.path.join(_save_folder, "group-*", "channel-*", _decoded_flag, _raw_decoded_fl))
@@ -1553,6 +1557,8 @@ class Cell_Data():
                 # sort
                 self.decoded_ims = [_im for _id,_im in sorted(zip(_decoded_ids, _decoded_ims))]
                 self.decoded_ids = [_id for _id in sorted(_decoded_ids)]
+                if _temp_flag:
+                    delattr(self, 'combo_groups')
 
     # Generate pooled image representing chromosomes
     def _generate_chromosome_image(self, _source='combo', _max_count=40, _verbose=False):
@@ -1710,6 +1716,14 @@ class Cell_Data():
                 _ims = self.unique_ims
                 _ids = self.unique_ids
             elif _type == 'decoded':
+                # check attributes
+                if not hasattr(self, 'decoded_ims') or not hasattr(self, 'decoded_ids'):
+                    _temp_flag = True  # this means the unique images are temporarily loaded
+                    print("++ no decoded image info loaded to this cell, try loading:")
+                    self._load_from_file(
+                        'decoded', _overwrite=False, _verbose=_verbose)
+                else:
+                    _temp_flag = False  # not temporarily loaded
                 _ims = self.decoded_ims
                 _ids = self.decoded_ids
 
