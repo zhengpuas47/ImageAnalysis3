@@ -352,7 +352,7 @@ class Cell_List():
         return _cell
 
     def _create_cells_fov(self, _fov_ids, _segmentation_type='small', _num_threads=None, _missing_last=False,
-                          _load_exist_info=False, _load_annotated_only=True, _overwrite_temp=True,
+                          _load_exist_info=True, _load_annotated_only=True, _overwrite_temp=True,
                           _drift_size=550, _drift_dynamic=True, _plot_segmentation=True, _verbose=True):
         """Create Cele_data objects for one field of view"""
         if not _num_threads:

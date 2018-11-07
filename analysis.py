@@ -1302,7 +1302,7 @@ def generate_distance_map(cand_cell_list, master_folder, fov_name, encoding_type
     # loop through cells, calculate distance map
     for _cell_id, _cell in enumerate(_cand_cell_list):
         # number of chromosome
-        _num_chrom = len(_cell['chrom_coord']);
+        _num_chrom = len(_cell['chrom_coord'])
         # initialize
         _cand_cell_list[_cell_id]['sorted_cand_points'] = []
         _cand_cell_list[_cell_id]['sorted_cand_names'] = []
