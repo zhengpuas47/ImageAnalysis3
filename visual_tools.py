@@ -1854,3 +1854,67 @@ def fit_multi_gaussian(im, seeds, width_zxy = [1.35,1.9,1.9], fit_radius=10,
 
     else:
         return np.array([])
+
+
+def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0, npy_start=64):
+    """
+    Slice image in a memory-efficient manner.
+    Inputs:
+        fl: filename of a binary np.uint16 image or matrix. 
+            Notice: .dax is binary file stored from data.tofile("temp.dax"), is a header-less nd-array. 
+            However '.npy' file has some header in the beginning, which is ususally 128 Bytes, string(path)
+        sizes: size of raw image in z-x-y order, array-like struct of 3; example:[30,2048,2048]
+        zlims: limits in z axis (axis0), array-like struct of 2
+        xlims: limits in x axis (axis1), array-like struct of 2
+        ylims: limits in y axis (axis2), array-like struct of 2
+        zstep: number of steps to take one z-stack image, positive int (default: 1)
+        zstart: channel id, non-negative int (default: 0)
+        npy_start: starting bytes for npy format, int (default: 64)
+    Output:
+        data: cropped 3D image
+    Usage:
+        fl = 'Z:\\20181022-IMR90_whole-chr21-unique\\H0R0\\Conv_zscan_00.dax'
+        im = slice_image(fl, [170, 2048, 2048],[10, 160], [100, 300], [1028, 2048],5,4)
+    """
+    if zstart >= zstep or zstart < 0:
+        raise ValueError(
+            f"Wrong z-start input, should be non-negeative integer < {zstep}")
+    if zstep <= 0:
+        raise ValueError(
+            f"Wrong z-step input:{zstep}, should be positive integer.")
+    # image dimension
+    sz, sx, sy = sizes[:3]
+    # acquire min-max indices
+    minz, maxz = np.sort(zlims)[:2]
+    minx, maxx = np.sort(xlims)[:2]
+    miny, maxy = np.sort(ylims)[:2]
+    # acquire dimension
+    dz = int((maxz-minz)/zstep)
+    dx = maxx-minx
+    dy = maxy-miny
+    if dx <= 0 or dy <= 0 or dz <= 0:
+        print("-- slicing result is empty.")
+        return np.array([])
+    # initialize
+    data = np.zeros([dz, dx, dy], dtype=np.uint16)
+    # file handle
+    f = open(fl, "rb")
+    # starting point
+    if fl.split('.')[-1] == 'npy':
+        print(f"- slicing .npy file, start with {npy_start}")
+        pt_pos = npy_start
+    else:
+        pt_pos = 0
+    # start slicing
+    pt_pos += sx*sy*(minz+(zstart+1) % zstep) + minx*sy + miny
+    # loop through dim1 and dim2
+    for iz in range(dz):
+        for ix in range(dx):
+            f.seek(pt_pos * 2, 0)
+            data[iz, ix, :] = np.fromfile(f, dtype=np.uint16, count=dy)
+            pt_pos += sy
+        # finish one layer of z, some extra pt moving:
+        pt_pos += (sx-dx) * sy + (zstep-1)*sx*sy
+    # close and return
+    f.close()
+    return data

@@ -285,11 +285,11 @@ def load_image_fov(folders, fovs, fov_id, channels, color_dic,
         type_key = loading_keys[loading_type.lower()];
     # check return type
     return_type = return_type.lower()
-    if return_type not in ['filename','mmap','image']:
+    if return_type not in ['filename','mmap','image','filedic']:
         raise ValueError('Wrong kwd return_type given!');
 
     # Load image
-    _ims, _names = get_img_info.get_img_fov(folders, fovs, fov_id, verbose=verbose);
+    _ims, _names = get_img_info.get_img_fov(folders, fovs, fov_id, verbose=verbose)
     _channels = [str(ch) for ch in channels]
     # number of channels and whether use dapi
     if '405' in _channels:
@@ -379,7 +379,7 @@ def load_image_fov(folders, fovs, fov_id, channels, color_dic,
     pool.terminate()
     # release and terminate
     del(_cand_ims, _args, pool)
-    if not return_type == 'filename':
+    if return_type == 'image' or return_type == 'mmap':
         ## return and save
         # re-compile into a dic
         if loading_type.lower() in ['all', 'raw', 'unique', 'combo']:
@@ -395,6 +395,9 @@ def load_image_fov(folders, fovs, fov_id, channels, color_dic,
     elif return_type == 'filename':
         _cand_fls = [_tp+'.npy' for _tp in _temp_fls];
         return _cand_fls, _cand_names, _cand_channels
+    elif return_type == 'filedic':
+        pass
+        
 
 # load from temp, follow-up for function load_image_fov
 def reconstruct_from_temp(temp_filelist, folders, fovs, fov_id, channels, color_dic,
