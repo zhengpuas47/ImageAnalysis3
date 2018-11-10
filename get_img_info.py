@@ -286,19 +286,19 @@ def split_channels(ims, names, num_channel=2, buffer_frames=10, DAPI=False, verb
 	Outputs:
 		image lists in all field_of_views
 	'''
-	_ims = ims;
+	_ims = ims
 	if verbose:
 		print("Split multi-channel images (ia.get_img_info.split_channels)")
 		print("--number of channels:", num_channel)
 	# Initialize
 	if DAPI:
 		print("-- assuming H0R0 has extra DAPI channel")
-		_splitted_ims = [[] for _channel in range(num_channel + 1)];
+		_splitted_ims = [[] for _channel in range(num_channel + 1)]
 	else:
-		_splitted_ims = [[] for _channel in range(num_channel)];
+		_splitted_ims = [[] for _channel in range(num_channel)]
 	# if H0 is for DAPI, there will be 1 more channel:
 	if DAPI:
-		_im = _ims[0];
+		_im = _ims[0]
 		for _channel in range(num_channel+1):
 			_splitted_ims[(buffer_frames-1+_channel)%(num_channel+1)].append(_im[int(buffer_frames): -int(buffer_frames)][_channel::num_channel+1])
 	# loop through images
@@ -306,14 +306,12 @@ def split_channels(ims, names, num_channel=2, buffer_frames=10, DAPI=False, verb
 		# split each single image
 		for _channel in range(num_channel):
 			_splitted_ims[(buffer_frames-1+_channel)%(num_channel)].append(_im[int(buffer_frames): -int(buffer_frames)][_channel::num_channel])
-	return _splitted_ims;
-
-
+	return _splitted_ims
 
 def split_channels_by_image(ims, names, num_channel=4, buffer_frames=10, DAPI=False, verbose=True):
 	'''Function to split loaded images into multi channels, save as dict'''
 	# initialzie
-	_ims = ims;
+	_ims = ims
 	_im_dic = {}
 	if verbose:
 		print("Split multi-channel images (ia.get_img_info.split_channels)")

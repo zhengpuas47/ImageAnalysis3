@@ -6,6 +6,9 @@ import matplotlib.pylab as plt
 import os, glob, sys, time
 from scipy.stats import scoreatpercentile
 
+def __init__():
+    pass
+
 def get_STD_beaddrift(bead_ims, bead_names, analysis_folder, fovs, fov_id,
                       illumination_correction=False, ic_channel=488,
                       correction_folder=_correction_folder,
@@ -24,7 +27,7 @@ def get_STD_beaddrift(bead_ims, bead_names, analysis_folder, fovs, fov_id,
     from scipy.stats import scoreatpercentile
 
     # Initialize failed counts
-    fail_count = 0;
+    fail_count = 0
 
     # if save, check existing pickle file, if exist, don't repeat
     if save:
@@ -407,7 +410,7 @@ def Illumination_correction(ims, correction_channel, correction_power=1.75,
         _ims = [(_im/_ic_profile**1.75).astype(np.unit16) for _im in _ims];
     else: # else, 3D
         _ims = [(_im/_ic_profile[np.newaxis,:,:]**correction_power).astype(np.uint16) for _im in _ims];
-
+    del(_ic_profile) # clear 
     return _ims
 
 # Function to generate chromatic abbrevation profile
@@ -587,7 +590,7 @@ def Chromatic_abbrevation_correction(ims, correction_channel,
         _coord = _coord + np.array(_cc_profile)[-2:,:,:]
     else:
         _coord = _coord + np.array(_cc_profile)[:,np.newaxis,:,:]
-
+    del(_cc_profile) # clear
     # loop through images
     _corr_ims = []; # initialize corrected images
     for _im in _ims:
@@ -600,7 +603,7 @@ def Chromatic_abbrevation_correction(ims, correction_channel,
             _cim = map_coordinates(_im, _coord.reshape(3,-1), mode='nearest')
             _cim = _cim.reshape(_im.shape)
             _corr_ims.append(_cim.astype(np.uint16))
-
+    del(_coord) # clear
     return _corr_ims
 
 
@@ -699,7 +702,7 @@ def Z_Shift_Correction(im, style='mean', normalization=False, verbose=False):
 
     return _nim.astype(np.uint16)
 
-def Remove_Hot_Pixels(im, hot_pix_th=0.50, interpolation_style='nearest', hot_th=6, verbose=False):
+def Remove_Hot_Pixels(im, hot_pix_th=0.50, interpolation_style='nearest', hot_th=5, verbose=False):
     '''Function to remove hot pixels by interpolation in each single layer'''
     if verbose:
         print("- Remove hot pixels")
@@ -709,6 +712,7 @@ def Remove_Hot_Pixels(im, hot_pix_th=0.50, interpolation_style='nearest', hot_th
     _hotmat = im > hot_th * _conv
     _hotmat2D = np.sum(_hotmat,0)
     _hotpix_cand = np.where(_hotmat2D > hot_pix_th*np.shape(im)[0])
+    del(_conv, _hotmat, _hotmat2D)
     # if no hot pixel detected, directly exit
     if len(_hotpix_cand[0]) == 0:
         return im
@@ -718,6 +722,7 @@ def Remove_Hot_Pixels(im, hot_pix_th=0.50, interpolation_style='nearest', hot_th
         for _x, _y in zip(_hotpix_cand[0],_hotpix_cand[1]):
             if _x > 0 and  _y > 0 and _x < im.shape[1]-1 and  _y < im.shape[2]-1:
                 _nim[:,_x,_y] = (_nim[:,_x+1,_y]+_nim[:,_x-1,_y]+_nim[:,_x,_y+1]+_nim[:,_x,_y-1])/4
+    del(_hotpix_cand)
     return _nim.astype(np.uint16)
 
 # wrapper
@@ -765,7 +770,7 @@ def correction_wrapper(im, channel, correction_folder=_correction_folder,
             _im = np.load(_temp_fl+'.npy', mmap_mode=None)
             return _im
     # localize
-    _corr_im = im;
+    _corr_im = im
     if z_shift_corr:
         # correct for z axis shift
         _corr_im = Z_Shift_Correction(_corr_im, verbose=verbose)
@@ -804,4 +809,127 @@ def correction_wrapper(im, channel, correction_folder=_correction_folder,
     # else: directly return the array
     else:
         del(im)
-        return _corr_im;
+        return _corr_im
+
+
+def correct_single_image(filename, im_size, channels, target_channel, raw_im=None,
+                         num_buffer_frames=10, return_type='image', correction_folder=_correction_folder,
+                         z_shift_corr=True, hot_pixel_remove=True, illumination_corr=True, chromatic_corr=True,
+                         save=True, save_folder='I:\Pu_temp', save_name='', save_filetype='.npy', overwrite=False, verbose=False):
+    """wrapper for all correction steps to one image, used for multi-processing
+    Inputs:
+        filename: full filename of a dax_file or npy_file for one image, string
+        im_size: z-x-y size of the image, list of 3
+        channels: channels used in this image, list of str(for example, ['750','647','561'])
+        target_channel: target_channel to be extracted, str (for example. '647')
+        raw_im: directly give image rather than loading, this will overwrite filename etc.
+        num_buffer_frames: number of buffer frame in front and back of image, int (default:10)
+        return_type: whether return filename or image directly, str('filename' or 'image')
+        correction_folder: path to find correction files
+        z_shift_corr: whether do z-shift correction, bool (default: True)
+        hot_pixel_remove: whether remove hot-pixels, bool (default: True)
+        illumination_corr: whether do illumination correction, bool (default: True)
+        chromatic_corr: whether do chromatic abbrevation correction, bool (default: True)
+        save_folder: folder to save the temp file (if generated), str (default: 'I:\Pu_temp')
+        save_name: default savename of temp file, str (default: ''+'_corrected')
+        save_filetype: file type to be saved, '.npy' or '.dax'
+        overwrite: whether overwrite existing temp-file, bool (default: False)
+        verbose: whether say something!, bool (default:True)
+        """
+    ## check inputs
+    return_type = return_type.lower()
+    if return_type not in ['filename', 'image']:
+        raise ValueError(
+            f"Wrong return_type given! should be 'filename' or 'image' but {return_type} is given")
+    save_filetype = save_filetype.lower()
+    if save_filetype not in ['.npy', '.dax']:
+        raise ValueError(
+            f"Wrong save_filetype given! should be '.npy' or '.dax' but {save_filetype} is given")
+    target_channel = str(target_channel)
+    channels = [str(ch) for ch in channels]
+    if target_channel not in channels:
+        raise ValueError(
+            f"Target channel {target_channel} doesn't exist in channels:{channels}")
+    # if return filename ,file must be saved
+    if return_type == 'filename':
+        save = True
+    # generate full savename if not given
+    if save_name == '':
+        save_name = filename.split(
+            '.'+filename.split('.')[-1])[0].split(os.sep)[-1]+'_corrected'
+    # only 3 channels requires chromatic correction
+    if target_channel not in ['750', '647', '561']:
+        chromatic_corr = False
+    # save file
+    _save_fl = os.path.join(save_folder, save_name)
+
+    # if not overwrite and file exist: directly loading
+    if not overwrite and os.path.isfile(_save_fl+save_filetype):
+        if verbose:
+            print("-- reading from temp-file:", _save_fl+save_filetype)
+        if return_type == 'filename':
+            return _save_fl+save_filetype
+        elif return_type == 'image':
+            if save_filetype == '.npy':
+                _corr_im = np.load(_save_fl+save_filetype)
+            elif save_filetype == '.dax':
+                _corr_im = visual_tools.DaxReader(
+                    _save_fl+save_filetype).loadAll()
+            return _corr_im
+    # no file or overwrite:
+    else:
+        # check if image is given
+        if raw_im is not None:
+            if len(np.shape(raw_im)) == 3:
+                if (np.array(raw_im.shape) == np.array(im_size[:3])).all():
+                    _corr_im = raw_im
+                else:
+                    if verbose:
+                        print("- shape of raw image doesn't match, proceed to load from file.")
+            else:
+                if verbose:
+                    print("- dimension of raw image doesn't match, proceed to load from file.")   
+            
+        # load image
+        if '_corr_im' not in locals():
+            _channel_id = channels.index(target_channel)
+            _corr_im = visual_tools.slice_image(filename, list(im_size),
+                                                [num_buffer_frames, im_size[0] -
+                                                    num_buffer_frames],
+                                                [0, im_size[1]], [0, im_size[2]], len(channels), _channel_id)
+        if z_shift_corr:
+            # correct for z axis shift
+            _corr_im = Z_Shift_Correction(_corr_im, verbose=verbose)
+        #print("pass1")
+        if hot_pixel_remove:
+            # correct for hot pixels
+            _corr_im = Remove_Hot_Pixels(_corr_im, verbose=verbose)
+        #print("pass2")
+        if illumination_corr:
+            # illumination correction
+            _corr_im = Illumination_correction(_corr_im, correction_channel=target_channel,
+                                                           correction_folder=correction_folder, verbose=verbose)[0]
+        #print("pass3")
+        if chromatic_corr:
+            # chromatic correction
+            _corr_im = Chromatic_abbrevation_correction(_corr_im, correction_channel=target_channel,
+                                                                    correction_folder=correction_folder, verbose=verbose)[0]
+        #print("pass4")
+
+        ## save
+        if save:
+            if not os.path.exists(save_folder):
+                print(f"Create Temp folder:{save_folder}")
+                os.makedirs(save_folder)
+            if verbose:
+                print(f"--- saving temp to file:{_save_fl+save_filetype}")
+            if save_filetype == '.npy':
+                np.save(_save_fl, _corr_im)
+            elif save_filetype == '.dax':
+                _corr_im.tofile(_save_fl+save_filetype)
+        ## return
+        if return_type == 'filename':
+            del(_corr_im)
+            return _save_fl+save_filetype
+        elif return_type == 'image':
+            return _corr_im

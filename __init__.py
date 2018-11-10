@@ -5,9 +5,11 @@ _correction_folder=r'E:\Users\puzheng\Documents\Corrections'
 # temp folder
 _temp_folder = r'I:\Pu_temp'
 # distance_zxy
-_distance_zxy = np.array([200, 106, 106]);
+_distance_zxy = np.array([200, 106, 106])
 # sigma_zxy
 _sigma_zxy = np.array([1.35, 1.9, 1.9])
+# image_dim
+_image_size = np.array([30,2048,2048])
 
 # wrapped multi-step functions for image analysis
 from . import analysis

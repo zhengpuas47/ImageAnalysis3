@@ -12,7 +12,7 @@ from skimage.segmentation import random_walker
 from scipy.ndimage import gaussian_laplace
 
 from . import get_img_info, corrections, visual_tools, analysis
-from . import _correction_folder,_temp_folder,_distance_zxy,_sigma_zxy
+from . import _correction_folder,_temp_folder,_distance_zxy,_sigma_zxy,_image_size
 
 
 
@@ -44,7 +44,7 @@ def old_gauss_ker(sig_xyz=[2,2,2],sxyz=16,xyz_disp=[0,0,0]):
 def gauss_ker(sig_xyz=[2,2,2],sxyz=16,xyz_disp=[0,0,0]):
     """Faster version of gaussian kernel"""
     dim = len(xyz_disp)
-    xyz=np.swapaxes(np.indices([sxyz+1]*dim), 0,dim);
+    xyz=np.swapaxes(np.indices([sxyz+1]*dim), 0,dim)
     return np.exp(-np.sum(((xyz-np.array(xyz_disp)-sxyz/2.)/np.array(sig_xyz)**2)**2,axis=dim)/2.)
 
 def add_source(im_,pos=[0,0,0],h=200,sig=[2,2,2],size_fold=10):
@@ -1508,13 +1508,13 @@ def crop_cell(im, segmentation_label, drift=None, extend_dim=20, overlap_thresho
     # imports
     from scipy.ndimage.interpolation import shift
     # check dimension
-    _im_dim = np.shape(im);
+    _im_dim = np.shape(im)
     _label_dim = np.shape(segmentation_label)
     if drift is not None:
         if len(drift) != len(im.shape):
             raise ValueError('drift dimension and image dimension doesnt match!');
     # initialize cropped image list
-    _crop_ims = [];
+    _crop_ims = []
 
     for _l in range(int(np.max(segmentation_label))):
         #print _l
@@ -1877,7 +1877,7 @@ def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0, npy_start=64)
         im = slice_image(fl, [170, 2048, 2048],[10, 160], [100, 300], [1028, 2048],5,4)
     """
     if zstart >= zstep or zstart < 0:
-        raise ValueError(
+        raise Warning(
             f"Wrong z-start input, should be non-negeative integer < {zstep}")
     if zstep <= 0:
         raise ValueError(
@@ -1906,7 +1906,7 @@ def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0, npy_start=64)
     else:
         pt_pos = 0
     # start slicing
-    pt_pos += sx*sy*(minz+(zstart+1) % zstep) + minx*sy + miny
+    pt_pos += sx*sy*(minz + (zstart+1+minz)%zstep) + minx*sy + miny
     # loop through dim1 and dim2
     for iz in range(dz):
         for ix in range(dx):
@@ -1918,3 +1918,65 @@ def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0, npy_start=64)
     # close and return
     f.close()
     return data
+
+
+# specific functions to crop images
+def crop_single_image(im, filename, seg_label, drift=np.array([0,0,0]), im_size=_image_size, extend_dim=20):
+    '''Given a tempfile-name or a image, return a cropped image'''
+    if im is None and filename is None:
+        raise ValueError("Keywords im and filename cannot be both None!")
+    if np.max(seg_label) > 1:
+        raise ValueError("seg_label must be binary label, either 0-1 label or bool")
+    if len(drift) < len(np.shape(im)):
+        raise ValueError("dimension of drift smaller than number of dimension of image!")
+    seg_label = np.array(seg_label>0, dtype=np.int)
+    # crop from temp-file
+    if filename is not None:
+        _limits = np.zeros([3,2], dtype=np.int)
+        for _dim in range(len(seg_label.shape)):
+            # convert to dimension in image (assume 3D image)
+            _im_dim = _dim-len(seg_label.shape)+3
+            if seg_label.shape[_dim] != im_size[_im_dim]:
+                raise ValueError("Dimension of image and segmentation label doesn't match!")
+            _1d_label = np.array(np.sum(seg_label, _dim) > 0, dtype=np.int)
+            _1d_indices = np.where(_1d_label)[0]
+            _limits[_im_dim, 0] = max(_1d_indices[0]-extend_dim, 0)
+            _limits[_im_dim, 1] = min(_1d_indices[-1]+extend_dim, seg_label.shape[_dim])
+        if _limits[0,1] == 0:
+            _limits[0,1] = im_size[0]
+        print(_limits)
+        _drift_limits = np.zeros(_limits.shape, dtype=np.int)
+        for _i,_lim in enumerate(_limits):
+            _drift_limits[_i, 0] = max(_lim[0]-np.ceil(np.abs(drift[_i])), 0)
+            _drift_limits[_i, 1] = min(_lim[1]+np.ceil(np.abs(drift[_i])), im_size[_i])
+        print(_drift_limits)
+        _cim = slice_image(filename, im_size, _drift_limits[0], _drift_limits[2], _drift_limits[1])
+        _cim = ndimage.interpolation.shift(_cim, -drift[:len(_limits)], mode='nearest')
+        # second crop
+        _limit_diffs = _limits - _drift_limits
+        for _m in range(len(_limits)):
+            if _limit_diffs[_m,1] == 0:
+                _limit_diffs[_m,1] = _limits[_m,1] - _limits[_m,0]
+        _limit_diffs = _limit_diffs.astype(np.int)
+        print(_limit_diffs)
+        _cim = _cim[_limit_diffs[0,0]:_limit_diffs[0,0]+_limits[0,1]-_limits[0,0],\
+                    _limit_diffs[2,0]:_limit_diffs[2,0]+_limits[2,1]-_limits[2,0],\
+                    _limit_diffs[1,0]:_limit_diffs[1,0]+_limits[1,1]-_limits[1,0]]
+    # crop from file
+    else: 
+        _cim = crop_cell(im, seg_label, drift=drift, extend_dim=_extend_dim)[0]
+    
+    return _cim
+
+
+def crop_combo_group(ims, filenames, seg_label, drift_dic, im_size=_image_size, extend_dim=20):
+    '''Given '''
+    if im is None and filename is None:
+        raise ValueError("Keywords im and filename cannot be both None!")
+    if np.max(seg_label) > 1:
+        raise ValueError(
+            "seg_label must be binary label, either 0-1 label or bool")
+    if len(drift) < len(np.shape(im)):
+        raise ValueError(
+            "dimension of drift smaller than number of dimension of image!")
+    seg_label = np.array(seg_label > 0, dtype=np.int)
