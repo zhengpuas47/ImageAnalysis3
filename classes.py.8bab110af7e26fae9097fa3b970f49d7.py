@@ -679,19 +679,8 @@ class Cell_List():
             if _save:
                 _cell._save_to_file('cell_info', _save_dic={'chrom_coords': _cell.chrom_coords},  _verbose=_verbose)
                 if hasattr(_cell, 'combo_groups') or _force_save_to_combo:
-                    if _cell._check_full_set('combo'):
-                        if not hasattr(_cell, 'combo_groups'):
-                            _cell._load_from_file('combo', _verbose=_verbose)
-                            _load_mk = True
-                        else:
-                            _load_mk = False
-                        _cell._save_to_file('combo', _overwrite=True, _verbose=_verbose)
-                        # remove temporarily loaded combo_groups
-                        if _load_mk:
-                            delattr(_cell, 'combo_groups')
-                    else:
-                        if _verbose:
-                            print(f"++ Combo info not complete for fov:{_cell.fov_id}, cell:{_cell.cell_id}, skip")
+                    if _cell._check_full_set('combo')
+                    _cell._save_to_file('combo', _overwrite=True, _verbose=_verbose)
 
     def _remove_temp_fov(self, _fov_id, _temp_marker='corrected.npy', _verbose=True):
         """Remove all temp files for given fov """
