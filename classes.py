@@ -192,7 +192,7 @@ class Cell_List():
 
         return _encoding_scheme
 
-    ## Load segmentations info
+    ## Pick segmentations info for all fovs 
     def _pick_cell_segmentations(self, _type='small', _num_threads=None, _allow_manual=True,
                             _min_shape_ratio=0.038, _signal_cap_ratio=0.2, _denoise_window=5,
                             _shrink_percent=14, _conv_th=-5e-5, _boundary_th=0.55,
@@ -336,10 +336,15 @@ class Cell_List():
 
         return _new_seg_labels, _dapi_ims, _remove_cts, _append_cts
 
+    ## Load drift info
+    def _load_drift_fov(self):
+        pass
+
     def _create_cell(self, _parameter, _load_info=True,
-                     _load_segmentation=True, _load_drift=True,
-                     _load_file=True,
-                     _save=False, _directly_append_cell_list=False, _verbose=True):
+                     _load_segmentation=True, _segmentation_type='small',
+                     _load_drift=True, _drift_size=300, _drift_ref=0, 
+                     _drift_postfix='_sequential_current_cor.pkl', _dynamic=True, 
+                     _load_cell=True, _save=False, _append_cell_list=False, _verbose=True):
         """Function to create one cell_data object"""
         if _verbose:
             print(f"+ creating cell for fov:{_parameter['fov_id']}, cell:{_parameter['cell_id']}")
@@ -349,26 +354,32 @@ class Cell_List():
                 _cell._load_color_info()
             if not hasattr(_cell, 'encoding_scheme'):
                 _cell._load_encoding_scheme()
+        # load segmentation
         if _load_segmentation and not hasattr(_cell, 'segmentation_label'):
-            _cell._load_segmentation()
+            _cell._load_segmentation(_type=_segmentation_type)
+        # load drift 
         if _load_drift and not hasattr(_cell, 'drift'):
-            _cell._load_drift()
-        if _load_file and os.path.exists(os.path.join(_cell.save_folder, 'cell_info.pkl')):
-            _cell._load_from_file('cell_info', _overwrite=False, _verbose=True)
+            _cell._load_drift(_num_threads=self.num_threads, _size=_drift_size, _ref_id=_drift_ref, _drift_postfix=_drift_postfix,
+                               _dynamic=_dynamic, _force=False, _verbose=_verbose)
+        # load cell_info
+        if _load_cell and os.path.exists(os.path.join(_cell.save_folder, 'cell_info.pkl')):
+            _cell._load_from_file('cell_info', _overwrite=False, _verbose=_verbose)
         if _save:
             _cell._save_to_file('cell_info')
         # whether directly store
-        if _directly_append_cell_list:
+        if _append_cell_list:
             self.cells.append(_cell)
         return _cell
 
-    def _create_cells_fov(self, _fov_ids, _segmentation_type='small', _num_threads=None, _missing_last=False,
-                          _load_exist_info=True, _load_annotated_only=True, _overwrite_temp=True,
-                          _drift_size=550, _drift_dynamic=True, _plot_segmentation=True, _verbose=True):
+    def _create_cells_fov(self, _fov_ids, _num_threads=None, _missing_last=False, 
+                          _segmentation_type='small', _plot_segmentation=True, 
+                          _load_exist_info=True, _load_annotated_only=True, 
+                          _drift_size=300, _drift_ref=0, _drift_postfix='_sequential_current_cor.pkl', 
+                          _dynamic=True, _save=True, _remove_bead_temp=True, _verbose=True):
         """Create Cele_data objects for one field of view"""
         if not _num_threads:
             _num_threads = int(self.num_threads)
-        if not isinstance(_fov_ids, list):
+        if isinstance(_fov_ids, int):
             _fov_ids = [_fov_ids]
         for _fov_id in _fov_ids:
             if _fov_id not in self.fov_ids:
@@ -385,7 +396,6 @@ class Cell_List():
             _folders = self.annotated_folders
         else:
             _folders = self.folders
-
         # load segmentation for this fov
         _args = []
         for _fov_id in _fov_ids:
@@ -393,7 +403,7 @@ class Cell_List():
                 print("+ Load segmentation for fov", _fov_id)
             # do segmentation if necessary, or just load existing segmentation file
             _fov_segmentation_label, _fov_dapi_im  = analysis.Segmentation_Fov(self.analysis_folder,
-                                                    _folders, self.fovs, _fov_id, _segmentation_type,
+                                                    _folders, self.fovs, int(_fov_id), _segmentation_type,
                                                     num_channel=len(self.channels),
                                                     dapi_channel=self.dapi_channel_index,
                                                     illumination_corr=True,
@@ -404,51 +414,15 @@ class Cell_List():
                 plt.figure()
                 plt.imshow(_fov_segmentation_label)
                 plt.show()
-            # do drift for this fov
-            if _verbose:
-                print("+ Drift correction for fov", _fov_id)
-            _drift_fl = self.drift_folder+os.sep+self.fovs[_fov_id].replace('.dax', "*_cor.pkl")
-            _drift_fl = glob.glob(_drift_fl)
-            _do_drift_marker = False
-            if len(_drift_fl) != 1 or not os.path.isfile(_drift_fl[0]):
-                if _verbose:
-                    print("+++ drift file not unique or not exist, proceed to do drift correction")
-                _do_drift_marker = True
-            else:
-                _drift_fl = _drift_fl[0]
-                if _verbose:
-                    print("+++ try to load drift correction from file:", _drift_fl)
-                _fov_drift = pickle.load(open(_drift_fl, 'rb'))
-                for _fd in _folders:
-                    _hyb_name = os.path.join(os.path.basename(_fd), self.fovs[_fov_id] )
-                    if _hyb_name not in _fov_drift:
-                        if _verbose:
-                            print(f"+++ drift info for {_hyb_name} not exists, proceed to do drift correction")
-                        _do_drift_marker = True
-
-            if _do_drift_marker:
-                if _verbose:
-                    print("++ loading bead images for drift correction.")
-                # load bead images
-                _bead_temp_files, _,_ = analysis.load_image_fov(_folders, self.fovs, _fov_id, self.channels,  self.color_dic,
-                                                    self.num_threads, loading_type='beads', max_chunk_size=6,
-                                                    correction_folder=self.correction_folder, overwrite_temp=_overwrite_temp,
-                                                    temp_folder=self.temp_folder, return_type='filename', verbose=_verbose)
-                _bead_ims, _bead_names = analysis.reconstruct_from_temp(_bead_temp_files, _folders, self.fovs, _fov_id,
-                                                           self.channels, self.color_dic, temp_folder=self.temp_folder,
-                                                           find_all=True, num_threads=self.num_threads, loading_type='beads', verbose=_verbose)
-                if _verbose:
-                    print ("++ do drift correction!")
-                # do drift corrections
-                _fov_drift, _failed_count = corrections.STD_beaddrift_sequential(_bead_ims, _bead_names,
-                                                                                self.drift_folder, self.fovs, _fov_id,
-                                                                                drift_size=_drift_size, overwrite=False,
-                                                                                dynamic=_drift_dynamic, verbose=_verbose)
-                if _failed_count > 0:
-                    print(f"++ {_failed_count} suspected failures detected in drift correction.")
-                # release
-                del(_bead_ims)
-
+            # check whether can directly load drift
+            _direct_load_drift = False
+            _drift_filename = os.path.join(self.drift_folder, self.fovs[_fov_id].replace('.dax', _drift_postfix))
+            if os.path.isfile(_drift_filename):
+                _drift = pickle.load(open(_drift_filename, 'rb'))
+                _exist = [os.path.join(os.path.basename(_fd),self.fovs[_fov_id]) for _fd in _folders \
+                        if os.path.join(os.path.basename(_fd),self.fovs[_fov_id]) in _drift]
+                if len(_exist) == len(self.annotated_folders):
+                    _direct_load_drift = True
             # create cells in parallel
             _cell_ids = np.array(np.unique(_fov_segmentation_label[_fov_segmentation_label>0])-1, dtype=np.int)
             if _missing_last:
@@ -474,40 +448,119 @@ class Cell_List():
                       'correction_folder': self.correction_folder,
                       'drift_folder': self.drift_folder,
                       'map_folder': self.map_folder,
-                      'drift': _fov_drift,
                       'distance_zxy' : self.distance_zxy,
                       'sigma_zxy': self.sigma_zxy,
                       } for _cell_id in _cell_ids]
-            _args += [(_p, True, True, True, _load_exist_info,
-                       False, False, True) for _p in _params]
-            del(_fov_drift, _fov_segmentation_label, _fov_dapi_im, _params, _cell_ids)
+            _args += [(_p, True, True, _segmentation_type, _direct_load_drift, _drift_size, _drift_ref, 
+                       _drift_postfix, _dynamic, True, False, False, _verbose) for _p in _params]
+            del(_fov_segmentation_label, _fov_dapi_im, _params, _cell_ids)
         # do multi-processing to create cells!
         if _verbose:
             print(f"+ Creating cells with {_num_threads} threads.")
         _cell_pool = mp.Pool(_num_threads)
         _cells = _cell_pool.starmap(self._create_cell, _args, chunksize=1)
         _cell_pool.close()
-        _cell_pool.join()
         _cell_pool.terminate()
+        _cell_pool.join()
+        # clear
+        killchild()
+        del(_args, _cell_pool)
         # load
         self.cells += _cells
 
-    def _crop_image_for_cells(self, _type='all', _load_in_ram=True, _load_annotated_only=True,
-                              _max_loading_chunk=5, _overwrite_temp=True, _overwrite_cell_info=False,
-                              _save=True, _force=False, _verbose=True):
+        ## If not directly load drift, do them here:
+        for _cell in self.cells:
+            if not hasattr(_cell, 'drift'):
+                _cell._load_drift(_num_threads=self.num_threads, _size=_drift_size, _ref_id=_drift_ref, _drift_postfix=_drift_postfix,
+                                  _force=False, _dynamic=_dynamic, _verbose=_verbose)
+                if _remove_bead_temp:
+                    self._remove_temp_fov(_cell.fov_id, _temp_marker=str(self.channels[self.bead_channel_index])+'_corrected.npy', _verbose=_verbose)
+            if _save:
+                _cell._save_to_file('cell_info', _verbose=_verbose)
+
+
+    def _crop_image_for_cells(self, _type='all', _load_in_ram=False, _load_annotated_only=True,
+                              _extend_dim=20, _overwrite_temp=True, _overwrite_cell_info=False,
+                              _remove_temp=False, _save=True, _force=False, _verbose=True):
         """Load images for all cells in this cell_list
         Inputs:
             _type: loading type for this """
+        ## check inputs
         # check whether cells and segmentation,drift info exists
         if _verbose:
             print ("+ Load images for cells in this cell list")
-        if not hasattr(self, 'cells') or len(self.cells) ==0:
+        if not hasattr(self, 'cells'):
             raise ValueError("No cell information loaded in cell_list")
+        if len(self.cells) == 0:
+            print("No cell in cell_list, exit.")
+        # check type
+        _type = _type.lower()
+        _allowed_types = ['all', 'combo', 'unique']
+        if _type not in _allowed_types:
+            raise ValueError(f"Wrong _type kwd, {_type} is given, {_allowed_types} are expected")
         # whether load annotated hybs only
         if _load_annotated_only:
             _folders = self.annotated_folders
         else:
             _folders = self.folders
+
+        ## Start to generate temp_files
+        # collect field of views
+        _used_fov_ids = []
+        for _cell in self.cells:
+            if _cell.fov_id not in _used_fov_ids:
+                _used_fov_ids.append(_cell.fov_id)
+        ## combo
+        if _type == 'all' or _type == 'combo':
+            if _verbose:
+                print(f"+ generating combo images for field-of-view:{_used_fov_ids}")
+            for _fov_id in _used_fov_ids:
+                _fov_cells = [_cell for _cell in self.cells if _cell.fov_id==_fov_id]
+                _temp_filenames, _ref_names, _ref_channels = _fov_cells[0]._generate_corrected_images(
+                                                'combo', _num_threads=self.num_threads, _selected_dic=None, 
+                                                _load_in_ram=False, _return_refs=True, _save=True, _verbose=_verbose)
+                for _cell in _fov_cells:
+                    # if not all combo exists for this cell:
+                    if not _cell._check_full_set('combo') or _force:
+                        if _verbose:
+                            print(f"++ Crop combo images for fov:{_cell.fov_id}, cell:{_cell.cell_id}")
+                        _cell.crop_images('combo', _num_threads=self.num_threads, _extend_dim=_extend_dim,
+                                        _single_size=_image_size, _load_in_ram=_load_in_ram, 
+                                        _temp_filenames=_temp_filenames, _ref_names=_ref_names, _ref_channels=_ref_channels,
+                                        _save=_save, _overwrite=_force, _verbose=_verbose)
+                    else:
+                        if _verbose:
+                            print(f"++ combo info exists for fov:{_cell.fov_id}, cell:{_cell.cell_id}, skip")
+        ## unique
+        if _type == 'all' or _type == 'unique':
+            if _verbose:
+                print(f"+ generating unique images for field-of-view:{_used_fov_ids}")
+            for _fov_id in _used_fov_ids:
+                _fov_cells = [_cell for _cell in self.cells if _cell.fov_id==_fov_id]
+                _temp_filenames, _ref_names, _ref_channels = _fov_cells[0]._generate_corrected_images(
+                                                'unique', _num_threads=self.num_threads, _selected_dic=None, 
+                                                _load_in_ram=False, _return_refs=True, _save=True, _verbose=_verbose)
+                for _cell in _fov_cells:
+                    # if not all combo exists for this cell:
+                    if not _cell._check_full_set('unique') or _force:
+                        if _verbose:
+                            print(f"+ Crop unique images for fov:{_cell.fov_id}, cell:{_cell.cell_id}")
+                        _cell._crop_images('unique', _num_threads=self.num_threads, _extend_dim=_extend_dim,
+                                        _single_size=_image_size, _load_in_ram=_load_in_ram, 
+                                        _temp_filenames=_temp_filenames, _ref_names=_ref_names, _ref_channels=_ref_channels,
+                                        _save=_save, _overwrite=_force, _verbose=_verbose)
+                    else:
+                        if _verbose:
+                            print(f"+ combo info exists for fov:{_cell.fov_id}, cell:{_cell.cell_id}, skip")
+          
+        ## clear temp
+        if _remove_temp:
+            for _fov_id in _used_fov_ids:
+                self._remove_temp_fov(_fov_id)
+
+
+        
+        
         _fov_dic = {} # fov_id ->
         for _cell in self.cells:
             if not hasattr(_cell,'drift'):
@@ -1036,54 +1089,61 @@ class Cell_Data():
 
         return _seg_label, _dapi_im
     ## Load drift (better load, although de novo drift is allowed)
-    def _load_drift(self, _size=500, _force=False, _dynamic=True, _verbose=True):
+    def _load_drift(self, _load_annotated_only=True, _size=300, _ref_id=0, _drift_postfix='_sequential_current_cor.pkl', _num_threads=12,
+                    _force=False, _dynamic=True, _verbose=True):
         # if exists:
         if hasattr(self, 'drift') and not _force:
             if _verbose:
                 print(f"- drift already exists for cell:{self.cell_id}, skip")
-            return
+            return getattr(self,'drift')
         # load color usage if not given
         if not hasattr(self, 'channels'):
             self._load_color_info()
-        # scan for candidate drift correction files
-        _dft_file_cand = glob.glob(self.drift_folder+os.sep+self.fovs[self.fov_id].replace(".dax", "*.pkl"))
-        # if one unique drift file was found:
-        if len(_dft_file_cand) == 1:
-            _dft = pickle.load(open(_dft_file_cand[0], 'rb'))
-            # check drift length
-            if len(_dft) == len(self.color_dic):
+        # check whether load annotated only
+        if _load_annotated_only:
+            _folders = self.annotated_folders
+        else:
+            _folders = self.folders
+        # load existing drift file 
+        _drift_filename = os.path.join(self.drift_folder, self.fovs[self.fov_id].replace('.dax', _drift_postfix))
+        if os.path.isfile(_drift_filename):
+            _drift = pickle.load(open(_drift_filename, 'rb'))
+            _exist = [os.path.join(os.path.basename(_fd),self.fovs[self.fov_id]) for _fd in _folders \
+                    if os.path.join(os.path.basename(_fd),self.fovs[self.fov_id]) in _drift]
+            if len(_exist) == len(_folders):
                 if _verbose:
-                    print("- length matches, directly load from existing file:", _dft_file_cand[0])
-                self.drift = _dft
+                    print("- directly load drift from file.")
+                self.drift = _drift
                 return self.drift
-            else:
-                if _verbose:
-                    print("- length doesn't match, proceed to do drift correction.")
-        elif len(_dft_file_cand) == 0:
-            if _verbose:
-                print("- no drift result found in drift folder", self.drift_folder)
         else:
             if _verbose:
-                print(f"- multiple drift result found in drift folder{self.drift_folder}, proceed to do drift")
-        # do drift correction from scratch
-        if not hasattr(self, 'bead_ims'):
-            if _verbose:
-                print("- Loading beads images for drift correction")
-            _, _bead_ims, _bead_names,_ = self._generate_corrected_images('beads', _load_in_ram=True, _return_refs=True, _verbose=True)
-        else:
-             _bead_ims, _bead_names = self.bead_ims, self.bead_names
-        # do drift correction
-        self.drift, _failed_count = corrections.STD_beaddrift_sequential(_bead_ims, _bead_names,
-                                                            self.drift_folder, self.fovs, self.fov_id,
-                                                            drift_size=_size, overwrite=_force, dynamic=_dynamic)
-        if _failed_count > 0:
-            print('Failed drift noticed! total failure:', _failed_count)
-        # release
-        del(_bead_ims, _bead_names)
-        return self.drift
-
+                print("- start a new drift correction!")
+            _drift = {}
+            _exist = []
+        ## proceed to amend drift correction
+        # find files requiring correction / loading
+        _load_names = [os.path.join(os.path.basename(_fd),self.fovs[self.fov_id]) for _fd in _folders \
+                    if os.path.join(os.path.basename(_fd), self.fovs[self.fov_id]) not in _exist]
+        if os.path.join(os.path.basename(_folders[_ref_id]), self.fovs[self.fov_id]) not in _load_names:
+            _load_names.append(os.path.join(os.path.basename(_folders[_ref_id]), self.fovs[self.fov_id]) )
+        # compatible channels
+        _load_channels = [self.channels[self.bead_channel_index] for _nm in _load_names]
+        _load_dic = {'ref_names':_load_names, 'channels':_load_channels}
+        # generate temp-file
+        temp_filenames, bead_names, _ = self._generate_corrected_images('beads', _num_threads=_num_threads, 
+                                    _selected_dic=_load_dic, _load_in_ram=False, _return_refs=True, _verbose=_verbose)
+        # calculate drift
+        _drift, _failed_count = corrections.tempfile_beaddrift(temp_filenames,bead_names, ref_id=_ref_id, 
+                            drift_size=_size, num_threads=_num_threads, dynamic_seeding=_dynamic,
+                            save_folder=self.drift_folder,save_postfix=_drift_postfix,overwrite=_force,verbose=_verbose)
+        if _verbose:
+            print(f"- drift correction for {len(_drift)} frames has been generated.")
+        if len(_drift) == len(self.annotated_folders):
+            self.drift = _drift
+            return self.drift
+        
     ## NEW Correct images and generated temp files or directly load in ram
-    def _generate_corrected_images(self, _type, _splitted_ims=None, _num_threads=12, 
+    def _generate_corrected_images(self, _type, _splitted_ims=None, _selected_dic=None, _num_threads=12, 
                                    _single_size=_image_size, _buffer_frames=10, _load_in_ram=False,
                                    _z_shift_corr=True, _hot_pixel_remove=True, _illumination_correction=True, _chromatic_correction=True,
                                    _return_refs=False, _save=True,  _save_type='.npy', _overwrite=False, _verbose=False):
@@ -1095,6 +1155,17 @@ class Cell_Data():
         # load attributes
         if not hasattr(self, 'channels') or not hasattr(self, 'color_dic'):
             self._load_color_info()
+        # check selected_list
+        if _selected_dic is not None and len(_selected_dic) > 0:
+            if not isinstance(_selected_dic, dict):
+                raise ValueError("Wrong element type for info in _selected_dic")
+            elif 'ref_names' not in _selected_dic or 'channels' not in _selected_dic:
+                raise ValueError("Missing keyword ref_name or channel in _selected_dic info")
+            elif len(_selected_dic['ref_names']) != len(_selected_dic['channels']):
+                raise ValueError("selected_dic ref_names and channels doesnt match length")
+            _pick_selected = True
+        else:
+            _pick_selected = False
         # check type
         _type = _type.lower()
         _allowed_kwds = {'all':'', 'combo':'c', 'unique':'u', 'beads':'beads', 'dapi':'DAPI'}
@@ -1102,7 +1173,7 @@ class Cell_Data():
             raise ValueError(f"Wrong type kwd! {_type} is given, {_allowed_kwds} expected.")
         # extract candidates
         if _verbose:
-            print(f"- Generate corrected images for cell:{self.cell_id} in fov:{self.fov_id}")
+            print(f"- Generate corrected images for fov:{self.fov_id}, cell:{self.cell_id}")
         _ref_names = []
         _ref_filenames = []
         _ref_channels = []
@@ -1114,15 +1185,24 @@ class Cell_Data():
             for _channel, _info in zip(self.channels[:len(_infos)], _infos):
                 if _allowed_kwds[_type] in _info:
                     _ref_name = os.path.join(_hyb_fd, self.fovs[self.fov_id])
-                    _ref_filenames.append([os.path.join(_dfd,_ref_name) for _dfd in self.data_folder if os.path.join(_dfd,_hyb_fd) in self.annotated_folders][0])
-                    if _splitted_ims is not None:
-                        _im = _splitted_ims[_ref_name][self.channels.index(_channel)]
-                        _raw_ims.append(_im)
-                    else:
-                        _raw_ims.append(None)
-                    _ref_names.append(_ref_name)
-                    _ref_channels.append(_channel)
-                    _save_names.append(os.path.join(self.temp_folder, _ref_name.replace(os.sep,'-').replace('.dax','_'+str(_channel)+'_corrected') ))
+                    # if only pick from selected
+                    _proceed = True
+                    if _pick_selected:
+                        _matches = [_ref_name==_rn and _channel==_ch for _rn,_ch in zip(_selected_dic['ref_names'],_selected_dic['channels'])]
+                        if sum(_matches) != 1:
+                            _proceed = False
+                            print(_ref_name, sum(_matches))
+                    # proceed to append
+                    if _proceed:
+                        _ref_filenames.append([os.path.join(_dfd,_ref_name) for _dfd in self.data_folder if os.path.join(_dfd,_hyb_fd) in self.annotated_folders][0])
+                        if _splitted_ims is not None:
+                            _im = _splitted_ims[_ref_name][self.channels.index(_channel)]
+                            _raw_ims.append(_im)
+                        else:
+                            _raw_ims.append(None)
+                        _ref_names.append(_ref_name)
+                        _ref_channels.append(_channel)
+                        _save_names.append(os.path.join(self.temp_folder, _ref_name.replace(os.sep,'-').replace('.dax','_'+str(_channel)+'_corrected') ))
         if _verbose:
             print(f"-- {len(_ref_names)} is going to be corrected")
         ## Process corrections by multi-processing
@@ -1142,7 +1222,7 @@ class Cell_Data():
                     _save, self.temp_folder, _save_name, _save_type, _overwrite, _verbose)
             _args.append(_arg)
         if _verbose:
-            print(f"-- start fitting {_type} for fov:{self.fov_id}, cell:{self.cell_id} with {_num_threads} threads")
+            print(f"-- start correcting {_type} for fov:{self.fov_id}, cell:{self.cell_id} with {_num_threads} threads")
         _corr_pool = mp.Pool(_num_threads, maxtasksperchild=int(np.ceil(len(_args)/_num_threads)))
         if _load_in_ram:
             _corr_ims = _corr_pool.starmap(corrections.correct_single_image, _args, chunksize=1)
@@ -1170,7 +1250,7 @@ class Cell_Data():
         return _return_args
 
     ## crop images given segmentation and images/temp_filenames
-    def _crop_images(self, _type, _num_threads=12, _extend_dim=20,
+    def _crop_images(self, _type, _num_threads=12, _extend_dim=20, _single_size=_image_size, 
                      _load_in_ram=False, _temp_filenames=None, _temp_type='.npy',
                      _corr_images=None, _ref_names=None, _ref_channels=None,
                      _save=True, _overwrite=False, _verbose=False):
@@ -1220,14 +1300,9 @@ class Cell_Data():
                 for _channel, _info in zip(self.channels[:len(_infos)], _infos):
                     if _allowed_kwds[_type] in _info:
                         _ref_name = os.path.join(_hyb_fd, self.fovs[self.fov_id])
-                        if _ref_name in _ref_names:
-                            if _channel == _ref_channels[_ref_names.index(_ref_name)]:
-                                continue
-                            else:
-                                _check_inram = False
-                                if _verbose:
-                                    print(f"- corrected image for:{_ref_name},channel:{_channel} doesn't exists, not all images are in ram")
-                                break
+                        _matches = [True for _nm,_ch in zip(_ref_names, _ref_channels) if _nm==_ref_name and _ch==_channel]
+                        if sum(_matches) == 1:
+                            continue
                         else:
                             _check_inram = False
                             if _verbose:
@@ -1235,30 +1310,210 @@ class Cell_Data():
                             break
                 if not _check_inram:
                     break
+        
         ## make variables consistent in two cases
         # case 1: Load from images in ram
         if not _check_tempfile and _check_inram:
-            print("- Crop images from images in ram.")
+            if _verbose:
+                print("- Crop images from images in ram.")
             _temp_filenames = [None for _im in _corr_images]
         # case 2: Load from temp_files
         else:
-            print("- Crop images from temp_files")
+            if _verbose:
+                print("- Crop images from temp_files")
             if not _check_tempfile:
                 if _verbose:
                     print("- Reload temp images")
-            _temp_filenames, _ref_names, _ref_channels = self._generate_corrected_images(_type=_type, _num_threads=_num_threads, 
-                                                              _load_in_ram=False,_save_type=_temp_type,
-                                                              _return_refs=True, _overwrite=False, _verbose=_verbose)
+                _temp_filenames, _ref_names, _ref_channels = self._generate_corrected_images(_type=_type, _num_threads=_num_threads, 
+                                                                _load_in_ram=False,_save_type=_temp_type,
+                                                                _return_refs=True, _overwrite=False, _verbose=_verbose)
             _corr_images = [None for _fl in _temp_filenames]
         ## Start crop image
         if _verbose:
             print(f"Start cropping {_type} image, num_of_images:{len(_temp_filenames)}")
-        if _type == 'combo':
-            pass
+        
+        ## unique 
         if _type == 'unique':
-            pass
+            _unique_savefile = os.path.join(self.save_folder, 'unique_rounds.npz')
+            if not _overwrite and os.path.isfile(_unique_savefile):
+                with np.load(_unique_savefile, mmap_mode='r+') as handle:
+                    _unique_ims = list(handle['observation'])
+                    _unique_ids = list(handle['ids'])
+                    _unique_channels = list(handle['channels'])
+            else:
+                _unique_ims, _unique_ids, _unique_channels = [],[],[]
+            # initialize unique_args anyway
+            _unique_args = []
+            # loop through color-dic and find all matched type
+            for _hyb_fd, _infos in self.color_dic.items():
+                for _channel, _info in zip(self.channels[:len(_infos)], _infos):
+                    if _allowed_kwds[_type] in _info and int(_info.split(_allowed_kwds[_type])[-1]) not in _unique_ids:
+                        _ref_name = os.path.join(_hyb_fd, self.fovs[self.fov_id])
+                        if None in _temp_filenames: # read in-ram images
+                            _matches = [_nm==_ref_name and _ch==_channel for _nm,_ch in zip(_ref_names, _ref_channels)]
+                        else: # read by temp-file
+                            _matches = [ _hyb_fd in _fl.split(os.sep)[-1] \
+                                        and _channel in _fl.split(os.sep)[-1] \
+                                        and self.fovs[self.fov_id].replace('.dax','') in _fl.split(os.sep)[-1] \
+                                        for _fl in _temp_filenames]
 
+                        if sum(_matches) == 1:
+                            _ind = _matches.index(True)
+                            _temp_name =os.path.join(self.temp_folder, _ref_name.replace(os.sep,'-').replace('.dax','_'+str(_channel)+'_corrected'+_temp_type))
+                            # append id and arguments
+                            _unique_channels.append(_channel)
+                            _unique_ids.append(int(_info.split(_allowed_kwds[_type])[-1]))
+                            _unique_args.append( (_corr_images[_ind], _temp_filenames[_ind], self.segmentation_label,
+                                                self.drift[_ref_name], _single_size, _extend_dim) )
+                        else:
+                            print(_ref_name,_channel)
+                    # skip the following if already existed                         
+                    elif _allowed_kwds[_type] in _info and int(_info.split(_allowed_kwds[_type])[-1]) in _unique_ids:
+                        if _verbose:
+                            print(f"Skip {int(_info.split(_allowed_kwds[_type])[-1])}")
+            # multi-processing to do cropping
+            if _verbose:
+                print(f"-- start cropping {_type} for fov:{self.fov_id}, cell:{self.cell_id} with {_num_threads} threads")
+            _start_time = time.time()
+            _crop_pool = mp.Pool(_num_threads, maxtasksperchild=int(np.ceil(len(_unique_args)/_num_threads)))
+            _cropped_unique_ims = _crop_pool.starmap(visual_tools.crop_single_image, _unique_args, chunksize=1)
+            # close multiprocessing
+            _crop_pool.close()
+            _crop_pool.terminate()
+            _crop_pool.join()
+            # clear
+            killchild()
+            del(_crop_pool)
+            # append 
+            _unique_ims += _cropped_unique_ims
+            # sort 
+            _tp = [(_id,_im,_ch) for _id, _im, _ch in sorted(zip(_unique_ids, _unique_ims, _unique_channels))]
+            _unique_ids = [_t[0] for _t in _tp]
+            _unique_ims = [_t[1] for _t in _tp]
+            _unique_channels = [_t[2] for _t in _tp]
+            if _verbose:
+                print(f"-- time spent in cropping:{time.time()-_start_time}")
+            if _load_in_ram:
+                self.unique_ims = _unique_ims
+                self.unique_ids = _unique_ids
+                self.unique_channels = _unique_channels
+            else:
+                _save = True # not load-in-ram, then save to file
+            if _save and len(_unique_args) > 0:
+                _dc = {'unique_ims':_unique_ims,
+                       'unique_ids':_unique_ids,
+                       'unique_channels': _unique_channels}
+                self._save_to_file('unique', _save_dic=_dc, _overwrite=_overwrite) 
+            return _unique_ims, _unique_ids, _unique_channels
 
+        elif _type == 'combo':
+            # load encoding
+            if not hasattr(self, 'encoding_scheme'):
+                self._load_encoding_scheme()
+            ## initialize
+            _combo_groups = []  # list to store encoding groups
+            _combo_args = [] # list of arguments used for multi-processing
+
+    
+
+    # function to give boolean output of whether a centain type of images are fully generated
+    def _check_full_set(self, _type, _unique_marker='u', _decoded_flag='diff', _verbose=False):
+        """Function to check whether files for a certain type exists"""
+        # check inputs
+        _type = _type.lower()
+        _allowed_types = ['combo', 'unique', 'decoded']
+        if _type not in _allowed_types:
+            raise ValueError(f"Wrong _type kwd, {_type} is given, {_allowed_types} are expected")
+        # start checking 
+        if _type == 'unique':
+            _unique_savefile = os.path.join(self.save_folder, 'unique_rounds.npz')
+            if not os.path.isfile(_unique_savefile):
+                if _verbose:
+                    print("-- unique file does not exist")
+                return False
+            else:
+                with np.load(_unique_savefile, mmap_mode='r+') as handle:
+                    _keys = handle.keys()
+                    if 'observation' not in _keys or 'ids' not in _keys or 'channels' not in _keys:
+                        if _verbose:
+                            print("-- unique file missing key")
+                        return False
+                    else:
+                        _unique_ids = list(handle['ids'])
+                # check unique in color_dic
+                if not hasattr(self, 'color_dic') or not hasattr(self,'channels'):
+                    self._load_color_info()
+                for _hyb_fd, _infos in self.color_dic.items():
+                    for _info in _infos:
+                        if _unique_marker in _info:
+                            _uid = int(_info.split(_unique_marker)[-1])
+                            if _uid not in _unique_ids:
+                                return False
+            # if everything's right, return true
+            return True
+        elif _type == 'combo':
+           # load existing combo files
+            _raw_combo_fl = "rounds.npz"
+            _combo_files = glob.glob(os.path.join(self.save_folder, "group-*", "channel-*", _raw_combo_fl))
+            _combo_ids = []
+            for _combo_file in _combo_files:
+                try:
+                    with np.load(_combo_file, mmap_mode='r+') as handle:
+                        _keys = handle.keys()
+                        if 'observation' not in _keys or 'encoding' not in _keys or 'names' not in _keys:
+                            if _verbose:
+                                print(f"combo file:{_combo_file} missing key")
+                        else:
+                            _matrix = handle['encoding']
+                            _combo_ids += [np.unique(_matrix[:, _col_id])[-1] for _col_id in range(_matrix.shape[1]) \
+                                    if np.unique(_matrix[:, _col_id])[-1] >= 0]
+                except:
+                    if _verbose:
+                        print(f"Cant open combo file:{_combo_file}")
+                    return False
+            _cmobo_ids = np.unique(_combo_ids)
+            # check with encoding scheme
+            _encoding_ids = []
+            if not hasattr(self, 'encoding_scheme'):
+                self._load_encoding_scheme()
+            for _color, _group_dic in self.encoding_scheme.items():
+                for _matrix in _group_dic['matrices']:
+                    _encoding_ids += [np.unique(_matrix[:, _col_id])[-1] for _col_id in range(_matrix.shape[1])
+                                      if np.unique(_matrix[:, _col_id])[-1] >= 0]
+            _encoding_ids = np.unique(_encoding_ids)
+            for _id in _encoding_ids:
+                if _id not in _combo_ids:
+                    return False
+            # if everything's fine return True
+            return True
+        elif _type == 'decoded':
+            if not self._check_full_set('combo'):
+                if _verbose:
+                    print("Combo not complete in this set, so decoded won't be complete")
+                return False
+            # load existing combo files
+            _decoded_ids = []
+            _raw_combo_fl = "rounds.npz"
+            _combo_files = glob.glob(os.path.join(self.save_folder, "group-*", "channel-*", _raw_combo_fl))
+            for _combo_file in _combo_files:
+                _decoded_file = _combo_file.replace(_raw_combo_fl, _decoded_flag+os.sep+'regions.npz')
+                if not os.path.isfile(_decoded_file):
+                    if _verbose:
+                        print(f"decoded file {_decoded_file} is missing")
+                    return False
+                else:
+                    try:
+                        with np.load(_decoded_file, mmap_mode='r+') as handle:
+                            if 'observation' not in handle.keys():
+                                if _verbose:
+                                    print(f"decoded file {_decoded_file} is lacking images")
+                                return False
+                    except:
+                        if _verbose:
+                            print(f"Cant open decoded file {_decoded_file}")
+                        return False
+            # if everything's fine
+            return True
 
 
     def _load_images(self, _type, _splitted_ims=None,

@@ -11,7 +11,7 @@ from skimage import morphology, restoration, measure
 from skimage.segmentation import random_walker
 from scipy.ndimage import gaussian_laplace
 
-from . import get_img_info, corrections, visual_tools, analysis
+from . import get_img_info, corrections, visual_tools, analysis, classes
 from . import _correction_folder,_temp_folder,_distance_zxy,_sigma_zxy,_image_size
 
 
@@ -1856,7 +1856,7 @@ def fit_multi_gaussian(im, seeds, width_zxy = [1.35,1.9,1.9], fit_radius=10,
         return np.array([])
 
 
-def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0, npy_start=64):
+def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0, npy_start=64, verbose=False):
     """
     Slice image in a memory-efficient manner.
     Inputs:
@@ -1901,7 +1901,8 @@ def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0, npy_start=64)
     f = open(fl, "rb")
     # starting point
     if fl.split('.')[-1] == 'npy':
-        print(f"- slicing .npy file, start with {npy_start}")
+        if verbose:
+            print(f"- slicing .npy file, start with {npy_start}")
         pt_pos = npy_start
     else:
         pt_pos = 0
@@ -1944,12 +1945,10 @@ def crop_single_image(im, filename, seg_label, drift=np.array([0,0,0]), im_size=
             _limits[_im_dim, 1] = min(_1d_indices[-1]+extend_dim, seg_label.shape[_dim])
         if _limits[0,1] == 0:
             _limits[0,1] = im_size[0]
-        print(_limits)
         _drift_limits = np.zeros(_limits.shape, dtype=np.int)
         for _i,_lim in enumerate(_limits):
             _drift_limits[_i, 0] = max(_lim[0]-np.ceil(np.abs(drift[_i])), 0)
             _drift_limits[_i, 1] = min(_lim[1]+np.ceil(np.abs(drift[_i])), im_size[_i])
-        print(_drift_limits)
         _cim = slice_image(filename, im_size, _drift_limits[0], _drift_limits[2], _drift_limits[1])
         _cim = ndimage.interpolation.shift(_cim, -drift[:len(_limits)], mode='nearest')
         # second crop
@@ -1958,25 +1957,58 @@ def crop_single_image(im, filename, seg_label, drift=np.array([0,0,0]), im_size=
             if _limit_diffs[_m,1] == 0:
                 _limit_diffs[_m,1] = _limits[_m,1] - _limits[_m,0]
         _limit_diffs = _limit_diffs.astype(np.int)
-        print(_limit_diffs)
         _cim = _cim[_limit_diffs[0,0]:_limit_diffs[0,0]+_limits[0,1]-_limits[0,0],\
                     _limit_diffs[2,0]:_limit_diffs[2,0]+_limits[2,1]-_limits[2,0],\
                     _limit_diffs[1,0]:_limit_diffs[1,0]+_limits[1,1]-_limits[1,0]]
     # crop from file
     else: 
-        _cim = crop_cell(im, seg_label, drift=drift, extend_dim=_extend_dim)[0]
+        _cim = crop_cell(im, seg_label, drift=drift, extend_dim=extend_dim)[0]
     
     return _cim
 
 
-def crop_combo_group(ims, filenames, seg_label, drift_dic, im_size=_image_size, extend_dim=20):
+def crop_combo_group(ims, temp_filenames, seg_label, drift_dic, 
+                     group_channel, group_names, fov_name=None, 
+                     im_size=_image_size, extend_dim=20):
     '''Given '''
-    if im is None and filename is None:
-        raise ValueError("Keywords im and filename cannot be both None!")
+    if ims is None and temp_filenames is None:
+        raise ValueError("Keywords ims and temp_filenames cannot be both None!")
     if np.max(seg_label) > 1:
         raise ValueError(
             "seg_label must be binary label, either 0-1 label or bool")
-    if len(drift) < len(np.shape(im)):
-        raise ValueError(
-            "dimension of drift smaller than number of dimension of image!")
+    if temp_filenames is None:
+        if group_names is None or fov_name is None:
+            raise ValueError("When image are given, group_names and fov_name should be given as well")
+        if len(group_names) != len(ims):
+            raise ValueError("number of images and number of group_names doesn't match")
+    else:
+        matched_filenames = []
+        for _gname in group_names:
+            _matches = [_fl for _fl in temp_filenames if _gname in _fl and str(group_channel) in _fl]
+            if len(_matches) == 1:
+                matched_filenames.append(_matches[0])
+            else:
+                raise ValueError("there are no matched temp files matched with group_names")
+    # binarilize segmentation label            
     seg_label = np.array(seg_label > 0, dtype=np.int)
+    # extract reference name, used to extract drift
+    if group_names is not None and fov_name is not None:
+        ref_names = [os.path.join(_gn, fov_name) for _gn in group_names]
+    else:
+        ref_names = [os.path.basename(_fl).split('_'+group_channel)[0].replace('-',os.sep)+'.dax' for _fl in matched_filenames]
+    # match filename
+    for _rn in ref_names:
+        if _rn not in drift_dic:
+            raise KeyError(f"Drift_dic doesn't have key:{_rn} for ref_name")
+    # initialzie
+    cropped_ims = []
+
+    if temp_filenames is not None:
+        for filename, ref_name in zip(matched_filenames, ref_names):
+            cropped_ims.append(crop_single_image(
+                None, filename, seg_label, drift=drift_dic[ref_name], im_size=im_size, extend_dim=extend_dim))
+    else:
+        for im, ref_name in zip(ims, ref_names):
+            cropped_ims.append(crop_cell(im, seg_label, drift=drift_dic[ref_name],extend_dim=extend_dim))
+    # return 
+    return cropped_ims        
