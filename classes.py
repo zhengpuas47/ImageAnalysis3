@@ -703,7 +703,7 @@ class Cell_List():
                 print("++ removing temp file:", os.path.basename(_fl))
                 os.remove(_fl)
 
-    def _spot_finding_for_cells(self, _type='unique', _decoded_flag=None, _max_fitting_threads=5, _clear_image=False,
+    def _spot_finding_for_cells(self, _type='unique', _decoded_flag='diff', _max_fitting_threads=5, _clear_image=False,
                                 _use_chrom_coords=True, _seed_th_per=50, _max_filt_size=3,
                                 _max_seed_count=6, _min_seed_count=3,
                                 _expect_weight=1000, _min_height=100, _max_iter=10, _th_to_end=1e-5,
@@ -731,7 +731,7 @@ class Cell_List():
             else:
                 raise ValueError("Wrong _type keyword given!")
             # do multi_fitting
-            _cell._multi_fitting(_type=_type, _use_chrom_coords=_use_chrom_coords, _num_threads=min(_max_fitting_threads, self.num_threads),
+            _cell._multi_fitting(_type=_type, _decoded_flag=_decoded_flag, _use_chrom_coords=_use_chrom_coords, _num_threads=min(_max_fitting_threads, self.num_threads),
                                  _seed_th_per=_seed_th_per, _max_filt_size=_max_filt_size, _max_seed_count=_max_seed_count,
                                  _min_seed_count=_min_seed_count, _width_zxy=self.sigma_zxy, _fit_radius=10,
                                  _expect_weight=_expect_weight, _min_height=_min_height, _max_iter=_max_iter,
@@ -1221,7 +1221,7 @@ class Cell_Data():
     def _crop_images(self, _type, _num_threads=12, _extend_dim=20, _single_size=_image_size, 
                      _load_in_ram=False, _temp_filenames=None, _temp_type='.npy',
                      _corr_images=None, _ref_names=None, _ref_channels=None,
-                     _save=True, _overwrite=False, _verbose=False):
+                     _save=True, _overwrite=False, _verbose=True):
         "Function to crop combo/unique images "
         ## check inputs
         # Num of threads
@@ -2113,9 +2113,10 @@ class Cell_Data():
         if not hasattr(self, 'chrom_im'):
             self._generate_chromosome_image()
         _chrom_im = np.zeros(np.shape(self.chrom_im), dtype=np.uint8) + self.chrom_im
-        if _gaussian_size:
+        if not hasattr(self,'chrom_coords'):
             # gaussian filter
-            _chrom_im = ndimage.filters.gaussian_filter(_chrom_im, _gaussian_size)
+            if _gaussian_size:
+                _chrom_im = ndimage.filters.gaussian_filter(_chrom_im, _gaussian_size)
             # normalization
             _limit = stats.scoreatpercentile(_chrom_im, (_cap_percentile, 100.-_cap_percentile)).astype(np.float)
             _chrom_im = (_chrom_im-np.min(_limit))/(np.max(_limit)-np.min(_limit))
@@ -2149,8 +2150,9 @@ class Cell_Data():
             # store
             self.chrom_segmentation = _kept_label
             self.chrom_coords = _chrom_coords
-
-        return _kept_label, _chrom_coords
+            return _chrom_coords
+        else:
+            return self.chrom_coords
 
     def _pick_chromosome_manual(self, _save_folder=None, _save_fl='chrom_coord.pkl'):
         if not _save_folder:
@@ -2172,7 +2174,7 @@ class Cell_Data():
                                                  save_file=_chrom_savefile, given_dic=_coord_dic)
         return _viewer
 
-    def _update_chromosome_from_file(self, _save_folder=None, _save_fl='chrom_coord.pkl', _verbose=True):
+    def _update_chromosome_from_file(self, _save_folder=None, _save_fl='chrom_coord.pkl', _save=True, _force_save_combo=False, _force=False, _verbose=True):
         if not _save_folder:
             if hasattr(self, 'save_folder'):
                 _save_folder = self.save_folder
@@ -2184,10 +2186,13 @@ class Cell_Data():
         if _verbose:
             print(f"-- {len(_chrom_coords)} loaded")
         self.chrom_coords = _chrom_coords
-
+        if _save:
+            self._save_to_file('cell_info', _save_dic={'chrom_coord':_chrom_coords}, _overwrite=_force)
+            if hasattr(self,'combo_groups') or _force_save_combo:
+                self._save_to_file('combo', _overwrite=_force)
         return _chrom_coords
 
-    def _multi_fitting(self, _type='unique',_use_chrom_coords=True, _num_threads=5,
+    def _multi_fitting(self, _type='unique', _decoded_flag=None, _use_chrom_coords=True, _num_threads=5,
                        _seed_th_per=50., _max_filt_size=3, _max_seed_count=0, _min_seed_count=1,
                        _width_zxy=None, _fit_radius=10, _expect_weight=500, _min_height=100, _max_iter=10, _th_to_end=1e-5,
                        _save=True, _verbose=True):
