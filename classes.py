@@ -744,7 +744,7 @@ class Cell_List():
                 elif _type == 'decoded':
                     _cell.decoded_ims = None
 
-    def _pick_spots_for_cells(self, _type='unique', _pick_type='dynamic', _use_chrom_coords=True, _distance_zxy=None,
+    def _pick_spots_for_cells(self, _type='unique', _decoded_flag='diff', _pick_type='dynamic', _use_chrom_coords=True, _distance_zxy=None,
                               _w_dist=2, _dist_ref=None, _penalty_type='trapezoidal', _penalty_factor=5,
                               _gen_distmap=True, _save_plot=True, _plot_limits=[200,1000],
                               _save=True, _verbose=True):
@@ -768,7 +768,7 @@ class Cell_List():
             elif _type == 'combo' or _type == 'decoded':
                 if not hasattr(_cell, 'decoded_ids'):
                     try:
-                        _cell._load_from_file('decoded')
+                        _cell._load_from_file('decoded', _decoded_flag='diff')
                     except:
                         raise IOError("Cannot load decoded files!")
             else:
