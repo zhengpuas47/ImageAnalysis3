@@ -386,7 +386,7 @@ class Cell_List():
                           _segmentation_type='small', _plot_segmentation=True, 
                           _load_exist_info=True, _load_annotated_only=True,
                           _drift_size=300, _drift_ref=0, _drift_postfix='_sequential_current_cor.pkl', 
-                          _dynamic=True, _save=True, _force_drift=False, _remove_bead_temp=True, _verbose=True):
+                          _dynamic=True, _save=False, _force_drift=False, _remove_bead_temp=True, _verbose=True):
         """Create Cele_data objects for one field of view"""
         if not _num_threads:
             _num_threads = int(self.num_threads)
@@ -1371,7 +1371,8 @@ class Cell_Data():
                 _dc = {'unique_ims':_unique_ims,
                        'unique_ids':_unique_ids,
                        'unique_channels': _unique_channels}
-                self._save_to_file('unique', _save_dic=_dc, _overwrite=_overwrite) 
+                self._save_to_file('unique', _save_dic=_dc, _overwrite=_overwrite, _verbose=_verbose)
+                self._save_to_file('cell_info', _overwrite=False, _verbose=_verbose)
             return _unique_ims, _unique_ids, _unique_channels
 
         elif _type == 'combo':
@@ -1451,6 +1452,7 @@ class Cell_Data():
                 if _save or not _load_in_ram: # if not load-in-ram, then save something to file 
                     _dc = {'combo_groups':_combo_groups}
                     self._save_to_file('combo', _save_dic=_dc, _overwrite=_overwrite, _verbose=_verbose)
+                    self._save_to_file('cell_info', _overwrite=False, _verbose=_verbose)
                 return _combo_groups
             else:
                 # no need to update anything
@@ -2187,7 +2189,7 @@ class Cell_Data():
             print(f"-- {len(_chrom_coords)} loaded")
         self.chrom_coords = _chrom_coords
         if _save:
-            self._save_to_file('cell_info', _save_dic={'chrom_coord':_chrom_coords}, _overwrite=_force)
+            self._save_to_file('cell_info', _save_dic={'chrom_coord':_chrom_coords})
             if hasattr(self,'combo_groups') or _force_save_combo:
                 self._save_to_file('combo', _overwrite=_force)
         return _chrom_coords
