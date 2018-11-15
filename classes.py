@@ -2192,7 +2192,7 @@ class Cell_Data():
                 self._save_to_file('combo', _overwrite=_force)
         return _chrom_coords
 
-    def _multi_fitting(self, _type='unique', _decoded_flag=None, _use_chrom_coords=True, _num_threads=5,
+    def _multi_fitting(self, _type='unique', _decoded_flag='diff', _use_chrom_coords=True, _num_threads=5,
                        _seed_th_per=50., _max_filt_size=3, _max_seed_count=0, _min_seed_count=1,
                        _width_zxy=None, _fit_radius=10, _expect_weight=500, _min_height=100, _max_iter=10, _th_to_end=1e-5,
                        _save=True, _verbose=True):
@@ -2226,8 +2226,7 @@ class Cell_Data():
                 if not hasattr(self, 'decoded_ims') or not hasattr(self, 'decoded_ids'):
                     _temp_flag = True  # this means the unique images are temporarily loaded
                     print("++ no decoded image info loaded to this cell, try loading:")
-                    self._load_from_file(
-                        'decoded', _overwrite=False, _verbose=_verbose)
+                    self._load_from_file('decoded', _decoded_flag=_decoded_flag, _overwrite=False, _verbose=_verbose)
                 else:
                     _temp_flag = False  # not temporarily loaded
                 _ims = self.decoded_ims

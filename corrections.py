@@ -142,16 +142,16 @@ def get_STD_centers(im, th_seed=150, close_threshold=0.01, plt_val=False,
         # fitting
         pfits = visual_tools.fit_seed_points_base_fast(im,seeds,width_z=1.8*1.5/2,width_xy=1.,radius_fit=5,n_max_iter=10,max_dist_th=0.25,quiet=not verbose)
         # get coordinates for fitted beads
+        remove = 0
         if len(pfits) > 0:
-            beads = pfits[:,1:4];
+            beads = pfits[:,1:4]
             # remove very close spots
-            remove = 0;
             for i,bead in enumerate(beads):
                 if np.sum(np.sum((beads-bead)**2, axis=1)<close_threshold) > 1:
-                    beads = np.delete(beads, i-remove, 0);
-                    remove += 1;
+                    beads = np.delete(beads, i-remove, 0)
+                    remove += 1
         else:
-            beads = None;
+            beads = None
         if verbose:
             print(remove, "points removed given smallest distance", close_threshold)
         # make plot if required
