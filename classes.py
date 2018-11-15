@@ -625,9 +625,9 @@ class Cell_List():
             if hasattr(_cell, 'chrom_coords') and not _overwrite:
                 _chrom_coords = _cell.chrom_coords
             else:
-                _, _chrom_coords = _cell._identify_chromosomes(_gaussian_size=_gaussian_size, _cap_percentile=_cap_percentile,
-                                                               _seed_dim=_seed_dim, _th_percentile=_th_percentile,
-                                                               _min_obj_size=_min_obj_size,_verbose=_verbose)
+                _chrom_coords = _cell._identify_chromosomes(_gaussian_size=_gaussian_size, _cap_percentile=_cap_percentile,
+                                                            _seed_dim=_seed_dim, _th_percentile=_th_percentile,
+                                                            _min_obj_size=_min_obj_size,_verbose=_verbose)
             # build chrom_coord_dic
             _coord_dic['coords'] += [np.flipud(_coord) for _coord in _chrom_coords]
             _coord_dic['class_ids'] += list(np.ones(len(_chrom_coords),dtype=np.uint8)*int(_i))
