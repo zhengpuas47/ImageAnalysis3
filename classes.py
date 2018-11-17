@@ -1109,7 +1109,54 @@ class Cell_Data():
         if len(_drift) == len(self.annotated_folders):
             self.drift = _drift
             return self.drift
-        
+   
+
+    def _load_drift_sequential(self, _size=500, _force=False, _dynamic=True, _verbose=True):
+        # if exists:
+        if hasattr(self, 'drift') and not _force:
+            if _verbose:
+                print(f"- drift already exists for cell:{self.cell_id}, skip")
+            return self.drift
+        # load color usage if not given
+        if not hasattr(self, 'channels'):
+            self._load_color_info()
+        # scan for candidate drift correction files
+        _dft_file_cand = glob.glob(
+            self.drift_folder+os.sep+self.fovs[self.fov_id].replace(".dax", "*.pkl"))
+        # if one unique drift file was found:
+        if len(_dft_file_cand) == 1:
+            _dft = pickle.load(open(_dft_file_cand[0], 'rb'))
+            # check drift length
+            if len(_dft) == len(self.color_dic):
+                if _verbose:
+                    print(
+                        "- length matches, directly load from existing file:", _dft_file_cand[0])
+                self.drift = _dft
+                return self.drift
+            else:
+                if _verbose:
+                    print("- length doesn't match, proceed to do drift correction.")
+
+        if len(_dft_file_cand) == 0:
+            if _verbose:
+                print("- no drift result found in drift folder", self.drift_folder)
+        # do drift correction from scratch
+        if not hasattr(self, 'bead_ims'):
+            if _verbose:
+                print("- Loading beads images for drift correction")
+            _bead_ims, _bead_names = self._load_images(
+                'beads', _chromatic_correction=False, _load_in_ram=False)
+        else:
+             _bead_ims, _bead_names = self.bead_ims, self.bead_names
+        # do drift correction
+        self.drift, _failed_count = corrections.STD_beaddrift_sequential(_bead_ims, _bead_names,
+                                                                         self.drift_folder, self.fovs, self.fov_id,
+                                                                         drift_size=_size, overwrite=_force, dynamic=_dynamic)
+        if _failed_count > 0:
+            print('Failed drift noticed! total failure:', _failed_count)
+
+        return self.drift
+
     ## NEW Correct images and generated temp files or directly load in ram
     def _generate_corrected_images(self, _type, _splitted_ims=None, _selected_dic=None, _num_threads=12, 
                                    _single_size=_image_size, _buffer_frames=10, _load_in_ram=False,
@@ -1569,7 +1616,7 @@ class Cell_Data():
                      _save=True, _overwrite=False, _verbose=False):
         """Core function to load images, support different types:
         Depricated function"""
-        raise Warning("This function is going to be depricated because of extremely high RAM usage, please check _generate_correted_images or _crop_images.")
+        # raise Warning("This function is going to be depricated because of extremely high RAM usage, please check _generate_correted_images or _crop_images.")
         if not hasattr(self, 'segmentation_label') and _type in ['unique', 'combo', 'sparse']:
             self._load_segmentation()
         if not hasattr(self, 'channels') or not hasattr(self, 'color_dic'):
@@ -2176,7 +2223,8 @@ class Cell_Data():
                                                  save_file=_chrom_savefile, given_dic=_coord_dic)
         return _viewer
 
-    def _update_chromosome_from_file(self, _save_folder=None, _save_fl='chrom_coord.pkl', _save=True, _force_save_combo=False, _force=False, _verbose=True):
+    def _update_chromosome_from_file(self, _save_folder=None, _save_fl='chrom_coord.pkl', 
+                        _save=True, _force_save_combo=False, _force=False, _verbose=True):
         if not _save_folder:
             if hasattr(self, 'save_folder'):
                 _save_folder = self.save_folder
@@ -2236,10 +2284,10 @@ class Cell_Data():
 
             ## Do the multi-fitting
             if _type == 'unique':
-                _seeding_args = (_max_seed_count, 20, 0, _max_filt_size, _seed_th_per, True, 10, _min_seed_count, 0, False)
+                _seeding_args = (_max_seed_count, 30, 0, _max_filt_size, _seed_th_per, True, 10, _min_seed_count, 0, False)
                 _fitting_args = (_width_zxy, _fit_radius, 100, 500, _expect_weight, _th_to_end, _max_iter, 0.25, _min_height, False, _verbose)
             elif _type == 'decoded':
-                _seeding_args = (_max_seed_count, 20, 0, _max_filt_size, _seed_th_per, True, 10, _min_seed_count, 0, False)
+                _seeding_args = (_max_seed_count, 40, 0, _max_filt_size, _seed_th_per, True, 10, _min_seed_count, 0, False)
                 _fitting_args = (_width_zxy, _fit_radius, 0.1, 0.5, _expect_weight/1000, _th_to_end, _max_iter, 0.25, 0.1, False, _verbose)
 
             _args = [(_im, _id, self.chrom_coords, _seeding_args, _fitting_args, _verbose) for _im, _id in zip(_ims, _ids)]
@@ -2270,7 +2318,7 @@ class Cell_Data():
             elif _type == 'decoded':
                 self.decoded_spots = _spots
                 if _save:
-                    self._save_to_file('cell_info',_save_dic={'decoded_spots':self.decoded_spots})
+                    self._save_to_file('cell_info',_save_dic={'decoded_id':self.decoded_ids, 'decoded_spots':self.decoded_spots})
                 return self.decoded_spots
 
     def _dynamic_picking_spots(self, _type='unique', _use_chrom_coords=True,
@@ -2338,8 +2386,9 @@ class Cell_Data():
                 _ch_pts = [chrpts[_chrom_id][:,1:4]*_distance_zxy for chrpts in _cand_spots if len(chrpts[_chrom_id]>0)]
                 _ch_ids = [_id for chrpts,_id in zip(_cand_spots, _ids) if len(chrpts[_chrom_id]>0)]
                 # initialize two stucture:
-                _dy_values = [np.log(chrpts[_chrom_id][:,0]*_w_int) for chrpts in _cand_spots if len(chrpts[_chrom_id]>0)] # store maximum values
+                _dy_values = [chrpts[_chrom_id][:,0]*_w_int for chrpts in _cand_spots if len(chrpts[_chrom_id]>0)] # store maximum values
                 _dy_pointers = [-np.ones(len(pt), dtype=np.int) for pt in _ch_pts] # store pointer to previous level
+                
                 # Forward
                 for _j, (_pts, _id) in enumerate(zip(_ch_pts[1:], _ch_ids[1:])):
                     _dists = cdist(_ch_pts[_j], _ch_pts[_j+1]) # real pair-wise distance
@@ -2532,8 +2581,6 @@ class Cell_Data():
                 self._save_to_file('cell_info', _save_dic={'decoded_distance_map':self.decoded_distance_map})
             # return
             return self.decoded_distance_map
-
-
 
 
 class Encoding_Group():

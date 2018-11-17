@@ -379,7 +379,7 @@ def _align_single_image(_filename, _selected_crops, _ref_centers, _im_size=_imag
 
 def STD_beaddrift_sequential(bead_ims, bead_names, drift_folder, fovs, fov_id,
                              drift_size=200, coord_sel=None, cutoff_=3, xyz_res_=1,
-                             dynamic=False, dynamic_th_percent=80, th_seed=150,
+                             dynamic=False, dynamic_th_percent=80, th_seed=300,
                              illumination_correction=False, ic_channel='488', correction_folder=_correction_folder,
                              overwrite=False, plt_val=False, save=True, save_postfix='_sequential_current_cor.pkl',
                              verbose=True):
