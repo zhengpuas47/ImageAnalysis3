@@ -1577,3 +1577,140 @@ def Save_Result_List(full_cell_list, encoding_type, fov_name, master_folder,
     # save
     make_save = Save_Cell_List(_result_list, encoding_type, fov_name, master_folder, save_subfolder, postfix, save_as_zip, force)
     return make_save
+
+
+def generate_normalization(genome_ref_file=r'E:\Users\puzheng\Documents\Libraries\CTP-04\chr21\regions.bed',
+                           distance_map_file=r'Z:\20181022-IMR90_whole-chr21-unique\Analysis\distmap\distmaps.npz',
+                           verbose=True):
+    """Function to generate normalization matrix"""
+    from scipy.stats import linregress
+
+    ## generate linear fitting
+    # load regions genomic positions
+    def load_distance_info(distance_file):
+        """Function to load color_usage file"""
+        region_list = []
+        with open(distance_file) as handle:
+            regions = handle.read().splitlines()
+            for _reg in regions:
+                _chr = _reg.split(':')[0]
+                _coords = _reg.split(':')[1]
+                _start, _stop = _coords.split('-')
+
+                _reg_dic = {'chromosome': _chr,
+                            'start': int(_start),
+                            'stop': int(_stop)}
+                region_list.append(_reg_dic)
+        return region_list
+    region_list = load_distance_info(genome_ref_file)
+    # load median distance map
+    with np.load(distance_map_file) as handle:
+        median_dist_map = handle['distance']
+    # generate scaling
+    dx, dy = np.shape(median_dist_map)
+    if dx != dy or dx != len(region_list):
+        raise ValueError(
+            "Dimension doesn't match for genomic reference and median distance map!")
+    physical_dist = []
+    genomic_dist = []
+    gd_matrix = np.ones([dx, dy])  # genomic distance matrix used for later
+    for i in range(dx):
+        for j in range(i+1, dy):
+            physical_dist.append(median_dist_map[i, j])
+            _gd = np.abs((region_list[i]['stop'] + region_list[i]['start']) -
+                         (region_list[j]['stop'] + region_list[j]['start']))/2
+            genomic_dist.append(_gd)
+            gd_matrix[i, j] = _gd
+            gd_matrix[j, i] = _gd
+    # scaling
+    lr = linregress(np.log(genomic_dist), np.log(physical_dist))
+    if verbose:
+        print(lr)
+        print('pearson correlation:', np.sqrt(lr.rvalue))
+    # generate normalization matrix
+    norm_dist_matrix = np.exp(np.log(gd_matrix) * lr.slope + lr.intercept)
+
+    return norm_dist_matrix
+
+def get_AB_boundaries(im_cor, evec, sz_min=3, plt_val=False, plot_filename=None, verbose=True):
+    """Given a correlation matrix im_cor and an eigenvector evec this returns the boundaries (and boudnary scores) for the on/off eigenvector with minimum size sz_min"""
+    vec = np.dot(evec, im_cor)
+    vec_ = np.array(vec)
+    vec_[vec_ == 0] = 10.**(-6)
+
+    def get_bds_sign(vec_s):
+        val_prev = vec_s[0]
+        bds_ = []
+        for pos, val in enumerate(vec_s):
+            if val != val_prev:
+                bds_.append(pos)
+                val_prev = val
+        return np.array(bds_)
+
+    vec_s = np.sign(vec_)
+    bds_ = get_bds_sign(vec_s)
+    vec_ss = vec_s.copy()
+    bds_ext = np.concatenate([[0], bds_, [len(vec_s)]])
+    for i in range(len(bds_ext)-1):
+        if bds_ext[i+1]-bds_ext[i] < sz_min:
+            vec_ss[bds_ext[i]:bds_ext[i+1]] = 0
+
+    first_val = vec_ss[vec_ss != 0][0]
+    vec_ss_ = []
+    for vvec in vec_ss:
+        if vvec == 0:
+            if len(vec_ss_) > 0:
+                vec_ss_.append(vec_ss_[-1])
+            else:
+                vec_ss_.append(first_val)
+        else:
+            vec_ss_.append(vvec)
+    bds = get_bds_sign(vec_ss_)
+    bds_score = []
+    bds_ext = np.concatenate([[0], bds, [len(vec)]])
+    if verbose:
+        print("-- number of boundaries called:",len(bds))
+    for i in range(len(bds)):
+        lpca = np.median(vec[bds_ext[i]:bds_ext[i+1]])
+        rpca = np.median(vec[bds_ext[i+1]:bds_ext[i+2]])
+        #print lpca,rpca
+        bds_score.append(np.abs(lpca-rpca))
+    if plt_val:
+        f1 = plt.figure()
+        plt.title('A/B pca 1 projection')
+        plt.plot(vec, 'ro-')
+        if len(bds>0):
+            plt.plot(bds, vec[bds], 'go')
+        if isinstance(plot_filename, str):
+            plot_folder = os.path.dirname(plot_filename)
+            if not os.path.exists(plot_folder):
+                os.makedirs(plot_folder)
+            plt.savefig(plot_filename, transparent=True)
+        plt.close(f1)
+    return bds, bds_score
+
+
+def pca_components(im_cor):
+    """returns the evals, evecs sorted by relevance"""
+    from scipy import linalg as la
+    data = im_cor.copy()
+    m, n = data.shape
+    # mean center the data
+    data -= data.mean(axis=0)
+    # calculate the covariance matrix
+    R = np.cov(data, rowvar=False)
+    # calculate eigenvectors & eigenvalues of the covariance matrix
+    # use 'eigh' rather than 'eig' since R is symmetric,
+    # the performance gain is substantial
+    evals, evecs = la.eigh(R)
+    # sort eigenvalue in decreasing order
+    idx = np.argsort(evals)[::-1]
+    evecs = evecs[:, idx]
+    # sort eigenvectors according to same index
+    evals = evals[idx]
+    # select the first n eigenvectors (n is desired dimension
+    # of rescaled data array, or dims_rescaled_data)
+    #evecs_red = evecs[:, :dims_rescaled_data]
+    # carry out the transformation on the data using eigenvectors
+    # and return the re-scaled data, eigenvalues, and eigenvectors
+    return evals, evecs  # , np.dot(evecs_red.T, data.T).T

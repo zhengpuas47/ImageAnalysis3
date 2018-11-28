@@ -2386,7 +2386,7 @@ class Cell_Data():
                 _ch_pts = [chrpts[_chrom_id][:,1:4]*_distance_zxy for chrpts in _cand_spots if len(chrpts[_chrom_id]>0)]
                 _ch_ids = [_id for chrpts,_id in zip(_cand_spots, _ids) if len(chrpts[_chrom_id]>0)]
                 # initialize two stucture:
-                _dy_values = [chrpts[_chrom_id][:,0]*_w_int for chrpts in _cand_spots if len(chrpts[_chrom_id]>0)] # store maximum values
+                _dy_values = [np.log(chrpts[_chrom_id][:,0])*_w_int for chrpts in _cand_spots if len(chrpts[_chrom_id]>0)] # store maximum values
                 _dy_pointers = [-np.ones(len(pt), dtype=np.int) for pt in _ch_pts] # store pointer to previous level
                 
                 # Forward
@@ -2582,6 +2582,99 @@ class Cell_Data():
             # return
             return self.decoded_distance_map
 
+    def _call_AB_compartments(self, _type='unique', _force=False, _norm_matrix='normalization_matrix.npy', 
+                            _min_allowed_dist=50, _gaussian_size=2, _boundary_window_size=3, 
+                            _make_plot=True, _save_coef_plot=False, _save_compartment_plot=False, _verbose=True):
+        """Function to call AB compartment for given type of distance-map
+        Inputs:
+            _type: type of distance map given, unique / decoded
+            _force: whether force doing compartment calling if result exists, bool (default: False)
+            _norm_matrix: normalization matrix to remove polymer effect, np.ndarray or string(filename)
+            _min_allowed_dist: minimal distance kept during the process, int (default: 50)
+            _gaussian_size: gaussian-filter during compartment calling, non-negative float (default: 2)
+            _boundary_window_size: boundary calling window size, int (default: 3)
+            _make_plot: whether make plots for compartments, bool (default: True)
+            _save_coef_plot
+            _save_compartment_plot
+            _verbose: whether say something! (default: True)
+            """
+        from astropy.convolution import Gaussian2DKernel
+        from astropy.convolution import convolve    
+        ## check inputs
+        _type = _type.lower()
+        if _type not in ['unique','decoded']:
+            raise ValueError("Wrong _type kwd is given!")
+        if not hasattr(self, _type+'_distance_map'):
+            raise AttributeError(f"Attribute { _type+'_distance_map'} doesn't exist for this cell, exist!")
+        if isinstance(_norm_matrix, str):
+            if os.sep not in _norm_matrix: # only filename is given, then assume the file is in analysis_folder
+                _norm_matrix = os.path.join(self.analysis_folder, _norm_matrix)
+            if _verbose:
+                print(f"-- loading normalization matrix from file: {_norm_matrix}")
+            _norm_matrix = np.load(_norm_matrix)
+        elif isinstance(_norm_matrix, np.ndarray):
+            if _verbose:
+                print(f"-- normalization matrix is directly given!")
+        else:
+            raise ValueError("Wrong input type for _norm_matrix")
+        
+        ## initalize
+        if hasattr(self, 'compartment_boundaries') and hasattr(self, 'compartment_boundary_scores') and not _force:
+            if _verbose:
+                print(f"-- directly load existing compartment information")
+        else:
+            if _verbose:
+                print(f"-- call compartment from {_type} distance map!")
+            self.compartment_boundaries = []
+            self.compartment_boundary_scores = []
+            ## start calculating compartments
+            _distmaps = getattr(self, _type+'_distance_map')
+            for _chrom_id, _distmap in enumerate(_distmaps):
+                _normed_map = _distmap.copy()
+                # exclude extreme values
+                _normed_map[_normed_map == np.inf] = np.nan
+                _normed_map[_normed_map < _min_allowed_dist] = np.nan
+                # normalization
+                _normed_map = _normed_map / _norm_matrix
+                if _gaussian_size > 0:
+                    # set gaussian kernel
+                    _kernel = Gaussian2DKernel(x_stddev=_gaussian_size)
+                    # convolution, which will interpolate any NaN numbers
+                    _normed_map = convolve(_normed_map, _kernel)
+                else:
+                    _normed_map[_normed_map == np.nan] = 0
+
+                _coef_mat = np.corrcoef(_normed_map)
+                if _make_plot:
+                    f1 = plt.figure()
+                    plt.imshow(_coef_mat, cmap='seismic', vmin=-1, vmax=1)
+                    plt.title(f"{_type} coef-matrix for fov:{self.fov_id}, cell:{self.cell_id}, chrom:{_chrom_id}")
+                    plt.colorbar()
+                    if _save_coef_plot:
+                        _coef_savefile = os.path.join(self.map_folder,
+                                                    self.fovs[self.fov_id].replace('.dax',''),
+                                                    f"coef_matrix_{_type}_{self.cell_id}_{_chrom_id}.png")
+                        plt.savefig(_coef_savefile, transparent=True)
+                        plt.close(f1)
+                #get the eigenvectors and eigenvalues
+                _evals, _evecs = analysis.pca_components(_coef_mat)
+                #get the A/B boundaries based on the correaltion matrix and the first eigenvector
+                if _save_compartment_plot:
+                    _compartment_savefile = os.path.join(self.map_folder,
+                                                        self.fovs[self.fov_id].replace('.dax',''),
+                                                        f"compartment_{_type}_{self.cell_id}_{_chrom_id}.png")
+                else:
+                    _compartment_savefile = None
+                _bds,_bd_scores =analysis.get_AB_boundaries(_coef_mat,_evecs[:,0],sz_min=_boundary_window_size,plt_val=_make_plot, plot_filename=_compartment_savefile, verbose=_verbose)
+                # store information
+                self.compartment_boundaries.append(_bds)
+                self.compartment_boundary_scores.append(_bd_scores)
+            # save compartment info to cell-info
+            self._save_to_file('cell_info', _save_dic={'compartment_boundaries': self.compartment_boundaries,
+                                                    'compartment_boundary_scores': self.compartment_boundary_scores})
+        
+        return getattr(self, 'compartment_boundaries'), getattr(self, 'compartment_boundary_scores')
+        
 
 class Encoding_Group():
     """defined class for each group of encoded images"""
