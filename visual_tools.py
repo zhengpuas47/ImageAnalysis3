@@ -1805,7 +1805,7 @@ def fit_multi_gaussian(im, seeds, width_zxy = [1.35,1.9,1.9], fit_radius=10,
                 im_subtr = subtract_source(im_subtr,p)
 
         # recheck fitting
-        im_add = np.array(im_subtr);
+        im_add = np.array(im_subtr)
         max_dist=np.inf
         n_iter = 0
         while max_dist > max_dist_th:
@@ -1890,8 +1890,8 @@ def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0, npy_start=64,
     miny, maxy = np.sort(ylims)[:2]
     # acquire dimension
     dz = int((maxz-minz)/zstep)
-    dx = maxx-minx
-    dy = maxy-miny
+    dx = int(maxx-minx)
+    dy = int(maxy-miny)
     if dx <= 0 or dy <= 0 or dz <= 0:
         print("-- slicing result is empty.")
         return np.array([])

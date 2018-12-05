@@ -19,9 +19,9 @@ def get_folders(master_folder, feature='H', verbose=True):
 		raise IOError("No folders detected!")
 	if verbose:
 		print("Get Folder Names: (ia.get_img_info.get_folders)")
-		print("- Number of folders:", len(folders));
-		print("- Number of field of views:", len(fovs));
-	return folders, fovs;
+		print("- Number of folders:", len(folders))
+		print("- Number of field of views:", len(fovs))
+	return folders, fovs
 
 def get_img_fov(folders, fovs, fov_id=0, verbose=True):
 	'''Function to load a certain field_of_view
@@ -41,7 +41,7 @@ def get_img_fov(folders, fovs, fov_id=0, verbose=True):
 	_fov = fovs[fov_id]
 	_names, _ims = [],[]
 	if verbose:
-		print("-- loading field of view:", _fov);
+		print("-- loading field of view:", _fov)
 	# load images
 	for _folder in folders[:]:
 		_filename= _folder+os.sep+_fov

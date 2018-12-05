@@ -44,7 +44,7 @@ def get_STD_beaddrift(bead_ims, bead_names, analysis_folder, fovs, fov_id,
     if illumination_correction:
         _bead_ims = [Illumination_correction(_im,ic_channel, correction_folder=correction_folder, verbose=False) for _im in bead_ims]
     else:
-        _bead_ims = bead_ims;
+        _bead_ims = bead_ims
 
 
     # repeat if no fitted data exist
@@ -69,8 +69,8 @@ def get_STD_beaddrift(bead_ims, bead_names, analysis_folder, fovs, fov_id,
         for iim,im in enumerate(_bead_ims):
             # if this frame is reference, continue
             if iim == ref:
-                txyzs.append(np.array([0.,0.,0.]));
-                continue;
+                txyzs.append(np.array([0.,0.,0.]))
+                continue
             if dynamic:
                 th_seed = scoreatpercentile(im,99)*0.5
             im_sm = visual_tools.grab_block(im,coord_sel1,[sz_ex]*3)
