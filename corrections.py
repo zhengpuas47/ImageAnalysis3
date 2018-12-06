@@ -795,9 +795,9 @@ def Chromatic_abbrevation_correction(ims, correction_channel,
     _im = _ims[0]
     _coord = np.indices(np.shape(_im))
     if len(_im.shape) == 2: # if 2D
-        _coord = _coord - np.array(_cc_profile)[-2:,:,:]
+        _coord = _coord + np.array(_cc_profile)[-2:,:,:]
     else:
-        _coord = _coord - np.array(_cc_profile)[:,np.newaxis,:,:]
+        _coord = _coord + np.array(_cc_profile)[:,np.newaxis,:,:]
     del(_cc_profile) # clear
     # loop through images
     _corr_ims = []; # initialize corrected images
