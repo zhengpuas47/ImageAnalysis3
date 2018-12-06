@@ -41,7 +41,7 @@ def get_img_fov(folders, fovs, fov_id=0, verbose=True):
 	_fov = fovs[fov_id]
 	_names, _ims = [],[]
 	if verbose:
-		print("-- loading field of view:", _fov)
+		print("-- loading field of view:", _fov)   
 	# load images
 	for _folder in folders[:]:
 		_filename= _folder+os.sep+_fov
