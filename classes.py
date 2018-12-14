@@ -740,9 +740,9 @@ class Cell_List():
                 if _verbose:
                     print(f"++ clear images for {_type} in fov:{_cell.fov_id}, cell:{_cell.cell_id}")
                 if _type == 'unique':
-                    _cell.unique_ims = None
+                    delattr(_cell, 'unique_ims')
                 elif _type == 'decoded':
-                    _cell.decoded_ims = None
+                    delattr(_cell, 'decoded_ims')
 
     def _pick_spots_for_cells(self, _type='unique', _decoded_flag='diff', _pick_type='dynamic', _use_chrom_coords=True, _distance_zxy=None,
                               _w_dist=2, _dist_ref=None, _penalty_type='trapezoidal', _penalty_factor=5,
@@ -2201,7 +2201,7 @@ class Cell_Data():
             self.chrom_coords = _chrom_coords
             return _chrom_coords
         else:
-            return self.chrom_coords
+            return self.chrom_coords  
 
     def _pick_chromosome_manual(self, _save_folder=None, _save_fl='chrom_coord.pkl'):
         if not _save_folder:

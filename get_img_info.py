@@ -1,5 +1,6 @@
 import sys,glob,os
 import numpy as np
+from . import _correction_folder, _temp_folder, _distance_zxy, _sigma_zxy, _image_size, _allowed_colors
 
 def get_hybe(folder):
 	#this sorts by the region number Rx.
@@ -183,8 +184,8 @@ def Load_Encoding_Scheme(master_folder, encoding_filename='Encoding_Scheme', enc
 		_num_reg: number of regions per group, int
 		_num_color: number of colors used in parallel, int'''
 	# initialize
-	_hyb_names = [];
-	_encodings = [];
+	_hyb_names = []
+	_encodings = []
 	_num_hyb,_num_reg,_num_color,_num_group = None,None,None,None
 	# process with csv format
 	if encoding_format == 'csv':
@@ -364,3 +365,34 @@ def decode_match_raw(raw_data_folder, raw_feature, decode_data_folder, decode_fe
             _match_dic[_fov_id] = [_matched_raw[0], _decode_fl]
 
     return _match_dic
+
+
+def get_num_frame(dax_filename, frame_per_color=_image_size[0], buffer_frame=10, verbose=False):
+    """Function to extract image size and number of colors"""
+    ## check input
+    if '.dax' not in dax_filename:
+        raise ValueError(
+            f"Wrong input type, .dax file expected for {dax_filename}")
+    if not os.path.isfile(dax_filename):
+        raise IOError(f"input file:{dax_filename} doesn't exist!")
+
+    _info_filename = dax_filename.replace('.dax', '.inf')
+    with open(_info_filename, 'r') as _info_hd:
+        _infos = _info_hd.readlines()
+    # get frame number and color information
+    _num_frame, _num_color = 0, 0
+    _dx, _dy = 0, 0
+    for _line in _infos:
+        _line = _line.rstrip()
+        if "number of frames" in _line:
+            _num_frame = int(_line.split('=')[1])
+            _num_color = (_num_frame - 2*buffer_frame) / frame_per_color
+            if _num_color != int(_num_color):
+                raise ValueError("Wrong num_color, should be integer!")
+            _num_color = int(_num_color)
+        if "frame dimensions" in _line:
+            _dx = int(_line.split('=')[1].split('x')[0])
+            _dy = int(_line.split('=')[1].split('x')[1])
+    _im_shape = [_num_frame, _dx, _dy]
+
+    return _im_shape, _num_color

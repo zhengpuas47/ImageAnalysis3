@@ -216,11 +216,25 @@ def fit_seed_points_base(im, centers, width_z=_sigma_zxy[0], width_xy=_sigma_zxy
         return ps_2
     else:
         return np.array([])
-def get_seed_points_base(im,gfilt_size=0,filt_size=3,th_seed=300.,hot_pix_th=0,return_h=False):
-    im_plt = gaussian_filter(im,gfilt_size)
-    max_filt = maximum_filter(im_plt,filt_size)
-    min_filt = minimum_filter(im_plt,filt_size)
-    im_plt2 = (max_filt==im_plt) & (min_filt!=im_plt) & (min_filt!=0)
+
+def get_seed_points_base(im, gfilt_size=0.75, background_gfilt_size=10, filt_size=3,
+                         th_seed=300, hot_pix_th=0, return_h=False):
+    """Base function to do seeding"""
+    # gaussian-filter + max-filter
+    if gfilt_size:
+        max_im = gaussian_filter(im,gfilt_size)
+    else:
+        max_im = im
+    # gaussian_filter (large) + min_filter
+    if background_gfilt_size:
+        min_im = gaussian_filter(im,background_gfilt_size)
+    else:
+        min_im = im
+        
+    max_filt = np.array(maximum_filter(max_im,filt_size), dtype=np.int64)
+    min_filt = np.array(minimum_filter(min_im,filt_size), dtype=np.int64)
+    # get candidate seed points
+    im_plt2 = (max_filt==max_im) & (min_filt!=min_im) & (min_filt!=0)
     z,x,y = np.where(im_plt2)
     keep = (max_filt[z,x,y]-min_filt[z,x,y])>th_seed#/np.array(max_filt[z,x,y],dtype=float)>0.5
     x,y,z = x[keep],y[keep],z[keep]
@@ -316,12 +330,16 @@ def translation_aling_pts(cents_fix,cents_target,cutoff=2.,xyz_res=1,plt_val=Fal
     keep = np.sqrt(np.sum((cents_target[inds_closestT]+ txyz_f-cents[inds_closestF])**2,axis=-1))<2*xyz_res
     inds_closestT=inds_closestT[keep]
     inds_closestF=inds_closestF[keep]
-
+    # check result target len
+    if len(cents[inds_closestF]) == 0:
+        raise ValueError(f"No matched points exist in cents[inds_closestF]")
+    if len(cents_target[inds_closestT]) == 0:
+        raise ValueError(f"No matched points exist in cents_target[inds_closestT]")
     txyz_b = np.median(cents_target[inds_closestT]-cents[inds_closestF],axis=0)
     if plt_val:
         plt.figure()
-        plt.plot(cents[inds_closestF].T[0],cents[inds_closestF].T[1],'go')
-        plt.plot(cents_target[inds_closestT].T[0]-txyz_b[0],cents_target[inds_closestT].T[1]-txyz_b[1],'ro')
+        plt.plot(cents[inds_closestF].T[1],cents[inds_closestF].T[2],'go')
+        plt.plot(cents_target[inds_closestT].T[1]-txyz_b[1],cents_target[inds_closestT].T[2]-txyz_b[2],'ro')
         plt.figure()
         dists = np.sqrt(np.sum((cents_target[inds_closestT]-cents[inds_closestF])**2,axis=-1))
         plt.hist(dists)
@@ -351,7 +369,7 @@ def beads_alignment_fast(beads, ref_beads, unique_cutoff=2., check_outlier=True,
     for _rb in ref_beads:
         _competing_ref_beads = ref_beads[np.sqrt(np.sum((ref_beads - _rb)**2,1)) < unique_cutoff]
         if len(_competing_ref_beads) > 1: # in this case, other ref_bead exist within cutoff
-            continue;
+            continue
         else:
             _candidate_beads = beads[np.sqrt(np.sum((beads - _rb)**2,1)) < unique_cutoff]
             if len(_candidate_beads) == 1: # if unique pairs identified
@@ -1587,19 +1605,19 @@ def crop_cell(im, segmentation_label, drift=None, extend_dim=20, overlap_thresho
                 # crop image for pre-correction
                 _pre_im = im[:,_drift_limits[1,0]:_drift_limits[1,1],_drift_limits[0,0]:_drift_limits[0,1]]
                 # drift correction
-                _post_im = shift(_pre_im, -drift);
+                _post_im = shift(_pre_im, -drift)
                 # re-crop
-                _limit_diffs = (_limits - _drift_limits).astype(np.int);
+                _limit_diffs = (_limits - _drift_limits).astype(np.int)
                 #print _limit_diffs
                 _crop_ims.append(_post_im[:,_limit_diffs[1,0]:_limit_diffs[1,0]+_limits[1,1]-_limits[1,0],_limit_diffs[0,0]:_limit_diffs[0,0]+_limits[0,1]-_limits[0,0]])
     return _crop_ims
 
 
 # get limitied points of seed within radius of a center
-def get_seed_in_distance(im, center, num_seeds=0, seed_radius=20,
-                         gfilt_size=0, filt_size=3, th_seed_percentile=50,
+def get_seed_in_distance(im, center, num_seeds=0, seed_radius=30,
+                         gfilt_size=0.75, background_gfilt_size=10, filt_size=3, th_seed_percentile=50,
                          dynamic=True, dynamic_iters=10, min_dynamic_seeds=1,
-                         hot_pix_th=0, return_h=False):
+                         hot_pix_th=4, return_h=False):
     '''Get seed points with in a distance to a center coordinate
     Inputs:
         im: image, 3D-array
@@ -1621,30 +1639,30 @@ def get_seed_in_distance(im, center, num_seeds=0, seed_radius=20,
 
     # check input
     if center is not None and len(center) != 3:
-        raise ValueError('wrong input dimension of center!');
-    _dim = np.shape(im);
+        raise ValueError('wrong input dimension of center!')
+    _dim = np.shape(im)
     if center is not None:
-        _center = np.array(center, dtype=np.float);
-        _limits = np.zeros([2,3], dtype=np.int);
+        _center = np.array(center, dtype=np.float)
+        _limits = np.zeros([2,3], dtype=np.int)
         _limits[0,1:] = np.array([np.max([x,y]) for x,y in zip(np.zeros(2), _center[1:]-seed_radius)],dtype=np.int)
         _limits[0,0] = np.array(np.max([0, _center[0]-seed_radius/2]), dtype=np.int)
         _limits[1,1:] = np.array([np.min([x,y]) for x,y in zip(_dim[1:], _center[1:]+seed_radius)],dtype=np.int)
         _limits[1,0] = np.array(np.min([_dim[0], _center[0]+seed_radius/2]), dtype=np.int)
-        _local_center = _center - _limits[0];
+        _local_center = _center - _limits[0]
         # crop im
-        _cim = im[_limits[0,0]:_limits[1,0],_limits[0,1]:_limits[1,1],_limits[0,2]:_limits[1,2]];
+        _cim = im[_limits[0,0]:_limits[1,0],_limits[0,1]:_limits[1,1],_limits[0,2]:_limits[1,2]]
         # seeding threshold
-        _th_seed = scoreatpercentile(_cim, th_seed_percentile) * 0.5;
+        _th_seed = scoreatpercentile(_cim, th_seed_percentile) * 0.5
         if dynamic:
-            _dynamic_range = np.linspace(1, 1 / dynamic_iters, dynamic_iters);
+            _dynamic_range = np.linspace(1, 1 / dynamic_iters, dynamic_iters)
             for _dy_ratio in _dynamic_range:
-                _dynamic_th = _th_seed * _dy_ratio;
+                _dynamic_th = _th_seed * _dy_ratio
                 # get candidate seeds
-                _cand_seeds = get_seed_points_base(_cim, gfilt_size=gfilt_size, filt_size=filt_size,
-                                                   th_seed=_dynamic_th, hot_pix_th=hot_pix_th, return_h=True);
+                _cand_seeds = get_seed_points_base(_cim, gfilt_size=gfilt_size, background_gfilt_size=background_gfilt_size,
+                                                   filt_size=filt_size, th_seed=_dynamic_th, hot_pix_th=hot_pix_th, return_h=True)
                 # keep seed within distance
                 _distance = cdist(_cand_seeds[:3].transpose(), _local_center[np.newaxis,:3]).transpose()[0]
-                _keep = _distance < seed_radius;
+                _keep = _distance < seed_radius
                 _seeds = _cand_seeds[:,_keep]
                 _seeds[:3,:] += _limits[0][:,np.newaxis]
                 if len(_seeds.shape) == 2 and _seeds.shape[1] >= min(num_seeds, min_dynamic_seeds):
@@ -1652,25 +1670,25 @@ def get_seed_in_distance(im, center, num_seeds=0, seed_radius=20,
         else:
             # get candidate seeds
             _cand_seeds = get_seed_points_base(_cim, gfilt_size=gfilt_size, filt_size=filt_size,
-                                               th_seed=_th_seed, hot_pix_th=hot_pix_th, return_h=True);
+                                               th_seed=_th_seed, hot_pix_th=hot_pix_th, return_h=True)
 
     else:
         _cim = im
         # seeding threshold
-        _th_seed = scoreatpercentile(_cim, th_seed_percentile);
+        _th_seed = scoreatpercentile(_cim, th_seed_percentile)
         # get candidate seeds
         _seeds = get_seed_points_base(_cim, gfilt_size=gfilt_size, filt_size=filt_size,
-                                           th_seed=_th_seed, hot_pix_th=hot_pix_th, return_h=True);
+                                           th_seed=_th_seed, hot_pix_th=hot_pix_th, return_h=True)
 
     # if limited seeds reported, report top n
     if _seeds.shape[1] > 1:
-        _intensity_order = np.argsort(_seeds[-1]);
+        _intensity_order = np.argsort(_seeds[-1])
         _seeds = _seeds[:,np.flipud(_intensity_order[-num_seeds:])]
     # if not return height, remove height
     if not return_h:
-        _seeds = _seeds[:3].transpose();
+        _seeds = _seeds[:3].transpose()
     else:
-        _seeds = _seeds[:4].transpose();
+        _seeds = _seeds[:4].transpose()
     return _seeds
 
 # fit single gaussian with varying width given prior
@@ -1715,10 +1733,10 @@ def fit_single_gaussian(data, center_zxy, width_zxy=[1.35, 1.9, 1.9], radius=10,
         sorted_data = np.sort(data__)#np.sort(np.ravel(data__))
         bk = np.median(sorted_data[:n_approx])
         if bk < 0:
-            bk = 0;
+            bk = 0
         height = (np.median(sorted_data[-n_approx:])-bk) / height_sensitivity
         if height < 0:
-            height=0;
+            height=0
         width_z,width_x,width_y = np.array(width_zxy)
         params_ = (height, center_z,center_x,center_y, bk, width_z,width_x,width_y)
 
@@ -1743,7 +1761,9 @@ def fit_single_gaussian(data, center_zxy, width_zxy=[1.35, 1.9, 1.9], radius=10,
             f = gaussian(*p)(*zxy)
             g = data__
             #err=np.ravel(f-g-g*np.log(f/g))
-            err=np.ravel(f-g) + expect_weight * (np.linalg.norm(p[-3:]-width_zxy, 1) + 0.2 * (p[0]*height_sensitivity/expect_intensity)*int(p[0]<expect_intensity));
+            err=np.ravel(f-g) + expect_weight * np.linalg.norm(p[-3:]-width_zxy, 1)\
+                + (p[0]*height_sensitivity/expect_intensity) * int(p[0]*height_sensitivity<expect_intensity) \
+                + int(p[0]*height_sensitivity>=expect_intensity)
             return err
 
         p = scipy.optimize.least_squares(errorfunction,  params_, bounds=(0, np.inf), ftol=th_to_end, xtol=th_to_end, gtol=th_to_end/10.)
@@ -1922,7 +1942,8 @@ def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0, npy_start=64,
 
 
 # specific functions to crop images
-def crop_single_image(im, filename, seg_label, drift=np.array([0,0,0]), im_size=_image_size, extend_dim=20):
+def crop_single_image(im, filename, seg_label, drift=np.array([0,0,0]), 
+                      im_size=_image_size, extend_dim=20, return_limits=False):
     '''Given a tempfile-name or a image, return a cropped image'''
     if im is None and filename is None:
         raise ValueError("Keywords im and filename cannot be both None!")
@@ -1963,8 +1984,10 @@ def crop_single_image(im, filename, seg_label, drift=np.array([0,0,0]), im_size=
     # crop from file
     else: 
         _cim = crop_cell(im, seg_label, drift=drift, extend_dim=extend_dim)[0]
-    
-    return _cim
+    if return_limits:
+        return _cim, 
+    else:
+        return _cim
 
 
 def crop_combo_group(ims, temp_filenames, seg_label, drift_dic, 

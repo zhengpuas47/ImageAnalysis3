@@ -1,5 +1,5 @@
 from . import get_img_info, visual_tools, analysis, classes
-from . import _correction_folder,_temp_folder,_distance_zxy,_sigma_zxy,_image_size
+from . import _correction_folder,_temp_folder,_distance_zxy,_sigma_zxy,_image_size,_allowed_colors
 import numpy as np
 import pickle
 import matplotlib.pylab as plt
@@ -140,7 +140,7 @@ def get_STD_centers(im, th_seed=150, close_threshold=0.01, plt_val=False,
         # seeding
         seeds = visual_tools.get_seed_points_base(im, gfilt_size=0.75,filt_size=3,th_seed=th_seed,hot_pix_th=4)
         # fitting
-        pfits = visual_tools.fit_seed_points_base_fast(im,seeds,width_z=1.8*1.5/2,width_xy=1.,radius_fit=5,n_max_iter=10,max_dist_th=0.25,quiet=not verbose)
+        pfits = visual_tools.fit_seed_points_base_fast(im,seeds,width_z=1.8*1.5/2,width_xy=1.,radius_fit=5,n_max_iter=3,max_dist_th=0.25,quiet=not verbose)
         # get coordinates for fitted beads
         remove = 0
         if len(pfits) > 0:
@@ -303,7 +303,7 @@ def tempfile_beaddrift(filenames, bead_names=None, ref_id=0, drift_size=300, num
     if verbose:
         print(f"- Start multi-processing drift correction with {num_threads} threads")
     with mp.Pool(num_threads) as drift_pool:
-        align_results = drift_pool.starmap(_align_single_image, args)
+        align_results = drift_pool.starmap(_align_single_image_from_temp, args)
         drift_pool.close()
         drift_pool.terminate()
         drift_pool.join()
@@ -333,9 +333,9 @@ def tempfile_beaddrift(filenames, bead_names=None, ref_id=0, drift_size=300, num
     return new_drift_dic, fail_count
 
 
-def _align_single_image(_filename, _selected_crops, _ref_centers, _im_size=_image_size,
-                        _align_cutoff=3, _align_res=1, _dynamic_seeding=True,
-                        _dynamic_th_percent=80, _seed_th=300, _verbose=True):
+def _align_single_image_from_temp(_filename, _selected_crops, _ref_centers, _im_size=_image_size,
+                                  _align_cutoff=3, _align_res=1, _dynamic_seeding=True,
+                                  _dynamic_th_percent=80, _seed_th=300, _verbose=True):
     """align single image used by multiprocessing-drift-correction
     Inputs:
         _filename: filename of a temp file"""
@@ -373,6 +373,152 @@ def _align_single_image(_filename, _selected_crops, _ref_centers, _im_size=_imag
             _drift = (_aligns[1]+_aligns[2])/2
             if _verbose:
                 print(f"-- selected drifts:{_aligns[1]}, {_aligns[2]}")
+
+    return _drift, _failed_count
+
+
+def _align_single_image_from_file(_filename, _selected_crops, _ref_centers=None, _ref_filename=None, _bead_channel_id=None,
+                                  _bead_channel='488', _channels=_allowed_colors, _im_size=_image_size, _buffer_frame=10,
+                                  _illumination_corr=True, _correction_folder=_correction_folder,
+                                  _align_cutoff=3, _align_res=1, _dynamic_seeding=True, _dynamic_th_percent=80, _seed_th=300,
+                                  _drift_cutoff=3, _make_plot=False, _verbose=True):
+    """align single image used by multiprocessing-drift-correction
+    Inputs:
+        _filename: filename of a dax file
+        _selected_crops: crop limits for selected windows, ndarray, 3x3x2
+        _ref_centers: fitted center coordinates for  
+        
+    """
+
+    from scipy.stats import scoreatpercentile
+    ## check inputs
+    if _ref_centers is None and _ref_filename is None:
+        raise ValueError(f"Either ref_center or ref_filename should be given!")
+    if '.dax' not in _filename:
+        raise IOError(
+            f"Wrong input file type, {_filename} should be .dax file")
+    if _ref_filename is not None and '.dax' not in _ref_filename:
+        raise IOError(
+            f"Wrong input reference file type, {_ref_filename} should be .dax file")
+    # check bead_channel_id
+    if _bead_channel_id is None:
+        _bead_channel_id = _channels.index(_bead_channel)
+    ## slice the image for given filename
+    _full_im_size, _num_colors = get_img_info.get_num_frame(
+        _filename, buffer_frame=_buffer_frame, frame_per_color=_im_size[0])
+    _target_ims = [visual_tools.slice_image(_filename, _full_im_size, 
+                    [_buffer_frame+_num_colors*_crop[0, 0], _buffer_frame+_num_colors*_crop[0, 1]],
+                     _crop[1], _crop[2], zstep=_num_colors, zstart=_bead_channel_id) for _crop in _selected_crops[:2]]
+    if _illumination_corr:  # do illumination correction
+        _target_ims = [fast_illumination_correction(_im, _bead_channel, original_im_size=_im_size,
+                                                    crop_limits=_crop) for (_crop, _im) in zip(_selected_crops[:2], _target_ims)]
+    ## case 1: ref_centers are given:
+    # initialize
+    _failed_count = 0
+    # initialize seeding threshold
+    if _dynamic_seeding:
+        _target_seed_ths = [scoreatpercentile(
+            rim, _dynamic_th_percent)*0.45 for rim in _target_ims]
+    else:
+        _target_seed_ths = [_seed_th for rim in _target_ims]
+    # fitting
+    _target_centers = [get_STD_centers(rim, th_seed=rseed, verbose=_verbose)
+                       for rim, rseed in zip(_target_ims, _target_seed_ths)]
+
+    if _ref_centers is not None:
+        if _verbose:
+            print(f"- Aligning {os.path.basename(_filename)}")
+        _aligns = [visual_tools.translation_aling_pts(_ref_cent, _tar_cent, cutoff=_align_cutoff,
+                                                      xyz_res=_align_res, plt_val=_make_plot) for _ref_cent, _tar_cent in zip(_ref_centers[:2], _target_centers[:2])]
+        _drift = np.mean(_aligns, 0)
+        if np.linalg.norm(_aligns[0]-_aligns[1], 1) > _drift_cutoff:
+            if _verbose:
+                print(f"Suspecting failure for {os.path.basename(_filename)}")
+            _failed_count += 1
+            _target_ims.append(visual_tools.slice_image(_filename, _full_im_size, [_buffer_frame+_num_colors*_selected_crops[2][0, 0], _buffer_frame+_num_colors*_selected_crops[2][0, 1]],
+                                                        _selected_crops[2][1], _selected_crops[2][2], zstep=_num_colors, zstart=_bead_channel_id))
+            if _dynamic_seeding:
+                _target_seed_ths.append(scoreatpercentile(
+                    _target_ims[-1], _dynamic_th_percent)*0.45)
+            else:
+                _target_seed_ths.append(_seed_th)
+            _target_centers.append(get_STD_centers(
+                _target_ims[-1], th_seed=_target_seed_ths[-1], verbose=_verbose))
+            _aligns.append(visual_tools.translation_aling_pts(_ref_centers[2], _target_centers[2],
+                                                              cutoff=_align_cutoff, xyz_res=_align_res, plt_val=True))
+            if np.linalg.norm(_aligns[0]-_aligns[2], 1) > _drift_cutoff and np.linalg.norm(_aligns[1]-_aligns[2], 1) > _drift_cutoff:
+                if _verbose:
+                    print(f"-- keep the previous drift.")
+            elif np.linalg.norm(_aligns[0]-_aligns[2], 1) <= np.linalg.norm(_aligns[1]-_aligns[2], 1):
+                _drift = (_aligns[0]+_aligns[2])/2
+                if _verbose:
+                    print(f"-- selected drifts:{_aligns[0]}, {_aligns[2]}")
+            else:
+                _drift = (_aligns[1]+_aligns[2])/2
+                if _verbose:
+                    print(f"-- selected drifts:{_aligns[1]}, {_aligns[2]}")
+    ## do alignment if ref-filename is given
+    elif _ref_filename is not None:
+        _full_ref_im_size, _ref_num_colors = get_img_info.get_num_frame(
+            _ref_filename, buffer_frame=_buffer_frame, frame_per_color=_im_size[0])
+        _ref_ims = [visual_tools.slice_image(_ref_filename, _full_ref_im_size, [_buffer_frame+_ref_num_colors*_crop[0, 0], _buffer_frame+_ref_num_colors*_crop[0, 1]],
+                                             _crop[1], _crop[2], zstep=_ref_num_colors, zstart=_bead_channel_id) for _crop in _selected_crops[:2]]
+        if _illumination_corr:  # do illumination correction
+            _ref_ims = [fast_illumination_correction(_im, _bead_channel, original_im_size=_im_size,
+                                                     crop_limits=_crop) for (_crop, _im) in zip(_selected_crops[:2], _ref_ims)]
+
+        # seeding
+        if _dynamic_seeding:
+            _ref_seed_ths = [scoreatpercentile(
+                rim, _dynamic_th_percent)*0.45 for rim in _ref_ims]
+        else:
+            _ref_seed_ths = [seed_th for rim in _ref_ims]
+        _ref_centers = [get_STD_centers(_rim, th_seed=_rseed, verbose=_verbose)
+                        for _rim, _rseed in zip(_ref_ims, _ref_seed_ths)]
+        _aligns = [visual_tools.translation_aling_pts(_ref_cent, _tar_cent, cutoff=_align_cutoff,
+                                                      xyz_res=_align_res, plt_val=_make_plot) for _ref_cent, _tar_cent in zip(_ref_centers[:2], _target_centers[:2])]
+        _drift = np.mean(_aligns, 0)
+        if np.linalg.norm(_aligns[0]-_aligns[1], 1) > _drift_cutoff:
+            if _verbose:
+                print(f"Suspecting failure for {os.path.basename(_filename)}")
+            _failed_count += 1
+            # append target image
+            _new_target_im = visual_tools.slice_image(_filename, _full_im_size, [_buffer_frame+_num_colors*_selected_crops[2][0, 0], _buffer_frame+_num_colors*_selected_crops[2][0, 1]],
+                                                      _selected_crops[2][1], _selected_crops[2][2], zstep=_num_colors, zstart=_bead_channel_id)
+            _target_ims.append(_new_target_im)
+            if _dynamic_seeding:
+                _target_seed_ths.append(scoreatpercentile(
+                    _target_ims[-1], _dynamic_th_percent)*0.45)
+            else:
+                _target_seed_ths.append(_seed_th)
+            _target_centers.append(get_STD_centers(
+                _target_ims[-1], th_seed=_target_seed_ths[-1], verbose=_verbose))
+            # append ref image
+            _new_ref_im = visual_tools.slice_image(_ref_filename, _full_ref_im_size, [_buffer_frame+_ref_num_colors*_selected_crops[2][0, 0], _buffer_frame+_ref_num_colors*_selected_crops[2][0, 1]],
+                                                   _selected_crops[2][1], _selected_crops[2][2], zstep=_ref_num_colors, zstart=_bead_channel_id)
+            _ref_ims.append(_new_ref_im)
+            if _dynamic_seeding:
+                _ref_seed_ths.append(scoreatpercentile(
+                    _ref_ims[-1], _dynamic_th_percent)*0.45)
+            else:
+                _ref_seed_ths.append(_seed_th)
+            _ref_centers.append(get_STD_centers(
+                _ref_ims[-1], th_seed=_ref_seed_ths[-1], verbose=_verbose))
+            # align the new image
+            _aligns.append(visual_tools.translation_aling_pts(_ref_centers[2], _target_centers[2],
+                                                              cutoff=_align_cutoff, xyz_res=_align_res, plt_val=True))
+
+            if np.linalg.norm(_aligns[0]-_aligns[2], 1) > _drift_cutoff and np.linalg.norm(_aligns[1]-_aligns[2], 1) > _drift_cutoff:
+                if _verbose:
+                    print(f"-- keep the previous drift.")
+            elif np.linalg.norm(_aligns[0]-_aligns[2], 1) <= np.linalg.norm(_aligns[1]-_aligns[2], 1):
+                _drift = (_aligns[0]+_aligns[2])/2
+                if _verbose:
+                    print(f"-- selected drifts:{_aligns[0]}, {_aligns[2]}")
+            else:
+                _drift = (_aligns[1]+_aligns[2])/2
+                if _verbose:
+                    print(f"-- selected drifts:{_aligns[1]}, {_aligns[2]}")
 
     return _drift, _failed_count
 
@@ -800,7 +946,7 @@ def Chromatic_abbrevation_correction(ims, correction_channel,
         _coord = _coord + np.array(_cc_profile)[:,np.newaxis,:,:]
     del(_cc_profile) # clear
     # loop through images
-    _corr_ims = []; # initialize corrected images
+    _corr_ims = [] # initialize corrected images
     for _im in _ims:
 
         if len(_im.shape) == 2: # if 2D
@@ -1225,8 +1371,8 @@ def fast_generate_illumination_correction(color, data_folder, correction_folder,
                     _im = visual_tools.slice_image(_im_filename, [_num_frame, _dx, _dy], [buffer_frame, _num_frame-buffer_frame], [0, _dx],
                                                   [0, _dy], _num_color, target_color_ind)
                     # do corrections
-                    _im = corrections.Remove_Hot_Pixels(_im, verbose=False)
-                    _im = corrections.Z_Shift_Correction(_im, normalization=False, verbose=False)
+                    _im = Remove_Hot_Pixels(_im, verbose=False)
+                    _im = Z_Shift_Correction(_im, normalization=False, verbose=False)
                     # seed and exclude these blocks
                     _seed_thres = scoreatpercentile(_im, seeding_th_per) - np.median(_im)
                     _seeds = visual_tools.get_seed_points_base(_im, th_seed=_seed_thres)
@@ -1256,9 +1402,10 @@ def fast_generate_illumination_correction(color, data_folder, correction_folder,
                 print(f"-- saving correction profile to file:{save_filename}.npy")
             np.save(save_filename, _mean_profile)
     if make_plot:
-        plt.figure()
+        f1 = plt.figure()
         plt.imshow(_mean_profile)
         plt.colorbar()
+        plt.show()
 
     return _mean_profile
 
@@ -1273,13 +1420,13 @@ def fast_illumination_correction(im, correction_channel, original_im_size=_image
     _allowed_colors = ['750', '647', '561', '488', '405']
     if _color not in _allowed_colors:
         raise ValueError(
-            f"Wrong color input, {color} is given, color among {_allowed_colors} is expected")
+            f"Wrong color input, {_color} is given, color among {_allowed_colors} is expected")
     if target_color_ind == -1:
         target_color_ind = _allowed_colors.index(_color)
     # crop_limits
     if crop_limits is not None:
-        if len(crop_limits) <= 1 or len(crop_limits) > 2:
-            raise ValueError("crop_limits should have 2 elements")
+        if len(crop_limits) <= 1 or len(crop_limits) > 3:
+            raise ValueError("crop_limits should have 2 or 3 elements")
         else:
             for _lims in crop_limits:
                 if len(_lims) < 2:
@@ -1326,14 +1473,24 @@ def fast_illumination_correction(im, correction_channel, original_im_size=_image
                 _im = visual_tools.slice_image(_im_filename, [_num_frame, _dx, _dy], [buffer_frame, _num_frame-buffer_frame], [0, _dx],
                                                [0, _dy], _num_color, target_color_ind)
             else:  # crop limits is given:
-                _im = visual_tools.slice_image(_im_filename, [_num_frame, _dx, _dy],
-                                               [buffer_frame, _num_frame -
-                                                   buffer_frame],
-                                               [crop_limits[0][0],
-                                                   crop_limits[0][1]],
-                                               [crop_limits[1][0],
-                                                   crop_limits[1][1]],
-                                               _num_color, target_color_ind)
+                if len(crop_limits) == 2:
+                    _im = visual_tools.slice_image(_im_filename, [_num_frame, _dx, _dy],
+                                                [buffer_frame, _num_frame -
+                                                    buffer_frame],
+                                                [crop_limits[0][0],
+                                                    crop_limits[0][1]],
+                                                [crop_limits[1][0],
+                                                    crop_limits[1][1]],
+                                                _num_color, target_color_ind)
+                else:
+                    _im = visual_tools.slice_image(_im_filename, [_num_frame, _dx, _dy],
+                                                   [crop_limits[0][0],
+                                                    crop_limits[0][1]],
+                                                   [crop_limits[1][0],
+                                                    crop_limits[1][1]],
+                                                   [crop_limits[2][0],
+                                                    crop_limits[2][1]],
+                                                   _num_color, target_color_ind)
         elif ".npy" in im:
             raise ValueError("Supporting for npy file hasn't been finished")
         else:
@@ -1341,27 +1498,226 @@ def fast_illumination_correction(im, correction_channel, original_im_size=_image
                 "Wrong input filename postfix, should be either .dax or .npy")
     # if a image is directly imported:
     elif isinstance(im, np.ndarray) or isinstance(im, np.memmap):
-        if crop_limits is None or (np.array(np.shape(im)[:3]) == np.array([original_im_size[0], crop_limits[0][1]-crop_limits[0][0], crop_limits[1][1]-crop_limits[1][0]])).all():
+        if crop_limits is None:
             _im = im.copy()
+        elif len(crop_limits) == 2 and (np.array(np.shape(im)[:3]) == np.array([original_im_size[0], crop_limits[0][1]-crop_limits[0][0], crop_limits[1][1]-crop_limits[1][0]])).all():
+            _im = im.copy()
+        elif len(crop_limits) == 3 and (np.array(np.shape(im)[:3]) == np.array([crop_limits[0][1]-crop_limits[0][0], 
+                                                                                crop_limits[1][1]-crop_limits[1][0], 
+                                                                                crop_limits[2][1]-crop_limits[2][0]])).all():
+            _im = im.copy()
+        # case where you need to crop image
         else:
-            _im = im.copy()[:, crop_limits[0][0]:crop_limits[0]
-                            [1], crop_limits[1][0]:crop_limits[1][1]]
+            if len(crop_limits) == 2:
+                _im = im.copy()[:, crop_limits[0][0]:crop_limits[0]
+                                [1], crop_limits[1][0]:crop_limits[1][1]]
+            else:
+                _im = im.copy()[crop_limits[0][0]:crop_limits[0][1], 
+                                crop_limits[1][0]:crop_limits[1][1],
+                                crop_limits[2][0]:crop_limits[2][1]]
     else:
         raise ValueError("Wrong input data-type for im")
-
     ## do the correction
     if (np.array(np.shape(_im)[:3]) == np.array(original_im_size)).all():
         if verbose:
             print("- correct the whole image")
         _corr_im = (_im / _ic_profile**correction_power).astype(np.uint16)
-    elif (np.array(np.shape(_im)[:3]) == np.array([original_im_size[0], crop_limits[0][1]-crop_limits[0][0], crop_limits[1][1]-crop_limits[1][0]])).all():
+    elif len(crop_limits)==2 and (np.array(np.shape(_im)[:3]) == np.array([original_im_size[0], crop_limits[0][1]-crop_limits[0][0], crop_limits[1][1]-crop_limits[1][0]])).all():
         if verbose:
             print("- correct cropped image")
         _cropped_profile = _ic_profile[crop_limits[0][0]
             :crop_limits[0][1], crop_limits[1][0]:crop_limits[1][1]]
         _corr_im = (_im / _cropped_profile**correction_power).astype(np.uint16)
+    elif len(crop_limits)==3 and (np.array(np.shape(im)[:3]) == np.array([crop_limits[0][1]-crop_limits[0][0], 
+                                                                                crop_limits[1][1]-crop_limits[1][0], 
+                                                                                crop_limits[2][1]-crop_limits[2][0]])).all():
+        _cropped_profile = _ic_profile[crop_limits[1][0]
+            :crop_limits[1][1], crop_limits[2][0]:crop_limits[2][1]]
+        _corr_im = (_im / _cropped_profile**correction_power).astype(np.uint16)                                                    
     else:
         raise ValueError(
             "Wrong dimension of imput image, should match either original image size or cropped image size")
 
     return _corr_im
+
+def fast_generate_chromatic_abbrevation_from_spots(corr_spots, ref_spots, corr_channel, ref_channel, 
+                                                   image_size=_image_size, fitting_order=2,
+                                                   correction_folder=_correction_folder, make_plot=False, 
+                                                   save=True, save_name='chromatic_correction_',force=False, verbose=True):
+    """Code to generate chromatic abbrevation from fitted and matched spots"""
+    ## check inputs
+    if len(corr_spots) != len(ref_spots):
+        raise ValueError("corr_spots and ref_spots are of different length, so not matched")
+    # color 
+    _allowed_colors = ['750', '647', '561', '488', '405']
+    if str(corr_channel) not in _allowed_colors:
+        raise ValueError(f"corr_channel given:{corr_channel} is not valid, {_allowed_colors} are expected")
+    if str(ref_channel) not in _allowed_colors:
+        raise ValueError(f"corr_channel given:{ref_channel} is not valid, {_allowed_colors} are expected")
+        
+    ## savefile
+    filename_base = save_name + str(corr_channel)+'_'+str(ref_channel)+'_'+str(image_size[1])+'x'+str(image_size[2])
+    saved_profile_filename = os.path.join(correction_folder, filename_base+'.npy')
+    saved_const_filename = os.path.join(correction_folder, filename_base+'_const.npy')
+    # whether have existing profile
+    if os.path.isfile(saved_profile_filename) and os.path.isfile(saved_const_filename) and not force:
+        _cac_profiles = np.load(saved_profile_filename)
+        _cac_consts = np.load(saved_const_filename)
+    else:
+        ## start correction
+        _cac_profiles = []
+        _cac_consts = []
+        # variables used in polyfit
+        _x = ref_spots[:,1]
+        _y = ref_spots[:,2]
+        _data = [] # variables in polyfit
+        for _order in range(fitting_order+1): # loop through different orders
+            for _p in range(_order+1):
+                _data.append(_x**_p * _y**(_order-_p))
+        _data = np.array(_data).transpose()
+
+        for _i in range(3): # 3D
+            if verbose:
+                print(f"-- fitting chromatic-abbrevation in axis {_i} with order:{fitting_order}")
+            _value =  corr_spots[:,_i] - ref_spots[:,_i] # target-value for polyfit
+            _C,_r,_,_ = scipy.linalg.lstsq(_data, _value)    # coefficients and residues
+            _cac_consts.append(_C) # store correction constants
+            _rsquare =  1 - _r / (np.var(_value)*len(_value))
+            if verbose:
+                print(f"--- fitted rsquare:{_rsquare}")
+
+            ## generate correction function
+            def _get_shift(coords):
+                # traslate into 2d
+                if len(coords.shape) == 1:
+                    coords = coords[np.newaxis,:]
+                _cx = coords[:,1]
+                _cy = coords[:,2]
+                _corr_data = []
+                for _order in range(fitting_order+1):
+                    for _p in range(_order+1):
+                        _corr_data.append(_cx**_p * _cy**(_order-_p))
+                _shift = np.dot(np.array(_corr_data).transpose(), _C)
+                return _shift
+
+            ## generate correction_profile
+            _xc_t, _yc_t = np.meshgrid(np.arange(image_size[1]), np.arange(image_size[2])) # initialize meshgrid
+            _xc, _yc = _xc_t.transpose(), _yc_t.transpose()
+            # transpose to the shape compatible with function
+            _grid_coords = np.array([np.zeros(np.size(_xc)), _xc.reshape(-1), _yc.reshape(-1)]).transpose() 
+            # calculate shift and trasform back
+            _grid_shifts = _get_shift(_grid_coords)
+            _grid_shifts = _grid_shifts.reshape(np.shape(_xc))
+            _cac_profiles.append(_grid_shifts) # store correction profile across 2d
+
+            ## make plot
+            if make_plot:
+                plt.figure()
+                plt.imshow(_grid_shifts)
+                plt.colorbar()
+                plt.title(f"chromatic-abbrevation {corr_channel} to {ref_channel}, axis-{_i}")
+                plt.show()
+        _cac_profiles = np.array(_cac_profiles)
+        _cac_consts = np.array(_cac_consts)
+        # save 
+        if save:
+            if verbose:
+                print("-- save profiles to file:{saved_profile_filename}")
+            np.save(saved_profile_filename.split('.npy')[0], _cac_profiles)
+            if verbose:
+                print("-- save shift functions to file:{saved_const_filename}")
+            np.save(saved_const_filename.split('.npy')[0], _cac_consts)
+    
+    def _cac_func(coords, consts=_cac_consts, max_order=fitting_order):
+        # traslate into 2d
+        if len(coords.shape) == 1:
+            coords = coords[np.newaxis,:]
+        _cx = coords[:,1]
+        _cy = coords[:,2]
+        _corr_data = []
+        for _order in range(max_order+1):
+            for _p in range(_order+1):
+                _corr_data.append(_cx**_p * _cy**(_order-_p))
+        _shifts = []
+        for _c in consts:
+            _shifts.append(np.dot(np.array(_corr_data).transpose(), _c))
+        _shifts = np.array(_shifts).transpose()
+        _corr_coords = coords - _shifts
+        return _corr_coords    
+    
+    return _cac_profiles, _cac_func
+
+
+def fast_chromatic_abbrevation_correction(im, correction_channel, target_channel='647', original_im_size=_image_size,
+                                          crop_limits=None, buffer_frame=10, frame_per_color=30, target_color_ind=-1,
+                                          correction_folder=_correction_folder, verbose=True):
+    """Chromatic abbrevation correction"""
+    from scipy.ndimage.interpolation import map_coordinates
+    ## check inputs
+    # color
+    _color = str(correction_channel)
+    _allowed_colors = ['750', '647', '561', '488', '405']
+    if _color not in _allowed_colors:
+        raise ValueError(
+            f"Wrong color input, {_color} is given, color among {_allowed_colors} is expected")
+    if target_color_ind == -1:
+        target_color_ind = _allowed_colors.index(_color)
+    # crop_limits
+    if crop_limits is not None:
+        if len(crop_limits) <= 1 or len(crop_limits) > 2:
+            raise ValueError("crop_limits should have 2 elements")
+        else:
+            for _lims in crop_limits:
+                if len(_lims) < 2:
+                    raise ValueError(
+                        f"given limit {_lims} has less than 2 elements, exit")
+    # correction file
+    _cac_profile_file = os.path.join(correction_folder,
+                                     'chromatic_correction_'+str(_color)+'_'+str(target_channel)+'_'+str(original_im_size[1])+'x'+str(original_im_size[2])+'.npy')
+    if not os.path.isfile(_cac_profile_file):
+        raise IOError(
+            f"Illumination correction file:{_cac_profile_file} doesn't exist, exit! ")
+    else:
+        _cac_profile = np.load(_cac_profile_file)
+    # check image
+    if not isinstance(im, np.ndarray) and not isinstance(im, np.memmap):
+        raise ValueError(
+            "Wrong input type for im, should be np.ndarray or memmap")
+
+    ## process the whole image
+    if crop_limits is None and (np.array(np.shape(im))[:3] == np.array(original_im_size)).all():
+        if verbose:
+            print(f"-- chromatic abbrevation for the whole image")
+        # initialize grid-points
+        _coords = np.meshgrid(np.arange(im.shape[0]), np.arange(
+            original_im_size[1]), np.arange(original_im_size[2]))
+        _coords = np.stack(_coords).transpose((0, 2, 1, 3))
+        _corr_coords = _coords + _cac_profile[:, np.newaxis, :, :]
+        # map coordinates
+        _corr_im = map_coordinates(im, _corr_coords.reshape(
+            _corr_coords.shape[0], -1), mode='nearest')
+        _corr_im = _corr_im.reshape(original_im_size)
+    ## process cropped image
+    elif crop_limits is not None:
+        if (np.array(np.shape(im))[:3] == np.array(original_im_size)).all():
+            _cropped_im = im[:, crop_limits[0][0]:crop_limits[0]
+                             [1], crop_limits[1][0]:crop_limits[1][1]]
+        elif (np.array(np.shape(im))[:3] == np.array([original_im_size[0], crop_limits[0][1]-crop_limits[0][0], crop_limits[1][1]-crop_limits[1][0]])).all():
+            _cropped_im = im.copy()
+        else:
+            raise ValueError(
+                "Input image should be of original-image-size or cropped image size given by crop_limits")
+        if verbose:
+            print(f"-- chromatic abbrevation for cropped image")
+        # initialize grid-points for cropped region
+        _coords = np.meshgrid(np.arange(_cropped_im.shape[0]), np.arange(
+            crop_limits[0][1]-crop_limits[0][0]), np.arange(crop_limits[1][1]-crop_limits[1][0]))
+        _coords = np.stack(_coords).transpose((0, 2, 1, 3))
+        _corr_coords = _coords + _cac_profile[:, np.newaxis, crop_limits[0]
+                                              [0]:crop_limits[0][1], crop_limits[1][0]:crop_limits[1][1]]
+        # map coordinates
+        _corr_im = map_coordinates(_cropped_im, _corr_coords.reshape(
+            _corr_coords.shape[0], -1), mode='nearest')
+        _corr_im = _corr_im.reshape(np.shape(_cropped_im))
+
+    return _cropped_im, _corr_im
