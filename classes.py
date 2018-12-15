@@ -706,7 +706,7 @@ class Cell_List():
     def _spot_finding_for_cells(self, _type='unique', _decoded_flag='diff', _max_fitting_threads=5, _clear_image=False,
                                 _use_chrom_coords=True, _seed_th_per=50, _max_filt_size=3,
                                 _max_seed_count=6, _min_seed_count=3,
-                                _expect_weight=1000, _min_height=100, _max_iter=10, _th_to_end=1e-5,
+                                _expect_weight=1000, _min_height=100, _max_iter=10, _th_to_end=1e-6,
                                 _save=True, _verbose=True):
         """Function to allow multi-fitting in cell_list"""
         ## Check attributes
@@ -2243,8 +2243,9 @@ class Cell_Data():
         return _chrom_coords
 
     def _multi_fitting(self, _type='unique', _decoded_flag='diff', _use_chrom_coords=True, _num_threads=5,
-                       _seed_th_per=50., _max_filt_size=3, _max_seed_count=0, _min_seed_count=1,
-                       _width_zxy=None, _fit_radius=10, _expect_weight=500, _min_height=100, _max_iter=10, _th_to_end=1e-5,
+                       _gfilt_size=0.75, _background_gfilt_size=10, _max_filt_size=3,
+                       _seed_th_per=50, _max_seed_count=10, _min_seed_count=3,
+                       _width_zxy=None, _fit_radius=10, _expect_weight=1000, _min_height=100, _max_iter=10, _th_to_end=1e-6,
                        _save=True, _verbose=True):
         # first check Inputs
         _allowed_types = ['unique', 'decoded']
@@ -2284,10 +2285,10 @@ class Cell_Data():
 
             ## Do the multi-fitting
             if _type == 'unique':
-                _seeding_args = (_max_seed_count, 30, 0, _max_filt_size, _seed_th_per, True, 10, _min_seed_count, 0, False)
+                _seeding_args = (_max_seed_count, 30, _gfilt_size, _background_gfilt_size, _max_filt_size, _seed_th_per, True, 10, _min_seed_count, 0, False)
                 _fitting_args = (_width_zxy, _fit_radius, 100, 500, _expect_weight, _th_to_end, _max_iter, 0.25, _min_height, False, _verbose)
             elif _type == 'decoded':
-                _seeding_args = (_max_seed_count, 40, 0, _max_filt_size, _seed_th_per, True, 10, _min_seed_count, 0, False)
+                _seeding_args = (_max_seed_count, 40, _gfilt_size, _background_gfilt_size, _max_filt_size, _seed_th_per, True, 10, _min_seed_count, 0, False)
                 _fitting_args = (_width_zxy, _fit_radius, 0.1, 0.5, _expect_weight/1000, _th_to_end, _max_iter, 0.25, 0.1, False, _verbose)
 
             _args = [(_im, _id, self.chrom_coords, _seeding_args, _fitting_args, _verbose) for _im, _id in zip(_ims, _ids)]
