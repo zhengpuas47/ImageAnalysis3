@@ -1641,6 +1641,7 @@ def get_seed_in_distance(im, center=None, num_seeds=0, seed_radius=30,
         raise ValueError('wrong input dimension of center!')
     _dim = np.shape(im)
     if center is not None:
+        print(center)
         _center = np.array(center, dtype=np.float)
         _limits = np.zeros([2, 3], dtype=np.int)
         _limits[0, 1:] = np.array([np.max([x, y]) for x, y in zip(
@@ -1654,6 +1655,7 @@ def get_seed_in_distance(im, center=None, num_seeds=0, seed_radius=30,
         _local_center = _center - _limits[0]
         # crop im
         _cim = im[_limits[0, 0]:_limits[1, 0], _limits[0, 1]:_limits[1, 1], _limits[0, 2]:_limits[1, 2]]
+        print(_dim, _limits, _cim.shape)
         # seeding threshold
         _th_seed = scoreatpercentile(_cim-np.min(_cim), th_seed_percentile)
         if dynamic:
@@ -1781,7 +1783,7 @@ def fit_single_gaussian(data, center_zxy, width_zxy=[1.35, 1.9, 1.9], radius=10,
         return None,None
 
 # Multi gaussian fitting
-def fit_multi_gaussian(im, seeds, width_zxy = [1.35,1.9,1.9], fit_radius=10,
+def fit_multi_gaussian(im, seeds, width_zxy = [1.5, 2, 2], fit_radius=10,
                        height_sensitivity=100., expect_intensity=500., expect_weight=1000.,
                        th_to_end=1e-7,
                        n_max_iter=10, max_dist_th=0.25, min_height=100.0,
@@ -1830,6 +1832,7 @@ def fit_multi_gaussian(im, seeds, width_zxy = [1.35,1.9,1.9], fit_radius=10,
                 ps.append(p)
                 sub_ims.append(im_subtr)
                 im_subtr = subtract_source(im_subtr,p)
+
         return np.array(ps)
         # recheck fitting
         im_add = np.array(im_subtr)
@@ -2042,3 +2045,33 @@ def crop_combo_group(ims, temp_filenames, seg_label, drift_dic,
             cropped_ims.append(crop_cell(im, seg_label, drift=drift_dic[ref_name],extend_dim=extend_dim))
     # return 
     return cropped_ims        
+
+
+def visualize_fitted_spots(im, centers, radius=10):
+    """Function to visualize fitted spots within a given images and fitted centers"""
+    if len(centers) == 0:  # no center given
+        return
+    if len(im.shape) != 3:
+        raise ValueError("Input image should be 3D!")
+    # iterate through centers
+    cropped_ims = []
+    for ct in centers:
+        if len(ct) != 3:
+            raise ValueError(
+                f"Wrong input dimension of centers, only expect [z,x,y] coordinates in center:{ct}")
+        crop_l = np.array([np.zeros(3), np.round(ct-radius)], dtype=np.int).max(0)
+        crop_r = np.array([np.array(np.shape(im)), 
+                           np.round(ct+radius+1)], dtype=np.int).min(0)
+        cropped_ims.append(
+            im[crop_l[0]:crop_r[0], crop_l[1]:crop_r[1], crop_l[2]:crop_r[2]])
+    cropped_shape = np.array([np.array(_cim.shape)
+                              for _cim in cropped_ims]).max(0)
+    if sum([(np.array(_cim.shape) == cropped_shape).all() for _cim in cropped_ims]) == len(cropped_ims):
+        return imshow_mark_3d_v2(cropped_ims, image_names=[str(ct) for ct in centers])
+    else:
+        amended_cropped_ims = [
+            np.ones(cropped_shape)*np.mean(_cim) for _cim in cropped_ims]
+        for _cim, _acim in zip(cropped_ims, amended_cropped_ims):
+            _cs = list(_cim.shape)
+            _acim[:_cs[0], :_cs[1], :_cs[2]] += _cim
+        return imshow_mark_3d_v2(amended_cropped_ims, image_names=[str(ct) for ct in centers])

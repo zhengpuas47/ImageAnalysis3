@@ -966,8 +966,6 @@ class Cell_Data():
                     self.annotated_folders.append(_matches[0])
             print(f"-- {len(self.annotated_folders)} folders are found according to color-usage annotation.")
 
-
-
     # allow print info of Cell_List
     def __str__(self):
         if hasattr(self, 'data_folder'):
