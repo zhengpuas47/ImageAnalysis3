@@ -733,7 +733,7 @@ class Cell_List():
             # do multi_fitting
             _cell._multi_fitting(_type=_type, _decoded_flag=_decoded_flag, _use_chrom_coords=_use_chrom_coords, _num_threads=min(_max_fitting_threads, self.num_threads),
                                  _seed_th_per=_seed_th_per, _max_filt_size=_max_filt_size, _max_seed_count=_max_seed_count,
-                                 _min_seed_count=_min_seed_count, _width_zxy=self.sigma_zxy, _fit_radius=10,
+                                 _min_seed_count=_min_seed_count, _width_zxy=self.sigma_zxy, _fit_radius=5,
                                  _expect_weight=_expect_weight, _min_height=_min_height, _max_iter=_max_iter,
                                  _save=_save, _verbose=_verbose)
             if _clear_image_for_cell:
@@ -2243,7 +2243,7 @@ class Cell_Data():
     def _multi_fitting(self, _type='unique', _decoded_flag='diff', _use_chrom_coords=True, _num_threads=5,
                        _gfilt_size=0.75, _background_gfilt_size=10, _max_filt_size=3,
                        _seed_th_per=50, _max_seed_count=10, _min_seed_count=3,
-                       _width_zxy=None, _fit_radius=10, _expect_weight=1000, _min_height=100, _max_iter=10, _th_to_end=1e-6,
+                       _width_zxy=None, _fit_radius=5, _expect_weight=1000, _min_height=100, _max_iter=10, _th_to_end=1e-6,
                        _save=True, _verbose=True):
         # first check Inputs
         _allowed_types = ['unique', 'decoded']

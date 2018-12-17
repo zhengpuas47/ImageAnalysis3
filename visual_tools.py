@@ -1701,7 +1701,7 @@ def get_seed_in_distance(im, center=None, num_seeds=0, seed_radius=30,
     return _seeds
 
 # fit single gaussian with varying width given prior
-def fit_single_gaussian(data, center_zxy, width_zxy=[1.35, 1.9, 1.9], radius=10, n_approx=10,
+def fit_single_gaussian(data, center_zxy, width_zxy=[1.35, 1.9, 1.9], radius=5, n_approx=10,
                         height_sensitivity=100.,
                         expect_intensity=800.,
                         expect_weight = 1000.,
@@ -1783,7 +1783,7 @@ def fit_single_gaussian(data, center_zxy, width_zxy=[1.35, 1.9, 1.9], radius=10,
         return None,None
 
 # Multi gaussian fitting
-def fit_multi_gaussian(im, seeds, width_zxy = [1.5, 2, 2], fit_radius=10,
+def fit_multi_gaussian(im, seeds, width_zxy = [1.5, 2, 2], fit_radius=5,
                        height_sensitivity=100., expect_intensity=500., expect_weight=1000.,
                        th_to_end=1e-7,
                        n_max_iter=10, max_dist_th=0.25, min_height=100.0,
