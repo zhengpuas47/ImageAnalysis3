@@ -12,7 +12,7 @@ from skimage.segmentation import random_walker
 from scipy.ndimage import gaussian_laplace
 
 from . import get_img_info, corrections, visual_tools, analysis, classes
-from . import _correction_folder,_temp_folder,_distance_zxy,_sigma_zxy,_image_size
+from . import _correction_folder,_temp_folder,_distance_zxy,_sigma_zxy,_image_size, _allowed_colors
 
 
 
@@ -1701,55 +1701,66 @@ def get_seed_in_distance(im, center=None, num_seeds=0, seed_radius=30,
     return _seeds
 
 # fit single gaussian with varying width given prior
-def fit_single_gaussian(data, center_zxy, width_zxy=[1.35, 1.9, 1.9], radius=5, n_approx=10,
-                        height_sensitivity=100.,
-                        expect_intensity=800.,
-                        expect_weight = 1000.,
+
+
+def fit_single_gaussian(im, center_zxy, counted_indices=None,
+                        width_zxy=[1.35, 1.9, 1.9], fit_radius=5, n_approx=10,
+                        height_sensitivity=100., expect_intensity=800.,
+                        weight_sigma=1000.,
                         th_to_end=1e-6):
     """ Function to fit single gaussian with given prior
     Inputs:
-        data: image, 3d-array
-        center_zxy: center coordinate of seed, 1darray or list of 3
+        im: image, 3d-array
+        center_zxy: center coordinate of seed, 1d-array or list of 3
+        counted_indices: z,x,y indices for pixels to be counted, np.ndarray, length=3
         width_zxy: prior width of gaussian fit, 1darray or list of 3 (default: [1.35,1,1])
-        radius: radius that allowed for fitting, float (default: 10)
+        fit_radius: fit_radius that allowed for fitting, float (default: 10)
         n_approx: number of pixels used for approximation, int (default: 10)
         height_sensitivity: grant height parameter extra sensitivity compared to others, float (default: 100)
         expect_intensity: lower limit of penalty function applied to fitting, float (default: 1000)
-        expect_weight: L1 norm penalty function applied to widths, float (default: 1000)
+        weight_sigma: L1 norm penalty function applied to widths, float (default: 1000)
     Outputs:
         p.x, p.success: parameters and whether success
         Returns (height, x, y,z, width_x, width_y,width_z,bk)
         the gaussian parameters of a 2D distribution found by a fit"""
 
-    data_=np.array(data,dtype=float)
-    dims = np.array(data_.shape)
+    _im = np.array(im, dtype=np.float32)
+    dims = np.array(_im.shape)
     # dynamic adjust height_sensitivity
-    if np.max(data_) < height_sensitivity:
-        height_sensitivity = np.ceil(np.max(data_)) * 0.5
-    if np.max(data_) < expect_intensity:
-        expect_intensity = np.max(data_) * 0.1
-    if len(center_zxy)==3:
-        center_z,center_x,center_y = center_zxy
+    if np.max(_im) < height_sensitivity:
+        height_sensitivity = np.ceil(np.max(_im)) * 0.5
+    if np.max(_im) < expect_intensity:
+        expect_intensity = np.max(_im) * 0.1
+    if len(center_zxy) == 3:
+        center_z, center_x, center_y = center_zxy
     else:
-        zxy = np.array(list(map(np.ravel,np.indices(data_.shape))))
-        data__=data_[zxy[0],zxy[1],zxy[2]]
-        args_high = np.argsort(data__)[-n_approx:]
-        center_z,center_x,center_y = np.median(zxy[:,args_high],axis=-1)
-
-    zxy = sphere([center_z,center_x,center_y],radius,imshape=dims).T
-    if len(zxy[0])>0:
-        data__=data_[zxy[0],zxy[1],zxy[2]]
-        sorted_data = np.sort(data__)#np.sort(np.ravel(data__))
-        bk = np.median(sorted_data[:n_approx])
+        raise ValueError(
+            "Wrong input for kwd center_zxy, should be of length=3")
+    if counted_indices is not None and len(counted_indices) != 3:
+        raise ValueError(
+            "Length of counted_indices should be 3, for z,x,y coordinates")
+    elif counted_indices is not None:
+        zxy = counted_indices
+    else:  # get affected coordinates de novo
+        total_zxy = (np.indices([2*fit_radius+1]*3) + center_zxy[:,
+                                                                 np.newaxis, np.newaxis, np.newaxis] - fit_radius).reshape(3, -1)
+        keep = (total_zxy >= 0).all(0) * (total_zxy[0] < _im.shape[0]) * (
+            total_zxy[1] < _im.shape[1]) * (total_zxy[2] < _im.shape[2])
+        zxy = total_zxy[:, keep]
+    if len(zxy[0]) > 0:
+        _used_im = _im[zxy[0], zxy[1], zxy[2]]
+        sorted_im = np.sort(_used_im)  # np.sort(np.ravel(_used_im))
+        bk = np.median(sorted_im[:n_approx])
         if bk < 0:
             bk = 0
-        height = (np.median(sorted_data[-n_approx:])-bk) / height_sensitivity
+        height = (np.median(sorted_im[-n_approx:])-bk) / height_sensitivity
         if height < 0:
-            height=0
-        width_z,width_x,width_y = np.array(width_zxy)
-        params_ = (height, center_z,center_x,center_y, bk, width_z,width_x,width_y)
+            height = 0
+        width_z, width_x, width_y = np.array(width_zxy)
+        params_ = (height, center_z, center_x, center_y,
+                   bk, width_z, width_x, width_y)
 
-        def gaussian(height,center_z, center_x, center_y,
+        def gaussian(height, center_z, center_x, center_y,
                      bk=0,
                      width_z=width_zxy[0],
                      width_x=width_zxy[1],
@@ -1760,27 +1771,30 @@ def fit_single_gaussian(data, center_zxy, width_zxy=[1.35, 1.9, 1.9], radius=5, 
             width_z_ = np.abs(width_z)
             height_ = np.abs(height)
             bk_ = np.abs(bk)
-            def gauss(z,x,y):
-                g = bk_ + height_ * height_sensitivity *np.exp(
-                    -(((center_z-z)/width_z_)**2+((center_x-x)/width_x_)**2+
+
+            def gauss(z, x, y):
+                g = bk_ + height_ * height_sensitivity * np.exp(
+                    -(((center_z-z)/width_z_)**2 +
+                      ((center_x-x)/width_x_)**2 +
                       ((center_y-y)/width_y_)**2)/2.)
                 return g
             return gauss
+
         def errorfunction(p):
             f = gaussian(*p)(*zxy)
-            g = data__
+            g = _used_im
             #err=np.ravel(f-g-g*np.log(f/g))
-            err=np.ravel(f-g) + expect_weight * np.linalg.norm(p[-3:]-width_zxy, 1)\
-                + (p[0]*height_sensitivity/expect_intensity) * int(p[0]*height_sensitivity<expect_intensity) \
-                + int(p[0]*height_sensitivity>=expect_intensity)
+            err = np.ravel(f-g) \
+                + weight_sigma * np.linalg.norm(p[-3:]-width_zxy, 1)
             return err
 
-        p = scipy.optimize.least_squares(errorfunction,  params_, bounds=(0, np.inf), ftol=th_to_end, xtol=th_to_end, gtol=th_to_end/10.)
+        p = scipy.optimize.least_squares(errorfunction,  params_, bounds=(
+            0, np.inf), ftol=th_to_end, xtol=th_to_end, gtol=th_to_end/10.)
         p.x[0] *= height_sensitivity
 
-        return  p.x, p.success
+        return p.x, p.success
     else:
-        return None,None
+        return None, None
 
 # Multi gaussian fitting
 def fit_multi_gaussian(im, seeds, width_zxy = [1.5, 2, 2], fit_radius=5,
@@ -1824,8 +1838,8 @@ def fit_multi_gaussian(im, seeds, width_zxy = [1.5, 2, 2], fit_radius=5,
             p, success = fit_single_gaussian(im_subtr,_seed[:3],
                                           height_sensitivity=height_sensitivity,
                                           expect_intensity=expect_intensity,
-                                          expect_weight=expect_weight,
-                                          radius=fit_radius,
+                                          weight_sigma=expect_weight,
+                                          fit_radius=fit_radius,
                                           width_zxy=width_zxy,
                                           th_to_end=th_to_end)
             if p is not None and success: # If got any successful fitting, substract fitted profile
@@ -1834,6 +1848,7 @@ def fit_multi_gaussian(im, seeds, width_zxy = [1.5, 2, 2], fit_radius=5,
                 im_subtr = subtract_source(im_subtr,p)
 
         return np.array(ps)
+        print("do something")
         # recheck fitting
         im_add = np.array(im_subtr)
         max_dist=np.inf
@@ -1852,8 +1867,8 @@ def fit_multi_gaussian(im, seeds, width_zxy = [1.5, 2, 2], fit_radius=5,
                 p,success = fit_single_gaussian(im_add,_seed,
                                               height_sensitivity=height_sensitivity,
                                               expect_intensity=expect_intensity,
-                                              expect_weight=expect_weight,
-                                              radius=fit_radius,
+                                              weight_sigma=expect_weight,
+                                              fit_radius=fit_radius,
                                               width_zxy=width_zxy,
                                               th_to_end=th_to_end)
                 if p is not None:
@@ -1952,50 +1967,78 @@ def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0, npy_start=64,
 
 
 # specific functions to crop images
-def crop_single_image(im, filename, seg_label, drift=np.array([0,0,0]), 
-                      im_size=_image_size, extend_dim=20, return_limits=False):
+def crop_single_image(filename, channel, all_channels=_allowed_colors, channel_id=None, seg_label=None, drift=np.array([0, 0, 0]),
+                      single_im_size=_image_size, num_buffer_frames=10, extend_dim=20, return_limits=False):
     '''Given a tempfile-name or a image, return a cropped image'''
-    if im is None and filename is None:
-        raise ValueError("Keywords im and filename cannot be both None!")
-    if np.max(seg_label) > 1:
-        raise ValueError("seg_label must be binary label, either 0-1 label or bool")
-    if len(drift) < len(np.shape(im)):
-        raise ValueError("dimension of drift smaller than number of dimension of image!")
-    seg_label = np.array(seg_label>0, dtype=np.int)
-    # crop from temp-file
-    if filename is not None:
-        _limits = np.zeros([3,2], dtype=np.int)
+    ## check inputs
+    if not os.path.isfile(filename):
+        raise ValueError(f"file {filename} doesn't exist!")
+    if seg_label is not None and np.max(seg_label) > 1:
+        raise ValueError(
+            "seg_label must be binary label, either 0-1 label or bool")
+    # drift
+    drift = np.array(drift)
+    if len(drift) != 3:
+        raise ValueError("dimension of drift should be 3!")
+    # channel
+    channel = str(channel)
+    all_channels = [str(ch) for ch in all_channels]
+    if channel not in all_channels:
+        raise ValueError(
+            f"Target channel {channel} doesn't exist in all_channels:{all_channels}")
+    if channel_id is None:
+        channel_id = all_channels.index(channel)
+    # extract image info
+    _full_im_shape, _num_color = get_img_info.get_num_frame(filename,
+                                                            frame_per_color=single_im_size[0],
+                                                            buffer_frame=num_buffer_frames)
+    # case 1, no cropping
+    if seg_label is None:
+        _cim = slice_image(filename, _full_im_shape, [num_buffer_frames, _full_im_shape[0]-num_buffer_frames],
+                           [0, _full_im_shape[1]], [0, _full_im_shape[2]], zstep=_num_color, zstart=channel_id)
+        _final_limits = np.array(
+            [np.zeros(len(_full_im_shape)), _full_im_shape]).T
+    else:
+        seg_label = np.array(seg_label > 0, dtype=np.int)
+        # crop from temp-file
+        _limits = np.zeros([3, 2], dtype=np.int)
         for _dim in range(len(seg_label.shape)):
             # convert to dimension in image (assume 3D image)
             _im_dim = _dim-len(seg_label.shape)+3
-            if seg_label.shape[_dim] != im_size[_im_dim]:
-                raise ValueError("Dimension of image and segmentation label doesn't match!")
-            _1d_label = np.array(np.sum(seg_label, _dim) > 0, dtype=np.int)
+            if seg_label.shape[_dim] != single_im_size[_im_dim]:
+                raise ValueError(
+                    "Dimension of image and segmentation label doesn't match!")
+            _1d_label = np.array(np.sum(seg_label, axis=tuple(
+                i for i in range(len(seg_label.shape)) if i != _dim)) > 0, dtype=np.int)
             _1d_indices = np.where(_1d_label)[0]
+            # update limits
             _limits[_im_dim, 0] = max(_1d_indices[0]-extend_dim, 0)
-            _limits[_im_dim, 1] = min(_1d_indices[-1]+extend_dim, seg_label.shape[_dim])
-        if _limits[0,1] == 0:
-            _limits[0,1] = im_size[0]
+            _limits[_im_dim, 1] = min(
+                _1d_indices[-1]+extend_dim, seg_label.shape[_dim])
+        # primary crop based on drift
+        if _limits[0, 1] == 0:
+            _limits[0, 1] = single_im_size[0]
         _drift_limits = np.zeros(_limits.shape, dtype=np.int)
-        for _i,_lim in enumerate(_limits):
+        for _i, _lim in enumerate(_limits):
             _drift_limits[_i, 0] = max(_lim[0]-np.ceil(np.abs(drift[_i])), 0)
-            _drift_limits[_i, 1] = min(_lim[1]+np.ceil(np.abs(drift[_i])), im_size[_i])
-        _cim = slice_image(filename, im_size, _drift_limits[0], _drift_limits[2], _drift_limits[1])
-        _cim = ndimage.interpolation.shift(_cim, -drift[:len(_limits)], mode='nearest')
+            _drift_limits[_i, 1] = min(
+                _lim[1]+np.ceil(np.abs(drift[_i])), single_im_size[_i])
+        _cim = slice_image(filename, _full_im_shape, [num_buffer_frames+_drift_limits[0, 0]*_num_color, num_buffer_frames+_drift_limits[0, 1]*_num_color],
+                           _drift_limits[1], _drift_limits[2], zstep=_num_color, zstart=channel_id)
+        _cim = ndimage.interpolation.shift(_cim, -drift, mode='nearest')
         # second crop
         _limit_diffs = _limits - _drift_limits
         for _m in range(len(_limits)):
-            if _limit_diffs[_m,1] == 0:
-                _limit_diffs[_m,1] = _limits[_m,1] - _limits[_m,0]
+            if _limit_diffs[_m, 1] == 0:
+                _limit_diffs[_m, 1] = _limits[_m, 1] - _limits[_m, 0]
         _limit_diffs = _limit_diffs.astype(np.int)
-        _cim = _cim[_limit_diffs[0,0]:_limit_diffs[0,0]+_limits[0,1]-_limits[0,0],\
-                    _limit_diffs[2,0]:_limit_diffs[2,0]+_limits[2,1]-_limits[2,0],\
-                    _limit_diffs[1,0]:_limit_diffs[1,0]+_limits[1,1]-_limits[1,0]]
-    # crop from file
-    else: 
-        _cim = crop_cell(im, seg_label, drift=drift, extend_dim=extend_dim)[0]
+        _cim = _cim[_limit_diffs[0, 0]:_limit_diffs[0, 0]+_limits[0, 1]-_limits[0, 0],
+                    _limit_diffs[1, 0]:_limit_diffs[1, 0]+_limits[1, 1]-_limits[1, 0],
+                    _limit_diffs[2, 0]:_limit_diffs[2, 0]+_limits[2, 1]-_limits[2, 0]]
+        _final_limits = np.array([_drift_limits[:, 0]+_limit_diffs[:, 0],
+                                  _drift_limits[:, 0]+_limit_diffs[:, 0]+_limits[:, 1]-_limits[:, 0]]).T
     if return_limits:
-        return _cim, 
+        return _cim, _final_limits
     else:
         return _cim
 

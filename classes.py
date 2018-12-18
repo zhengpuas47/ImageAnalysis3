@@ -1263,133 +1263,93 @@ class Cell_Data():
         return _return_args
 
     ## crop images given segmentation and images/temp_filenames
-    def _crop_images(self, _type, _num_threads=12, _extend_dim=20, _single_size=_image_size, 
-                     _load_in_ram=False, _temp_filenames=None, _temp_type='.npy',
-                     _corr_images=None, _ref_names=None, _ref_channels=None,
+    def _crop_images(self, _type, _num_threads=12, _single_im_size=_image_size,
+                     _corr_drift=True, _corr_Z_shift=True, _corr_hot_pixel=True, _corr_illumination=True,
+                     _corr_chromatic=True,
+                     _load_in_ram=False, _extend_dim=20, _num_buffer_frames=10,
+                     #_corr_images=None, _ref_names=None, _ref_channels=None,
                      _save=True, _overwrite=False, _verbose=True):
         "Function to crop combo/unique images "
         ## check inputs
         # Num of threads
         if hasattr(self, 'num_threads'):
-            _num_threads = int(min(self.num_threads, _num_threads))
+            _num_threads = self.num_threads
         # load attributes
         if not hasattr(self, 'channels') or not hasattr(self, 'color_dic'):
             self._load_color_info()
         if not hasattr(self, 'segmentation_label'):
             self._load_segmentation()
+        if not hasattr(self, 'drift'):
+            self._load_drift()
         # check type
         _type = _type.lower()
-        _allowed_kwds = {'combo':'c', 'unique':'u'}
+        _allowed_kwds = {'combo': 'c', 'unique': 'u', 'merfish': 'm'}
         if _type not in _allowed_kwds:
-            raise ValueError(f"Wrong type kwd! {_type} is given, {_allowed_kwds} expected.")
-        # check temp_type
-        _temp_type = _temp_type.lower()
-        _allowed_temp_type = ['.npy', '.dax']
-        if _temp_type not in _allowed_temp_type:
-            raise ValueError(f"Wrong _temp_type keyword,{_temp_type} is given, {_allowed_temp_type} expected.")
-        ## decided modes:
-        _mode = 'tempfile' # default mode: crop from temp-files
-        # check whether all temp-files exists
-        _check_tempfile = (_temp_filenames is not None and None not in _temp_filenames)
-        for _hyb_fd, _infos in self.color_dic.items():
-            for _channel, _info in zip(self.channels[:len(_infos)], _infos):
-                if _allowed_kwds[_type] in _info:
-                    _ref_name = os.path.join(_hyb_fd, self.fovs[self.fov_id])
-                    _temp_name =os.path.join(self.temp_folder, _ref_name.replace(os.sep,'-').replace('.dax','_'+str(_channel)+'_corrected'+_temp_type))
-                    if not os.path.isfile(_temp_name):
-                        _check_tempfile = False
-                        if _verbose:
-                            print(f"- temp_file:{_temp_name} doesn't exists, create_tempfile required!")
-                        break
-            if not _check_tempfile:
-                break
-        # check if images in-ram exists
-        if _corr_images is not None and _ref_names is not None and _ref_channels is not None:
-            _check_inram = True
-        else:
-            _check_inram = False
-        if _check_inram:
-            for _hyb_fd, _infos in self.color_dic.items():
-                for _channel, _info in zip(self.channels[:len(_infos)], _infos):
-                    if _allowed_kwds[_type] in _info:
-                        _ref_name = os.path.join(_hyb_fd, self.fovs[self.fov_id])
-                        _matches = [True for _nm,_ch in zip(_ref_names, _ref_channels) if _nm==_ref_name and _ch==_channel]
-                        if sum(_matches) == 1:
-                            continue
-                        else:
-                            _check_inram = False
-                            if _verbose:
-                                print(f"- corrected image for:{_ref_name},channel:{_channel} doesn't exists, not all images are in ram")
-                            break
-                if not _check_inram:
-                    break
-        
-        ## make variables consistent in two cases
-        # case 1: Load from images in ram
-        if not _check_tempfile and _check_inram:
-            if _verbose:
-                print("- Crop images from images in ram.")
-            _temp_filenames = [None for _im in _corr_images]
-        # case 2: Load from temp_files
-        else:
-            if _verbose:
-                print("- Crop images from temp_files")
-            if not _check_tempfile:
-                if _verbose:
-                    print("- Reload temp images")
-                _temp_filenames, _ref_names, _ref_channels = self._generate_corrected_images(_type=_type, _num_threads=_num_threads, 
-                                                                _load_in_ram=False,_save_type=_temp_type,
-                                                                _return_refs=True, _overwrite=False, _verbose=_verbose)
-            _corr_images = [None for _fl in _temp_filenames]
+            raise ValueError(
+                f"Wrong type kwd! {_type} is given, {_allowed_kwds} expected.")
+
         ## Start crop image
         if _verbose:
-            print(f"Start cropping {_type} image, num_of_images:{len(_temp_filenames)}")
-        
-        ## unique 
+            print(f"Start cropping {_type} image")
+        _fov_name = self.fovs[self.fov_id]  # name of this field-of-view
+        ## unique
         if _type == 'unique':
-            _unique_savefile = os.path.join(self.save_folder, 'unique_rounds.npz')
+            _unique_savefile = os.path.join(
+                self.save_folder, 'unique_rounds.npz')
             if not _overwrite and os.path.isfile(_unique_savefile):
                 with np.load(_unique_savefile, mmap_mode='r+') as handle:
                     _unique_ims = list(handle['observation'])
                     _unique_ids = list(handle['ids'])
                     _unique_channels = list(handle['channels'])
             else:
-                _unique_ims, _unique_ids, _unique_channels = [],[],[]
+                _unique_ims, _unique_ids, _unique_channels = [], [], []
             # initialize unique_args anyway
             _unique_args = []
             # loop through color-dic and find all matched type
             for _hyb_fd, _infos in self.color_dic.items():
                 for _channel, _info in zip(self.channels[:len(_infos)], _infos):
                     if _allowed_kwds[_type] in _info and int(_info.split(_allowed_kwds[_type])[-1]) not in _unique_ids:
-                        _ref_name = os.path.join(_hyb_fd, self.fovs[self.fov_id])
-                        if None in _temp_filenames: # read in-ram images
-                            _matches = [_nm==_ref_name and _ch==_channel for _nm,_ch in zip(_ref_names, _ref_channels)]
-                        else: # read by temp-file
-                            _matches = [ _hyb_fd in _fl.split(os.sep)[-1] \
-                                        and _channel in _fl.split(os.sep)[-1] \
-                                        and self.fovs[self.fov_id].replace('.dax','') in _fl.split(os.sep)[-1] \
-                                        for _fl in _temp_filenames]
-
-                        if sum(_matches) == 1:
-                            _ind = _matches.index(True)
-                            _temp_name =os.path.join(self.temp_folder, _ref_name.replace(os.sep,'-').replace('.dax','_'+str(_channel)+'_corrected'+_temp_type))
+                        # extract reference name
+                        _ref_name = os.path.join(_hyb_fd, _fov_name)
+                        # channel_id
+                        _channel_id = self.channels.index(str(_channel))
+                        # match to folders
+                        _matched_folders = [
+                            _fd for _fd in self.annotated_folders if _hyb_fd == os.path.basename(_fd)]
+                        print(_ref_name, _channel_id)
+                        if len(_matched_folders) == 1:
+                            _im_filename = os.path.join(
+                                _matched_folders[0], _fov_name)
+                            print(os.path.isfile(_im_filename))
                             # append id and arguments
                             _unique_channels.append(_channel)
-                            _unique_ids.append(int(_info.split(_allowed_kwds[_type])[-1]))
-                            _unique_args.append( (_corr_images[_ind], _temp_filenames[_ind], self.segmentation_label,
-                                                self.drift[_ref_name], _single_size, _extend_dim) )
+                            _unique_ids.append(
+                                int(_info.split(_allowed_kwds[_type])[-1]))
+                            # prepare args for function "correct_single_image"
+                            _unique_args.append((_im_filename, _channel, self.segmentation_label, self.drift[_ref_name],
+                                                 _single_im_size, self.channels, _channel_id,
+                                                 _num_buffer_frames, _extend_dim, self.correction_folder,
+                                                 _corr_Z_shift, _corr_hot_pixel, _corr_illumination, _corr_chromatic,
+                                                 False, _verbose))
+                        # if not unique, skip
                         else:
-                            print(_ref_name,_channel)
-                    # skip the following if already existed                         
+                            print(
+                                f"Ref_name:{ref_name} has non-unique matches:{_matched_folders}, skip!")
+                            continue
+                    # skip the following if already existed
                     elif _allowed_kwds[_type] in _info and int(_info.split(_allowed_kwds[_type])[-1]) in _unique_ids:
                         if _verbose:
-                            print(f"Skip {int(_info.split(_allowed_kwds[_type])[-1])}")
+                            print(
+                                f"- {int(_info.split(_allowed_kwds[_type])[-1])} already exists in unique_ims, skip!")
             # multi-processing to do cropping
             if _verbose:
-                print(f"-- start cropping {_type} for fov:{self.fov_id}, cell:{self.cell_id} with {_num_threads} threads")
+                print(
+                    f"-- start cropping {_type} for fov:{self.fov_id}, cell:{self.cell_id} with {_num_threads} threads")
             _start_time = time.time()
-            _crop_pool = mp.Pool(_num_threads, maxtasksperchild=int(np.ceil(len(_unique_args)/_num_threads)))
-            _cropped_unique_ims = _crop_pool.starmap(visual_tools.crop_single_image, _unique_args, chunksize=1)
+            _crop_pool = mp.Pool(_num_threads, maxtasksperchild=int(
+                np.ceil(len(_unique_args)/_num_threads)))
+            _cropped_unique_ims = _crop_pool.starmap(
+                corrections.correct_single_image, _unique_args, chunksize=1)
             # close multiprocessing
             _crop_pool.close()
             _crop_pool.terminate()
@@ -1397,10 +1357,11 @@ class Cell_Data():
             # clear
             killchild()
             del(_crop_pool)
-            # append 
+            # append
             _unique_ims += _cropped_unique_ims
-            # sort 
-            _tp = [(_id,_im,_ch) for _id, _im, _ch in sorted(zip(_unique_ids, _unique_ims, _unique_channels))]
+            # sort
+            _tp = [(_id, _im, _ch) for _id, _im, _ch in sorted(
+                zip(_unique_ids, _unique_ims, _unique_channels))]
             _unique_ids = [_t[0] for _t in _tp]
             _unique_ims = [_t[1] for _t in _tp]
             _unique_channels = [_t[2] for _t in _tp]
@@ -1411,13 +1372,15 @@ class Cell_Data():
                 self.unique_ids = _unique_ids
                 self.unique_channels = _unique_channels
             else:
-                _save = True # not load-in-ram, then save to file
+                _save = True  # not load-in-ram, then save to file
             if _save and len(_unique_args) > 0:
-                _dc = {'unique_ims':_unique_ims,
-                       'unique_ids':_unique_ids,
+                _dc = {'unique_ims': _unique_ims,
+                       'unique_ids': _unique_ids,
                        'unique_channels': _unique_channels}
-                self._save_to_file('unique', _save_dic=_dc, _overwrite=_overwrite, _verbose=_verbose)
-                self._save_to_file('cell_info', _overwrite=False, _verbose=_verbose)
+                self._save_to_file('unique', _save_dic=_dc,
+                                   _overwrite=_overwrite, _verbose=_verbose)
+                self._save_to_file(
+                    'cell_info', _overwrite=False, _verbose=_verbose)
             return _unique_ims, _unique_ids, _unique_channels
 
         elif _type == 'combo':
@@ -1427,29 +1390,33 @@ class Cell_Data():
             ## initialize
             _raw_combo_fl = "rounds.npz"
             _combo_groups = []  # list to store encoding groups
-            _combo_args = [] # list of arguments used for multi-processing
+            _combo_args = []  # list of arguments used for multi-processing
             # load the images in the order of encoding scheme (which corresponding to experiment order)
             for _channel, _encoding_info in self.encoding_scheme.items():
-                for _group_id, (_hyb_fds, _matrix) in enumerate(zip(_encoding_info['names'],_encoding_info['matrices'])):
-                    _combo_file = os.path.join(self.save_folder, 
-                                                    'group-'+str(_group_id), 
-                                                    'channel-'+str(_channel),
-                                                    _raw_combo_fl)
+                for _group_id, (_hyb_fds, _matrix) in enumerate(zip(_encoding_info['names'], _encoding_info['matrices'])):
+                    _combo_file = os.path.join(self.save_folder,
+                                               'group-'+str(_group_id),
+                                               'channel-'+str(_channel),
+                                               _raw_combo_fl)
                     if os.path.isfile(_combo_file) and not _overwrite:
                         with np.load(_combo_file, mmap_mode='r+') as handle:
                             _ims = list(handle['observation'])
                             _old_matrix = handle['encoding']
                             _names = handle['names']
                         _name_info = _combo_file.split(os.sep)
-                        _fov_id = [int(_i.split('-')[-1]) for _i in _name_info if "fov" in _i][0]
-                        _cell_id = [int(_i.split('-')[-1]) for _i in _name_info if "cell" in _i][0]
-                        _group_id = [int(_i.split('-')[-1]) for _i in _name_info if "group" in _i][0]
-                        _channel = [_i.split('-')[-1] for _i in _name_info if "channel" in _i][0]
-                        _combo_groups.append( Encoding_Group(_ims, _names, _matrix, self.save_folder,
-                                                _fov_id, _cell_id, _channel, _group_id) )
+                        _fov_id = [int(_i.split('-')[-1])
+                                   for _i in _name_info if "fov" in _i][0]
+                        _cell_id = [int(_i.split('-')[-1])
+                                    for _i in _name_info if "cell" in _i][0]
+                        _group_id = [int(_i.split('-')[-1])
+                                     for _i in _name_info if "group" in _i][0]
+                        _channel = [_i.split('-')[-1]
+                                    for _i in _name_info if "channel" in _i][0]
+                        _combo_groups.append(Encoding_Group(_ims, _names, _matrix, self.save_folder,
+                                                            _fov_id, _cell_id, _channel, _group_id))
                     else:
                         # use temp_filenames:
-                        if None in _corr_images: 
+                        if None in _corr_images:
                             _arg = (None, _temp_filenames, self.segmentation_label, self.drift,
                                     _channel, _hyb_fds, self.fovs[self.fov_id], _single_size, _extend_dim,
                                     self.fov_id, self.cell_id, _group_id, self.save_folder, _matrix)
@@ -1458,12 +1425,13 @@ class Cell_Data():
                         else:
                             _matched_ims = []
                             for _fd in _hyb_fds:
-                                _matches = [_im for _im,_ref_nm,_ref_ch in zip(_corr_images,_ref_names,_ref_channels)
-                                            if _ref_nm.split(os.sep)[0]==_fd and str(_channel)==str(_ref_ch) ]
+                                _matches = [_im for _im, _ref_nm, _ref_ch in zip(_corr_images, _ref_names, _ref_channels)
+                                            if _ref_nm.split(os.sep)[0] == _fd and str(_channel) == str(_ref_ch)]
                                 if len(_matches) == 1:
                                     _matched_ims.append(_matches[0])
                                 else:
-                                    raise ValueError(f"Corrected image for folder:{_fd}, color:{_channel} doesnt have unique match")
+                                    raise ValueError(
+                                        f"Corrected image for folder:{_fd}, color:{_channel} doesnt have unique match")
                             _arg = (_matched_ims, None, self.segmentation_label, self.drift,
                                     _channel, _hyb_fds, self.fovs[self.fov_id], _single_size, _extend_dim,
                                     self.fov_id, self.cell_id, _group_id, self.save_folder, _matrix)
@@ -1476,8 +1444,10 @@ class Cell_Data():
                     print(
                         f"-- start cropping {_type} for fov:{self.fov_id}, cell:{self.cell_id} with {_num_threads} threads")
                 _start_time = time.time()
-                _crop_pool = mp.Pool(_num_threads, maxtasksperchild=int(np.ceil(len(_combo_args)/_num_threads)))
-                _new_groups = _crop_pool.starmap(_generate_single_encoding_group, _combo_args, chunksize=1)
+                _crop_pool = mp.Pool(_num_threads, maxtasksperchild=int(
+                    np.ceil(len(_combo_args)/_num_threads)))
+                _new_groups = _crop_pool.starmap(
+                    _generate_single_encoding_group, _combo_args, chunksize=1)
                 # close multiprocessing
                 _crop_pool.close()
                 _crop_pool.terminate()
@@ -1485,27 +1455,30 @@ class Cell_Data():
                 # clear
                 killchild()
                 if _verbose:
-                    print(f"-- time spent in cropping:{time.time()-_start_time}")
+                    print(
+                        f"-- time spent in cropping:{time.time()-_start_time}")
                 # add new group to combo_groups
                 _combo_groups += _new_groups
                 print(len(_combo_groups))
                 # sort groups
-                _combo_groups = sorted(_combo_groups, key=lambda c:(c.color, c.group_id))
+                _combo_groups = sorted(
+                    _combo_groups, key=lambda c: (c.color, c.group_id))
                 if _load_in_ram:
                     self.combo_groups = _combo_groups
                 # save
-                if _save or not _load_in_ram: # if not load-in-ram, then save something to file 
-                    _dc = {'combo_groups':_combo_groups}
-                    self._save_to_file('combo', _save_dic=_dc, _overwrite=_overwrite, _verbose=_verbose)
-                    self._save_to_file('cell_info', _overwrite=False, _verbose=_verbose)
+                if _save or not _load_in_ram:  # if not load-in-ram, then save something to file
+                    _dc = {'combo_groups': _combo_groups}
+                    self._save_to_file('combo', _save_dic=_dc,
+                                       _overwrite=_overwrite, _verbose=_verbose)
+                    self._save_to_file(
+                        'cell_info', _overwrite=False, _verbose=_verbose)
                 return _combo_groups
             else:
                 # no need to update anything
                 if _load_in_ram:
                     self.combo_groups = _combo_groups
-                return 
+                return
 
-                                    
 
     # function to give boolean output of whether a centain type of images are fully generated
     def _check_full_set(self, _type, _unique_marker='u', _decoded_flag='diff', _verbose=False):
