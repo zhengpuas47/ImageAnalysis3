@@ -140,7 +140,6 @@ class Cell_List():
         self.chosen_fovs = list(np.array(self.fovs)[np.array(self.fov_ids, dtype=np.int)])
         # read color-usage and encodding-scheme
         self._load_color_info()
-        self._load_encoding_scheme()
         # get annotated folders by color usage
         self.annotated_folders = []
         for _hyb_fd, _info in self.color_dic.items():
@@ -382,10 +381,10 @@ class Cell_List():
             self.cells.append(_cell)
         return _cell
 
-    def _create_cells_fov(self, _fov_ids, _num_threads=None, _missing_last=False, 
+    def _create_cells_fov(self, _fov_ids, _num_threads=None, _sequential_mode=False,
                           _segmentation_type='small', _plot_segmentation=True, 
                           _load_exist_info=True, _load_annotated_only=True,
-                          _drift_size=300, _drift_ref=0, _drift_postfix='_sequential_current_cor.pkl', 
+                          _drift_size=300, _drift_ref=0, _drift_postfix='_current_cor.pkl', 
                           _dynamic=True, _save=False, _force_drift=False, _remove_bead_temp=True, _verbose=True):
         """Create Cele_data objects for one field of view"""
         if not _num_threads:
@@ -436,8 +435,6 @@ class Cell_List():
                     _direct_load_drift = True
             # create cells in parallel
             _cell_ids = np.array(np.unique(_fov_segmentation_label[_fov_segmentation_label>0])-1, dtype=np.int)
-            if _missing_last:
-                _cell_ids = _cell_ids[:-1]
             if _verbose:
                 print(f"+ Create cell_data objects, num_of_cell:{len(_cell_ids)}")
             _params = [{'fov_id': _fov_id,
@@ -482,17 +479,18 @@ class Cell_List():
         ## If not directly load drift, do them here:
         for _cell in self.cells:
             if not hasattr(_cell, 'drift'):
-                _cell._load_drift(_num_threads=self.num_threads, _size=_drift_size, _ref_id=_drift_ref, _drift_postfix=_drift_postfix,
+                _cell._load_drift(_num_threads=self.num_threads, _size=_drift_size, _ref_id=_drift_ref, 
+                                  _drift_postfix=_drift_postfix,_load_annotated_only=_load_annotated_only,
+                                  _sequential_mode=_sequential_mode,
                                   _force=_force_drift, _dynamic=_dynamic, _verbose=_verbose)
-                if _remove_bead_temp:
-                    self._remove_temp_fov(_cell.fov_id, _temp_marker=str(self.channels[self.bead_channel_index])+'_corrected.npy', _verbose=_verbose)
             if _save:
                 _cell._save_to_file('cell_info', _verbose=_verbose)
 
 
     def _crop_image_for_cells(self, _type='all', _load_in_ram=False, _load_annotated_only=True,
-                              _extend_dim=20, _overwrite_temp=True, _overwrite_cell_info=False,
-                              _remove_temp=False, _save=True, _force=False, _verbose=True):
+                              _extend_dim=20, _corr_drift=True, _corr_Z_shift=True, _corr_hot_pixel=True, 
+                              _corr_illumination=True, _corr_chromatic=True,
+                              _save=True, _force=False, _overwrite_cell_info=False, _verbose=True):
         """Load images for all cells in this cell_list
         Inputs:
             _type: loading type for this """
@@ -548,26 +546,23 @@ class Cell_List():
                 print(f"+ generating unique images for field-of-view:{_used_fov_ids}")
             for _fov_id in _used_fov_ids:
                 _fov_cells = [_cell for _cell in self.cells if _cell.fov_id==_fov_id]
-                _temp_filenames, _ref_names, _ref_channels = _fov_cells[0]._generate_corrected_images(
-                                                'unique', _num_threads=self.num_threads, _selected_dic=None, 
-                                                _load_in_ram=False, _return_refs=True, _save=True, _verbose=_verbose)
                 for _cell in _fov_cells:
                     # if not all combo exists for this cell:
                     if not _cell._check_full_set('unique') or _force:
                         if _verbose:
                             print(f"+ Crop unique images for fov:{_cell.fov_id}, cell:{_cell.cell_id}")
-                        _cell._crop_images('unique', _num_threads=self.num_threads, _extend_dim=_extend_dim,
-                                        _single_size=_image_size, _load_in_ram=_load_in_ram, 
-                                        _temp_filenames=_temp_filenames, _ref_names=_ref_names, _ref_channels=_ref_channels,
-                                        _save=_save, _overwrite=_force, _verbose=_verbose)
+                        _cell._crop_images('unique', _num_threads=self.num_threads, _single_im_size=_image_size,
+                                           _corr_drift=_corr_drift, _corr_Z_shift=_corr_Z_shift, _corr_hot_pixel=_corr_hot_pixel,
+                                           _corr_illumination=_corr_illumination, _corr_chromatic=_corr_chromatic,
+                                           _load_in_ram=_load_in_ram, _extend_dim=_extend_dim,_num_buffer_frames=10,
+                                           _save=_save, _overwrite=_force, _verbose=_verbose)
                     else:
                         if _verbose:
                             print(f"+ combo info exists for fov:{_cell.fov_id}, cell:{_cell.cell_id}, skip")
+        ## merfish
+        if _type == 'all' or _type == 'merfish':
+            pass 
 
-        ## clear temp
-        if _remove_temp:
-            for _fov_id in _used_fov_ids:
-                self._remove_temp_fov(_fov_id)
 
     def _load_cells_from_files(self, _type='all', _decoded_flag=None, _overwrite_cells=False, _verbose=True):
         """Function to load cells from existing files"""
@@ -984,7 +979,7 @@ class Cell_Data():
         return self
     def __next__(self):
         return self
-
+    
     ## Load color_usage
     def _load_color_info(self, _color_filename='Color_Usage', _color_format='csv', _save_color_dic=True):
         _color_dic, _use_dapi, _channels = get_img_info.Load_Color_Usage(self.analysis_folder,
@@ -1220,8 +1215,8 @@ class Cell_Data():
 
     ## crop images given segmentation and images/temp_filenames
     def _crop_images(self, _type, _num_threads=12, _single_im_size=_image_size,
-                     _corr_drift=True, _corr_Z_shift=True, _corr_hot_pixel=True, _corr_illumination=True,
-                     _corr_chromatic=True,
+                     _corr_drift=True, _corr_Z_shift=True, _corr_hot_pixel=True, 
+                     _corr_illumination=True, _corr_chromatic=True,
                      _load_in_ram=False, _extend_dim=20, _num_buffer_frames=10,
                      #_corr_images=None, _ref_names=None, _ref_channels=None,
                      _save=True, _overwrite=False, _verbose=True):
@@ -1229,7 +1224,7 @@ class Cell_Data():
         ## check inputs
         # Num of threads
         if hasattr(self, 'num_threads'):
-            _num_threads = self.num_threads
+            _num_threads = max(self.num_threads, _num_threads)
         # load attributes
         if not hasattr(self, 'channels') or not hasattr(self, 'color_dic'):
             self._load_color_info()
