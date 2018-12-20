@@ -1,5 +1,6 @@
 from . import get_img_info, visual_tools, analysis, classes
 from . import _correction_folder,_temp_folder,_distance_zxy,_sigma_zxy,_image_size,_allowed_colors
+from .External import Fitting_v3
 import numpy as np
 import pickle
 import matplotlib.pylab as plt
@@ -11,109 +12,13 @@ import ctypes
 def __init__():
     pass
 
-def get_STD_beaddrift(bead_ims, bead_names, analysis_folder, fovs, fov_id,
-                      illumination_correction=False, ic_channel=488,
-                      correction_folder=_correction_folder,
-                      repeat=True, plt_val=False, cutoff_=3, xyz_res_=1,
-                      coord_sel=None, sz_ex=100, ref=0,
-                      force=False, save=True, th_seed=150, dynamic=False, verbose=True):
-    """Given a list of bead images This handles the fine bead drift correction.
-    If save is true this requires global paramaters analysis_folder,fovs,fov_id
-    Inputs:
-        bead_ims: list of images, list of ndarray
-        analysis_folder: full directory to store analysis files, string
-        fovs: names for all field of views, list of strings
-        fov_id: the id for field of view to be analysed, int
-        """
-    # define a sub function to do fitting
-    from scipy.stats import scoreatpercentile
 
-    # Initialize failed counts
-    fail_count = 0
-
-    # if save, check existing pickle file, if exist, don't repeat
-    if save:
-        save_cor = analysis_folder+os.sep+fovs[fov_id].replace('.dax','__current_cor.pkl')
-        if os.path.exists(save_cor):
-            total_drift = pickle.load(open(save_cor,'rb'))
-            if len(list(total_drift.keys()))==len(bead_ims):
-                repeat=False
-    repeat = repeat or force
-
-    # if do illumination_correction:
-    if illumination_correction:
-        _bead_ims = [Illumination_correction(_im,ic_channel, correction_folder=correction_folder, verbose=False) for _im in bead_ims]
-    else:
-        _bead_ims = bead_ims
-
-
-    # repeat if no fitted data exist
-    if repeat:
-        # choose reference image
-        if ref is None: ref = 0
-        im_ref = _bead_ims[ref]
-        if verbose:
-            print("Fitting reference:", ref)
-        if coord_sel is None:
-            coord_sel = np.array(im_ref.shape)/2
-        coord_sel1 = np.array([0,-sz_ex,-sz_ex]) + coord_sel
-        if dynamic:
-            th_seed = scoreatpercentile(im_ref, 99) * 0.5
-        im_ref_sm = visual_tools.grab_block(im_ref,coord_sel1,[sz_ex]*3)
-        cents_ref1 = get_STD_centers(im_ref_sm, th_seed=th_seed)#list of fits of beads in the ref cube 1
-        coord_sel2 = np.array([0,sz_ex,sz_ex]) + coord_sel
-        im_ref_sm = visual_tools.grab_block(im_ref,coord_sel2,[sz_ex]*3)
-        cents_ref2 = get_STD_centers(im_ref_sm, th_seed=th_seed)#list of fits of beads in the ref cube 2
-
-        txyzs = []
-        for iim,im in enumerate(_bead_ims):
-            # if this frame is reference, continue
-            if iim == ref:
-                txyzs.append(np.array([0.,0.,0.]))
-                continue
-            if dynamic:
-                th_seed = scoreatpercentile(im,99)*0.5
-            im_sm = visual_tools.grab_block(im,coord_sel1,[sz_ex]*3)
-            cents1 = get_STD_centers(im_sm, th_seed=th_seed)#list of fits of beads in the cube 1
-            im_sm = visual_tools.grab_block(im,coord_sel2,[sz_ex]*3)
-            cents2 = get_STD_centers(im_sm, th_seed=th_seed)#list of fits of beads in the cube 2
-            if verbose:
-                print("Aligning "+str(iim))
-            txyz1 = visual_tools.translation_aling_pts(cents_ref1,cents1,cutoff=cutoff_,xyz_res=xyz_res_,plt_val=False)
-            txyz2 = visual_tools.translation_aling_pts(cents_ref2,cents2,cutoff=cutoff_,xyz_res=xyz_res_,plt_val=False)
-
-            txyz = (txyz1+txyz2)/2.
-            if np.sum(np.abs(txyz1-txyz2))>3:
-                fail_count += 1; # count times of suspected failure
-                print("Suspecting failure.")
-                #sz_ex+=10
-                coord_sel3 = np.array([0,sz_ex,-sz_ex])+coord_sel
-                im_ref_sm = visual_tools.grab_block(im_ref,coord_sel3,[sz_ex]*3)
-                cents_ref3 = get_STD_centers(im_ref_sm, th_seed=th_seed)#list of fits of beads in the ref cube 3
-                im_sm = visual_tools.grab_block(im,coord_sel3,[sz_ex]*3)
-                cents3 = get_STD_centers(im_sm, th_seed=th_seed)#list of fits of beads in the cube 3
-                txyz3 = visual_tools.translation_aling_pts(cents_ref3,cents3,cutoff=cutoff_,xyz_res=xyz_res_,plt_val=False)
-                #print txyz1,txyz2,txyz3
-                if np.sum(np.abs(txyz3-txyz1))<np.sum(np.abs(txyz3-txyz2)):
-                    txyz = (txyz1+txyz3)/2.
-                    print(txyz1,txyz3)
-                else:
-                    txyz = (txyz2+txyz3)/2.
-                    print(txyz2,txyz3)
-
-            txyzs.append(txyz)
-        # convert to dic
-        total_drift = {_name:_dft for _name, _dft in zip( bead_names, txyzs) }
-        if save:
-            save_cor = analysis_folder+os.sep+fovs[fov_id].replace('.dax','__current_cor.pkl')
-            pickle.dump(total_drift,open(save_cor,'wb'))
-
-    return total_drift, repeat, fail_count
 
 ## Fit bead centers
-
-def get_STD_centers(im, th_seed=150, close_threshold=0.01, plt_val=False,
-                    save=False, save_folder='', save_name='', force=False, verbose=False):
+def get_STD_centers(im, th_seed=150, dynamic=False, th_seed_percentile=95, 
+                    close_threshold=0.01, fit_radius=5,
+                    save=False, save_folder='', save_name='', 
+                    plt_val=False, force=False, verbose=False):
     '''Fit beads for one image:
     Inputs:
         im: image, ndarray
@@ -138,13 +43,18 @@ def get_STD_centers(im, th_seed=150, close_threshold=0.01, plt_val=False,
         return beads
     else:
         # seeding
-        seeds = visual_tools.get_seed_points_base(im, gfilt_size=0.75,filt_size=3,th_seed=th_seed,hot_pix_th=4)
+        seeds = visual_tools.get_seed_in_distance(im, center=None, dynamic=dynamic, 
+                                    th_seed_percentile=th_seed_percentile,
+                                    gfilt_size=0.75,filt_size=3,th_seed=th_seed,hot_pix_th=4)
         # fitting
-        pfits = visual_tools.fit_seed_points_base_fast(im,seeds,width_z=1.8*1.5/2,width_xy=1.,radius_fit=5,n_max_iter=3,max_dist_th=0.25,quiet=not verbose)
+        fitter = Fitting_v3.iter_fit_seed_points(im, seeds.T, radius_fit=5)
+        fitter.firstfit()
+        pfits = fitter.ps
+        #pfits = visual_tools.fit_seed_points_base_fast(im,seeds.T,width_z=1.8*1.5/2,width_xy=1.,radius_fit=5,n_max_iter=3,max_dist_th=0.25,quiet=not verbose)
         # get coordinates for fitted beads
         remove = 0
         if len(pfits) > 0:
-            beads = pfits[:,1:4]
+            beads = np.array(pfits)[:,1:4]
             # remove very close spots
             for i,bead in enumerate(beads):
                 if np.sum(np.sum((beads-bead)**2, axis=1)<close_threshold) > 1:
@@ -166,7 +76,7 @@ def get_STD_centers(im, th_seed=150, close_threshold=0.01, plt_val=False,
                 os.makedirs(save_folder)
             if verbose:
                 print("-- saving beads to", save_folder+os.sep+save_name)
-            pickle.dump(beads, open(save_folder+os.sep+save_name, 'wb'));
+            pickle.dump(beads, open(save_folder+os.sep+save_name, 'wb'))
 
         return beads
 
@@ -192,8 +102,6 @@ def tempfile_beaddrift(filenames, bead_names=None, ref_id=0, drift_size=300, num
     save_postfix: drift file postfix, string (default: '_sequential_current_cor.pkl')
     overwrite: whether overwrite existing drift_dic, bool (default: False)
     verbose: say something during the process! bool (default:True)
-
-
     """
     ## check inputs
     # check filenames
@@ -380,7 +288,7 @@ def _align_single_image_from_temp(_filename, _selected_crops, _ref_centers, _im_
 def _align_single_image_from_file(_filename, _selected_crops, _ref_centers=None, _ref_filename=None, _bead_channel_id=None,
                                   _bead_channel='488', _channels=_allowed_colors, _im_size=_image_size, _buffer_frame=10,
                                   _illumination_corr=True, _correction_folder=_correction_folder,
-                                  _align_cutoff=3, _align_res=1, _dynamic_seeding=True, _dynamic_th_percent=80, _seed_th=300,
+                                  _align_cutoff=3, _align_res=1, _dynamic_seeding=True, _dynamic_th_percent=90, _seed_th=300,
                                   _drift_cutoff=3, _make_plot=False, _verbose=True):
     """align single image used by multiprocessing-drift-correction
     Inputs:
@@ -424,16 +332,19 @@ def _align_single_image_from_file(_filename, _selected_crops, _ref_centers=None,
     # fitting
     _target_centers = [get_STD_centers(rim, th_seed=rseed, verbose=_verbose)
                        for rim, rseed in zip(_target_ims, _target_seed_ths)]
+    # printing info
+    _print_name = os.path.join(_filename.split(os.sep)[-2], _filename.split(os.sep)[-1])
+
 
     if _ref_centers is not None:
         if _verbose:
-            print(f"- Aligning {os.path.basename(_filename)}")
+            print(f"- Aligning {_print_name}")
         _aligns = [visual_tools.translation_aling_pts(_ref_cent, _tar_cent, cutoff=_align_cutoff,
-                                                      xyz_res=_align_res, plt_val=_make_plot) for _ref_cent, _tar_cent in zip(_ref_centers[:2], _target_centers[:2])]
+                                                      xyz_res=_align_res, plt_val=_make_plot, verbose=_verbose) for _ref_cent, _tar_cent in zip(_ref_centers[:2], _target_centers[:2])]
         _drift = np.mean(_aligns, 0)
         if np.linalg.norm(_aligns[0]-_aligns[1], 1) > _drift_cutoff:
             if _verbose:
-                print(f"Suspecting failure for {os.path.basename(_filename)}")
+                print(f"Suspecting failure for {_print_name}")
             _failed_count += 1
             _target_ims.append(visual_tools.slice_image(_filename, _full_im_size, [_buffer_frame+_num_colors*_selected_crops[2][0, 0], _buffer_frame+_num_colors*_selected_crops[2][0, 1]],
                                                         _selected_crops[2][1], _selected_crops[2][2], zstep=_num_colors, zstart=_bead_channel_id))
@@ -445,7 +356,7 @@ def _align_single_image_from_file(_filename, _selected_crops, _ref_centers=None,
             _target_centers.append(get_STD_centers(
                 _target_ims[-1], th_seed=_target_seed_ths[-1], verbose=_verbose))
             _aligns.append(visual_tools.translation_aling_pts(_ref_centers[2], _target_centers[2],
-                                                              cutoff=_align_cutoff, xyz_res=_align_res, plt_val=True))
+                                                              cutoff=_align_cutoff, xyz_res=_align_res, plt_val=True, verbose=_verbose))
             if np.linalg.norm(_aligns[0]-_aligns[2], 1) > _drift_cutoff and np.linalg.norm(_aligns[1]-_aligns[2], 1) > _drift_cutoff:
                 if _verbose:
                     print(f"-- keep the previous drift.")
@@ -459,6 +370,9 @@ def _align_single_image_from_file(_filename, _selected_crops, _ref_centers=None,
                     print(f"-- selected drifts:{_aligns[1]}, {_aligns[2]}")
     ## do alignment if ref-filename is given
     elif _ref_filename is not None:
+        _ref_print_name = os.path.join(_ref_filename.split(os.sep)[-2], _ref_filename.split(os.sep)[-1])
+        if _verbose:
+            print(f"- Aligning {_print_name} to {_ref_print_name}")
         _full_ref_im_size, _ref_num_colors = get_img_info.get_num_frame(
             _ref_filename, buffer_frame=_buffer_frame, frame_per_color=_im_size[0])
         _ref_ims = [visual_tools.slice_image(_ref_filename, _full_ref_im_size, [_buffer_frame+_ref_num_colors*_crop[0, 0], _buffer_frame+_ref_num_colors*_crop[0, 1]],
@@ -470,17 +384,17 @@ def _align_single_image_from_file(_filename, _selected_crops, _ref_centers=None,
         # seeding
         if _dynamic_seeding:
             _ref_seed_ths = [scoreatpercentile(
-                rim, _dynamic_th_percent)*0.45 for rim in _ref_ims]
+                rim, _dynamic_th_percent)*0.6 for rim in _ref_ims]
         else:
-            _ref_seed_ths = [seed_th for rim in _ref_ims]
+            _ref_seed_ths = [_seed_th for rim in _ref_ims]
         _ref_centers = [get_STD_centers(_rim, th_seed=_rseed, verbose=_verbose)
                         for _rim, _rseed in zip(_ref_ims, _ref_seed_ths)]
         _aligns = [visual_tools.translation_aling_pts(_ref_cent, _tar_cent, cutoff=_align_cutoff,
-                                                      xyz_res=_align_res, plt_val=_make_plot) for _ref_cent, _tar_cent in zip(_ref_centers[:2], _target_centers[:2])]
+                                                      xyz_res=_align_res, plt_val=_make_plot, verbose=_verbose) for _ref_cent, _tar_cent in zip(_ref_centers[:2], _target_centers[:2])]
         _drift = np.mean(_aligns, 0)
         if np.linalg.norm(_aligns[0]-_aligns[1], 1) > _drift_cutoff:
             if _verbose:
-                print(f"Suspecting failure for {os.path.basename(_filename)}")
+                print(f"Suspecting failure for {_print_name}")
             _failed_count += 1
             # append target image
             _new_target_im = visual_tools.slice_image(_filename, _full_im_size, [_buffer_frame+_num_colors*_selected_crops[2][0, 0], _buffer_frame+_num_colors*_selected_crops[2][0, 1]],
@@ -506,7 +420,7 @@ def _align_single_image_from_file(_filename, _selected_crops, _ref_centers=None,
                 _ref_ims[-1], th_seed=_ref_seed_ths[-1], verbose=_verbose))
             # align the new image
             _aligns.append(visual_tools.translation_aling_pts(_ref_centers[2], _target_centers[2],
-                                                              cutoff=_align_cutoff, xyz_res=_align_res, plt_val=True))
+                                                              cutoff=_align_cutoff, xyz_res=_align_res, plt_val=True, verbose=_verbose))
 
             if np.linalg.norm(_aligns[0]-_aligns[2], 1) > _drift_cutoff and np.linalg.norm(_aligns[1]-_aligns[2], 1) > _drift_cutoff:
                 if _verbose:
@@ -521,6 +435,215 @@ def _align_single_image_from_file(_filename, _selected_crops, _ref_centers=None,
                     print(f"-- selected drifts:{_aligns[1]}, {_aligns[2]}")
 
     return _drift, _failed_count
+
+# merged function to calculate bead drift directly from files
+def Calculate_Bead_Drift(folders, fovs, fov_id, bead_channel_id=None, num_threads=12, 
+                         bead_channel='488', channels=_allowed_colors, illumination_corr=True, correction_folder=_correction_folder,
+                         sequential_mode=False, ref_id=0, drift_size=400, im_size=_image_size, buffer_frame=10,
+                         coord_sel=None, align_cutoff=3, align_res=1,
+                         dynamic_seeding=True, dynamic_th_percent=80, seed_th=300, drift_cutoff=3,
+                         save=True, save_folder=None, save_postfix='_current_cor.pkl', make_plot=False, overwrite=False, verbose=True):
+    """Function to generate drift profile given a list of corrected bead files
+    Inputs:
+    filenames: filenames of temp-files or raw images, list of string(path)s
+    bead_names: reference names(H1R1\Conv_Zscan_03.dax), used as reference key for drift_dic, list of strings(default:None, generated by filenames)
+    ref_id: reference frame index, int (defualt: 0)
+    drift_size: window size of drift image which is used for cropping, int (default: 300)
+    num_threads: number of threads used in fitting beads, int (default: 12)
+    coord_sel: coordinate to pick windows, array-like of 2 elements (default: None, which means center)
+    align_cutoff: cutoff for trans-point alignment, int (default: 3)
+    align_res: alignment resolution, int (default: 1)
+    dynamic_seeding: whether use dynamic seeding threshold, bool (defualt: True)
+    dynamic_th_percent: dynamic seeding threshold percentile, int (defualt: 80)
+    seed_th: seeding threshold as default, which is used when dynamic=False or dynamic seeding failed, float (default: 300)
+    save: whether save drift result dictionary to pickle file, bool (default: True)
+    save_folder: folder to save drift result, required if save is True, string of path (default: None)
+    save_postfix: drift file postfix, string (default: '_sequential_current_cor.pkl')
+    overwrite: whether overwrite existing drift_dic, bool (default: False)
+    verbose: say something during the process! bool (default:True)
+    """
+    from scipy.stats import scoreatpercentile
+    ## check inputs
+    # check folders
+    if not isinstance(folders, list):
+        raise ValueError("Wrong input type of folders, should be a list")
+    if len(folders) == 0: # check folders length
+        raise ValueError("Kwd folders should have at least one element")
+    if not isinstance(fovs, list):
+        raise ValueError("Wrong input type of fovs, should be a list")
+    # check if all images exists
+    _fov_name = fovs[fov_id]
+    for _fd in folders:
+        _filename = os.path.join(_fd, _fov_name)
+        if not os.path.isfile(_filename):
+            raise IOError(f"one of input file:{_filename} doesn't exist, exit!")
+    # check bead_channel_id
+    if bead_channel_id is None:
+        bead_channel_id = channels.index(str(bead_channel))
+    # check ref-id
+    if ref_id >= len(folders) or ref_id <= -len(folders):
+        raise ValueError(f"Ref_id should be valid index of folders, however {ref_id} is given")
+    # check save-folder
+    if save:
+        if save_folder is None:
+            save_folder = os.path.join(os.path.dirname(folders[0]), 'Analysis', 'drift')
+            print(f"No save_folder specified, use default save-folder:{save_folder}")
+        elif not os.path.exists(save_folder):
+            if verbose:
+                print(f"Create drift_folder:{save_folder}")
+            os.makedirs(save_folder)
+    # check save_name 
+    if sequential_mode: # if doing drift-correction in a sequential mode:
+        save_postfix = '_sequential'+save_postfix
+    # check coord_sel
+    if coord_sel is None:
+        coord_sel = np.array([int(im_size[-2]/2), int(im_size[-1]/2)], dtype=np.int)
+    # collect crop coordinates (slices)
+    crop0 = np.array([[0,im_size[0]],
+                      [max(coord_sel[-2]-drift_size,0), coord_sel[-2]],
+                      [max(coord_sel[-1]-drift_size,0), coord_sel[-1]]],dtype=np.int)
+    crop1 = np.array([[0,im_size[0]],
+                      [coord_sel[-2], min(coord_sel[-2]+drift_size, im_size[-2])],
+                      [coord_sel[-1], min(coord_sel[-1]+drift_size, im_size[-1])]], dtype=np.int)
+    crop2 = np.array([[0, im_size[0]],
+                      [coord_sel[-2], min(coord_sel[-2]+drift_size, im_size[-2])],
+                      [max(coord_sel[-1]-drift_size, 0), coord_sel[-1]]],dtype=np.int)
+    selected_crops = np.stack([crop0,crop1,crop2]) # merge into one array which is easier to feed into function
+
+    ## start loading existing profile
+    _save_name = _fov_name.replace('.dax', save_postfix)
+    _save_filename = os.path.join(save_folder, _save_name)
+    # try to load existing profiles
+    if not overwrite and os.path.isfile(_save_filename):
+        if verbose:
+            print(f"-- loading existing drift info from file:{_save_filename}")
+        old_drift_dic = pickle.load(open(_save_filename, 'rb'))
+        _exist_keys = [os.path.join(os.path.basename(_fd), _fov_name) in old_drift_dic for _fd in folders]
+        if sum(_exist_keys) == len(folders):
+            if verbose:
+                print("-- All frames exists in original drift file, exit.")
+            return old_drift_dic, 0
+    # no existing profile or force to do de novo correction:
+    else:
+        if verbose:
+            print(f"-- starting a new drift correction for field-of-view:{_fov_name}")
+        old_drift_dic = {}
+    
+    ## initialize drift correction
+    _start_time = time.time() # record start time
+    # whether drift for reference frame changes
+    if len(old_drift_dic) > 0:
+        old_ref_frames = [_hyb_name for _hyb_name,
+                         _dft in old_drift_dic.items() if (np.array(_dft)==0).all()]
+        if len(old_ref_frames) > 1 or len(old_ref_frames) == 0:
+            print("Ref frame not unique, start over!")
+            old_drift_dic = {}
+        else:
+            old_ref_frame = old_ref_frames[0]
+            # if ref-frame not overlapping, remove the old one for now
+            if old_ref_frame != os.path.join(os.path.basename(folders[ref_id]),_fov_name):
+                if verbose:
+                    print(f"old-ref:{old_ref_frame}, delete old refs because ref doesn't match")
+                del old_drift_dic[old_ref_frame]
+    else:
+        old_ref_frame = None
+
+    if not sequential_mode:
+        if verbose:
+            print(f"-- Start drift-correction, image mapped to image:{ref_id}")
+        # ref filename
+        _ref_filename = os.path.join(folders[ref_id], _fov_name) # get ref-frame filename
+        _ref_keyname = os.path.join(os.path.basename(folders[ref_id]), _fov_name)
+        # get number of colors etc.
+        _ref_im_size, _ref_num_colors = get_img_info.get_num_frame(_ref_filename,buffer_frame=buffer_frame,frame_per_color=im_size[0]) 
+        # collect ref image
+        ref_ims = [visual_tools.slice_image(_ref_filename, _ref_im_size, 
+                                            [buffer_frame+_ref_num_colors*_crop[0,0], buffer_frame+_ref_num_colors*_crop[0,1]],_crop[1],_crop[2],
+                                            zstep=_ref_num_colors, zstart=bead_channel_id) for _crop in selected_crops]
+        # seeding
+        if dynamic_seeding:
+            ref_seed_ths = [scoreatpercentile(rim, dynamic_th_percent)*0.45 for rim in ref_ims]
+        else:
+            ref_seed_ths = [seed_th for rim in ref_ims]
+        ref_centers = [get_STD_centers(rim, th_seed=rseed, verbose=verbose) for rim, rseed in zip(ref_ims, ref_seed_ths)]
+    
+        # retrieve files requiring drift correction
+        args = []
+        new_keynames = []
+        for _fd in folders:
+            # extract filename
+            _filename = os.path.join(_fd, _fov_name)
+            _keyname = os.path.join(os.path.basename(_fd), _fov_name)
+            # append all new frames except ref-frame. ref-frame will be assigned to 0
+            if _keyname not in old_drift_dic and _keyname != _ref_keyname:
+                new_keynames.append(_keyname)
+                args.append((_filename, selected_crops, ref_centers, None, bead_channel_id,
+                             bead_channel, channels, im_size, buffer_frame,
+                             illumination_corr, correction_folder,
+                             align_cutoff, align_res,dynamic_seeding, dynamic_th_percent, seed_th,
+                             drift_cutoff,make_plot, verbose))
+    else: # sequential mode
+        # force ref-id to be 0
+        ref_id = 0
+        # retrieve files requiring drift correction
+        args = []
+        new_keynames = []
+        for _ref_fd, _fd in zip(folders[:-1], folders[1:]):
+            # extract filename
+            _filename = os.path.join(_fd, _fov_name) # full filename for image
+            _keyname = os.path.join(os.path.basename(_fd), _fov_name) # key name used in dic
+            _ref_filename = os.path.join(_ref_fd, _fov_name) # full filename for ref image
+            # append
+            new_keynames.append(_keyname)
+            args.append((_filename, selected_crops, None, _ref_filename, bead_channel_id,
+                         bead_channel, channels, im_size, buffer_frame,
+                         illumination_corr, correction_folder,
+                         align_cutoff, align_res,dynamic_seeding, dynamic_th_percent, seed_th,
+                         drift_cutoff,make_plot, verbose))
+            
+    ## multiprocessing 
+    if verbose:
+        print(f"- Start multi-processing drift correction with {num_threads} threads")
+    with mp.Pool(num_threads) as drift_pool:
+        align_results = drift_pool.starmap(_align_single_image_from_file, args)
+        drift_pool.close()
+        drift_pool.terminate()
+        drift_pool.join()
+    # clear 
+    del(args)
+    classes.killchild()
+    if not sequential_mode:
+        new_drift_dic = {_ref_name:_ar[0] for _ref_name, _ar in zip(new_keynames, align_results)}
+    else:
+        _total_dfts = [_ar[0][0] for _ar in zip(align_results)]
+        _total_dfts = [sum(_total_dfts[:i+1]) for i, _d in enumerate(_total_dfts)]
+        new_drift_dic = {_ref_name:_dft for _ref_name, _dft in zip(new_keynames, _total_dfts)}
+    fail_count = sum([_ar[1] for _ar in align_results])
+    # append ref frame drift
+    _ref_keyname = os.path.join(os.path.basename(folders[ref_id]), _fov_name)
+    new_drift_dic[_ref_keyname] = np.zeros(3) # for ref frame, assign to zero
+    if old_ref_frame is not None and old_ref_frame in new_drift_dic:
+        ref_drift = new_drift_dic[old_ref_frame]
+        if verbose:
+            print(f"-- drift of reference: {ref_drift}")
+        # update drift in old ones
+        for _old_name, _old_dft in old_drift_dic.items():
+            if _old_name not in new_drift_dic:
+                new_drift_dic[_old_name] = _old_dft + ref_drift
+    ## save
+    if save:
+        if verbose:
+            print(f"- Saving drift to file:{_save_filename}")
+        if not os.path.exists(os.path.dirname(_save_filename)):
+            if verbose:
+                print(f"-- creating save-folder: {os.path.dirname(_save_filename)}")
+            os.makedirs(os.path.dirname(_save_filename))
+        pickle.dump(new_drift_dic, open(_save_filename, 'wb'))
+    if verbose:
+        print(f"-- Total time cost in drift correction: {time.time()-_start_time}")
+        if fail_count > 0:
+            print(f"-- number of failed drifts: {fail_count}")
+    return new_drift_dic, fail_count
 
 
 def STD_beaddrift_sequential(bead_ims, bead_names, drift_folder, fovs, fov_id,
@@ -960,8 +1083,6 @@ def Chromatic_abbrevation_correction(ims, correction_channel,
     del(_coord) # clear
     return _corr_ims
 
-
-
 ## FFT alignment, used for fast alignment
 def fftalign(im1,im2,dm=100,plt_val=False):
 	"""
@@ -1021,9 +1142,6 @@ def fast_translate(im,trans):
 	im_ymax = min(max(ymax,0),shape_[2])
 	im_base_0[(im_zmin-zmin):(im_zmax-zmin),(im_xmin-xmin):(im_xmax-xmin),(im_ymin-ymin):(im_ymax-ymin)]=im[im_zmin:im_zmax,im_xmin:im_xmax,im_ymin:im_ymax]
 	return im_base_0
-
-def Remove_Constant_Junk(ims, std_th_ratio=6, median_th_ratio=3):
-    pass
 
 # correct for illumination _shifts across z layers
 def Z_Shift_Correction(im, style='mean', normalization=False, verbose=False):
@@ -1164,7 +1282,6 @@ def correction_wrapper(im, channel, correction_folder=_correction_folder,
     else:
         del(im)
         return _corr_im
-
 
 def old_correct_single_image(filename, im_size, channels, target_channel, raw_im=None,
                          num_buffer_frames=10, return_type='image', correction_folder=_correction_folder,
@@ -1409,7 +1526,6 @@ def fast_generate_illumination_correction(color, data_folder, correction_folder,
 
     return _mean_profile
 
-
 def fast_illumination_correction(im, correction_channel, original_im_size=_image_size, crop_limits=None,
                                  buffer_frame=10, frame_per_color=30, target_color_ind=None,
                                  correction_power=1., correction_folder=_correction_folder, verbose=True):
@@ -1638,7 +1754,6 @@ def fast_generate_chromatic_abbrevation_from_spots(corr_spots, ref_spots, corr_c
         return _corr_coords    
     
     return _cac_profiles, _cac_func
-
 
 def fast_chromatic_abbrevation_correction(im, correction_channel, target_channel='647', original_im_size=_image_size,
                                           crop_limits=None, all_channels=_allowed_colors,

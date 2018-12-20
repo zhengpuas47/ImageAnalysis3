@@ -293,7 +293,8 @@ def fit_seed_points_base_fast(im,centers,width_z=_sigma_zxy[0],width_xy=_sigma_z
     else:
         return np.array([])
 
-def translation_aling_pts(cents_fix,cents_target,cutoff=2.,xyz_res=1,plt_val=False,return_pts=False):
+def translation_aling_pts(cents_fix,cents_target,cutoff=2.,xyz_res=1,
+                            plt_val=False,return_pts=False, verbose=False):
     """
     This checks all pairs of points in cents_target for counterparts of same distance (+/- cutoff) in cents_fix
     and adds them as posibilities. Then uses multi-dimensional histogram across txyz with resolution xyz_res.
@@ -344,6 +345,8 @@ def translation_aling_pts(cents_fix,cents_target,cutoff=2.,xyz_res=1,plt_val=Fal
         dists = np.sqrt(np.sum((cents_target[inds_closestT]-cents[inds_closestF])**2,axis=-1))
         plt.hist(dists)
         plt.show()
+    if verbose:
+        print(f"--- {len(cents[inds_closestF])} points are aligned")
     if return_pts:
         return txyz_b,cents[inds_closestF],cents_target[inds_closestT]
     return txyz_b
@@ -1614,7 +1617,8 @@ def crop_cell(im, segmentation_label, drift=None, extend_dim=20, overlap_thresho
 
 # get limitied points of seed within radius of a center
 def get_seed_in_distance(im, center=None, num_seeds=0, seed_radius=30,
-                         gfilt_size=0.75, background_gfilt_size=10, filt_size=3, th_seed_percentile=50,
+                         gfilt_size=0.75, background_gfilt_size=10, filt_size=3, 
+                         th_seed_percentile=50, th_seed=300,
                          dynamic=True, dynamic_iters=10, min_dynamic_seeds=1,
                          hot_pix_th=4, return_h=False):
     '''Get seed points with in a distance to a center coordinate
@@ -1640,6 +1644,12 @@ def get_seed_in_distance(im, center=None, num_seeds=0, seed_radius=30,
     if center is not None and len(center) != 3:
         raise ValueError('wrong input dimension of center!')
     _dim = np.shape(im)
+    # seeding threshold
+    if dynamic:
+        _th_seed = scoreatpercentile(_cim-np.min(_cim), th_seed_percentile)
+    else:
+        _th_seed = th_seed
+    # start seeding 
     if center is not None:
         print(center)
         _center = np.array(center, dtype=np.float)
@@ -1655,9 +1665,6 @@ def get_seed_in_distance(im, center=None, num_seeds=0, seed_radius=30,
         _local_center = _center - _limits[0]
         # crop im
         _cim = im[_limits[0, 0]:_limits[1, 0], _limits[0, 1]:_limits[1, 1], _limits[0, 2]:_limits[1, 2]]
-        print(_dim, _limits, _cim.shape)
-        # seeding threshold
-        _th_seed = scoreatpercentile(_cim-np.min(_cim), th_seed_percentile)
         if dynamic:
             _dynamic_range = np.linspace(1, 1 / dynamic_iters, dynamic_iters)
             for _dy_ratio in _dynamic_range:
@@ -1679,12 +1686,10 @@ def get_seed_in_distance(im, center=None, num_seeds=0, seed_radius=30,
         else:
             # get candidate seeds
             _cand_seeds = get_seed_points_base(_cim, gfilt_size=gfilt_size, filt_size=filt_size,
-                                               th_seed=_th_seed, hot_pix_th=hot_pix_th, return_h=True)
+                                               th_seed=th_seed, hot_pix_th=hot_pix_th, return_h=True)
 
     else:
         _cim = im
-        # seeding threshold
-        _th_seed = scoreatpercentile(_cim-np.min(_cim), th_seed_percentile)
         # get candidate seeds
         _seeds = get_seed_points_base(_cim, gfilt_size=gfilt_size, filt_size=filt_size,
                                       th_seed=_th_seed, hot_pix_th=hot_pix_th, return_h=True)

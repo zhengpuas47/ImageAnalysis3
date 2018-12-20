@@ -101,18 +101,20 @@ def Load_Color_Usage(master_folder, color_filename='Color_Usage', color_format='
 
 	# process with csv format
 	if color_format == 'csv':
-		_full_name = master_folder+os.sep+color_filename+"."+'csv';
-		print("- Importing csv file:", _full_name);
+		_full_name = master_folder+os.sep+color_filename+"."+'csv'
+		print("- Importing csv file:", _full_name)
 		import csv
 		with open(_full_name, 'r') as handle:
 			_reader = csv.reader(handle)
-			_header = next(_reader);
+			_header = next(_reader)
 			print("- header:", _header)
 			for _content in _reader:
-				while _content[-1] == '':
+				print(_content)
+				while len(_content)>0 and _content[-1] == '':
 					_content = _content[:-1]
-				_hyb = _content.pop(0);
-				_color_usage[_hyb] = _content
+				if len(_content) > 1:
+					_hyb = _content.pop(0)
+					_color_usage[_hyb] = _content
 	# process with txt format (\t splitted)
 	elif color_format == 'txt':
 		_full_name = master_folder+os.sep+color_filename+"."+'txt';
