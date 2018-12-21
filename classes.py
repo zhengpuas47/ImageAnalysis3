@@ -1758,7 +1758,7 @@ class Cell_Data():
                 if int(_uid) not in self.unique_ids:
                     if _verbose:
                         print(f"{_uid},", end=' ')
-                    if ct%10 == 0:
+                    if _ct%10 == 0:
                         print("")
                     self.unique_ids.append(_uid)
                     self.unique_ims.append(_uim)
@@ -2448,8 +2448,29 @@ class Encoding_Group():
 
 class Merfish_Group():
     """Define class for MERFISH type of encoded images"""
-    def __init__(self):
-        pass
+    def __init__(self, ims, hyb_names, colors, encoding_matrix, save_folder,
+                 fov_id, cell_id, readouts=None):
+        """Initalize a merfish-group class"""
+        self.ims = ims
+        self.hyb_names = hyb_names
+        self.colors = colors
+        self.encoding_matrix = encoding_matrix
+        self.save_folder = save_folder
+        self.fov_id = fov_id
+        self.cell_id = cell_id
+        if readouts is not None:
+            self.readouts = readouts
+
     def _save_group(self, _overwrite=False, _verbose=True):
-        pass
+        _merfish_savefile = os.path.join(self.save_folder,
+                                         'merfish_rounds.npz'
+                                         )
+        if os.path.exists(_merfish_savefile) and not _overwrite:
+            if _verbose:
+                print(f"file {_merfish_savefile} already exists, skip!")
+            return False
+        else:
+            pass
+
+        
      
