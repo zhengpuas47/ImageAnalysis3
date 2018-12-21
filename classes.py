@@ -587,7 +587,7 @@ class Cell_List():
                 _cell._load_from_file(_type=_type, _save_folder=None, _load_attrs=[],
                                         _overwrite=_overwrite_cells, _verbose=_verbose)
 
-    def _get_chromosomes_for_cells(self, _source='combo', _max_count= 30,
+    def _get_chromosomes_for_cells(self, _source='unique', _max_count= 30,
                                    _gaussian_size=2, _cap_percentile=1, _seed_dim=3,
                                    _th_percentile=99.5, _min_obj_size=125,
                                    _coord_filename='chrom_coords.pkl', _overwrite=False, _verbose=True):
@@ -1753,13 +1753,14 @@ class Cell_Data():
                 self.unique_ids, self.unique_ims, self.unique_channels = [], [], []
             elif len(self.unique_ims) == 0 or len(self.unique_ids) == 0:
                 self.unique_ids, self.unique_ims, self.unique_channels = [], [], []
-            print("-- loading image with unique_id:\n[", end=" ")
+            if _verbose:
+                print("-- loading image with unique_id:\n[", end=" ")
             for _ct, (_uim, _uid, _channel) in enumerate(zip(_unique_ims, _unique_ids, _unique_channels)):
                 if int(_uid) not in self.unique_ids:
                     if _verbose:
                         print(f"{_uid},", end=' ')
-                    if _ct%10 == 0:
-                        print("")
+                        if _ct%10 == -1:
+                            print("")
                     self.unique_ids.append(_uid)
                     self.unique_ims.append(_uim)
                     self.unique_channels.append(_channel)
@@ -1767,7 +1768,8 @@ class Cell_Data():
                     if _verbose:
                         print(f"overwriting image with unique_id: {_uid}")
                     self.unique_ims[self.unique_ids.index(int(_uid))] = _uim
-            print("]")
+            if _verbose:
+                print("]")
         if _type == 'all' or _type == 'decoded':
             if _type == 'decoded' and not _decoded_flag:
                 raise ValueError("Kwd _decoded_flag not given, exit!")
@@ -1833,7 +1835,7 @@ class Cell_Data():
                     delattr(self, 'combo_groups')
 
     # Generate pooled image representing chromosomes
-    def _generate_chromosome_image(self, _source='combo', _max_count=40, _verbose=False):
+    def _generate_chromosome_image(self, _source='unique', _max_count=40, _verbose=False):
         """Generate chromosome from existing combo / unique images"""
         _source = _source.lower()
         if _source != 'combo' and _source != 'unique':
@@ -1858,7 +1860,7 @@ class Cell_Data():
         elif _source == 'unique':
             if not hasattr(self, 'unique_ims') or not hasattr(self, 'unique_ids'):
                 _temp_flag = True # this means the unique images are temporarily loaded
-                print('-- cell_data doesnot have unique images, trying to load now.')
+                print(f'-- cell:{self.cell_id} in fov:{self.fov_id} doesnot have unique images, trying to load now.')
                 self._load_from_file('unique', _verbose=False)
             else:
                 _temp_flag = False
