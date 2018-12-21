@@ -1646,12 +1646,11 @@ def get_seed_in_distance(im, center=None, num_seeds=0, seed_radius=30,
     _dim = np.shape(im)
     # seeding threshold
     if dynamic:
-        _th_seed = scoreatpercentile(_cim-np.min(_cim), th_seed_percentile)
+        _th_seed = scoreatpercentile(im-np.min(im), th_seed_percentile)
     else:
         _th_seed = th_seed
     # start seeding 
     if center is not None:
-        print(center)
         _center = np.array(center, dtype=np.float)
         _limits = np.zeros([2, 3], dtype=np.int)
         _limits[0, 1:] = np.array([np.max([x, y]) for x, y in zip(

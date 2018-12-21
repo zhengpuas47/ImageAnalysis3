@@ -109,7 +109,6 @@ def Load_Color_Usage(master_folder, color_filename='Color_Usage', color_format='
 			_header = next(_reader)
 			print("- header:", _header)
 			for _content in _reader:
-				print(_content)
 				while len(_content)>0 and _content[-1] == '':
 					_content = _content[:-1]
 				if len(_content) > 1:

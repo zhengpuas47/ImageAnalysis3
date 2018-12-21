@@ -6,6 +6,7 @@ import psutil
 
 from . import get_img_info, corrections, visual_tools, analysis
 from . import _correction_folder,_temp_folder,_distance_zxy,_sigma_zxy,_image_size
+from .External import Fitting_v3
 from scipy import ndimage, stats
 from scipy.spatial.distance import pdist,cdist,squareform
 from skimage import morphology
@@ -28,7 +29,7 @@ def killchild(verbose=False):
 def _do_cropping_for_cell(_cell, _cropping_args):
     _cell._load_images(*_cropping_args)
 
-def _fit_single_image(_im, _id, _chrom_coords, _seeding_args, _fitting_args, _verbose):
+def _fit_single_image(_im, _id, _chrom_coords, _seeding_args, _fitting_args, _check_fitting=True, _verbose=False):
     if _verbose:
         print(f"+++ fitting for region:{_id}")
     _spots_for_chrom = []
@@ -36,9 +37,17 @@ def _fit_single_image(_im, _id, _chrom_coords, _seeding_args, _fitting_args, _ve
         if _im is None:
             _spots_for_chrom.append(np.array([]))
         else:
+            # seeding
             _seeds = visual_tools.get_seed_in_distance(_im, _chrom_coord, *_seeding_args)
-            _fits = visual_tools.fit_multi_gaussian(_im, _seeds, *_fitting_args)
-            _spots_for_chrom.append(_fits)
+            # fit
+            _fitter = Fitting_v3.iter_fit_seed_points(
+                _im, _seeds.T, *_fitting_args)
+            _fitter.firstfit()
+            # if check-fitting
+            if _check_fitting:
+                _fitter.repeatfit()
+            #_fits = visual_tools.fit_multi_gaussian(_im, _seeds, *_fitting_args)
+            _spots_for_chrom.append(np.array(_fitter.ps))
     return _spots_for_chrom
 
 def _generate_single_encoding_group(ims, temp_filenames, seg_label, drift_dic, 
@@ -362,8 +371,6 @@ class Cell_List():
         if _load_info:
             if not hasattr(_cell, 'color_dic') or not hasattr(_cell, 'channels'):
                 _cell._load_color_info()
-            if not hasattr(_cell, 'encoding_scheme'):
-                _cell._load_encoding_scheme()
         # load segmentation
         if _load_segmentation and not hasattr(_cell, 'segmentation_label'):
             _cell._load_segmentation(_type=_segmentation_type)
@@ -447,7 +454,6 @@ class Cell_List():
                       'channels': self.channels,
                       'bead_channel_index': self.bead_channel_index,
                       'dapi_channel_index': self.dapi_channel_index,
-                      'encoding_scheme': self.encoding_scheme,
                       'annotated_folders': self.annotated_folders,
                       'temp_folder': self.temp_folder,
                       'analysis_folder':self.analysis_folder,
@@ -499,12 +505,12 @@ class Cell_List():
         if _verbose:
             print ("+ Load images for cells in this cell list")
         if not hasattr(self, 'cells'):
-            raise ValueError("No cell information loaded in cell_list")
+            raise ValueError("No cells loaded in cell_list")
         if len(self.cells) == 0:
-            print("No cell in cell_list, exit.")
+            print("cell_list is empty, exit.")
         # check type
         _type = _type.lower()
-        _allowed_types = ['all', 'combo', 'unique']
+        _allowed_types = ['all', 'combo', 'unique', 'merfish']
         if _type not in _allowed_types:
             raise ValueError(f"Wrong _type kwd, {_type} is given, {_allowed_types} are expected")
         # whether load annotated hybs only
@@ -558,12 +564,12 @@ class Cell_List():
                                            _save=_save, _overwrite=_force, _verbose=_verbose)
                     else:
                         if _verbose:
-                            print(f"+ combo info exists for fov:{_cell.fov_id}, cell:{_cell.cell_id}, skip")
+                            print(f"+ unique info exists for fov:{_cell.fov_id}, cell:{_cell.cell_id}, skip")
         ## merfish
         if _type == 'all' or _type == 'merfish':
             pass 
 
-
+    # load processed cell info/unique/decoded/merfish from files
     def _load_cells_from_files(self, _type='all', _decoded_flag=None, _overwrite_cells=False, _verbose=True):
         """Function to load cells from existing files"""
         if _verbose:
@@ -690,6 +696,7 @@ class Cell_List():
 
     def _remove_temp_fov(self, _fov_id, _temp_marker='corrected.npy', _verbose=True):
         """Remove all temp files for given fov """
+        print("Function _remove_temp_fov is going to be depricated")
         _temp_fls = glob.glob(os.path.join(self.temp_folder, '*'))
         if _verbose:
             print(f"+ Remove temp file for fov:{_fov_id}")
@@ -698,7 +705,7 @@ class Cell_List():
                 print("++ removing temp file:", os.path.basename(_fl))
                 os.remove(_fl)
 
-    def _spot_finding_for_cells(self, _type='unique', _decoded_flag='diff', _max_fitting_threads=5, _clear_image=False,
+    def _spot_finding_for_cells(self, _type='unique', _decoded_flag='diff', _max_fitting_threads=12, _clear_image=False,
                                 _use_chrom_coords=True, _seed_th_per=50, _max_filt_size=3,
                                 _max_seed_count=6, _min_seed_count=3,
                                 _expect_weight=1000, _min_height=100, _max_iter=10, _th_to_end=1e-6,
@@ -726,7 +733,7 @@ class Cell_List():
             else:
                 raise ValueError("Wrong _type keyword given!")
             # do multi_fitting
-            _cell._multi_fitting(_type=_type, _decoded_flag=_decoded_flag, _use_chrom_coords=_use_chrom_coords, _num_threads=min(_max_fitting_threads, self.num_threads),
+            _cell._multi_fitting_for_chromosome(_type=_type, _decoded_flag=_decoded_flag, _use_chrom_coords=_use_chrom_coords, _num_threads=max(_max_fitting_threads, self.num_threads),
                                  _seed_th_per=_seed_th_per, _max_filt_size=_max_filt_size, _max_seed_count=_max_seed_count,
                                  _min_seed_count=_min_seed_count, _width_zxy=self.sigma_zxy, _fit_radius=5,
                                  _expect_weight=_expect_weight, _min_height=_min_height, _max_iter=_max_iter,
@@ -741,7 +748,7 @@ class Cell_List():
 
     def _pick_spots_for_cells(self, _type='unique', _decoded_flag='diff', _pick_type='dynamic', _use_chrom_coords=True, _distance_zxy=None,
                               _w_dist=2, _dist_ref=None, _penalty_type='trapezoidal', _penalty_factor=5,
-                              _gen_distmap=True, _save_plot=True, _plot_limits=[200,1000],
+                              _gen_distmap=True, _save_plot=True, _plot_limits=[0,2000],
                               _save=True, _verbose=True):
         """Function to pick spots given candidates."""
         ## Check attributes
@@ -791,7 +798,7 @@ class Cell_List():
     def _calculate_population_map(self, _type='unique', _max_loss_prob=0.15,
                                   _ignore_inf=True, _stat_type='median',
                                   _make_plot=True, _save_plot=True, _save_name='distance_map',
-                                  _plot_limits=[300,1500], _verbose=True):
+                                  _plot_limits=[0,2000], _verbose=True):
         """Calculate 'averaged' map for all cells in this list
         Inputs:
             _type: unique or decoded
@@ -1241,7 +1248,7 @@ class Cell_Data():
 
         ## Start crop image
         if _verbose:
-            print(f"Start cropping {_type} image")
+            print(f"- Start cropping {_type} image")
         _fov_name = self.fovs[self.fov_id]  # name of this field-of-view
         ## unique
         if _type == 'unique':
@@ -1306,7 +1313,7 @@ class Cell_Data():
             # clear
             killchild()
             del(_crop_pool)
-            # append
+            # append (Notice: unique_ids and unique_channels has been appended)
             _unique_ims += _cropped_unique_ims
             # sort
             _tp = [(_id, _im, _ch) for _id, _im, _ch in sorted(
@@ -1746,10 +1753,13 @@ class Cell_Data():
                 self.unique_ids, self.unique_ims, self.unique_channels = [], [], []
             elif len(self.unique_ims) == 0 or len(self.unique_ids) == 0:
                 self.unique_ids, self.unique_ims, self.unique_channels = [], [], []
-            for _uim, _uid, _channel in zip(_unique_ims, _unique_ids, _unique_channels):
+            print("-- loading image with unique_id:\n[", end=" ")
+            for _ct, (_uim, _uid, _channel) in enumerate(zip(_unique_ims, _unique_ids, _unique_channels)):
                 if int(_uid) not in self.unique_ids:
                     if _verbose:
-                        print(f"loading image with unique_id: {_uid}")
+                        print(f"{_uid},", end=' ')
+                    if ct%10 == 0:
+                        print("")
                     self.unique_ids.append(_uid)
                     self.unique_ims.append(_uim)
                     self.unique_channels.append(_channel)
@@ -1757,7 +1767,7 @@ class Cell_Data():
                     if _verbose:
                         print(f"overwriting image with unique_id: {_uid}")
                     self.unique_ims[self.unique_ids.index(int(_uid))] = _uim
-
+            print("]")
         if _type == 'all' or _type == 'decoded':
             if _type == 'decoded' and not _decoded_flag:
                 raise ValueError("Kwd _decoded_flag not given, exit!")
@@ -1934,7 +1944,7 @@ class Cell_Data():
         _viewer = visual_tools.imshow_mark_3d_v2([self.chrom_im], image_names=['chromosome'],
                                                  save_file=_chrom_savefile, given_dic=_coord_dic)
         return _viewer
-
+    # update manually picked chromosome info
     def _update_chromosome_from_file(self, _save_folder=None, _save_fl='chrom_coord.pkl', 
                         _save=True, _force_save_combo=False, _force=False, _verbose=True):
         if not _save_folder:
@@ -1954,11 +1964,11 @@ class Cell_Data():
                 self._save_to_file('combo', _overwrite=_force)
         return _chrom_coords
 
-    def _multi_fitting(self, _type='unique', _decoded_flag='diff', _use_chrom_coords=True, _num_threads=5,
+    def _multi_fitting_for_chromosome(self, _type='unique', _decoded_flag='diff', _use_chrom_coords=True, _num_threads=5,
                        _gfilt_size=0.75, _background_gfilt_size=10, _max_filt_size=3,
                        _seed_th_per=50, _max_seed_count=10, _min_seed_count=3,
                        _width_zxy=None, _fit_radius=5, _expect_weight=1000, _min_height=100, _max_iter=10, _th_to_end=1e-6,
-                       _save=True, _verbose=True):
+                       _check_fitting=True, _save=True, _verbose=True):
         # first check Inputs
         _allowed_types = ['unique', 'decoded']
         _type = _type.lower()
@@ -1997,13 +2007,16 @@ class Cell_Data():
 
             ## Do the multi-fitting
             if _type == 'unique':
-                _seeding_args = (_max_seed_count, 30, _gfilt_size, _background_gfilt_size, _max_filt_size, _seed_th_per, True, 10, _min_seed_count, 0, False)
-                _fitting_args = (_width_zxy, _fit_radius, 100, 500, _expect_weight, _th_to_end, _max_iter, 0.25, _min_height, False, _verbose)
+                _seeding_args = (_max_seed_count, 30, _gfilt_size, _background_gfilt_size, _max_filt_size, _seed_th_per, 300, True, 10, _min_seed_count, 0, False)
+                #_fitting_args = (_width_zxy, _fit_radius, 100, 500, _expect_weight, _th_to_end, _max_iter, 0.25, _min_height, False, _verbose)
+                _fitting_args = (_fit_radius, 1, 2.5, _max_iter, 0.1)
             elif _type == 'decoded':
-                _seeding_args = (_max_seed_count, 40, _gfilt_size, _background_gfilt_size, _max_filt_size, _seed_th_per, True, 10, _min_seed_count, 0, False)
-                _fitting_args = (_width_zxy, _fit_radius, 0.1, 0.5, _expect_weight/1000, _th_to_end, _max_iter, 0.25, 0.1, False, _verbose)
-
-            _args = [(_im, _id, self.chrom_coords, _seeding_args, _fitting_args, _verbose) for _im, _id in zip(_ims, _ids)]
+                _seeding_args = (_max_seed_count, 30, _gfilt_size, _background_gfilt_size, _max_filt_size, _seed_th_per, 300, True, 10, _min_seed_count, 0, False)
+                #_fitting_args = (_width_zxy, _fit_radius, 0.1, 0.5, _expect_weight/1000, _th_to_end, _max_iter, 0.25, 0.1, False, _verbose)
+                _fitting_args = (_fit_radius, 1, 2.5, _max_iter, 0.1)
+            # merge arguments
+            _args = [(_im, _id, self.chrom_coords, _seeding_args, _fitting_args, 
+                      _check_fitting, _verbose) for _im, _id in zip(_ims, _ids)]
             # multi-processing for multi-Fitting
             if _verbose:
                 print(f"++ start fitting {_type} for fov:{self.fov_id}, cell:{self.cell_id} with {_num_threads} threads")
@@ -2225,7 +2238,7 @@ class Cell_Data():
             pass
 
     def _generate_distance_map(self, _type='unique', _distance_zxy=None, _save_info=True, _save_plot=True,
-                               _limits=[200,1000], _verbose=True):
+                               _limits=[0,2000], _verbose=True):
         """Function to generate distance map"""
         ## check inputs
         if _distance_zxy is None: # dimension for distance trasfromation
