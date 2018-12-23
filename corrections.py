@@ -1838,7 +1838,7 @@ def fast_chromatic_abbrevation_correction(im, correction_channel, target_channel
 
     return _corr_im
 
-
+# merged function to crop and correct single image
 def correct_single_image(filename, channel, seg_label=None, drift=np.array([0, 0, 0]),
                          single_im_size=_image_size, all_channels=_allowed_colors, channel_id=None,
                          num_buffer_frames=10, extend_dim=20, correction_folder=_correction_folder,
@@ -1937,4 +1937,58 @@ def correct_single_image(filename, channel, seg_label=None, drift=np.array([0, 0
     else:
         return _corr_im
 
+# merged function to crop DNA combo-group
+def crop_combo_group(ims, temp_filenames, seg_label, drift_dic,
+                     group_channel, group_names, fov_name=None,
+                     im_size=_image_size, extend_dim=20):
+    '''Given '''
+    if ims is None and temp_filenames is None:
+        raise ValueError(
+            "Keywords ims and temp_filenames cannot be both None!")
+    if np.max(seg_label) > 1:
+        raise ValueError(
+            "seg_label must be binary label, either 0-1 label or bool")
+    if temp_filenames is None:
+        if group_names is None or fov_name is None:
+            raise ValueError(
+                "When image are given, group_names and fov_name should be given as well")
+        if len(group_names) != len(ims):
+            raise ValueError(
+                "number of images and number of group_names doesn't match")
+    else:
+        matched_filenames = []
+        for _gname in group_names:
+            _matches = [_fl for _fl in temp_filenames if _gname in _fl and str(
+                group_channel) in _fl]
+            if len(_matches) == 1:
+                matched_filenames.append(_matches[0])
+            else:
+                raise ValueError(
+                    "there are no matched temp files matched with group_names")
+    # binarilize segmentation label
+    seg_label = np.array(seg_label > 0, dtype=np.int)
+    # extract reference name, used to extract drift
+    if group_names is not None and fov_name is not None:
+        ref_names = [os.path.join(_gn, fov_name) for _gn in group_names]
+    else:
+        ref_names = [os.path.basename(_fl).split(
+            '_'+group_channel)[0].replace('-', os.sep)+'.dax' for _fl in matched_filenames]
+    # match filename
+    for _rn in ref_names:
+        if _rn not in drift_dic:
+            raise KeyError(f"Drift_dic doesn't have key:{_rn} for ref_name")
+    # initialzie
+    cropped_ims = []
+
+    if temp_filenames is not None:
+        for filename, ref_name in zip(matched_filenames, ref_names):
+            cropped_ims.append(crop_single_image(
+                None, filename, seg_label, drift=drift_dic[ref_name], im_size=im_size, extend_dim=extend_dim))
+    else:
+        for im, ref_name in zip(ims, ref_names):
+            cropped_ims.append(
+                crop_cell(im, seg_label, drift=drift_dic[ref_name], extend_dim=extend_dim))
+    # return
+    return cropped_ims
+# merged function to crop merfish-group
 
