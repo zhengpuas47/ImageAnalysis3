@@ -1892,7 +1892,7 @@ def correct_single_image(filename, channel, seg_label=None, drift=np.array([0, 0
     ## load image
     _ref_name = os.path.join(filename.split(os.sep)[-2], filename.split(os.sep)[-1])
     if verbose:
-        print(f"- Start correcting {_ref_name}")
+        print(f"- Start correcting {_ref_name} for channel:{channel}")
     _full_im_shape, _num_color = get_img_info.get_num_frame(filename,
                                                             frame_per_color=single_im_size[0],
                                                             buffer_frame=num_buffer_frames)
