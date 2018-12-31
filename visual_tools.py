@@ -1956,7 +1956,10 @@ def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0, npy_start=64,
     else:
         pt_pos = 0
     # start slicing
-    pt_pos += sx*sy*(minz + (zstart+1+minz)%zstep) + minx*sy + miny
+    _start_layer = minz + (zstart+1+minz) % zstep
+    if (zstart+1+minz) % zstep == 0:
+        _start_layer += zstep
+    pt_pos += sx*sy*_start_layer + minx*sy + miny
     # loop through dim1 and dim2
     for iz in range(dz):
         for ix in range(dx):
@@ -1968,7 +1971,6 @@ def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0, npy_start=64,
     # close and return
     f.close()
     return data
-
 
 # specific functions to crop images
 def crop_single_image(filename, channel, all_channels=_allowed_colors, channel_id=None, seg_label=None, drift=np.array([0, 0, 0]),

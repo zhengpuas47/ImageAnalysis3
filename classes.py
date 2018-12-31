@@ -26,8 +26,28 @@ def killchild(verbose=False):
     _pid = os.getpid()
     killtree(_pid, False, verbose)
 
-def _do_cropping_for_cell(_cell, _cropping_args):
-    _cell._load_images(*_cropping_args)
+
+# initialize pool
+init_dic = {}
+def _init_unique_pool(_ic_profile_dic, _cac_profile_dic, _ic_shape, _cac_shape):
+    """initialize pool"""
+    print(f"- Initialize core with illumination correction profiles for {list(_ic_profile_dic.keys())}")
+    init_dic['illumination'] = _ic_profile_dic
+    print(f"- Initialize core with chromatic correction profiles for {list(_cac_profile_dic.keys())}")
+    init_dic['chromatic'] = _cac_profile_dic
+    init_dic['ic_shape'] = _ic_shape
+    init_dic['cac_shape'] = _cac_shape
+def _correct_one_image(_arg):
+    _channel = _arg[1]
+    _ic_pf = np.frombuffer(
+        init_dic['illumination'][_channel]).reshape(init_dic['ic_shape'])
+    if init_dic['chromatic'][_channel] is not None:
+        _cac_pf = np.frombuffer(init_dic['chromatic'][_channel]).reshape(init_dic['cac_shape'])
+    else:
+        _cac_pf = init_dic['chromatic'][_channel]
+    _full_arg = _arg+(_ic_pf, _cac_pf, False, True)
+    return corrections.correct_single_image(*_full_arg)
+
 
 def _fit_single_image(_im, _id, _chrom_coords, _seeding_args, _fitting_args, _check_fitting=True, _verbose=False):
     if _verbose:
@@ -1261,6 +1281,7 @@ class Cell_Data():
                     _unique_channels = list(handle['channels'])
             else:
                 _unique_ims, _unique_ids, _unique_channels = [], [], []
+
             # initialize unique_args anyway
             _unique_args = []
             # loop through color-dic and find all matched type
@@ -1285,8 +1306,9 @@ class Cell_Data():
                             _unique_args.append((_im_filename, _channel, self.segmentation_label, self.drift[_ref_name],
                                                  _single_im_size, self.channels, _channel_id,
                                                  _num_buffer_frames, _extend_dim, self.correction_folder,
-                                                 _corr_Z_shift, _corr_hot_pixel, _corr_illumination, _corr_chromatic,
-                                                 False, _verbose))
+                                                 _corr_Z_shift, _corr_hot_pixel, _corr_illumination, _corr_chromatic
+                                                 ))
+                                                 #
                         # if not unique, skip
                         else:
                             print(
@@ -1297,24 +1319,61 @@ class Cell_Data():
                         if _verbose:
                             print(
                                 f"- {int(_info.split(_allowed_kwds[_type])[-1])} already exists in unique_ims, skip!")
-            # multi-processing to do cropping
-            if _verbose:
-                print(
-                    f"-- start cropping {_type} for fov:{self.fov_id}, cell:{self.cell_id} with {_num_threads} threads")
             _start_time = time.time()
-            _crop_pool = mp.Pool(_num_threads, maxtasksperchild=int(
-                np.ceil(len(_unique_args)/_num_threads)))
-            _cropped_unique_ims = _crop_pool.starmap(
-                corrections.correct_single_image, _unique_args, chunksize=1)
-            # close multiprocessing
-            _crop_pool.close()
-            _crop_pool.terminate()
-            _crop_pool.join()
-            # clear
-            killchild()
-            del(_crop_pool)
-            # append (Notice: unique_ids and unique_channels has been appended)
-            _unique_ims += _cropped_unique_ims
+            if len(_unique_args) > 0:
+                # load corresponding illumination profiles
+                if _verbose:
+                    print("-- loading correction profiles")
+                _ic_shape = np.array(_single_im_size[1:3], dtype=np.int)
+                _ic_profile_dic = {}
+                for _channel in np.unique(_unique_channels):
+                    _ic_pf = corrections.load_correction_profile(_channel, 'illumination',
+                                                                    correction_folder=self.correction_folder, im_size=_single_im_size)
+                    #_ic_shared = mp.RawArray('d', int(_ic_shape[0]*_ic_shape[1]) )
+                    #_ic_shared_np = np.frombuffer(_ic_shared).reshape(_ic_shape)
+                    #np.copyto(_ic_shared_np, _ic_pf)
+                    #_ic_profile_dic[str(_channel)] = _ic_shared
+                    _ic_profile_dic[str(_channel)] = _ic_pf
+                # load chromatic profile
+                _cac_shape = np.array([3, _single_im_size[1], _single_im_size[2]], dtype=np.int)
+                _cac_profile_dic = {}
+                for _channel in np.unique(_unique_channels):
+                    _cac_pf = corrections.load_correction_profile(_channel, 'chromatic',
+                                                        correction_folder=self.correction_folder, im_size=_single_im_size)
+                    #if _cac_pf is None:
+                    #    _cac_profile_dic[str(_channel)] = _cac_pf
+                    #else:
+                    #    _cac_shared = mp.RawArray('d', int(_cac_shape[0]*_cac_shape[1]*_cac_shape[2]) )
+                    #    _cac_shared_np = np.frombuffer(_cac_shared).reshape(_cac_shape)
+                    #    np.copyto(_cac_shared_np, _cac_pf)
+                    #    _cac_profile_dic[str(_channel)] = _cac_shared
+                    _cac_profile_dic[str(_channel)]=_cac_pf
+                # multi-processing to do cropping
+                if _verbose:
+                    print(
+                        f"-- start cropping {_type} for fov:{self.fov_id}, cell:{self.cell_id} with {_num_threads} threads")
+
+                with mp.Pool(_num_threads, 
+                                     maxtasksperchild=int(np.ceil(len(_unique_args)/_num_threads)),
+                                     #initializer=_init_unique_pool,
+                                     #initargs=(_ic_profile_dic, _cac_profile_dic, _ic_shape, _cac_shape)
+                                     ) as _crop_pool:
+
+                    #_full_args = [_arg+(_ic_profile_dic[_channel], _cac_profile_dic[_channel],False, _verbose) for _arg in _unique_args]
+                    _full_args = [_arg+(None, None, False, _verbose) for _arg in _unique_args]
+
+                    _cropped_unique_ims = _crop_pool.starmap(corrections.correct_single_image, _full_args, chunksize=1)
+                    #_cropped_unique_ims = _crop_pool.map(_correct_one_image, _unique_args, chunksize=1)
+                    
+                    # close multiprocessing
+                    _crop_pool.close()
+                    _crop_pool.terminate()
+                    _crop_pool.join()
+                # clear
+                killchild()
+                del(_crop_pool)
+                # append (Notice: unique_ids and unique_channels has been appended)
+                _unique_ims += _cropped_unique_ims
             # sort
             _tp = [(_id, _im, _ch) for _id, _im, _ch in sorted(
                 zip(_unique_ids, _unique_ims, _unique_channels))]
