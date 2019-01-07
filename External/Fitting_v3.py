@@ -172,7 +172,7 @@ class GaussianFit():
         _raw_eps = self.calc_f(parms)-self.im
         if hasattr(self, 'weight_sigma') and getattr(self, 'weight_sigma') > 0:
             bk,h,xp,yp,zp,w1,w2,w3,pp,tp = parms
-            ws1,ws2,ws3 = self.to_ws(w1),self.to_ws(w2),self.to_ws(w3) # convert to natural parameters
+            #ws1,ws2,ws3 = self.to_ws(w1),self.to_ws(w2),self.to_ws(w3) # convert to natural parameters
             _curr_w = np.array([w1, w2, w3])
             _eps = _raw_eps + self.weight_sigma * np.linalg.norm(self.init_w - _curr_w)
             print(self.init_w, _curr_w)
