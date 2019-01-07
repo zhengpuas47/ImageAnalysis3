@@ -68,6 +68,7 @@ class GaussianFit():
         h_guess = np.log(np.max([np.mean(sorted_im[-n_aprox:]),eps]))
         # take care of initialzed w
         init_w = init_w[:3]
+        print(init_w)
         for _i, _iw in enumerate(init_w):
             if _iw**2 > max_w or _iw**2 < min_w: # if extreme values applied, adjust
                 init_w[_i] = 1.5**2
