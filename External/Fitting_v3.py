@@ -1,4 +1,6 @@
 import numpy as np
+from . import _sigma_zxy
+
 def __init__():
     pass
 
@@ -46,13 +48,14 @@ def closest(x,y,z,center,all_centers):
 
 from scipy.optimize import leastsq
 class GaussianFit():
-    def __init__(self,im,X,center=None,n_aprox=10,min_w=0.5,max_w=4.,delta_center=3.):
+    def __init__(self,im,X,center=None,n_aprox=10,min_w=0.5,max_w=4.,delta_center=3., init_w=_sigma_zxy, weight_sigma=0):
+        # store parameters
         self.min_w = min_w*min_w
         self.max_w = max_w*max_w
-        
         self.delta_center = delta_center
         self.im = np.array(im,dtype=np.float32)
         self.x,self.y,self.z = np.array(X,dtype=np.float32)
+        self.weight_sigma = weight_sigma
         #get estimates
         argsort_im = np.argsort(im)
         if center is None:
@@ -62,9 +65,17 @@ class GaussianFit():
         eps =  np.exp(-10.)
         bk_guess = np.log(np.max([np.mean(sorted_im[:n_aprox]),eps]))
         h_guess = np.log(np.max([np.mean(sorted_im[-n_aprox:]),eps]))
-        wsq = 1.5**2
-        wg = np.log((self.max_w - wsq)/(wsq-self.min_w))
-        self.p_ = np.array([bk_guess,h_guess,0,0,0,wg,wg,wg,0,0],dtype=np.float32)
+        # take care of initialzed w
+        init_w = init_w[:3]
+        for _i, _iw in enumerate(init_w):
+            if _iw**2 > max_w or _iw**2 < min_w: # if extreme values applied, adjust
+                init_w[_i] = 1.5**2
+            init_w[_i] = np.log((self.max_w - init_w[_i]**2)/(init_w[_i]**2-self.min_w))
+        # store
+        self.init_w = init_w
+        #wsq = 1.5**2
+        #wg = np.log((self.max_w - wsq)/(wsq-self.min_w))
+        self.p_ = np.array([bk_guess,h_guess,0,0,0,init_w[0],init_w[1],init_w[2],0,0],dtype=np.float32)
         self.to_natural_paramaters()
         self.success = False
     def to_center(self,c0_,c1_,c2_):
@@ -124,8 +135,6 @@ class GaussianFit():
         xzc = 2*p*pc*tc*(s3 - s1)
         yzc = 2*p*pc*t*(s3 - s1)
         
-        
-        
         xsigmax = x2c*xt*xt+y2c*yt*yt+z2c*zt*zt+xyc*xt*yt+xzc*xt*zt+yzc*yt*zt
         self.f0 = np.exp(h-0.5*xsigmax)
         self.f = np.exp(bk)+self.f0
@@ -160,7 +169,16 @@ class GaussianFit():
             self.p_old = self.to_natural_paramaters(parms)
             self.parms_old = parms
         """
-        return self.calc_f(parms)-self.im
+        _raw_eps = self.calc_f(parms)-self.im
+        if hasattr(self, 'weight_sigma') and getattr(self, 'weight_sigma') > 0:
+            bk,h,xp,yp,zp,w1,w2,w3,pp,tp = parms
+            ws1,ws2,ws3 = self.to_ws(w1),self.to_ws(w2),self.to_ws(w3) # convert to natural parameters
+            _curr_w = np.array([w1, w2, w3])
+            _eps = _raw_eps + self.weight_sigma * np.linalg.norm(self.init_w - _curr_w)
+            print(self.weight_sigma * np.linalg.norm(self.init_w - _curr_w))
+        else:
+            _eps = _raw_eps
+        return _eps
     def calc_jac(self,parms):
         bk,h,xp,yp,zp,w1,w2,w3,pp,tp = parms
         t,p = self.to_sine(tp),self.to_sine(pp)
@@ -174,7 +192,8 @@ class GaussianFit():
         tc= np.sqrt(tc2)
         pc= np.sqrt(pc2)
         s1,s2,s3 = 1./ws1,1./ws2,1./ws3
-        x2c = pc2*tc2*s1 + t2*s2 + p2*tc2*s3
+        x2c = pc2*tc2*s1 + t2*s2 + p2*tc2*s3 
+
         y2c = pc2*t2*s1 + tc2*s2 + p2*t2*s3
         z2c = p2*s1 + pc2*s3
         xyc = 2*tc*t*(pc2*s1 - s2 + p2*s3)
@@ -195,9 +214,12 @@ class GaussianFit():
         f3 = (f2*(2*x2c*xt + xyc*yt + xzc*zt))*norm_xp
         f4 = (f2*(xt*xyc + 2*y2c*yt + yzc*zt))*norm_yp
         f5 = (f2*(xt*xzc + yt*yzc + 2*z2c*zt))*norm_zp
-        f6 = (f2*(-pc2*tc2*xt2 - 2*pc2*t*tc*xtyt - pc2*t2*yt2 + 2*p*pc*tc*xtzt + 2*p*pc*t*ytzt - p2*zt2))*self.norm_w(w1,minw,maxw)
-        f7 = (f2*(-t2*xt2 + 2*t*tc*xtyt - tc2*yt2))*self.norm_w(w2,minw,maxw)
-        f8 = (f2*(-p2*tc2*xt2 - 2*p2*t*tc*xtyt - p2*t2*yt2 - 2*p*pc*tc*xtzt - 2*p*pc*t*ytzt - pc2*zt2))*self.norm_w(w3,minw,maxw)
+        f6 = (f2*(-pc2*tc2*xt2 - 2*pc2*t*tc*xtyt - pc2*t2*yt2 + 2*p*pc*tc*xtzt + 2*p*pc*t*ytzt - p2*zt2))*self.norm_w(w1,minw,maxw) + \
+            int(self.init_w[0]>w1) * self.weight_sigma - int(self.init_w[0]<w1) * self.weight_sigma
+        f7 = (f2*(-t2*xt2 + 2*t*tc*xtyt - tc2*yt2))*self.norm_w(w2,minw,maxw) + \
+            int(self.init_w[1]>w2) * self.weight_sigma - int(self.init_w[1]<w2) * self.weight_sigma
+        f8 = (f2*(-p2*tc2*xt2 - 2*p2*t*tc*xtyt - p2*t2*yt2 - 2*p*pc*tc*xtzt - 2*p*pc*t*ytzt - pc2*zt2))*self.norm_w(w3,minw,maxw) +\
+            int(self.init_w[2]>w3) * self.weight_sigma - int(self.init_w[2]<w3) * self.weight_sigma
         e_p = np.exp(-np.abs(pp)/2)
         norm_p = e_p/(1+e_p*e_p)
         f9 = f2*(s3-s1)*((2*pc2-1.)*(tc*xtzt + t*ytzt) + p*pc*(tc2*xt2 + 2*t*tc*xtyt + t2*yt2 - zt2))*norm_p
