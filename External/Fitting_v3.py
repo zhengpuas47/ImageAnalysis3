@@ -69,13 +69,10 @@ class GaussianFit():
         # take care of initialzed w
         init_w = np.array(init_w[:3]).copy()
         self.init_w = init_w
-        print("Start:", init_w, self.init_w)
         for _i, _iw in enumerate(init_w):
             if _iw**2 > max_w or _iw**2 < min_w: # if extreme values applied, adjust
                 init_w[_i] = 1.5**2
             self.init_w[_i] = np.log((self.max_w - init_w[_i]**2)/(init_w[_i]**2-self.min_w))
-
-        print(f"Start gaussian with weight{self.weight_sigma}, init_sigma={self.init_w}")
         #wsq = 1.5**2
         #wg = np.log((self.max_w - wsq)/(wsq-self.min_w))
         self.p_ = np.array([bk_guess,h_guess,0,0,0,init_w[0],init_w[1],init_w[2],0,0],dtype=np.float32)
@@ -177,10 +174,7 @@ class GaussianFit():
             bk,h,xp,yp,zp,w1,w2,w3,pp,tp = parms
             #ws1,ws2,ws3 = self.to_ws(w1),self.to_ws(w2),self.to_ws(w3) # convert to natural parameters
             _curr_w = np.array([w1, w2, w3])
-            _eps = _raw_eps + self.weight_sigma * np.linalg.norm(self.init_w - _curr_w)
-            print(self.init_w, _curr_w)
-            print(self.weight_sigma * np.linalg.norm(self.init_w - _curr_w))
-            
+            _eps = _raw_eps + self.weight_sigma * np.linalg.norm(self.init_w - _curr_w)            
         else:
             _eps = _raw_eps
         return _eps

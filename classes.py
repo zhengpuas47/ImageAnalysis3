@@ -2070,11 +2070,11 @@ class Cell_Data():
             if _type == 'unique':
                 _seeding_args = (_max_seed_count, 30, _gfilt_size, _background_gfilt_size, _max_filt_size, _seed_th_per, 300, True, 10, _min_seed_count, 0, False)
                 #_fitting_args = (_width_zxy, _fit_radius, 100, 500, _expect_weight, _th_to_end, _max_iter, 0.25, _min_height, False, _verbose)
-                _fitting_args = (_fit_radius, 1, 2.5, _max_iter, 0.1)
+                _fitting_args = (_fit_radius, 1, 2.5, _max_iter, 0.1, _width_zxy, _expect_weight)
             elif _type == 'decoded':
                 _seeding_args = (_max_seed_count, 30, _gfilt_size, _background_gfilt_size, _max_filt_size, _seed_th_per, 300, True, 10, _min_seed_count, 0, False)
                 #_fitting_args = (_width_zxy, _fit_radius, 0.1, 0.5, _expect_weight/1000, _th_to_end, _max_iter, 0.25, 0.1, False, _verbose)
-                _fitting_args = (_fit_radius, 1, 2.5, _max_iter, 0.1)
+                _fitting_args = (_fit_radius, 1, 2.5, _max_iter, 0.1, _width_zxy, _expect_weight/1000)
             # merge arguments
             _args = [(_im, _id, self.chrom_coords, _seeding_args, _fitting_args, 
                       _check_fitting, _verbose) for _im, _id in zip(_ims, _ids)]
