@@ -67,14 +67,14 @@ class GaussianFit():
         bk_guess = np.log(np.max([np.mean(sorted_im[:n_aprox]),eps]))
         h_guess = np.log(np.max([np.mean(sorted_im[-n_aprox:]),eps]))
         # take care of initialzed w
-        init_w = init_w[:3]
-        print(init_w)
+        init_w = np.array(init_w[:3]).copy()
+        self.init_w = init_w
+        print("Start:", init_w, self.init_w)
         for _i, _iw in enumerate(init_w):
             if _iw**2 > max_w or _iw**2 < min_w: # if extreme values applied, adjust
                 init_w[_i] = 1.5**2
-            init_w[_i] = np.log((self.max_w - init_w[_i]**2)/(init_w[_i]**2-self.min_w))
-        # store
-        self.init_w = init_w
+            self.init_w[_i] = np.log((self.max_w - init_w[_i]**2)/(init_w[_i]**2-self.min_w))
+
         print(f"Start gaussian with weight{self.weight_sigma}, init_sigma={self.init_w}")
         #wsq = 1.5**2
         #wg = np.log((self.max_w - wsq)/(wsq-self.min_w))
