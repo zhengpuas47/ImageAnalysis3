@@ -175,7 +175,9 @@ class GaussianFit():
             ws1,ws2,ws3 = self.to_ws(w1),self.to_ws(w2),self.to_ws(w3) # convert to natural parameters
             _curr_w = np.array([w1, w2, w3])
             _eps = _raw_eps + self.weight_sigma * np.linalg.norm(self.init_w - _curr_w)
+            print(self.init_w, _curr_w)
             print(self.weight_sigma * np.linalg.norm(self.init_w - _curr_w))
+            
         else:
             _eps = _raw_eps
         return _eps
