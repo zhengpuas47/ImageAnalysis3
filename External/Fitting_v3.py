@@ -56,6 +56,7 @@ class GaussianFit():
         self.im = np.array(im,dtype=np.float32)
         self.x,self.y,self.z = np.array(X,dtype=np.float32)
         self.weight_sigma = weight_sigma
+
         #get estimates
         argsort_im = np.argsort(im)
         if center is None:
@@ -73,6 +74,7 @@ class GaussianFit():
             init_w[_i] = np.log((self.max_w - init_w[_i]**2)/(init_w[_i]**2-self.min_w))
         # store
         self.init_w = init_w
+        print(f"Start gaussian with weight{self.weight_sigma}, init_sigma={self.init_w}")
         #wsq = 1.5**2
         #wg = np.log((self.max_w - wsq)/(wsq-self.min_w))
         self.p_ = np.array([bk_guess,h_guess,0,0,0,init_w[0],init_w[1],init_w[2],0,0],dtype=np.float32)
