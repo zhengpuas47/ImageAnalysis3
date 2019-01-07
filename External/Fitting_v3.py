@@ -315,7 +315,7 @@ def in_dim(x,y,z,xmax,ymax,zmax):
     return x[keep],y[keep],z[keep]
 
 class iter_fit_seed_points():
-    def __init__(self,im,centers,radius_fit=5,min_delta_center=1.,max_delta_center=2.5,n_max_iter = 10,max_dist_th=0.1, weight_sigma=0):
+    def __init__(self,im,centers,radius_fit=5,min_delta_center=1.,max_delta_center=2.5,n_max_iter = 10,max_dist_th=0.1, init_w=_sigma_zxy, weight_sigma=0):
         """
         Given a set of seeds <centers> in a 3d image <im> iteratively 3d gaussian fit around the seeds (in order of brightness) 
         and subtract the gaussian signal.
@@ -336,6 +336,7 @@ class iter_fit_seed_points():
         keep = self.zb*self.zb+self.xb*self.xb+self.yb*self.yb<=self.radius_fit**2
         self.zb,self.xb,self.yb = self.zb[keep],self.xb[keep],self.yb[keep]
         self.sz,self.sx,self.sy = im.shape
+        self.init_w = init_w
         self.weight_sigma = weight_sigma
          
     def firstfit(self):
@@ -357,7 +358,8 @@ class iter_fit_seed_points():
                 z_keep,x_keep,y_keep = closest(z_keep,x_keep,y_keep,center,self.centers)
                 X = np.array([z_keep,x_keep,y_keep])
                 im_ = self.im[z_keep,x_keep,y_keep]
-                obj = GaussianFit(im_,X,center=center,delta_center=self.min_delta_center, weight_sigma=self.weight_sigma)
+                obj = GaussianFit(im_,X,center=center,delta_center=self.min_delta_center, 
+                                    init_w=self.init_w, weight_sigma=self.weight_sigma)
                 n_p = len(obj.p)
                 obj.fit()
                 
@@ -402,7 +404,8 @@ class iter_fit_seed_points():
                             
 
                         delta_center = self.max_delta_center
-                        obj = GaussianFit(im_,X,center=[zc,xc,yc],delta_center=delta_center, weight_sigma=self.weight_sigma)
+                        obj = GaussianFit(im_,X,center=[zc,xc,yc],delta_center=delta_center, 
+                                            init_w=self.init_w, weight_sigma=self.weight_sigma)
                         obj.fit()
                         self.success[ic] = obj.success
                         if obj.success:
