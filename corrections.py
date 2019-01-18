@@ -1408,7 +1408,7 @@ def old_correct_single_image(filename, im_size, channels, target_channel, raw_im
 
 # fast function to generate illumination profiles
 def fast_generate_illumination_correction(color, data_folder, correction_folder, image_type='H', num_of_images=50,
-                                          buffer_frame=10, frame_per_color=30, target_color_ind=-1,
+                                          folder_id=0, buffer_frame=10, frame_per_color=30, target_color_ind=-1,
                                           gaussian_sigma=40, seeding_th_per=99.5, seeding_th_base=300, seeding_crop_size=9,
                                           force=False, save=True, save_name='illumination_correction_', make_plot=False, verbose=True):
     """Function to generate illumination correction profile from hybridization type of image or bead type of image
@@ -1442,7 +1442,7 @@ def fast_generate_illumination_correction(color, data_folder, correction_folder,
     if len(_folders)==0 or len(_fovs)==0:
         raise IOError(f"No folders or fovs detected with given data_folder:{data_folder} and image_type:{image_type}!")
     ## load image info
-    _im_filename = os.path.join(_folders[0], _fovs[0])
+    _im_filename = os.path.join(_folders[folder_id], _fovs[0])
     _info_filename = _im_filename.replace('.dax', '.inf')
     with open(_info_filename, 'r') as _info_hd:
         _infos = _info_hd.readlines()
@@ -1517,6 +1517,8 @@ def fast_generate_illumination_correction(color, data_folder, correction_folder,
         if save:
             if verbose:
                 print(f"-- saving correction profile to file:{save_filename}.npy")
+            if not os.path.exists(os.path.dirname(save_filename)):
+                os.makedirs(os.path.dirname(save_filename))
             np.save(save_filename, _mean_profile)
     if make_plot:
         f1 = plt.figure()
@@ -1542,7 +1544,7 @@ def fast_illumination_correction(im, correction_channel, single_im_size=_image_s
     _color = str(correction_channel)
     _allowed_colors = ['750', '647', '561', '488', '405']
     if _color not in _allowed_colors:
-        raise ValueError(
+        raise ValueError(·
             f"Wrong color input, {_color} is given, color among {_allowed_colors} is expected")
     if target_color_ind is None:
         target_color_ind = _allowed_colors.index(_color)
