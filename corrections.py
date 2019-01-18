@@ -1544,7 +1544,7 @@ def fast_illumination_correction(im, correction_channel, single_im_size=_image_s
     _color = str(correction_channel)
     _allowed_colors = ['750', '647', '561', '488', '405']
     if _color not in _allowed_colors:
-        raise ValueError(·
+        raise ValueError(
             f"Wrong color input, {_color} is given, color among {_allowed_colors} is expected")
     if target_color_ind is None:
         target_color_ind = _allowed_colors.index(_color)
