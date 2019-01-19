@@ -1473,34 +1473,33 @@ def fast_generate_illumination_correction(color, data_folder, correction_folder,
     else:
         # initialize 
         _picked_profiles = []
-        for _fd in _folders:
-            for _fov in _fovs:
-                
-                # exit if enough images loaded
-                if len(_picked_profiles) >= num_of_images:
-                    break
-                # start slicing image
-                if os.path.isfile(os.path.join(_fd, _fov)):
-                    ## get info
-                    _im_filename = os.path.join(_fd, _fov)
-                    if verbose:
-                        print(f"-- loading {_color} from image file {_im_filename}, color_ind:{target_color_ind}")
-                    _im = visual_tools.slice_image(_im_filename, [_num_frame, _dx, _dy], [buffer_frame, _num_frame-buffer_frame], [0, _dx],
-                                                  [0, _dy], _num_color, target_color_ind)
-                    # do corrections
-                    _im = Remove_Hot_Pixels(_im, verbose=False)
-                    _im = Z_Shift_Correction(_im, normalization=False, verbose=False)
-                    # seed and exclude these blocks
-                    _seed_thres = scoreatpercentile(_im, seeding_th_per) - np.median(_im)
-                    _seeds = visual_tools.get_seed_points_base(_im, th_seed=_seed_thres)
-                    for _sd in np.transpose(_seeds):
-                        _l_lims = np.array(_sd - int(seeding_crop_size/2), dtype=np.int)
-                        _l_lims[_l_lims<0] = 0
-                        _r_lims = [_sd+int(seeding_crop_size/2), np.array(_im.shape)]
-                        _r_lims = np.min(np.array(_r_lims, dtype=np.int), axis=0)
-                        _im[_l_lims[0]:_r_lims[0], _l_lims[1]:_r_lims[1], _l_lims[2]:_r_lims[2]] = np.nan
-                    # append
-                    _picked_profiles.append(_im)
+        _fd = _folders[folder_id]
+        for _fov in _fovs:
+            # exit if enough images loaded
+            if len(_picked_profiles) >= num_of_images:
+                break
+            # start slicing image
+            if os.path.isfile(os.path.join(_fd, _fov)):
+                ## get info
+                _im_filename = os.path.join(_fd, _fov)
+                if verbose:
+                    print(f"-- loading {_color} from image file {_im_filename}, color_ind:{target_color_ind}")
+                _im = visual_tools.slice_image(_im_filename, [_num_frame, _dx, _dy], [buffer_frame, _num_frame-buffer_frame], [0, _dx],
+                                                [0, _dy], _num_color, target_color_ind)
+                # do corrections
+                _im = Remove_Hot_Pixels(_im, verbose=False)
+                _im = Z_Shift_Correction(_im, normalization=False, verbose=False)
+                # seed and exclude these blocks
+                _seed_thres = scoreatpercentile(_im, seeding_th_per) - np.median(_im)
+                _seeds = visual_tools.get_seed_points_base(_im, th_seed=_seed_thres)
+                for _sd in np.transpose(_seeds):
+                    _l_lims = np.array(_sd - int(seeding_crop_size/2), dtype=np.int)
+                    _l_lims[_l_lims<0] = 0
+                    _r_lims = [_sd+int(seeding_crop_size/2), np.array(_im.shape)]
+                    _r_lims = np.min(np.array(_r_lims, dtype=np.int), axis=0)
+                    _im[_l_lims[0]:_r_lims[0], _l_lims[1]:_r_lims[1], _l_lims[2]:_r_lims[2]] = np.nan
+                # append
+                _picked_profiles.append(_im)
         # generate averaged profile
         if verbose:
             print("- generating averaged profile")
@@ -1521,7 +1520,7 @@ def fast_generate_illumination_correction(color, data_folder, correction_folder,
                 os.makedirs(os.path.dirname(save_filename))
             np.save(save_filename, _mean_profile)
     if make_plot:
-        f1 = plt.figure()
+        plt.figure()
         plt.imshow(_mean_profile)
         plt.colorbar()
         plt.show()
