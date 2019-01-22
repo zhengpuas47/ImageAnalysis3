@@ -875,7 +875,7 @@ def Illumination_correction(ims, correction_channel, correction_power=1.75,
     else:
         _ims = ims
     # load correcton profile
-    _corr_filename = os.path.join(correction_folder, 'Illumination_correction_'+str(correction_channel)+'.pkl')
+    _corr_filename = os.path.join(correction_folder, 'illumination_correction_'+str(correction_channel)+'.pkl')
     if not os.path.exists(_corr_filename):
         raise IOError(f"Required illumiation correction file {_corr_filename} does not exist!")
     with open(_corr_filename, 'rb') as handle:
@@ -1410,6 +1410,7 @@ def old_correct_single_image(filename, im_size, channels, target_channel, raw_im
 def fast_generate_illumination_correction(color, data_folder, correction_folder, image_type='H', num_of_images=50,
                                           folder_id=0, buffer_frame=10, frame_per_color=30, target_color_ind=-1,
                                           gaussian_sigma=40, seeding_th_per=99.5, seeding_th_base=300, seeding_crop_size=9,
+                                          remove_cap=False, cap_th_per=99.5,
                                           force=False, save=True, save_name='illumination_correction_', make_plot=False, verbose=True):
     """Function to generate illumination correction profile from hybridization type of image or bead type of image
     Inputs:
@@ -1489,6 +1490,11 @@ def fast_generate_illumination_correction(color, data_folder, correction_folder,
                 # do corrections
                 _im = Remove_Hot_Pixels(_im, verbose=False)
                 _im = Z_Shift_Correction(_im, normalization=False, verbose=False)
+                _im = np.array(_im, dtype=np.float)
+                # remove top values if necessary
+                if remove_cap:
+                    _cap_thres = scoreatpercentile(_im, cap_th_per)
+                    _im[_im > _cap_thres] = np.nan
                 # seed and exclude these blocks
                 _seed_thres = scoreatpercentile(_im, seeding_th_per) - np.median(_im)
                 _seeds = visual_tools.get_seed_points_base(_im, th_seed=_seed_thres)
