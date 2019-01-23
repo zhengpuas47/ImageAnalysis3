@@ -1046,8 +1046,8 @@ def DAPI_segmentation(ims, names,
 
     # illumination correction
     if illumination_correction:
-        _ims = corrections.Illumination_correction(_ims, illumination_correction_channel, correction_folder=correction_folder,
-                                                verbose=verbose);
+        _ims = [corrections.fast_illumination_correction(_im, illumination_correction_channel, correction_folder=correction_folder,
+                                                verbose=verbose) for _im in _ims]
 
     # rescale image to 0-1 gray scale
     _limits = [stats.scoreatpercentile(_im, (cap_percentile, 100.-cap_percentile)).astype(np.float) for _im in _ims];
@@ -1226,8 +1226,9 @@ def DAPI_convoluted_segmentation(ims, names, cap_percentile=0.5,
     _ims = [corrections.Remove_Hot_Pixels(_im, hot_th=4, verbose=verbose) for _im in _ims]
     # illumination correction
     if illumination_correction:
-        _ims = corrections.Illumination_correction(_ims, illumination_correction_channel, correction_power=3, correction_folder=correction_folder,
-                                                   verbose=verbose);
+        _ims = [corrections.fast_illumination_correction(_im, illumination_correction_channel, 
+                                correction_power=3, correction_folder=correction_folder,
+                                verbose=verbose) for _im in _ims]
 
     ## rescaling and stack
     # rescale image to 0-1 gray scale

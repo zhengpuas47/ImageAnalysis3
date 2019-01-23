@@ -875,7 +875,7 @@ def Illumination_correction(ims, correction_channel, correction_power=1.75,
     else:
         _ims = ims
     # load correcton profile
-    _corr_filename = os.path.join(correction_folder, 'illumination_correction_'+str(correction_channel)+'.pkl')
+    _corr_filename = os.path.join(correction_folder, 'Illumination_correction_'+str(correction_channel)+'.pkl')
     if not os.path.exists(_corr_filename):
         raise IOError(f"Required illumiation correction file {_corr_filename} does not exist!")
     with open(_corr_filename, 'rb') as handle:
