@@ -1555,6 +1555,7 @@ def fast_illumination_correction(im, correction_channel, single_im_size=_image_s
         target_color_ind = _allowed_colors.index(_color)
     # crop_limits
     if crop_limits is not None:
+        crop_limits = np.array(crop_limits, dtype=np.int)
         if len(crop_limits) <= 1 or len(crop_limits) > 3:
             raise ValueError("crop_limits should have 2 or 3 elements")
         else:
