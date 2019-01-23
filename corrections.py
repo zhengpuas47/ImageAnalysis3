@@ -1639,9 +1639,8 @@ def fast_illumination_correction(im, correction_channel, single_im_size=_image_s
             _im = im.copy()
         # case where you need to crop image
         else:
-            if crop_limits is None: # if crop-limits is not given
-                _im = im.copy()
-            elif len(crop_limits) == 2:
+            print(crop_limits)
+            if len(crop_limits) == 2:
                 _im = im.copy()[:, crop_limits[0][0]:crop_limits[0]
                                 [1], crop_limits[1][0]:crop_limits[1][1]]
             else:
