@@ -1218,7 +1218,7 @@ def DAPI_convoluted_segmentation(ims, names, cap_percentile=0.5,
         _names = [names];
     # check input length
     if len(_names) != len(_ims):
-        raise ValueError('input images and names length not compatible!');
+        raise ValueError('input images and names length not compatible!')
 
     ## corrections
     # correction for hot_pixel and z-shift
