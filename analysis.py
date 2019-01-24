@@ -60,7 +60,7 @@ def Segmentation_All(analysis_folder, folders, fovs, type='small',
     if not os.path.isdir(_savefolder): # if save folder doesnt exist, create
         if verbose:
             print("- create segmentation saving folder", _savefolder)
-        os.makedirs(_savefolder);
+        os.makedirs(_savefolder)
 
     # Load reference images
     for _i, _folder in enumerate(folders):
@@ -70,7 +70,7 @@ def Segmentation_All(analysis_folder, folders, fovs, type='small',
     _ref_im_dic = get_img_info.split_channels_by_image(_ref_ims, _ref_names, num_channel=num_channel, DAPI=False)
 
     # record dapi_names and dapi_ims
-    _process_markers = [];
+    _process_markers = []
     _process_names, _process_ims = [], []
     for _id, _fov in enumerate(fovs):
         _savefile = _savefolder + os.sep + _fov.replace('.dax', '_segmentation.pkl')
@@ -79,8 +79,8 @@ def Segmentation_All(analysis_folder, folders, fovs, type='small',
             _process_markers.append(False)
         else:
             _process_markers.append(True)
-            _dapi_name = ref_name+os.sep+_fov;
-            _dapi_im = _ref_im_dic[_dapi_name][-1];
+            _dapi_name = ref_name+os.sep+_fov
+            _dapi_im = _ref_im_dic[_dapi_name][-1]
             # do some corrections
             # correct for z axis shift
             _dapi_im = corrections.Z_Shift_Correction(_dapi_im)
@@ -136,11 +136,11 @@ def Segmentation_All(analysis_folder, folders, fovs, type='small',
                 pickle.dump([_process_dic[_dapi_name], _dapi_im], open(_savefile, 'wb'))
         else:
             if verbose:
-                print(f"--- fov-{fovs[_id]} has been loaded from file.");
-            _segmentation_label, _dapi_im = pickle.load(open(_savefile, 'rb'));
+                print(f"--- fov-{fovs[_id]} has been loaded from file.")
+            _segmentation_label, _dapi_im = pickle.load(open(_savefile, 'rb'))
             # store
-            _dapi_ims.append(_dapi_im);
-            _segmentation_labels.append(_segmentation_label);
+            _dapi_ims.append(_dapi_im)
+            _segmentation_labels.append(_segmentation_label)
 
 
     return _segmentation_labels, _dapi_ims
