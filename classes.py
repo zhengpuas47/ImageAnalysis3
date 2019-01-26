@@ -232,22 +232,32 @@ class Cell_List():
         return _encoding_scheme
 
     ## Pick segmentations info for all fovs 
-    def _pick_cell_segmentations(self, _type='small', _num_threads=None, _allow_manual=True,
-                            _min_shape_ratio=0.038, _signal_cap_ratio=0.2, _denoise_window=5,
-                            _shrink_percent=14, _conv_th=-5e-5, _boundary_th=0.55,
+    def _pick_cell_segmentations(self, _num_threads=None, _allow_manual=True,
+                            _min_shape_ratio=0.035, _signal_cap_ratio=0.2, _denoise_window=5,
+                            _shrink_percent=15, _conv_th=0, _boundary_th=0.48,
                             _load_in_ram=True, _save=True, _force=False,
                             _cell_coord_fl='cell_coords.pkl', _verbose=True):
         ## load segmentation
         # check attributes
-        if not hasattr(self, 'channels'):
+        if not hasattr(self, 'channels') or not hasattr(self, 'color_dic'):
             self._load_color_info()
         if not _num_threads:
             if not hasattr(self, 'num_threads'):
                 raise AttributeError('No num_threads given in funtion kwds and class attributes')
             else:
                 _num_threads = self.num_threads
+        # find the folder name for dapi
+        for _fd, _info in self.color_dic.items():
+            if len(_info) >= self.dapi_channel_index and _info[self.dapi_channel_index] == 'DAPI':
+                _dapi_fd = [_full_fd for _full_fd in self.folders if os.path.basename(_full_fd) == _fd]
+                if len(_dapi_fd) == 1:
+                    print(_dapi_fd)
+                    _dapi_fd = _dapi_fd[0]
+                    break
+        return None
         if _verbose:
             print(f"{len(self.chosen_fovs)} of field-of-views are selected to load segmentation.")
+        _chosen_files = 
         # do segmentation if necessary, or just load existing segmentation file
         _segmentation_labels, _dapi_ims  = analysis.Segmentation_All(self.analysis_folder,
                     self.folders, self.chosen_fovs, _type, ref_name='H0R0',
