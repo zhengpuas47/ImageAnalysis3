@@ -1070,7 +1070,7 @@ class Cell_Data():
             raise ValueError("No DAPI folder detected in annotated_folders, stop!")
         # do segmentation if necessary, or just load existing segmentation file
         _segmentation_labels, _dapi_ims = visual_tools.DAPI_convoluted_segmentation(
-            _chosen_files, self.channels[self.dapi_channel_index],
+            os.path.join(_dapi_fd, self.fovs[self.fov_id]), self.channels[self.dapi_channel_index],
             min_shape_ratio=_min_shape_ratio, signal_cap_ratio=_signal_cap_ratio,
             denoise_window=_denoise_window, shrink_percent=_shrink_percent,
             max_conv_th=_max_conv_th, min_boundary_th=_min_boundary_th,
