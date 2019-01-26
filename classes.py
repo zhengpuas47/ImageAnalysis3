@@ -1059,7 +1059,7 @@ class Cell_Data():
         # find the folder name for dapi
         _select_dapi = False # not select dapi fd yet
         for _fd, _info in self.color_dic.items():
-            if len(_info) >= self.dapi_channel_index and _info[self.dapi_channel_index] == 'DAPI':
+            if len(_info) >= self.dapi_channel_index+1 and _info[self.dapi_channel_index] == 'DAPI':
                 _dapi_fd = [_full_fd for _full_fd in self.annotated_folders if os.path.basename(_full_fd) == _fd]
                 if len(_dapi_fd) == 1:
                     if _verbose:
