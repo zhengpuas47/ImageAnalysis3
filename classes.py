@@ -1050,8 +1050,8 @@ class Cell_Data():
 
         return _encoding_scheme
     ## Load cell specific info
-    def _load_segmentation(self, _min_shape_ratio=0.038, _signal_cap_ratio=0.20, _denoise_window=5,
-                           _shrink_percent=14, _conv_th=-5e-5, _boundary_th=0.55,
+    def _load_segmentation(self, _min_shape_ratio=0.035, _signal_cap_ratio=0.2, _denoise_window=5,
+                           _shrink_percent=15, _max_conv_th=0, _min_boundary_th=0.48,
                            _load_in_ram=True, _save=True, _force=False, _verbose=False):
         # check attributes
         if not hasattr(self, 'channels') or not hasattr(self, 'color_dic'):
