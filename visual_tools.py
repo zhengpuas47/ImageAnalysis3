@@ -1176,7 +1176,7 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405, cap_percenti
       max_cell_size=40000, min_cell_size=5000, min_shape_ratio=0.035,
       max_iter=4, shrink_percent=15,
       dialation_dim=4, random_walker_beta=0.1, remove_fov_boundary=50,
-      make_plot=False, verbose=True):
+      make_plot=False, return_images=False, verbose=True):
     """cell segmentation for DAPI images with pooling and convolution layers
     Inputs:
         ims: list of images
@@ -1225,12 +1225,12 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405, cap_percenti
     # stack images close to this focal layer
     if verbose:
         print('-- find focal plane and slice')
-    _stack_ims = [];
+    _stack_ims = []
     for _im, _layer in zip(_norm_ims, _focus_layers):
         if _im.shape[0] - _layer < np.ceil((merge_layer_num-1)/2):
-            _stack_lims = [_im.shape[0]-merge_layer_num, _im.shape[0]];
+            _stack_lims = [_im.shape[0]-merge_layer_num, _im.shape[0]]
         elif _layer < np.floor((merge_layer_num-1)/2):
-            _stack_lims = [0, merge_layer_num];
+            _stack_lims = [0, merge_layer_num]
         else:
             _stack_lims = [_layer-np.ceil((merge_layer_num-1)/2), _layer+np.floor((merge_layer_num-1)/2)]
         _stack_lims = np.array(_stack_lims, dtype=np.int)
@@ -1414,8 +1414,8 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405, cap_percenti
         _seg_label = np.zeros(np.shape(_updated_label), dtype=np.int)
         for _l in range(int(np.max(_updated_label))):
             if np.sum(np.array(_updated_label == _l+1,dtype=np.int)) > 0:
-                _seg_label[_updated_label==_l+1] = _relabel_id;
-                _relabel_id += 1;
+                _seg_label[_updated_label==_l+1] = _relabel_id
+                _relabel_id += 1
         # label background
         _dialated_mask = ndimage.binary_dilation(np.array(_seg_label>0, dtype=np.int), structure=morphology.disk(int(dialation_dim/2)))
         _seg_label[(_seg_label==0)*(_dialated_mask==0)] = -1
@@ -1431,13 +1431,16 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405, cap_percenti
     ## plot
     if make_plot:
         for _seg_label, _name in zip(_seg_labels, filenames):
-            plt.figure();
+            plt.figure()
             plt.imshow(_seg_label)
             plt.title(_name)
-            plt.colorbar();plt.show();
+            plt.colorbar()
+            plt.show()
+    if return_images:
+        return _seg_labels, _ims
+    else:
+        return _seg_labels
 
-    return _seg_labels
-    
 # merge images to generate "chromosome"
 def generate_chromosome_from_dic(im_dic, merging_channel, color_dic,  bead_label='beads',
                                  merge_num=10, ref_frame=0, fft_dim=125, verbose=True):

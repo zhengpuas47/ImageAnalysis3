@@ -234,7 +234,7 @@ class Cell_List():
     ## Pick segmentations info for all fovs 
     def _pick_cell_segmentations(self, _num_threads=None, _allow_manual=True,
                             _min_shape_ratio=0.035, _signal_cap_ratio=0.2, _denoise_window=5,
-                            _shrink_percent=15, _conv_th=0, _boundary_th=0.48,
+                            _shrink_percent=15, _max_conv_th=0, _min_boundary_th=0.48,
                             _load_in_ram=True, _save=True, _force=False,
                             _cell_coord_fl='cell_coords.pkl', _verbose=True):
         ## load segmentation
@@ -247,31 +247,29 @@ class Cell_List():
             else:
                 _num_threads = self.num_threads
         # find the folder name for dapi
+        _select_dapi = False # not select dapi fd yet
         for _fd, _info in self.color_dic.items():
             if len(_info) >= self.dapi_channel_index and _info[self.dapi_channel_index] == 'DAPI':
-                _dapi_fd = [_full_fd for _full_fd in self.folders if os.path.basename(_full_fd) == _fd]
+                _dapi_fd = [_full_fd for _full_fd in self.annotated_folders if os.path.basename(_full_fd) == _fd]
                 if len(_dapi_fd) == 1:
-                    print(_dapi_fd)
+                    if _verbose:
+                        print(f"-- choose dapi images from folder: {_dapi_fd[0]}.")
                     _dapi_fd = _dapi_fd[0]
-                    break
-        return None
+                    _select_dapi = True # successfully selected dapi
+        if not _select_dapi:
+            raise ValueError("No DAPI folder detected in annotated_folders, stop!")
+        # prepare filenames for images to do segmentation
         if _verbose:
             print(f"{len(self.chosen_fovs)} of field-of-views are selected to load segmentation.")
-        _chosen_files = 
-        # do segmentation if necessary, or just load existing segmentation file
-        _segmentation_labels, _dapi_ims  = analysis.Segmentation_All(self.analysis_folder,
-                    self.folders, self.chosen_fovs, _type, ref_name='H0R0',
-                    num_threads=_num_threads,
-                    min_shape_ratio=_min_shape_ratio, signal_cap_ratio=_signal_cap_ratio,
-                    conv_th=_conv_th, boundary_th=_boundary_th,
-                    denoise_window=_denoise_window,
-                    num_channel=len(self.channels), dapi_channel=self.dapi_channel_index,
-                    correction_folder=self.correction_folder,
-                    segmentation_path=os.path.basename(self.segmentation_folder),
-                    save=_save, force=_force, verbose=_verbose)
-        _dapi_ims = [corrections.Remove_Hot_Pixels(_im) for _im in _dapi_ims]
-        _dapi_ims = [corrections.Z_Shift_Correction(_im) for _im in _dapi_ims]
-
+        _chosen_files = [os.path.join(_dapi_fd, _fov) for _fov in self.chosen_fovs]
+        # do segmentation
+        _segmentation_labels, _dapi_ims = visual_tools.DAPI_convoluted_segmentation(
+            _chosen_files, self.channels[self.dapi_channel_index],
+            min_shape_ratio=_min_shape_ratio, signal_cap_ratio=_signal_cap_ratio,
+            denoise_window=_denoise_window, shrink_percent=_shrink_percent,
+            max_conv_th=_max_conv_th, min_boundary_th=_min_boundary_th,
+            make_plot=False, return_images=True, verbose=_verbose
+        )
         ## pick(exclude) cells from previous result
         if _allow_manual:
             # generate coordinates
