@@ -1176,6 +1176,7 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405, cap_percenti
       max_cell_size=40000, min_cell_size=5000, min_shape_ratio=0.035,
       max_iter=4, shrink_percent=15,
       dialation_dim=4, random_walker_beta=0.1, remove_fov_boundary=50,
+      save=True, save_folder=None, force=False, save_npy=True,
       make_plot=False, return_images=False, verbose=True):
     """cell segmentation for DAPI images with pooling and convolution layers
     Inputs:
@@ -1211,7 +1212,29 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405, cap_percenti
     if verbose:
         print(f"- loading {len(filenames)} images for segmentation")
     _ims = [corrections.correct_single_image(_fl, correction_channel) for _fl in filenames]
-    
+    ## load segmentation if already existed:
+    if save_folder is None:
+        save_folder = os.path.dirname(os.path.dirname(filenames[0]))
+        save_folder = os.path.join(save_folder, 'Analysis', 'segmentation')
+    if not os.path.exists(save_folder): # create folder if not exists
+        os.makedirs(save_folder)
+    if save_npy:
+        save_filenames = [os.path.join(save_folder, os.path.basename(_fl).replace('.dax', '_segmentation.npy')) for _fl in filenames]    
+    else:
+        save_filenames = [os.path.join(save_folder, os.path.basename(_fl).replace('.dax', '_segmentation.pkl')) for _fl in filenames]    
+    # decide if directly load
+    _direct_load_flags = [True for _fl in save_filenames if os.path.exists(_fl) and not force]
+    if len(_direct_load_flags) == len(filenames) and not force:
+        # load segmentation labels
+        if save_npy:
+            _seg_labels = [np.load(_fl) for _fl in save_filenames]
+        else:
+            _seg_labels = [pickle.load(open(_fl, 'rb')) for _fl in save_filenames]
+        # return    
+        if return_images:
+            return _seg_labels, _ims
+        else:
+            return _seg_labels
     ## rescaling and stack
     # rescale image to 0-1 gray scale
     _limits = [stats.scoreatpercentile(_im, (cap_percentile, 100.-cap_percentile)).astype(np.float) for _im in _ims];
@@ -1270,13 +1293,6 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405, cap_percenti
     _close_objects = [morphology.remove_small_objects(_close, min_cell_size) for _close in _close_objects];
     # labeling
     _labels = [ np.array(ndimage.label(_close)[0], dtype=np.int) for _close in _close_objects];
-
-    for _im in _labels:
-        plt.figure()
-        plt.imshow(np.array(_im))
-        plt.colorbar()
-        plt.show()
-        
     
     ## Tuning labels
     def _label_binary_im(_im, obj_size=3):
@@ -1436,6 +1452,14 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405, cap_percenti
             plt.title(_name)
             plt.colorbar()
             plt.show()
+    ## save 
+    if save:
+        if save_npy:
+            for _fl, _lb in zip(save_filenames, _seg_labels):
+                np.save(_fl, _lb)
+        else:
+            for _fl, _lb in zip(save_filenames, _seg_labels):
+                pickle.dump(_lb, open(_fl, 'wb'))
     if return_images:
         return _seg_labels, _ims
     else:

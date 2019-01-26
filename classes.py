@@ -268,7 +268,9 @@ class Cell_List():
             min_shape_ratio=_min_shape_ratio, signal_cap_ratio=_signal_cap_ratio,
             denoise_window=_denoise_window, shrink_percent=_shrink_percent,
             max_conv_th=_max_conv_th, min_boundary_th=_min_boundary_th,
-            make_plot=False, return_images=True, verbose=_verbose
+            make_plot=False, return_images=True, 
+            save=_save, save_folder=self.segmentation_folder, force=_force,
+            verbose=_verbose
         )
         ## pick(exclude) cells from previous result
         if _allow_manual:
@@ -1048,26 +1050,37 @@ class Cell_Data():
 
         return _encoding_scheme
     ## Load cell specific info
-    def _load_segmentation(self, _type='small', _min_shape_ratio=0.038, _signal_cap_ratio=0.20, _denoise_window=5,
+    def _load_segmentation(self, _min_shape_ratio=0.038, _signal_cap_ratio=0.20, _denoise_window=5,
                            _shrink_percent=14, _conv_th=-5e-5, _boundary_th=0.55,
                            _load_in_ram=True, _save=True, _force=False, _verbose=False):
         # check attributes
-        if not hasattr(self, 'channels'):
+        if not hasattr(self, 'channels') or not hasattr(self, 'color_dic'):
             self._load_color_info()
-
+        # find the folder name for dapi
+        _select_dapi = False # not select dapi fd yet
+        for _fd, _info in self.color_dic.items():
+            if len(_info) >= self.dapi_channel_index and _info[self.dapi_channel_index] == 'DAPI':
+                _dapi_fd = [_full_fd for _full_fd in self.annotated_folders if os.path.basename(_full_fd) == _fd]
+                if len(_dapi_fd) == 1:
+                    if _verbose:
+                        print(f"-- choose dapi images from folder: {_dapi_fd[0]}.")
+                    _dapi_fd = _dapi_fd[0]
+                    _select_dapi = True # successfully selected dapi
+        if not _select_dapi:
+            raise ValueError("No DAPI folder detected in annotated_folders, stop!")
         # do segmentation if necessary, or just load existing segmentation file
-        fov_segmentation_label, fov_dapi_im  = analysis.Segmentation_Fov(self.analysis_folder,
-                                                self.folders, self.fovs, self.fov_id, type=_type,
-                                                min_shape_ratio=_min_shape_ratio,
-                                                signal_cap_ratio=_signal_cap_ratio,
-                                                denoise_window=_denoise_window,
-                                                shrink_percent=_shrink_percent,
-                                                conv_th=_conv_th, boundary_th=_boundary_th,
-                                                num_channel=len(self.channels),
-                                                dapi_channel=self.dapi_channel_index,
-                                                illumination_corr=True, correction_folder=self.correction_folder,
-                                                segmentation_path=os.path.basename(self.segmentation_folder),
-                                                save=_save, force=_force, verbose=_verbose)
+        _segmentation_labels, _dapi_ims = visual_tools.DAPI_convoluted_segmentation(
+            _chosen_files, self.channels[self.dapi_channel_index],
+            min_shape_ratio=_min_shape_ratio, signal_cap_ratio=_signal_cap_ratio,
+            denoise_window=_denoise_window, shrink_percent=_shrink_percent,
+            max_conv_th=_max_conv_th, min_boundary_th=_min_boundary_th,
+            make_plot=False, return_images=True, 
+            save=_save, save_folder=self.segmentation_folder, force=_force,
+            verbose=_verbose
+        )
+        fov_segmentation_label = _segmentation_labels[0]
+        fov_dapi_im = _dapi_ims[0]
+        ## pick corresponding cell
         # exclude special cases
         if not hasattr(self, 'cell_id'):
             raise AttributeError('no cell_id attribute for this cell_data class object!')
