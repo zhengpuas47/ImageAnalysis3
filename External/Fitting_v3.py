@@ -371,9 +371,10 @@ class iter_fit_seed_points():
                     self.ims_rec.append(np.nan)
                     self.ps.append([np.nan]*n_p)
                     self.centers_fit.append([np.nan]*3)
-
-        self.im_add = np.array(self.im_subtr)
-        
+            # set default self.add
+            self.im_add = np.array(self.im_subtr)
+        else:
+            raise ValueError(f"{len(self.centers)} points have been seeded, exit.")
     def repeatfit(self):
             self.n_iter = 0
             
