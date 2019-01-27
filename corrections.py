@@ -331,8 +331,11 @@ def _align_single_image_from_file(_filename, _selected_crops, _ref_centers=None,
     else:
         _target_seed_ths = [_seed_th for rim in _target_ims]
     # fitting
-    _target_centers = [get_STD_centers(rim, th_seed=rseed, verbose=_verbose)
+    try:
+        _target_centers = [get_STD_centers(rim, th_seed=rseed, verbose=_verbose)
                        for rim, rseed in zip(_target_ims, _target_seed_ths)]
+    except ValueError:
+        print(_filename)
     # printing info
     _print_name = os.path.join(_filename.split(os.sep)[-2], _filename.split(os.sep)[-1])
 
