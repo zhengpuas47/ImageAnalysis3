@@ -1667,6 +1667,7 @@ def get_seed_in_distance(im, center=None, num_seeds=0, seed_radius=30,
         _th_seed = scoreatpercentile(im-np.min(im), th_seed_percentile)
     else:
         _th_seed = th_seed
+    print('real th：', _th_seed)
     # start seeding 
     if center is not None:
         _center = np.array(center, dtype=np.float)

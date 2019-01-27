@@ -46,8 +46,7 @@ def get_STD_centers(im, th_seed=150, dynamic=False, th_seed_percentile=95,
         seeds = visual_tools.get_seed_in_distance(im, center=None, dynamic=dynamic, 
                                     th_seed_percentile=th_seed_percentile,
                                     gfilt_size=0.75,filt_size=3,th_seed=th_seed,hot_pix_th=4)
-        if len(seeds.T) == 0:
-            print("bad seeding,", seeds.shape, th_seed)
+        print("- seeding,", seeds.shape, th_seed)
         # fitting
         fitter = Fitting_v3.iter_fit_seed_points(im, seeds.T, radius_fit=5)
         fitter.firstfit()
