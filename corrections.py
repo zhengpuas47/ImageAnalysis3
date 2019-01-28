@@ -315,12 +315,16 @@ def _align_single_image_from_file(_filename, _selected_crops, _ref_centers=None,
     ## slice the image for given filename
     _full_im_size, _num_colors = get_img_info.get_num_frame(
         _filename, buffer_frame=_buffer_frame, frame_per_color=_im_size[0])
-    _target_ims = [visual_tools.slice_image(_filename, _full_im_size, 
-                    [_buffer_frame+_num_colors*_crop[0, 0], _buffer_frame+_num_colors*_crop[0, 1]],
-                     _crop[1], _crop[2], zstep=_num_colors, zstart=_bead_channel_id) for _crop in _selected_crops[:2]]
-    if _illumination_corr:  # do illumination correction
-        _target_ims = [fast_illumination_correction(_im, _bead_channel, single_im_size=_im_size,
-                                                    crop_limits=_crop) for (_crop, _im) in zip(_selected_crops[:2], _target_ims)]
+    # correct full image
+    _full_target_im = correct_single_image(_filename, _bead_channel, 
+                        single_im_size=_im_size, all_channels=_channels, channel_id=_bead_channel_id,
+                        num_buffer_frames=_buffer_frame, correction_folder=_correction_folder,
+                        z_shift_corr=True, hot_pixel_remove=True, 
+                        illumination_corr=_illumination_corr, chromatic_corr=False)
+    # crop images
+    _target_ims = [_full_target_im[_crop[0, 0]:_crop[0, 1],
+                                   _crop[1, 0]:_crop[1, 1],
+                                   _crop[2, 0]:_crop[2, 1]] for _crop in _selected_crops[:2]]
     ## case 1: ref_centers are given:
     # initialize
     _failed_count = 0
@@ -377,16 +381,20 @@ def _align_single_image_from_file(_filename, _selected_crops, _ref_centers=None,
             print(f"- Aligning {_print_name} to {_ref_print_name}")
         _full_ref_im_size, _ref_num_colors = get_img_info.get_num_frame(
             _ref_filename, buffer_frame=_buffer_frame, frame_per_color=_im_size[0])
-        _ref_ims = [visual_tools.slice_image(_ref_filename, _full_ref_im_size, [_buffer_frame+_ref_num_colors*_crop[0, 0], _buffer_frame+_ref_num_colors*_crop[0, 1]],
-                                             _crop[1], _crop[2], zstep=_ref_num_colors, zstart=_bead_channel_id) for _crop in _selected_crops[:2]]
-        if _illumination_corr:  # do illumination correction
-            _ref_ims = [fast_illumination_correction(_im, _bead_channel, single_im_size=_im_size,
-                                                     crop_limits=_crop) for (_crop, _im) in zip(_selected_crops[:2], _ref_ims)]
 
+        _full_ref_im = correct_single_image(_ref_filename, _bead_channel, 
+                    single_im_size=_im_size, all_channels=_channels, channel_id=_bead_channel_id,
+                    num_buffer_frames=_buffer_frame, correction_folder=_correction_folder,
+                    z_shift_corr=True, hot_pixel_remove=True, 
+                    illumination_corr=_illumination_corr, chromatic_corr=False)
+        # crop images
+        _ref_ims = [_full_ref_im[_crop[0, 0]:_crop[0, 1],
+                                 _crop[1, 0]:_crop[1, 1],
+                                 _crop[2, 0]:_crop[2, 1]] for _crop in _selected_crops[:2]]
         # seeding
         if _dynamic_seeding:
             _ref_seed_ths = [scoreatpercentile(
-                rim, _dynamic_th_percent)*0.6 for rim in _ref_ims]
+                rim, _dynamic_th_percent)*0.5 for rim in _ref_ims]
         else:
             _ref_seed_ths = [_seed_th for rim in _ref_ims]
         _ref_centers = [get_STD_centers(_rim, th_seed=_rseed, verbose=_verbose)
@@ -399,8 +407,10 @@ def _align_single_image_from_file(_filename, _selected_crops, _ref_centers=None,
                 print(f"Suspecting failure for {_print_name}")
             _failed_count += 1
             # append target image
-            _new_target_im = visual_tools.slice_image(_filename, _full_im_size, [_buffer_frame+_num_colors*_selected_crops[2][0, 0], _buffer_frame+_num_colors*_selected_crops[2][0, 1]],
-                                                      _selected_crops[2][1], _selected_crops[2][2], zstep=_num_colors, zstart=_bead_channel_id)
+            # crop new images
+            _new_target_im = _full_target_im[_selected_crops[2][0, 0]:_selected_crops[2][0, 1],
+                                            _selected_crops[2][1, 0]:_selected_crops[2][1, 1],
+                                            _selected_crops[2][2, 0]:_selected_crops[2][2, 1]] 
             _target_ims.append(_new_target_im)
             if _dynamic_seeding:
                 _target_seed_ths.append(scoreatpercentile(
@@ -410,8 +420,9 @@ def _align_single_image_from_file(_filename, _selected_crops, _ref_centers=None,
             _target_centers.append(get_STD_centers(
                 _target_ims[-1], th_seed=_target_seed_ths[-1], verbose=_verbose))
             # append ref image
-            _new_ref_im = visual_tools.slice_image(_ref_filename, _full_ref_im_size, [_buffer_frame+_ref_num_colors*_selected_crops[2][0, 0], _buffer_frame+_ref_num_colors*_selected_crops[2][0, 1]],
-                                                   _selected_crops[2][1], _selected_crops[2][2], zstep=_ref_num_colors, zstart=_bead_channel_id)
+            _new_ref_im = _full_ref_im[_selected_crops[2][0, 0]:_selected_crops[2][0, 1],
+                                       _selected_crops[2][1, 0]:_selected_crops[2][1, 1],
+                                       _selected_crops[2][2, 0]:_selected_crops[2][2, 1]] 
             _ref_ims.append(_new_ref_im)
             if _dynamic_seeding:
                 _ref_seed_ths.append(scoreatpercentile(

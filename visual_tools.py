@@ -1662,12 +1662,12 @@ def get_seed_in_distance(im, center=None, num_seeds=0, seed_radius=30,
     if center is not None and len(center) != 3:
         raise ValueError('wrong input dimension of center!')
     _dim = np.shape(im)
+    _im = im.copy()
     # seeding threshold
     if dynamic:
         _th_seed = scoreatpercentile(im-np.min(im), th_seed_percentile)
     else:
         _th_seed = th_seed
-    print('real th：', _th_seed)
     # start seeding 
     if center is not None:
         _center = np.array(center, dtype=np.float)
@@ -1682,7 +1682,7 @@ def get_seed_in_distance(im, center=None, num_seeds=0, seed_radius=30,
             np.min([_dim[0], _center[0]+seed_radius/2]), dtype=np.int)
         _local_center = _center - _limits[0]
         # crop im
-        _cim = im[_limits[0, 0]:_limits[1, 0], _limits[0, 1]:_limits[1, 1], _limits[0, 2]:_limits[1, 2]]
+        _cim = _im[_limits[0, 0]:_limits[1, 0], _limits[0, 1]:_limits[1, 1], _limits[0, 2]:_limits[1, 2]]
         if dynamic:
             _dynamic_range = np.linspace(1, 1 / dynamic_iters, dynamic_iters)
             for _dy_ratio in _dynamic_range:
@@ -1691,8 +1691,7 @@ def get_seed_in_distance(im, center=None, num_seeds=0, seed_radius=30,
                 _cand_seeds = get_seed_points_base(_cim, gfilt_size=gfilt_size, background_gfilt_size=background_gfilt_size,
                                                    filt_size=filt_size, th_seed=_dynamic_th, hot_pix_th=hot_pix_th, return_h=True)
                 # keep seed within distance
-                _distance = cdist(_cand_seeds[:3].transpose(
-                ), _local_center[np.newaxis, :3]).transpose()[0]
+                _distance = cdist(_cand_seeds[:3].transpose(), _local_center[np.newaxis, :3]).transpose()[0]
                 _keep = _distance < seed_radius
                 _seeds = _cand_seeds[:, _keep]
                 _seeds[:3, :] += _limits[0][:, np.newaxis]
@@ -1707,9 +1706,8 @@ def get_seed_in_distance(im, center=None, num_seeds=0, seed_radius=30,
                                                th_seed=th_seed, hot_pix_th=hot_pix_th, return_h=True)
 
     else:
-        _cim = im
         # get candidate seeds
-        _seeds = get_seed_points_base(_cim, gfilt_size=gfilt_size, filt_size=filt_size,
+        _seeds = get_seed_points_base(_im, gfilt_size=gfilt_size, filt_size=filt_size,
                                       th_seed=_th_seed, hot_pix_th=hot_pix_th, return_h=True)
 
     # if limited seeds reported, report top n
