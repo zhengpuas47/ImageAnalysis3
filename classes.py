@@ -1102,7 +1102,7 @@ class Cell_Data():
                     _size=300, _ref_id=0, _drift_postfix='_current_cor.pkl', _num_threads=12,
                     _force=False, _dynamic=True, _verbose=True):
         # num-threads
-        if hastattr(self, 'num_threads'):
+        if hasattr(self, 'num_threads'):
             _num_threads = min(_num_threads, self.num_threads)
         # if drift exists:
         if hasattr(self, 'drift') and not _force:
