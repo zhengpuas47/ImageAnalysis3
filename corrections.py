@@ -37,7 +37,7 @@ def get_STD_centers(im, th_seed=150, dynamic=False, th_seed_percentile=95,
     if not force and os.path.exists(save_folder+os.sep+save_name) and save_name != '':
         if verbose:
             print("- loading file:,", save_folder+os.sep+save_name)
-        beads = pickle.load(open(save_folder+os.sep+save_name, 'rb'), encoding='latin1');
+        beads = pickle.load(open(save_folder+os.sep+save_name, 'rb'))
         if verbose:
             print("--", len(beads), " of beads loaded.")
         return beads
@@ -46,7 +46,6 @@ def get_STD_centers(im, th_seed=150, dynamic=False, th_seed_percentile=95,
         seeds = visual_tools.get_seed_in_distance(im, center=None, dynamic=dynamic, 
                                     th_seed_percentile=th_seed_percentile,
                                     gfilt_size=0.75,filt_size=3,th_seed=th_seed,hot_pix_th=4)
-        print("- seeding,", seeds.shape, th_seed)
         # fitting
         fitter = Fitting_v3.iter_fit_seed_points(im, seeds.T, radius_fit=5)
         fitter.firstfit()
@@ -64,7 +63,8 @@ def get_STD_centers(im, th_seed=150, dynamic=False, th_seed_percentile=95,
         else:
             beads = None
         if verbose:
-            print(remove, "points removed given smallest distance", close_threshold)
+            print(f"- fitting {len(pfits)} points")
+            print(f"-- {remove} points removed given smallest distance {close_threshold}")
         # make plot if required
         if plt_val:
             plt.figure()
@@ -76,7 +76,7 @@ def get_STD_centers(im, th_seed=150, dynamic=False, th_seed_percentile=95,
             if not os.path.exists(save_folder):
                 os.makedirs(save_folder)
             if verbose:
-                print("-- saving beads to", save_folder+os.sep+save_name)
+                print("-- saving fitted spots to", save_folder+os.sep+save_name)
             pickle.dump(beads, open(save_folder+os.sep+save_name, 'wb'))
 
         return beads
