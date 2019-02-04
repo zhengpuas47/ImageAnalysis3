@@ -1274,25 +1274,25 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405, cap_percenti
     _diff_ims = [2*ndimage.filters.maximum_filter(_stack_im, mft_size)-ndimage.filters.minimum_filter(_stack_im, mft_size) for _stack_im in _stack_ims]
     # laplace of gaussian filter
     if verbose:
-        print("- apply by laplace-of-gaussian filter");
+        print("- apply by laplace-of-gaussian filter")
     _conv_ims = [gaussian_laplace(_im, glft_size) for _im in _diff_ims]
         
     ## get rough labels
     # binarilize the image
     _supercell_masks = [(_cim < max_conv_th) *( _sim > min_boundary_th) for _cim, _sim in zip(_conv_ims, _diff_ims)]
     # erosion and dialation
-    _supercell_masks = [ndimage.binary_erosion(_im, structure=morphology.disk(3)) for _im in _supercell_masks];
-    _supercell_masks = [ndimage.binary_dilation(_im, structure=morphology.disk(5)) for _im in _supercell_masks];
+    _supercell_masks = [ndimage.binary_erosion(_im, structure=morphology.disk(3)) for _im in _supercell_masks]
+    _supercell_masks = [ndimage.binary_dilation(_im, structure=morphology.disk(5)) for _im in _supercell_masks]
     # filling holes
-    _supercell_masks = [ndimage.binary_fill_holes(_im, structure=morphology.disk(4)) for _im in _supercell_masks];
+    _supercell_masks = [ndimage.binary_fill_holes(_im, structure=morphology.disk(4)) for _im in _supercell_masks]
     # acquire labels
     if verbose:
         print("- acquire labels")
-    _open_objects = [morphology.opening(_im, morphology.disk(3)) for _im in _supercell_masks];
+    _open_objects = [morphology.opening(_im, morphology.disk(3)) for _im in _supercell_masks]
     _close_objects = [morphology.closing(_open, morphology.disk(3)) for _open in _open_objects]
-    _close_objects = [morphology.remove_small_objects(_close, min_cell_size) for _close in _close_objects];
+    _close_objects = [morphology.remove_small_objects(_close, min_cell_size) for _close in _close_objects]
     # labeling
-    _labels = [ np.array(ndimage.label(_close)[0], dtype=np.int) for _close in _close_objects];
+    _labels = [ np.array(ndimage.label(_close)[0], dtype=np.int) for _close in _close_objects]
     
     ## Tuning labels
     def _label_binary_im(_im, obj_size=3):
@@ -1402,7 +1402,7 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405, cap_percenti
                     elif _iter_ct > max_iter:
                         if verbose:
                             print("--- Exceeding max-iteration count, skip.")
-                        continue;
+                        continue
                     else:
                         if verbose:
                             print("--- Append this cell back to pool")
@@ -1420,7 +1420,7 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405, cap_percenti
                                                  max_size=max_cell_size, min_size=min_cell_size,
                                                  dialation_dim=dialation_dim, verbose=verbose)
         for _l in range(int(np.max(_updated_label))):
-            _, _, _center, _ = _get_label_features(_updated_label, _l+1);
+            _, _, _center, _ = _get_label_features(_updated_label, _l+1)
             if _center[0] < remove_fov_boundary or _center[1] < remove_fov_boundary or _center[0] >= _updated_label.shape[0]-remove_fov_boundary or _center[1] >= _updated_label.shape[1]-remove_fov_boundary:
                 if verbose:
                     print(f"-- Remove im:{_i}, label {_l+1} for center coordiate too close to edge.")

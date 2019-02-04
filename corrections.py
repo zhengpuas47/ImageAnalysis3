@@ -2,6 +2,7 @@ from . import get_img_info, visual_tools, analysis, classes
 from . import _correction_folder,_temp_folder,_distance_zxy,_sigma_zxy,_image_size,_allowed_colors
 from .External import Fitting_v3
 import numpy as np
+import scipy
 import pickle
 import matplotlib.pylab as plt
 import os, glob, sys, time
@@ -1710,11 +1711,19 @@ def fast_generate_chromatic_abbrevation_from_spots(corr_spots, ref_spots, corr_c
     if os.path.isfile(saved_profile_filename) and os.path.isfile(saved_const_filename) and not force:
         _cac_profiles = np.load(saved_profile_filename)
         _cac_consts = np.load(saved_const_filename)
+        if make_plot:
+            for _i,_grid_shifts in enumerate(_cac_profiles):
+                plt.figure()
+                plt.imshow(_grid_shifts)
+                plt.colorbar()
+                plt.title(f"chromatic-abbrevation {corr_channel} to {ref_channel}, axis-{_i}")
+                plt.show()
     else:
         ## start correction
         _cac_profiles = []
         _cac_consts = []
         # variables used in polyfit
+        ref_spots, corr_spots = np.array(ref_spots), np.array(corr_spots) # convert to array
         _x = ref_spots[:,1]
         _y = ref_spots[:,2]
         _data = [] # variables in polyfit
@@ -1727,9 +1736,9 @@ def fast_generate_chromatic_abbrevation_from_spots(corr_spots, ref_spots, corr_c
             if verbose:
                 print(f"-- fitting chromatic-abbrevation in axis {_i} with order:{fitting_order}")
             _value =  corr_spots[:,_i] - ref_spots[:,_i] # target-value for polyfit
-            _C,_r,_,_ = scipy.linalg.lstsq(_data, _value)    # coefficients and residues
+            _C,_r,_r2,_r3 = scipy.linalg.lstsq(_data, _value)    # coefficients and residues
             _cac_consts.append(_C) # store correction constants
-            _rsquare =  1 - _r / (np.var(_value)*len(_value))
+            _rsquare =  1 - np.var(_data.dot(_C) - _value)/np.var(_value)
             if verbose:
                 print(f"--- fitted rsquare:{_rsquare}")
 

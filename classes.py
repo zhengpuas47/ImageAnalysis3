@@ -235,7 +235,7 @@ class Cell_List():
     def _pick_cell_segmentations(self, _num_threads=None, _allow_manual=True,
                             _min_shape_ratio=0.035, _signal_cap_ratio=0.2, _denoise_window=5,
                             _shrink_percent=15, _max_conv_th=0, _min_boundary_th=0.48,
-                            _load_in_ram=True, _save=True, _force=False,
+                            _load_in_ram=True, _save=True, _save_npy=True, _force=False,
                             _cell_coord_fl='cell_coords.pkl', _verbose=True):
         ## load segmentation
         # check attributes
@@ -269,7 +269,7 @@ class Cell_List():
             denoise_window=_denoise_window, shrink_percent=_shrink_percent,
             max_conv_th=_max_conv_th, min_boundary_th=_min_boundary_th,
             make_plot=False, return_images=True, 
-            save=_save, save_folder=self.segmentation_folder, force=_force,
+            save=_save, save_npy=_save_npy, save_folder=self.segmentation_folder, force=_force,
             verbose=_verbose
         )
         ## pick(exclude) cells from previous result
@@ -304,11 +304,12 @@ class Cell_List():
     def _update_cell_segmentations(self, _cell_coord_fl='cell_coords.pkl',
                                   _overwrite_segmentation=True,
                                   _marker_displace_th = 2700,
-                                  _append_new=True, _append_radius=90,
+                                  _append_new=True, _append_radius=100,
+                                  _save_npy=True, _save_postfix="_segmentation",
                                   _verbose=True):
         """Function to update cell segmentation info from saved file,
             - usually do this after automatic segmentation"""
-        _cell_coord_savefile = self.save_folder + os.sep + _cell_coord_fl
+        _cell_coord_savefile = self.segmentation_folder + os.sep + _cell_coord_fl
         if not os.path.exists(_cell_coord_savefile):
             raise IOError(f'{_cell_coord_savefile} doesnot exist, exit')
 
@@ -317,7 +318,12 @@ class Cell_List():
         # parse
         _ccd = visual_tools.partition_map(self.cell_coord_dic['coords'], self.cell_coord_dic['class_ids'])
         _new_ccd = visual_tools.partition_map(_new_cell_coord_dic['coords'], _new_cell_coord_dic['class_ids'])
-
+        # decide save_handle
+        if _save_npy:
+            _file_type = '.npy'
+        else:
+            _file_type = '.pkl'
+        print(f"- Update segmentation information for file type: {_file_type}")
         # initialize
         _new_seg_labels, _dapi_ims = [], []
         _remove_cts, _append_cts = [], []
@@ -325,14 +331,25 @@ class Cell_List():
             # now we are taking care of one specific field of view
             if _verbose:
                 print(f"-- fov-{_i}, match manually picked cell with sgementation ")
+
             # load fov image
-            _seg_file = self.segmentation_folder+os.sep+self.chosen_fovs[_i].replace('.dax', '_segmentation.pkl')
-            _seg_label, _dapi_im = pickle.load(open(_seg_file, 'rb'))
+            _seg_file = self.segmentation_folder+os.sep+self.chosen_fovs[_i].replace('.dax', _save_postfix+_file_type)
+            if _save_npy:
+                _seg_label = np.load(_seg_file)
+                if not _overwrite_segmentation:
+                    # save original seg label into another file
+                    _old_seg_file = _seg_file.replace(_save_postfix+_file_type, _save_postfix+'_old')
+                    # notice: _file_type .npy was not added to _old_seg_file because np.save automatically adds postfix
+                    np.save(_old_seg_file, _seg_label)
+            else:
+                _seg_label, _dapi_im = pickle.load(open(_seg_file, 'rb'))
+                if not _overwrite_segmentation:
+                    # save original seg label into another file
+                    _old_seg_file = _seg_file.replace(_save_postfix+_file_type, _save_postfix+'_old'+_file_type)
+                    pickle.dump([_seg_label, _dapi_im], open(_old_seg_file, 'wb'))
+
+            # keep record of removed labels 
             _remove = 0
-            if not _overwrite_segmentation:
-                # save original seg label into another file
-                _old_seg_file = _seg_file.replace('_segmentation.pkl', '_segmentation_old.pkl')
-                pickle.dump([_seg_label, _dapi_im], open(_old_seg_file, 'wb'))
             # keep cells in original segmentation with markers
             for _l, _coord in enumerate(_cell_coords):
                 _dist = [np.sum((_c-_coord)**2) for _c in _new_cell_coords]
@@ -376,15 +393,18 @@ class Cell_List():
             if _verbose:
                 print(f"--- {_remove} label(s) got removed!")
             _new_seg_labels.append(_seg_label)
-            _dapi_ims.append(_dapi_im)
+            #_dapi_ims.append(_dapi_im)
             _remove_cts.append(_remove)
             # save
             if _verbose:
                 print(f"--- save updated segmentation to {os.path.basename(_seg_file)}")
-            pickle.dump([_seg_label, _dapi_im], open(_seg_file, 'wb'))
+            if _save_npy:
+                np.save(_seg_file.replace(_save_postfix+_file_type, _save_postfix), _seg_label)
+            else:
+                pickle.dump([_seg_label, _dapi_im], open(_seg_file, 'wb'))
 
-        return _new_seg_labels, _dapi_ims, _remove_cts, _append_cts
-
+        #return _new_seg_labels, _dapi_ims, _remove_cts, _append_cts
+        return _new_seg_labels, _remove_cts, _append_cts
     ## Load drift info
     def _load_drift_fov(self):
         pass
@@ -403,7 +423,7 @@ class Cell_List():
                 _cell._load_color_info()
         # load segmentation
         if _load_segmentation and not hasattr(_cell, 'segmentation_label'):
-            _cell._load_segmentation(_type=_segmentation_type)
+            _cell._load_segmentation()
         # load drift 
         if _load_drift and not hasattr(_cell, 'drift'):
             _cell._load_drift(_num_threads=self.num_threads, _size=_drift_size, _ref_id=_drift_ref, _drift_postfix=_drift_postfix,
@@ -418,8 +438,7 @@ class Cell_List():
             self.cells.append(_cell)
         return _cell
 
-    def _create_cells_fov(self, _fov_ids, _num_threads=None, _sequential_mode=False,
-                          _segmentation_type='small', _plot_segmentation=True, 
+    def _create_cells_fov(self, _fov_ids, _num_threads=None, _sequential_mode=False, _plot_segmentation=True, 
                           _load_exist_info=True, _load_annotated_only=True,
                           _drift_size=300, _drift_ref=0, _drift_postfix='_current_cor.pkl', 
                           _dynamic=True, _save=False, _force_drift=False, _remove_bead_temp=True, _verbose=True):
@@ -435,31 +454,43 @@ class Cell_List():
         if _verbose:
             print(f"+ Create Cell_Data objects for field of view: {_fov_ids}")
             print("++ preparing variables")
-        # check attributes
-        if not hasattr(self, 'channels') or not hasattr(self, 'color_dic'):
-            self._load_color_info()
         # whether load annotated hybs only
         if _load_annotated_only:
             _folders = self.annotated_folders
         else:
             _folders = self.folders
+        # check attributes
+        if not hasattr(self, 'channels') or not hasattr(self, 'color_dic'):
+            self._load_color_info()
+        # find the folder name for dapi
+        _select_dapi = False  # not select dapi fd yet
+        for _fd, _info in self.color_dic.items():
+            if len(_info) >= self.dapi_channel_index+1 and _info[self.dapi_channel_index] == 'DAPI':
+                _dapi_fd = [_full_fd for _full_fd in _folders if os.path.basename(_full_fd) == _fd]
+                if len(_dapi_fd) == 1:
+                    if _verbose:
+                        print(f"++ choose dapi images from folder: {_dapi_fd[0]}.")
+                    _dapi_fd = _dapi_fd[0]
+                    _select_dapi = True  # successfully selected dapi
+        if not _select_dapi:
+            raise ValueError(
+                "No DAPI folder detected in annotated_folders, stop!")
         # load segmentation for this fov
         _args = []
         for _fov_id in _fov_ids:
             if _verbose:
                 print("+ Load segmentation for fov", _fov_id)
             # do segmentation if necessary, or just load existing segmentation file
-            _fov_segmentation_label, _fov_dapi_im  = analysis.Segmentation_Fov(self.analysis_folder,
-                                                    _folders, self.fovs, int(_fov_id), _segmentation_type,
-                                                    num_channel=len(self.channels),
-                                                    dapi_channel=self.dapi_channel_index,
-                                                    illumination_corr=True,
-                                                    correction_folder=self.correction_folder,
-                                                    segmentation_path=os.path.basename(self.segmentation_folder),
-                                                    save=True, force=False, verbose=_verbose)
+            _fov_segmentation_labels, _fov_dapi_ims  = visual_tools.DAPI_convoluted_segmentation(
+                os.path.join(_dapi_fd, self.fovs[_fov_id]), self.channels[self.dapi_channel_index],
+                make_plot=_plot_segmentation, return_images=True,
+                save=_save, save_npy=True, save_folder=self.segmentation_folder, force=False,verbose=_verbose)
+            _fov_segmentation_label, _fov_dapi_im = _fov_segmentation_labels[0], _fov_dapi_ims[0]
             if _plot_segmentation:
                 plt.figure()
                 plt.imshow(_fov_segmentation_label)
+                plt.colorbar()
+                plt.title(f"Segmentation result for fov:{_fov_id}")
                 plt.show()
             # check whether can directly load drift
             _direct_load_drift = False
@@ -495,7 +526,7 @@ class Cell_List():
                       'distance_zxy' : self.distance_zxy,
                       'sigma_zxy': self.sigma_zxy,
                       } for _cell_id in _cell_ids]
-            _args += [(_p, True, True, _segmentation_type, _direct_load_drift, _drift_size, _drift_ref, 
+            _args += [(_p, True, True, _direct_load_drift, _drift_size, _drift_ref, 
                        _drift_postfix, _dynamic, True, False, False, _verbose) for _p in _params]
             del(_fov_segmentation_label, _fov_dapi_im, _params, _cell_ids)
         # do multi-processing to create cells!
@@ -1075,7 +1106,7 @@ class Cell_Data():
             denoise_window=_denoise_window, shrink_percent=_shrink_percent,
             max_conv_th=_max_conv_th, min_boundary_th=_min_boundary_th,
             make_plot=False, return_images=True, 
-            save=_save, save_folder=self.segmentation_folder, force=_force,
+            save=_save, save_npy=True, save_folder=self.segmentation_folder, force=_force,
             verbose=_verbose
         )
         fov_segmentation_label = _segmentation_labels[0]
