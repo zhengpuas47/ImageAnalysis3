@@ -1176,7 +1176,7 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405, cap_percenti
       max_cell_size=40000, min_cell_size=5000, min_shape_ratio=0.035,
       max_iter=4, shrink_percent=15,
       dialation_dim=4, random_walker_beta=0.1, remove_fov_boundary=50,
-      save=True, save_folder=None, force=False, save_npy=True,
+      save=True, save_folder=None, force=False, save_npy=True, save_postfix="_segmentation",
       make_plot=False, return_images=False, verbose=True):
     """cell segmentation for DAPI images with pooling and convolution layers
     Inputs:
@@ -1219,12 +1219,17 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405, cap_percenti
     if not os.path.exists(save_folder): # create folder if not exists
         os.makedirs(save_folder)
     if save_npy:
-        save_filenames = [os.path.join(save_folder, os.path.basename(_fl).replace('.dax', '_segmentation.npy')) for _fl in filenames]    
+        save_filenames = [os.path.join(save_folder, os.path.basename(_fl).replace('.dax', save_postfix +'.npy')) for _fl in filenames]    
     else:
-        save_filenames = [os.path.join(save_folder, os.path.basename(_fl).replace('.dax', '_segmentation.pkl')) for _fl in filenames]    
+        save_filenames = [os.path.join(save_folder, os.path.basename(_fl).replace('.dax', save_postfix +'.pkl')) for _fl in filenames]
     # decide if directly load
     _direct_load_flags = [True for _fl in save_filenames if os.path.exists(_fl) and not force]
     if len(_direct_load_flags) == len(filenames) and not force:
+        if verbose:
+            if len(filenames) == 1:
+                print(f"-- directly load segmentation result from:{save_filenames[0]}")
+            else:
+                print(f"-- directly load segmentation result from folder:{save_folder}, load_npy:{save_npy}")
         # load segmentation labels
         if save_npy:
             _seg_labels = [np.load(_fl) for _fl in save_filenames]
@@ -1343,9 +1348,9 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405, cap_percenti
                      erosion_dim=2, dialation_dim=dialation_dim):
         """Function to split suspicious labels and validate"""
         if shrink_percent > 50 or shrink_percent < 0:
-            raise ValueError(f"Wrong shrink_percent kwd ({shrink_percent}) is given, should be in [0,50]");
+            raise ValueError(f"Wrong shrink_percent kwd ({shrink_percent}) is given, should be in [0,50]")
         # get features
-        _length,_size,_center,_ratio = _get_label_features(_label, _id);
+        _length,_size,_center,_ratio = _get_label_features(_label, _id)
         if _size < 2*min_size: # adjust shrink percentage if shape is small
             shrink_percent = shrink_percent * 0.8
         _mask = np.array(_label == _id, dtype=np.int)
@@ -1356,8 +1361,8 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405, cap_percenti
         _new_label, _num = _label_binary_im(_mask, 3)
         for _l in range(_num):
             _single_label = np.array(_new_label==_l+1, dtype=np.int)
-            _single_label = ndimage.binary_dilation(_single_label, structure=morphology.disk(int(dialation_dim/2)));
-            _new_label[_single_label>0] = _l+1;
+            _single_label = ndimage.binary_dilation(_single_label, structure=morphology.disk(int(dialation_dim/2)))
+            _new_label[_single_label>0] = _l+1
         return _new_label, _num
 
     def _iterative_split_labels(_stack_im, _conv_im, _label, max_iter=3,
@@ -1371,8 +1376,8 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405, cap_percenti
         _final_label = np.zeros(np.shape(_label), dtype=np.int)
         # start selecting labels
         while(len(_single_labels)) > 0:
-            _sg_label = _single_labels.pop(0);
-            _iter_ct = _iter_counts.pop(0);
+            _sg_label = _single_labels.pop(0)
+            _iter_ct = _iter_counts.pop(0)
             if verbose:
                 print(f"- Remaining labels:{len(_single_labels)}, iter_num:{_iter_ct}")
             # if this cell passes the filter
