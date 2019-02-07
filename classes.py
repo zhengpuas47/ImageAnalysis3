@@ -437,9 +437,7 @@ class Cell_List():
 
         #return _new_seg_labels, _dapi_ims, _remove_cts, _append_cts
         return _new_seg_labels, _remove_cts, _append_cts
-    ## Load drift info
-    def _load_drift_fov(self):
-        pass
+
 
     def _create_cell(self, _parameter, _load_info=True,
                      _load_segmentation=True, _load_drift=True, _drift_size=300, _drift_ref=0, 
@@ -455,8 +453,8 @@ class Cell_List():
         # load segmentation
         if _load_segmentation and not hasattr(_cell, 'segmentation_label'):
             _cell._load_segmentation()
-        # load drift 
-        if _load_drift and not hasattr(_cell, 'drift'):
+        # load drift  v
+        if _load_drift and not _cell._check_drift(_verbose=False):
             _cell._load_drift(_num_threads=self.num_threads, _size=_drift_size, _ref_id=_drift_ref, _drift_postfix=_drift_postfix,
                                _dynamic=_dynamic, _force=False, _verbose=_verbose)
         # load cell_info
@@ -533,6 +531,14 @@ class Cell_List():
                         if os.path.join(os.path.basename(_fd),self.fovs[_fov_id]) in _drift]
                 if len(_exist) == len(self.annotated_folders):
                     _direct_load_drift = True
+            if not _direct_load_drift:
+                if _verbose:
+                    print(f"+ Generate drift correction profile for fov:{self.fovs[_fov_id]}")
+                _drift, _failed_count = corrections.Calculate_Bead_Drift(_folders, self.fovs, _fov_id, 
+                                            self.bead_channel_index, num_threads=_num_threads,
+                                            sequential_mode=_sequential_mode, ref_id=_drift_ref, drift_size=_drift_size,
+                                            save_postfix=_drift_postfix, overwrite=_force_drift, verbose=_verbose)
+
             # create cells in parallel
             _cell_ids = np.array(np.unique(_fov_segmentation_label[_fov_segmentation_label>0])-1, dtype=np.int)
             if _verbose:
@@ -558,7 +564,7 @@ class Cell_List():
                       'distance_zxy' : self.distance_zxy,
                       'sigma_zxy': self.sigma_zxy,
                       } for _cell_id in _cell_ids]
-            _args += [(_p, True, True, _direct_load_drift, _drift_size, _drift_ref, 
+            _args += [(_p, True, True, True, _drift_size, _drift_ref, 
                        _drift_postfix, _dynamic, True, False, False, _verbose) for _p in _params]
             del(_fov_segmentation_label, _fov_dapi_im, _params, _cell_ids)
         
@@ -1161,6 +1167,28 @@ class Cell_Data():
                 self.dapi_im = _dapi_im
 
         return _seg_label, _dapi_im
+    
+    ## check drift info
+    def _check_drift(self, _verbose=False):
+        """Check whether drift exists and whether all keys required for images exists"""
+        if not hasattr(self, 'drift'):
+            if _verbose:
+                print("-- No drift attribute detected")
+            return False
+        else:
+            # load color_dic as a reference
+            if not hasattr(self, 'color_dic'):
+                self._load_color_info()
+            # check every folder in color_dic whether exists in drift
+            for _hyb_fd, _info in self.color_dic.items():
+                _drift_query = os.path.join(_hyb_fd, self.fovs[self.fov_id])
+                if _drift_query not in self.drift:
+                    if _verbose:
+                        print(f"-- drift info for {_drift_query} was not found")
+                    return False
+        # if everything is fine return True
+        return True
+
     ## Load drift (better load, although de novo drift is allowed)
     def _load_drift(self, _sequential_mode=True, _load_annotated_only=True, 
                     _size=300, _ref_id=0, _drift_postfix='_current_cor.pkl', _num_threads=12,
@@ -1168,57 +1196,60 @@ class Cell_Data():
         # num-threads
         if hasattr(self, 'num_threads'):
             _num_threads = min(_num_threads, self.num_threads)
-        # if drift exists:
-        if hasattr(self, 'drift') and not _force:
+        # if drift meets requirements:
+        if self._check_drift(_verbose=False) and not _force:
             if _verbose:
                 print(f"- drift already exists for cell:{self.cell_id}, skip")
             return getattr(self,'drift')
-        # load color usage if not given
-        if not hasattr(self, 'channels'):
-            self._load_color_info()
-        # check whether load annotated only
-        if _load_annotated_only:
-            _folders = self.annotated_folders
         else:
-            _folders = self.folders
-        # load existing drift file 
-        _drift_filename = os.path.join(self.drift_folder, self.fovs[self.fov_id].replace('.dax', _drift_postfix))
-        _sequential_drift_filename = os.path.join(self.drift_folder, self.fovs[self.fov_id].replace('.dax', '_sequential'+_drift_postfix))
-        # check drift filename and sequential file name:
-        # whether with sequential mode determines the order to load files
-        if _sequential_mode:
-            _check_dft_files = [_sequential_drift_filename, _drift_filename]
-        else:
-            _check_dft_files = [_drift_filename, _sequential_drift_filename]
-        for _dft_filename in _check_dft_files:
-            # check one drift file
-            if os.path.isfile(_dft_filename):
-                _drift = pickle.load(open(_dft_filename, 'rb'))
-                _exist = [os.path.join(os.path.basename(_fd),self.fovs[self.fov_id]) for _fd in _folders \
-                        if os.path.join(os.path.basename(_fd),self.fovs[self.fov_id]) in _drift]
-                if len(_exist) == len(_folders):
-                    if _verbose:
-                        print("- directly load drift from file.")
-                    self.drift = _drift
-                    return self.drift
-        # if non-of existing files fulfills requirements, initialize
-        if _verbose:
-            print("- start a new drift correction!")
-        _drift = {}
+            # load color usage if not given
+            if not hasattr(self, 'channels'):
+                self._load_color_info()
+            # check whether load annotated only
+            if _load_annotated_only:
+                _folders = self.annotated_folders
+            else:
+                _folders = self.folders
+            # load existing drift file 
+            _drift_filename = os.path.join(self.drift_folder, self.fovs[self.fov_id].replace('.dax', _drift_postfix))
+            _sequential_drift_filename = os.path.join(self.drift_folder, self.fovs[self.fov_id].replace('.dax', '_sequential'+_drift_postfix))
+            # check drift filename and sequential file name:
+            # whether with sequential mode determines the order to load files
+            if _sequential_mode:
+                _check_dft_files = [_sequential_drift_filename, _drift_filename]
+            else:
+                _check_dft_files = [_drift_filename, _sequential_drift_filename]
+            for _dft_filename in _check_dft_files:
+                # check one drift file
+                if os.path.isfile(_dft_filename):
+                    _drift = pickle.load(open(_dft_filename, 'rb'))
+                    _exist = [os.path.join(os.path.basename(_fd),self.fovs[self.fov_id]) for _fd in _folders \
+                            if os.path.join(os.path.basename(_fd),self.fovs[self.fov_id]) in _drift]
+                    if len(_exist) == len(_folders):
+                        if _verbose:
+                            print(f"- directly load drift from file:{_dft_filename}")
+                        self.drift = _drift
+                        return self.drift
+            # if non-of existing files fulfills requirements, initialize
+            if _verbose:
+                print("- start a new drift correction!")
 
-        
-        ## proceed to amend drift correction
-        _drift, _failed_count = corrections.Calculate_Bead_Drift(_folders, self.fovs, self.fov_id, 
-                                    self.bead_channel_index, num_threads=_num_threads,
-                                    sequential_mode=_sequential_mode, ref_id=0, drift_size=_size,
-                                    save_postfix=_drift_postfix, overwrite=_force, verbose=_verbose)
-        if _verbose:
-            print(f"- drift correction for {len(_drift)} frames has been generated.")
-        if len(_drift) == len(_folders):
-            self.drift = _drift
-            return self.drift
-        else:
-            raise ValueError("length of _drift doesn't match _folders!")
+            ## proceed to amend drift correction
+            _drift, _failed_count = corrections.Calculate_Bead_Drift(_folders, self.fovs, self.fov_id, 
+                                        self.bead_channel_index, num_threads=_num_threads,
+                                        sequential_mode=_sequential_mode, ref_id=0, drift_size=_size,
+                                        save_postfix=_drift_postfix, overwrite=_force, verbose=_verbose)
+            if _verbose:
+                print(f"- drift correction for {len(_drift)} frames has been generated.")
+            _exist = [os.path.join(os.path.basename(_fd),self.fovs[self.fov_id]) for _fd in _folders \
+                if os.path.join(os.path.basename(_fd),self.fovs[self.fov_id]) in _drift]
+            print(_drift)
+
+            if len(_exist) == len(_folders):
+                self.drift = _drift
+                return self.drift
+            else:
+                raise ValueError("length of _drift doesn't match _folders!")
    
     ## NEW Correct images and generated temp files or directly load in ram
     def _generate_corrected_images(self, _type, _splitted_ims=None, _selected_dic=None, _num_threads=12, 
