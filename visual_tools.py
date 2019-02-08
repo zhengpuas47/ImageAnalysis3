@@ -11,7 +11,7 @@ from skimage import morphology, restoration, measure
 from skimage.segmentation import random_walker
 from scipy.ndimage import gaussian_laplace
 
-from . import get_img_info, corrections, visual_tools, analysis, classes
+from . import get_img_info, corrections, visual_tools, aligment_tools, analysis, classes
 from . import _correction_folder,_temp_folder,_distance_zxy,_sigma_zxy,_image_size, _allowed_colors
 
 

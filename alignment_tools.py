@@ -8,7 +8,7 @@ import pickle as pickle
 import multiprocessing as mp
 import psutil
 
-from . import get_img_info, corrections, visual_tools, analysis
+from . import get_img_info, corrections, visual_tools, analysis, classes
 from . import _correction_folder, _temp_folder, _distance_zxy, _sigma_zxy, _image_size
 from .External import Fitting_v3
 from scipy import ndimage, stats

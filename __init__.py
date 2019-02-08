@@ -17,14 +17,15 @@ _allowed_colors = ['750', '647', '561', '488', '405']
 from . import analysis
 # everything about gaussian fitting, imshow3d
 from . import visual_tools
+# everything about aligments
+from . import alignment_tools
 # functions to get hybe, folders
 from . import get_img_info
 # Drift and illumination correction
 from . import corrections
 # Defined class
 from . import classes
-# depriciated functions:
-#from . import fitting
+
 
 ## import exteral functions
 from .External import Fitting_v3
