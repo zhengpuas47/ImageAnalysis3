@@ -290,7 +290,7 @@ class Cell_List():
                           }
             self.cell_coord_dic = copy.deepcopy(_cell_coord_dic)
             # use visual tools to pick
-            _cell_coord_savefile = self.save_folder + os.sep + _cell_coord_fl
+            _cell_coord_savefile = self.segmentation_folder + os.sep + _cell_coord_fl
 
             _cell_viewer = visual_tools.imshow_mark_3d_v2(_dapi_ims, image_names=self.chosen_fovs,
                                                           save_file=_cell_coord_savefile,
