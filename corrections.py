@@ -1,4 +1,4 @@
-from . import get_img_info, visual_tools, aligment_tools, analysis, classes
+from . import get_img_info, visual_tools, alignment_tools, analysis, classes
 from . import _correction_folder,_temp_folder,_distance_zxy,_sigma_zxy,_image_size,_allowed_colors
 from .External import Fitting_v3
 import numpy as np
