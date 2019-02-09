@@ -1910,9 +1910,9 @@ def fit_multi_gaussian(im, seeds, width_zxy = [1.5, 2, 2], fit_radius=5,
             n_iter+=1
             if n_iter>n_max_iter:
                 break
-        _kept_fits = ps_2;
+        _kept_fits = ps_2
         if len(_kept_fits) > 1:
-            _intensity_order = np.argsort(_kept_fits[:,0]);
+            _intensity_order = np.argsort(_kept_fits[:,0])
             _kept_fits = _kept_fits[np.flipud(_intensity_order),:]
         if len(_kept_fits) > 0 and sum([_ft[0]>min_height for _ft in _kept_fits]) > 0:
             _kept_fits = np.array([_ft for _ft in _kept_fits if _ft[0]>min_height])
@@ -1927,7 +1927,8 @@ def fit_multi_gaussian(im, seeds, width_zxy = [1.5, 2, 2], fit_radius=5,
         return np.array([])
 
 
-def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0, npy_start=64, verbose=False):
+def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0, 
+                npy_start=128, image_dtype=np.uint16, verbose=False):
     """
     Slice image in a memory-efficient manner.
     Inputs:
@@ -1963,36 +1964,93 @@ def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0, npy_start=64,
     dz = int((maxz-minz)/zstep)
     dx = int(maxx-minx)
     dy = int(maxy-miny)
+    # acquire element size
+    element_size = np.dtype(image_dtype).itemsize
+
     if dx <= 0 or dy <= 0 or dz <= 0:
         print("-- slicing result is empty.")
         return np.array([])
     # initialize
-    data = np.zeros([dz, dx, dy], dtype=np.uint16)
+    data = np.zeros([dz, dx, dy], dtype=image_dtype)
     # file handle
     f = open(fl, "rb")
     # starting point
     if fl.split('.')[-1] == 'npy':
         if verbose:
             print(f"- slicing .npy file, start with {npy_start}")
-        pt_pos = npy_start
+        pt_pos = np.int(npy_start / element_size)
     else:
         pt_pos = 0
     # start slicing
     _start_layer = minz + (zstart+1+minz) % zstep
-    if (zstart+1+minz) % zstep == 0:
+    if (zstart+1+minz) % zstep == 0 and fl.split('.')[-1] == 'dax': # this gaurentees that frame 10 is not included
         _start_layer += zstep
     pt_pos += sx*sy*_start_layer + minx*sy + miny
     # loop through dim1 and dim2
     for iz in range(dz):
         for ix in range(dx):
-            f.seek(pt_pos * 2, 0)
-            data[iz, ix, :] = np.fromfile(f, dtype=np.uint16, count=dy)
+            f.seek(pt_pos * element_size, 0)
+            data[iz, ix, :] = np.fromfile(f, dtype=image_dtype, count=dy)
             pt_pos += sy
         # finish one layer of z, some extra pt moving:
         pt_pos += (sx-dx) * sy + (zstep-1)*sx*sy
     # close and return
     f.close()
     return data
+
+
+def slice_2d_image(fl, im_shape, xlims, ylims, npy_start=128, image_dtype=np.uint16, verbose=False):
+    """Function to slice 2d image directly by avoiding loading in RAM
+    Inputs:
+        fl: filename of 2d image, string
+        im_shape: shape of 2d image, list of 2 or array of 2
+        xlims: slice limits along x-axis, list of 2 or array of 2
+        ylims: slice limits along y-axis, list of 2 or array of 2
+        npy_start: number of bytes for prefix for npy filetype (may vary across systems), int (default: 128)
+        image_dtype: data_type for this image, datatype from numpy (default: np.uint16)
+        verbose: say something! bool (default: False)
+    Outputs:
+        data: sliced 2d image
+    """
+    # check input filename
+    if not isinstance(fl, str):
+        raise ValueError(
+            f"Wrong input for fl:{fl}, a string of filename is expected!")
+    elif not os.path.isfile(fl):
+        raise IOError(f"Wrong input for fl:{fl}, input file not exists!")
+    else:
+        _file_postfix = fl.split('.')[-1]
+        if _file_postfix != 'dax' and _file_postfix != 'npy':
+            raise IOError("Wrong fl filetype, should be dax or npy!")
+    # acquire sizes
+    sx, sy = im_shape[:2]
+    # acquire limits
+    minx, maxx = np.sort(xlims)[:2]
+    miny, maxy = np.sort(ylims)[:2]
+    ## start acquiring image
+    # initialize data
+    data = np.zeros([maxx-minx, maxy-miny], dtype=image_dtype)
+    element_size = np.dtype(image_dtype).itemsize
+    # open handle
+    f = open(fl, 'rb')
+    if _file_postfix == 'npy':
+        pt_pos = np.int(npy_start/element_size)
+    else:
+        pt_pos = 0
+    if verbose:
+        print(
+            f"- start slicing filetype {_file_postfix}, start with {pt_pos*element_size}, element_size:{element_size}")
+    # skip lines before min_x
+    pt_pos += minx * sy + miny
+    # start acquiring images
+    for ix in range(maxx-minx):
+        f.seek(pt_pos * element_size, 0)
+        data[ix, :] = np.fromfile(f, dtype=image_dtype, count=(maxy-miny))
+        pt_pos += sy
+    # close file handle
+    f.close()
+    return data
+
 
 # specific functions to crop images
 def crop_single_image(filename, channel, all_channels=_allowed_colors, channel_id=None, seg_label=None, drift=np.array([0, 0, 0]),
