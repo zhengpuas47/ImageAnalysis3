@@ -1520,19 +1520,19 @@ def correct_single_image(filename, channel, seg_label=None, drift=np.array([0, 0
 
     ## corrections
     _corr_im = _cropped_im.copy()
-    start = time.time()
+    #start = time.time()
     if z_shift_corr:
         # correct for z axis shift
         _corr_im = Z_Shift_Correction(_corr_im, verbose=verbose)
-        mid = time.time()
-        print(mid-start)
-        start = mid
+        #mid = time.time()
+        #print(mid-start)
+        #start = mid
     if hot_pixel_remove:
         # correct for hot pixels
         _corr_im = Remove_Hot_Pixels(_corr_im, verbose=verbose)
-        mid = time.time()
-        print(mid-start)
-        start = mid
+        #mid = time.time()
+        #print(mid-start)
+        #start = mid
     if illumination_corr:
         # illumination correction
         _corr_im = Illumination_correction(_corr_im, channel,
@@ -1540,9 +1540,9 @@ def correct_single_image(filename, channel, seg_label=None, drift=np.array([0, 0
                                            correction_folder=correction_folder,
                                            single_im_size=single_im_size,
                                            verbose=verbose)
-        mid = time.time()
-        print(mid-start)
-        start = mid
+        #mid = time.time()
+        #print(mid-start)
+        #start = mid
     if chromatic_corr:
         # chromatic correction
         _corr_im = Chromatic_abbrevation_correction(_corr_im, channel,
@@ -1550,9 +1550,9 @@ def correct_single_image(filename, channel, seg_label=None, drift=np.array([0, 0
                                                     crop_limits=_limits[1:],
                                                     correction_folder=correction_folder,
                                                     verbose=verbose)
-        mid = time.time()
-        print(mid-start)
-        start = mid
+        #mid = time.time()
+        #print(mid-start)
+        #start = mid
     ## return
     if return_limits:
         return _corr_im, _limits
