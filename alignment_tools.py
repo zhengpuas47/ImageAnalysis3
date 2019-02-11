@@ -149,9 +149,9 @@ def fft3d_from2d(im1, im2, gb=5, max_disp=150):
     Before applying fftalignment we normalize the images using blurnorm2d for stability."""
     im1_ = blurnorm2d(np.max(im1, 0), gb)
     im2_ = blurnorm2d(np.max(im2, 0), gb)
-    tx, ty = fftalign_2d(im1_, im2_, center=[
-                         0, 0], max_disp=max_disp, plt_val=False)
+    tx, ty = fftalign_2d(im1_, im2_, center=[0, 0], max_disp=max_disp, plt_val=False)
     sx, sy = im1_.shape
+
     im1_t = blurnorm2d(
         np.max(im1[:, max(tx, 0):sx+tx, max(ty, 0):sy+ty], axis=-1), gb)
     im2_t = blurnorm2d(

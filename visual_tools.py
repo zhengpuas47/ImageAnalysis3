@@ -10,6 +10,7 @@ from scipy import ndimage, stats
 from skimage import morphology, restoration, measure
 from skimage.segmentation import random_walker
 from scipy.ndimage import gaussian_laplace
+import cv2
 
 from . import get_img_info, corrections, visual_tools, alignment_tools, analysis, classes
 from . import _correction_folder,_temp_folder,_distance_zxy,_sigma_zxy,_image_size, _allowed_colors
@@ -1046,7 +1047,7 @@ def DAPI_segmentation(ims, names,
 
     # illumination correction
     if illumination_correction:
-        _ims = [corrections.fast_illumination_correction(_im, illumination_correction_channel, correction_folder=correction_folder,
+        _ims = [corrections.Illumination_correction(_im, illumination_correction_channel, correction_folder=correction_folder,
                                                 verbose=verbose) for _im in _ims]
 
     # rescale image to 0-1 gray scale
@@ -2053,8 +2054,10 @@ def slice_2d_image(fl, im_shape, xlims, ylims, npy_start=128, image_dtype=np.uin
 
 
 # specific functions to crop images
-def crop_single_image(filename, channel, all_channels=_allowed_colors, channel_id=None, seg_label=None, drift=np.array([0, 0, 0]),
-                      single_im_size=_image_size, num_buffer_frames=10, extend_dim=20, return_limits=False):
+def crop_single_image(filename, channel, all_channels=_allowed_colors, 
+                      channel_id=None, seg_label=None, drift=np.array([0, 0, 0]),
+                      single_im_size=_image_size, num_buffer_frames=10, 
+                      extend_dim=20, return_limits=False):
     '''Given a tempfile-name or a image, return a cropped image'''
     ## check inputs
     if not os.path.isfile(filename):
@@ -2204,3 +2207,126 @@ def visualize_fitted_spots(im, centers, radius=10):
             _cs = list(_cim.shape)
             _acim[:_cs[0], :_cs[1], :_cs[2]] += _cim
         return imshow_mark_3d_v2(amended_cropped_ims, image_names=[str(ct) for ct in centers])
+
+
+def Extract_crop_from_segmentation(segmentation_label, extend_dim=20, single_im_size=_image_size):
+    """Function to extract a crop matrix from given segmentation label and extend_dim
+    Inputs:
+        segmentation_label: 2d segmentation label for single cell, 2d-array
+        extend_dim: num of pixels to extend for cropping, int (default: 20)
+        single_im_size: expected image size for one color channel, list/array of 3 (default:[30,2048,2048])
+    Outputs;
+        _limits: 3-by-2 matrix for segmentation crop limits
+        """
+    # convert to local vars
+    _seg_label = np.array(segmentation_label > 0, dtype=np.int)
+    _limits = np.zeros([3, 2], dtype=np.int)
+    _limits[0, 1] = single_im_size[0]
+    # calculate _limits
+    for _dim in range(len(_seg_label.shape)):
+        _1d_label = np.array(np.sum(_seg_label, axis=tuple(i for i in range(len(_seg_label.shape)) if i != _dim)) > 0,
+                             dtype=np.int)
+        _1d_indices = np.where(_1d_label)[0]
+        # update limits
+        _limits[_dim+1, 0] = max(_1d_indices[0]-extend_dim, 0)
+        _limits[_dim+1, 1] = min(
+            _1d_indices[-1]+extend_dim, _seg_label.shape[_dim])
+    return _limits
+
+def translate_segmentation(old_segmentation, old_dapi_im, new_dapi_im, rotation_mat=None, rotation_ref_file=None,
+                           dapi_channel='405', all_channels=_allowed_colors, correction_folder=_correction_folder, 
+                           verbose=True):
+    """Function to translate segmentation to another given both dapi_images 
+    (rotation_matrix may be provided as well)
+    Inputs:
+        old_segmentation: reference segmentation to be translated, filename or 2d-np.array
+        old_dapi_im: DAPI image from original experiment, 3d-array
+        new_dapi_im: DAPI image from new experiment, 3d-array
+        rotation_mat: rotation matrix, adopted from align_manual_points, 2x2 ndarray or None (default by loading from file)
+        dapi_channel: channel used for dapi, int or str (default: '405')
+        all_channels: all allowed channels, list
+        verbose: say something!, bool (default: True)
+    Outputs:
+        _cleaned_rot_seg_label: new segmentation label after rotation/translation/cleanup
+    """
+    from math import pi
+    ## check inputs
+    # old_segmentation
+    if not isinstance(old_segmentation, str) and not isinstance(old_segmentation, np.ndarray) and not isinstance(old_segmentation, np.memmap):
+        raise TypeError(f"Wrong data type for old_segmentation:{type(old_segmentation)}, np.ndarray or np.memmap expected")
+    elif isinstance(old_segmentation, str):
+        if verbose:
+            print(f"-- loading segmentation from file:{old_segmentation}")
+        old_segmentation = np.load(old_segmentation)
+    # old_dapi_im
+    if not isinstance(old_dapi_im, str) and not isinstance(old_dapi_im, np.ndarray) and not isinstance(old_dapi_im, np.memmap):
+        raise TypeError(f"Wrong data type for old_dapi_im:{type(old_dapi_im)}, np.ndarray or np.memmap expected")
+    elif isinstance(old_dapi_im, str):
+        if verbose:
+            print(f"-- loading old_dapi_im from file:{old_dapi_im}")
+        old_dapi_im = corrections.correct_single_image(old_dapi_im, dapi_channel, all_channels=all_channels,
+                                               correction_folder=correction_folder, verbose=verbose) 
+    # new_dapi_im
+    if not isinstance(new_dapi_im, str) and not isinstance(new_dapi_im, np.ndarray) and not isinstance(new_dapi_im, np.memmap):
+        raise TypeError(f"Wrong data type for new_dapi_im:{type(new_dapi_im)}, np.ndarray or np.memmap expected")
+    elif isinstance(new_dapi_im, str):
+        if verbose:
+            print(f"-- loading new_dapi_im from file:{new_dapi_im}")
+        new_dapi_im = corrections.correct_single_image(new_dapi_im, dapi_channel, all_channels=all_channels,
+                                               correction_folder=correction_folder, verbose=verbose) 
+    # check dimension of rotation_matrix
+    if rotation_mat is not None:
+        if len(rotation_mat.shape) != 2:
+            raise ValueError(f"rotation_mat should be 2d array!")
+        d1,d2 = np.shape(rotation_mat)
+        if d1 != 2 or d2 != 2:
+            raise ValueError(f"Wrong dimension for rotation_mat:{rotation_mat.shape}, should be 2x2 array!")
+    elif rotation_ref_file is None:
+        raise ValueError(f"rotation_mat and rotation_ref_file should at least have one given!")
+    else:
+        if os.path.isfile(rotation_ref_file):
+            rotation_mat = np.load(rotation_ref_file)
+        else:
+            raise IOError(f"File:{rotation_ref_file} for rotation reference doesnot exist, exit.")
+    # dapi channel should be in all channels
+    if dapi_channel not in all_channels:
+        raise ValueError(f"dapi_channel:{dapi_channel} is not in all_channels:{all_channels}")
+    
+    ## 1. calculate translational drift
+    if verbose:
+        print(f"-- start calculating drift between DAPI images")
+    # get dimensions
+    _dz,_dx,_dy = np.shape(old_dapi_im)
+    # calculate cv2 rotation inputs from given rotation_mat
+    _rotation_angle = np.arcsin(rotation_mat[0,1])/pi*180
+    _rotation_M = cv2.getRotationMatrix2D((_dx/2, _dy/2), _rotation_angle, 1) # cv2 input rotation_M
+    # generated rotated image by rotation at the x-y center
+    _rot_new_im = np.array([cv2.warpAffine(_lyr, _rotation_M, _lyr.shape, borderMode=cv2.BORDER_DEFAULT) for _lyr in new_dapi_im], dtype=np.uint16)
+    # calculate drift by FFT
+    _drift = alignment_tools.fft3d_from2d(old_dapi_im, _rot_new_im)
+    if verbose:
+        print(f"--- drift between DAPI images:{_drift}")
+    ## 2. rotate segmentation
+    print(f"-- start generating translated segmentation labels")
+    # define mat to translate old mat into new ones
+    _rot_old_M = cv2.getRotationMatrix2D((_dx/2, _dy/2), -_rotation_angle, 1)
+    _rot_old_M[:,2] -= np.flipud(_drift[-2:])
+    # rotate old image
+    #_rot_old_im = np.array([cv2.warpAffine(_lyr, _rot_old_M, _lyr.shape, borderMode=cv2.BORDER_DEFAULT) for _lyr in old_dapi_im], dtype=np.uint16)
+    # rotate segmentation
+    _rot_seg_label = np.array(cv2.warpAffine(old_segmentation.astype(np.float), 
+                                             _rot_old_M, old_segmentation.shape, 
+                                             borderMode=cv2.BORDER_WRAP), dtype=np.int)
+    
+    ## 3. generate cleaned_segmentation_label
+    _cleaned_rot_seg_label = -1 * np.ones(np.shape(_rot_seg_label))
+    for _i in range(np.max(_rot_seg_label)):
+        # extract cell_label
+        _cell_label = np.array(_rot_seg_label==_i+1)
+        # clean up cell label
+        _cell_label = ndimage.binary_erosion(_cell_label, structure=morphology.disk(1))
+        _cell_label = ndimage.binary_dilation(_cell_label, structure=morphology.disk(1))
+        # save to cleaned labels
+        _cleaned_rot_seg_label[_cell_label] = _i+1
+    
+    return _cleaned_rot_seg_label

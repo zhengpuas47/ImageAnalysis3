@@ -9,6 +9,7 @@ import pickle
 from IPython.display import clear_output
 import multiprocessing
 import psutil
+import cv2
 # reload
 from importlib import reload
 # add Document to path
