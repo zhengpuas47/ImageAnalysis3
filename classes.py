@@ -1719,7 +1719,7 @@ class Cell_Data():
             # save file full name
             _savefile = _save_folder + os.sep + 'cell_info.pkl'
             if _verbose:
-                print("- Save cell_info to:", _savefile)
+                print("- saving cell_info to:", _savefile)
             if os.path.isfile(_savefile) and not _overwrite:
                 if _verbose:
                     print("-- loading existing info from file:", _savefile)
@@ -1823,7 +1823,7 @@ class Cell_Data():
             }
             # save
             if _verbose:
-                print("-- saving unique to:", _unique_savefile)
+                print("- saving unique to:", _unique_savefile)
             np.savez_compressed(_unique_savefile, **_unique_dic)
 
     def _load_from_file(self, _type='all', _save_folder=None, _decoded_flag=None, _load_attrs=[],

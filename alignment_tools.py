@@ -88,6 +88,31 @@ def align_manual_points(pos_file_before, pos_file_after,
             print(f'-- translation matrix saved to file:{translation_name}')
     return R, t
 
+## Translate images given drift
+
+
+def fast_translate(im, trans):
+	shape_ = im.shape
+	zmax = shape_[0]
+	xmax = shape_[1]
+	ymax = shape_[2]
+	zmin, xmin, ymin = 0, 0, 0
+	trans_ = np.array(np.round(trans), dtype=int)
+	zmin -= trans_[0]
+	zmax -= trans_[0]
+	xmin -= trans_[1]
+	xmax -= trans_[1]
+	ymin -= trans_[2]
+	ymax -= trans_[2]
+	im_base_0 = np.zeros([zmax-zmin, xmax-xmin, ymax-ymin])
+	im_zmin = min(max(zmin, 0), shape_[0])
+	im_zmax = min(max(zmax, 0), shape_[0])
+	im_xmin = min(max(xmin, 0), shape_[1])
+	im_xmax = min(max(xmax, 0), shape_[1])
+	im_ymin = min(max(ymin, 0), shape_[2])
+	im_ymax = min(max(ymax, 0), shape_[2])
+	im_base_0[(im_zmin-zmin):(im_zmax-zmin), (im_xmin-xmin):(im_xmax-xmin), (im_ymin-ymin):(im_ymax-ymin)] = im[im_zmin:im_zmax, im_xmin:im_xmax, im_ymin:im_ymax]
+	return im_base_0
 
 def translate_points(position_file, rotation=None, translation=None, profile_folder=None, profile_filename='',
                      save=True, save_folder=None, save_filename='', verbose=True):
