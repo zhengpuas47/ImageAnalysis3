@@ -903,7 +903,8 @@ def Chromatic_abbrevation_correction(im, correction_channel, target_channel='647
     # if no correction required, directly return
     if correction_channel == target_channel:
         if verbose:
-            print(f"-- no chromatic abbrevation required for channel:{_color}")
+            print(
+                f"-- no chromatic abbrevation required for channel:{correction_channel}")
         return im
     
     # check correction profile exists:

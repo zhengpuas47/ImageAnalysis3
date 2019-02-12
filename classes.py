@@ -1499,7 +1499,7 @@ class Cell_Data():
             else:
                 _save = True  # not load-in-ram, then save to file
             # save
-            if _save and len(_unique_args) > 0:
+            if _save and len(_unique_ids) > 0:
                 _dc = {'unique_ims': _unique_ims,
                        'unique_ids': _unique_ids,
                        'unique_channels': _unique_channels}
