@@ -293,7 +293,7 @@ class Cell_List():
 
     def _update_cell_segmentations(self, _cell_coord_fl='cell_coords.pkl',
                                   _overwrite_segmentation=True,
-                                  _marker_displace_th = 2700,
+                                  _marker_displace_th = 300,
                                   _append_new=True, _append_radius=100,
                                   _save_npy=True, _save_postfix="_segmentation",
                                   _verbose=True):
@@ -430,7 +430,92 @@ class Cell_List():
         return _new_seg_labels, _remove_cts, _append_cts
 
     ## translate from a previous segmentation
+    def _translate_old_segmentations(self, old_segmentation_folder, old_dapi_folder, rotation_mat,
+                                    _old_correction_folder=_correction_folder,
+                                    _new_correction_folder=_correction_folder,
+                                    _save=True, _save_postfix='_segmentation',
+                                    _save_npy=True, return_all=False, _force=False, _verbose=True):
+        """Function to translate segmenation from a previous experiment 
+        given old_segmentation_folder and rotation matrix"""
+        # decide filetype
+        if _save_npy:
+            _file_postfix = '.npy'
+        else:
+            _file_postfix = '.pkl'
+        if _verbose:
+            print(
+                f"+ Start translating {_file_postfix} segmentation labels from folder:{old_segmentation_folder}")
+        # find old segmentation files
+        if not os.path.isdir(old_segmentation_folder):
+            raise IOError(
+                f"old_segmentation_folder:{old_segmentation_folder} doesn't exist, exit!")
+        old_seg_filenames = glob.glob(os.path.join(
+            old_segmentation_folder, '*' + _file_postfix))
+        # find old_dapi_folder
+        if not os.path.isdir(old_dapi_folder):
+            raise IOError(
+                f"old_dapi_folder:{old_dapi_folder} doesn't exist, exit!")
+        # create new segmentation folder if necessary
+        if not os.path.exists(self.segmentation_folder):
+            os.makedirs(self.segmentation_folder)
+        # find the folder name for dapi
+        _select_dapi = False  # not select dapi fd yet
+        for _fd, _info in self.color_dic.items():
+            if len(_info) >= self.dapi_channel_index+1 and _info[self.dapi_channel_index] == 'DAPI':
+                _dapi_fd = [_full_fd for _full_fd in self.annotated_folders if os.path.basename(
+                    _full_fd) == _fd]
+                if len(_dapi_fd) == 1:
+                    if _verbose:
+                        print(f"-- choose dapi images from folder: {_dapi_fd[0]}.")
+                    _dapi_fd = _dapi_fd[0]
+                    _select_dapi = True  # successfully selected dapi
+        if not _select_dapi:
+            raise ValueError("No DAPI folder detected in annotated_folders, stop!")
 
+        # translate segmentation file
+        _new_labels, _dapi_ims = [], []
+        for _old_fl in old_seg_filenames:
+            _new_fl = os.path.join(self.segmentation_folder,
+                                os.path.basename(_old_fl))
+            # translate new segmentation if it doesn't exists or force to generate new ones
+            if _force or not os.path.exists(_new_fl):
+                if _verbose:
+                    print(f"++ translating segmentation label:{_old_fl}")
+                _dapi_im_name = os.path.basename(_old_fl).replace(
+                    _save_postfix+_file_postfix, '.dax')
+                _new_label, _dapi_im = visual_tools.translate_segmentation(_old_fl,
+                                                                        os.path.join(
+                                                                            old_dapi_folder, _dapi_im_name),
+                                                                        os.path.join(
+                                                                            _dapi_fd, _dapi_im_name),
+                                                                        rotation_mat=rotation_mat,
+                                                                        old_correction_folder=_old_correction_folder,
+                                                                        new_correction_folder=_new_correction_folder,
+                                                                        return_new_dapi=True)
+                if _save:
+                    if _verbose:
+                        print(f"++ saving segmentation result to file:{_new_fl}")
+                    if _save_npy:
+                        np.save(_new_fl.replace('.npy', ''), _new_label)
+                    else:
+                        pickle.dump([_new_label, _dapi_im], open(_new_fl, 'wb'))
+            else:
+                if _verbose:
+                    print(f"++ directly loading segmentation label:{_new_fl}")
+                if _save_npy:
+                    _new_label = np.load(_new_fl)
+                    _dapi_im = corrections.correct_single_image(os.path.join(
+                        _dapi_fd, _dapi_im_name), correction_folder=self.correction_folder)
+                else:
+                    _new_label, _dapi_im = pickle.load(open(_new_fl, 'rb'))
+            # append
+            _new_labels.append(_new_label)
+            _dapi_ims.append(_dapi_im)
+
+        if return_all:
+            return _new_labels, _dapi_ims
+        else:
+            return True
 
     def _create_cell(self, _parameter, _load_info=True,
                      _load_segmentation=True, _load_drift=True, _drift_size=300, _drift_ref=0, 

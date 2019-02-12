@@ -2234,8 +2234,10 @@ def Extract_crop_from_segmentation(segmentation_label, extend_dim=20, single_im_
     return _limits
 
 def translate_segmentation(old_segmentation, old_dapi_im, new_dapi_im, rotation_mat=None, rotation_ref_file=None,
-                           dapi_channel='405', all_channels=_allowed_colors, correction_folder=_correction_folder, 
-                           verbose=True):
+                           dapi_channel='405', all_channels=_allowed_colors, 
+                           old_correction_folder=_correction_folder, 
+                           new_correction_folder=_correction_folder, 
+                           return_new_dapi=False, verbose=True):
     """Function to translate segmentation to another given both dapi_images 
     (rotation_matrix may be provided as well)
     Inputs:
@@ -2245,6 +2247,9 @@ def translate_segmentation(old_segmentation, old_dapi_im, new_dapi_im, rotation_
         rotation_mat: rotation matrix, adopted from align_manual_points, 2x2 ndarray or None (default by loading from file)
         dapi_channel: channel used for dapi, int or str (default: '405')
         all_channels: all allowed channels, list
+        old_correction_folder: correction folder for old dapi
+        new_correction_folder: correction folder for new dapi
+        return_new_dapi: whether return new dapi image as well, bool
         verbose: say something!, bool (default: True)
     Outputs:
         _cleaned_rot_seg_label: new segmentation label after rotation/translation/cleanup
@@ -2265,7 +2270,7 @@ def translate_segmentation(old_segmentation, old_dapi_im, new_dapi_im, rotation_
         if verbose:
             print(f"-- loading old_dapi_im from file:{old_dapi_im}")
         old_dapi_im = corrections.correct_single_image(old_dapi_im, dapi_channel, all_channels=all_channels,
-                                               correction_folder=correction_folder, verbose=verbose) 
+                                               correction_folder=old_correction_folder, verbose=verbose) 
     # new_dapi_im
     if not isinstance(new_dapi_im, str) and not isinstance(new_dapi_im, np.ndarray) and not isinstance(new_dapi_im, np.memmap):
         raise TypeError(f"Wrong data type for new_dapi_im:{type(new_dapi_im)}, np.ndarray or np.memmap expected")
@@ -2273,7 +2278,7 @@ def translate_segmentation(old_segmentation, old_dapi_im, new_dapi_im, rotation_
         if verbose:
             print(f"-- loading new_dapi_im from file:{new_dapi_im}")
         new_dapi_im = corrections.correct_single_image(new_dapi_im, dapi_channel, all_channels=all_channels,
-                                               correction_folder=correction_folder, verbose=verbose) 
+                                               correction_folder=new_correction_folder, verbose=verbose) 
     # check dimension of rotation_matrix
     if rotation_mat is not None:
         if len(rotation_mat.shape) != 2:
@@ -2329,4 +2334,7 @@ def translate_segmentation(old_segmentation, old_dapi_im, new_dapi_im, rotation_
         # save to cleaned labels
         _cleaned_rot_seg_label[_cell_label] = _i+1
     
-    return _cleaned_rot_seg_label
+    if return_new_dapi:
+        return _cleaned_rot_seg_label, new_dapi_im
+    else:
+        return _cleaned_rot_seg_label
