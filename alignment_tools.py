@@ -144,8 +144,6 @@ def align_single_image(_filename, _selected_crops, _ref_filename=None, _ref_ims=
     _drifts = []
     # for each target and reference pair, do alignment:
     for _i, _crop in enumerate(_selected_crops):
-        if _verbose:
-            print("-- loading target image")
         # load target images
         _tar_im = corrections.correct_single_image(_filename, _bead_channel, crop_limits=_crop,
                                                    single_im_size=_single_im_size,
@@ -171,7 +169,7 @@ def align_single_image(_filename, _selected_crops, _ref_filename=None, _ref_ims=
         _tar_center = visual_tools.get_STD_centers(
             _tar_im, seeds=_ref_center+_rough_drift, remove_close_pts=False)
         # compare and get drift
-        _drift = np.nanmedian(_tar_center - _ref_center, axis=0)
+        _drift = np.nanmean(_tar_center - _ref_center, axis=0)
         _drifts.append(_drift)
         # compare difference and exit if two drifts close enough
         if len(_drifts) > 1:

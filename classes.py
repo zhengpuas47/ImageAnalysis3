@@ -1435,8 +1435,7 @@ class Cell_Data():
             if len(_unique_args) > 0:
                 # multi-processing to do cropping
                 if _verbose:
-                    print(f"-- start cropping {_type} for fov:{self.fov_id}, 
-                          cell:{self.cell_id} with {_num_threads} threads")
+                    print(f"-- start cropping {_type} for fov:{self.fov_id}, cell:{self.cell_id} with {_num_threads} threads")
                 with mp.Pool(_num_threads, 
                             maxtasksperchild=int(np.ceil(len(_unique_args)/_num_threads)),
                             ) as _crop_pool:
