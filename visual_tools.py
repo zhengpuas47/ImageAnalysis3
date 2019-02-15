@@ -13,6 +13,7 @@ from scipy.ndimage import gaussian_laplace
 import cv2
 
 from . import get_img_info, corrections, visual_tools, alignment_tools, analysis, classes
+from .External import Fitting_v3
 from . import _correction_folder,_temp_folder,_distance_zxy,_sigma_zxy,_image_size, _allowed_colors
 
 
@@ -218,6 +219,91 @@ def fit_seed_points_base(im, centers, width_z=_sigma_zxy[0], width_xy=_sigma_zxy
     else:
         return np.array([])
 
+
+## Fit bead centers
+def get_STD_centers(im, seeds=None, th_seed=150, dynamic=False, th_seed_percentile=95,
+                    remove_close_pts=True, close_threshold=0.1, fit_radius=5,
+                    sort_by_h=False, save=False, save_folder='', save_name='',
+                    plt_val=False, force=False, verbose=False):
+    '''Fit beads for one image:
+    Inputs:
+        im: image, ndarray
+        th_seeds: threshold for seeding, float (default: 150)
+        dynamic: whether do dynamic seeding, bool (default:True)
+        th_seed_percentile: intensity percentile for seeding, float (default: 95)
+        remove_close_pts: whether remove points really close to each other, bool (default:True)
+        close_threshold: threshold for removing duplicates within a distance, float (default: 0.01)
+        fit_radius
+        sort_by_h: whether sort fitted points by height, bool (default:False)
+        plt_val: whether making plot, bool (default: False)
+        save: whether save fitting result, bool (default: False)
+        save_folder: full path of save folder, str (default: None)
+        save_name: full name of save file, str (default: None)
+        force: whether force fitting despite of saved file, bool (default: False)
+        verbose: say something!, bool (default: False)
+    Outputs:
+        beads: fitted spots with information, n by 4 array'''
+    import os
+    import pickle as pickle
+    if not force and os.path.exists(save_folder+os.sep+save_name) and save_name != '':
+        if verbose:
+            print("- loading file:,", save_folder+os.sep+save_name)
+        beads = pickle.load(open(save_folder+os.sep+save_name, 'rb'))
+        if verbose:
+            print("--", len(beads), " of beads loaded.")
+        return beads
+    else:
+        # seeding
+        if seeds is None:
+            seeds = get_seed_in_distance(im, center=None, dynamic=dynamic,
+                                        th_seed_percentile=th_seed_percentile,
+                                        gfilt_size=0.75, filt_size=3, th_seed=th_seed, hot_pix_th=4)
+        # fitting
+        fitter = Fitting_v3.iter_fit_seed_points(im, seeds.T, radius_fit=5)
+        fitter.firstfit()
+        pfits = fitter.ps
+        #pfits = visual_tools.fit_seed_points_base_fast(im,seeds.T,width_z=1.8*1.5/2,width_xy=1.,radius_fit=5,n_max_iter=3,max_dist_th=0.25,quiet=not verbose)
+        # get coordinates for fitted beads
+        remove = 0
+        if len(pfits) > 0:
+            if sort_by_h:
+                _intensity_order = np.argsort(np.array(pfits)[:,0])
+                beads = np.array(pfits)[np.flipud(_intensity_order), 1:4]
+            else:
+                beads = np.array(pfits)[:, 1:4]
+            # remove very close spots
+            if remove_close_pts:
+                for i, bead in enumerate(beads):
+                    if np.isnan(bead).any() or np.sum(np.sum((beads-bead)**2, axis=1) < close_threshold) > 1:
+                        beads = np.delete(beads, i-remove, 0)
+                        remove += 1
+                    if (bead < 0).any() or (bead > np.array(im.shape)).any():
+                        beads = np.delete(beads, i-remove, 0)
+                        remove += 1
+        else:
+            beads = None
+        if verbose:
+            print(f"- fitting {len(pfits)} points")
+            print(
+                f"-- {remove} points removed given smallest distance {close_threshold}")
+        # make plot if required
+        if plt_val:
+            plt.figure()
+            plt.imshow(np.max(im, 0), interpolation='nearest')
+            plt.plot(beads[:, -1], beads[:, -2], 'or')
+            plt.show()
+        # save to pickle if specified
+        if save:
+            if not os.path.exists(save_folder):
+                os.makedirs(save_folder)
+            if verbose:
+                print("-- saving fitted spots to",
+                      save_folder+os.sep+save_name)
+            pickle.dump(beads[:,-3:], open(save_folder+os.sep+save_name, 'wb'))
+
+        return beads
+
+
 def get_seed_points_base(im, gfilt_size=0.75, background_gfilt_size=10, filt_size=3,
                          th_seed=300, hot_pix_th=0, return_h=False):
     """Base function to do seeding"""
@@ -294,63 +380,6 @@ def fit_seed_points_base_fast(im,centers,width_z=_sigma_zxy[0],width_xy=_sigma_z
     else:
         return np.array([])
 
-def translation_aling_pts(cents_fix,cents_target,cutoff=2.,xyz_res=1,
-                            plt_val=False,return_pts=False, verbose=False):
-    """
-    This checks all pairs of points in cents_target for counterparts of same distance (+/- cutoff) in cents_fix
-    and adds them as posibilities. Then uses multi-dimensional histogram across txyz with resolution xyz_res.
-    Then it finds nearest neighbours and returns the median txyz_b within resolution.
-    """
-    from itertools import combinations
-    from scipy.spatial.distance import pdist
-    from scipy.spatial.distance import cdist
-    cents = np.array(cents_fix)
-    cents_target = np.array(cents_target)
-    dists_target = pdist(cents_target)
-    dists = pdist(cents_fix)
-    all_pairs = np.array(list(combinations(list(range(len(cents))),2)))
-    all_pairs_target = np.array(list(combinations(list(range(len(cents_target))),2)))
-    #inds_all = np.arange(len(dists))
-    txyzs=[]
-    for ind_target in range(len(dists_target)):
-        keep_cands = np.abs(dists-dists_target[ind_target])<cutoff
-        good_pairs = all_pairs[keep_cands][:]
-        p1 = cents[good_pairs[:,0]]
-        p2 = cents[good_pairs[:,1]]
-        p1T = cents_target[all_pairs_target[ind_target,0]]
-        p2T = cents_target[all_pairs_target[ind_target,1]]
-        txyzs.extend(p1[:]-[p1T])
-        txyzs.extend(p1[:]-[p2T])
-    bin_txyz = np.array((np.max(txyzs,axis=0)-np.min(txyzs,axis=0))/float(xyz_res),dtype=int)
-
-    hst_res = np.histogramdd(np.array(txyzs),bins=bin_txyz)
-    ibest = np.unravel_index(np.argmax(hst_res[0]),hst_res[0].shape)
-    txyz_f = [hst[ib]for hst,ib in zip(hst_res[1],ibest)]
-    txyz_f = np.array(txyz_f)
-    inds_closestT = np.argmin(cdist(cents,cents_target + txyz_f),axis=1)
-    inds_closestF=np.arange(len(inds_closestT))
-    keep = np.sqrt(np.sum((cents_target[inds_closestT]+ txyz_f-cents[inds_closestF])**2,axis=-1))<2*xyz_res
-    inds_closestT=inds_closestT[keep]
-    inds_closestF=inds_closestF[keep]
-    # check result target len
-    if len(cents[inds_closestF]) == 0:
-        raise ValueError(f"No matched points exist in cents[inds_closestF]")
-    if len(cents_target[inds_closestT]) == 0:
-        raise ValueError(f"No matched points exist in cents_target[inds_closestT]")
-    txyz_b = np.median(cents_target[inds_closestT]-cents[inds_closestF],axis=0)
-    if plt_val:
-        plt.figure()
-        plt.plot(cents[inds_closestF].T[1],cents[inds_closestF].T[2],'go')
-        plt.plot(cents_target[inds_closestT].T[1]-txyz_b[1],cents_target[inds_closestT].T[2]-txyz_b[2],'ro')
-        plt.figure()
-        dists = np.sqrt(np.sum((cents_target[inds_closestT]-cents[inds_closestF])**2,axis=-1))
-        plt.hist(dists)
-        plt.show()
-    if verbose:
-        print(f"--- {len(cents[inds_closestF])} points are aligned")
-    if return_pts:
-        return txyz_b,cents[inds_closestF],cents_target[inds_closestT]
-    return txyz_b
 
 # fast alignment of fitted items which are bright and sparse (like beads)
 def beads_alignment_fast(beads, ref_beads, unique_cutoff=2., check_outlier=True, outlier_sigma=1., verbose=True):
@@ -1642,9 +1671,9 @@ def crop_cell(im, segmentation_label, drift=None, extend_dim=20, overlap_thresho
 # get limitied points of seed within radius of a center
 def get_seed_in_distance(im, center=None, num_seeds=0, seed_radius=30,
                          gfilt_size=0.75, background_gfilt_size=10, filt_size=3, 
-                         th_seed_percentile=50, th_seed=300,
-                         dynamic=True, dynamic_iters=10, min_dynamic_seeds=1,
-                         hot_pix_th=4, return_h=False):
+                         th_seed_percentile=95, th_seed=300,
+                         dynamic=True, dynamic_iters=10, min_dynamic_seeds=2, 
+                         distance_to_edge=1, hot_pix_th=4, return_h=False):
     '''Get seed points with in a distance to a center coordinate
     Inputs:
         im: image, 3D-array
@@ -1671,7 +1700,8 @@ def get_seed_in_distance(im, center=None, num_seeds=0, seed_radius=30,
     _im = im.copy()
     # seeding threshold
     if dynamic:
-        _th_seed = scoreatpercentile(im-np.min(im), th_seed_percentile)
+        _th_seed = scoreatpercentile(im, th_seed_percentile) - \
+                    scoreatpercentile(im, 0.5)
     else:
         _th_seed = th_seed
     # start seeding 
@@ -1708,13 +1738,15 @@ def get_seed_in_distance(im, center=None, num_seeds=0, seed_radius=30,
                         break
         else:
             # get candidate seeds
-            _cand_seeds = get_seed_points_base(_cim, gfilt_size=gfilt_size, filt_size=filt_size,
-                                               th_seed=th_seed, hot_pix_th=hot_pix_th, return_h=True)
+            _seeds = get_seed_points_base(_cim, gfilt_size=gfilt_size, filt_size=filt_size,
+                                          th_seed=th_seed, hot_pix_th=hot_pix_th, return_h=True)
 
     else:
         # get candidate seeds
         _seeds = get_seed_points_base(_im, gfilt_size=gfilt_size, filt_size=filt_size,
                                       th_seed=_th_seed, hot_pix_th=hot_pix_th, return_h=True)
+    # remove seeds out of boundary
+    #_keep = np.sum(, axis=0)
 
     # if limited seeds reported, report top n
     if _seeds.shape[1] > 1:
@@ -2052,84 +2084,89 @@ def slice_2d_image(fl, im_shape, xlims, ylims, npy_start=128, image_dtype=np.uin
     f.close()
     return data
 
-
-# specific functions to crop images
-def crop_single_image(filename, channel, all_channels=_allowed_colors, 
-                      channel_id=None, seg_label=None, drift=np.array([0, 0, 0]),
-                      single_im_size=_image_size, num_buffer_frames=10, 
-                      extend_dim=20, return_limits=False):
-    '''Given a tempfile-name or a image, return a cropped image'''
-    ## check inputs
+# function to crop one image given filename, color_channel and crop_limits
+def crop_single_image(filename, channel, crop_limits=None, num_buffer_frames=10,
+                      all_channels=_allowed_colors, single_im_size=_image_size,
+                      drift=np.array([0, 0, 0]), return_limits=False, verbose=False):
+    """Function to crop one image given filename, color_channel and crop_limits
+    Inputs:
+        filename: .dax filename for given image, string of filename
+        channel: color_channel for the specific data, int or str
+        crop_limits: 2x2 or 3x2 array specifying where to crop, 
+            np.ndarray (default: None, i.e. the whole image)
+        num_buffer_frame: number of frames before z-scan starts, int (default:10)
+        all_channels: all allowed colors in given data, list (default: _allowed_colors)
+        single_im_size: image size for single color full image, list/array of 3 (default:[30,2048,2048])
+        drift: drift to ref-frame of this image, np.array of 3 (default:[0,0,0])
+        verbose: say something!, bool (default:False)
+    Output:
+        _crp_im: cropped image
+        """
+    ## 0. check inputs
+    # filename
     if not os.path.isfile(filename):
         raise ValueError(f"file {filename} doesn't exist!")
-    if seg_label is not None and np.max(seg_label) > 1:
+    # check input channel
+    channel = str(channel)
+    if channel not in all_channels:
         raise ValueError(
-            "seg_label must be binary label, either 0-1 label or bool")
+            f"Input channel:{channel} is not included in all_channels{all_channels}, exit!")
+    _channel_id = all_channels.index(channel)
     # drift
     drift = np.array(drift)
     if len(drift) != 3:
         raise ValueError("dimension of drift should be 3!")
-    # channel
-    channel = str(channel)
-    all_channels = [str(ch) for ch in all_channels]
-    if channel not in all_channels:
-        raise ValueError(
-            f"Target channel {channel} doesn't exist in all_channels:{all_channels}")
-    if channel_id is None:
-        channel_id = all_channels.index(channel)
+    # crop_limits
+    if crop_limits is None:
+        crop_limits = np.stack([np.zeros(3), single_im_size]).T.astype(np.int)
+    elif len(crop_limits) == 2:
+        crop_limits = np.array(
+            [np.array([0, single_im_size[0]])]+list(crop_limits), dtype=np.int)
+    elif len(crop_limits) == 3:
+        crop_limits = np.array(crop_limits, dtype=np.int)
+    else:
+        raise IndexError(
+            f"Wrong shape for crop_limits:{np.shape(crop_limits)}")
+    # convert negative slices into positives
+    for _lims, _s in zip(crop_limits, single_im_size):
+        if _lims[1] < 0:
+            _lims[1] += _s
+    # convert crop_limits into drift_limits
+    _drift_limits = np.zeros(crop_limits.shape, dtype=np.int)
+    for _i, (_d, _lims) in enumerate(zip(drift, crop_limits)):
+        # expand drift_limits a bit for shifting
+        _drift_limits[_i, 0] = max(_lims[0]-np.ceil(np.abs(_d)), 0)
+        _drift_limits[_i, 1] = min(
+            _lims[1]+np.ceil(np.abs(_d)), single_im_size[_i])
+
+    ## 1. load image
     # extract image info
     _full_im_shape, _num_color = get_img_info.get_num_frame(filename,
                                                             frame_per_color=single_im_size[0],
                                                             buffer_frame=num_buffer_frames)
-    # case 1, no cropping
-    if seg_label is None:
-        _cim = slice_image(filename, _full_im_shape, [num_buffer_frames, _full_im_shape[0]-num_buffer_frames],
-                           [0, _full_im_shape[1]], [0, _full_im_shape[2]], zstep=_num_color, zstart=channel_id)
-        _final_limits = np.array(
-            [np.zeros(len(_full_im_shape)), _full_im_shape]).T
-    else:
-        seg_label = np.array(seg_label > 0, dtype=np.int)
-        # crop from temp-file
-        _limits = np.zeros([3, 2], dtype=np.int)
-        for _dim in range(len(seg_label.shape)):
-            # convert to dimension in image (assume 3D image)
-            _im_dim = _dim-len(seg_label.shape)+3
-            if seg_label.shape[_dim] != single_im_size[_im_dim]:
-                raise ValueError(
-                    "Dimension of image and segmentation label doesn't match!")
-            _1d_label = np.array(np.sum(seg_label, axis=tuple(
-                i for i in range(len(seg_label.shape)) if i != _dim)) > 0, dtype=np.int)
-            _1d_indices = np.where(_1d_label)[0]
-            # update limits
-            _limits[_im_dim, 0] = max(_1d_indices[0]-extend_dim, 0)
-            _limits[_im_dim, 1] = min(
-                _1d_indices[-1]+extend_dim, seg_label.shape[_dim])
-        # primary crop based on drift
-        if _limits[0, 1] == 0:
-            _limits[0, 1] = single_im_size[0]
-        _drift_limits = np.zeros(_limits.shape, dtype=np.int)
-        for _i, _lim in enumerate(_limits):
-            _drift_limits[_i, 0] = max(_lim[0]-np.ceil(np.abs(drift[_i])), 0)
-            _drift_limits[_i, 1] = min(
-                _lim[1]+np.ceil(np.abs(drift[_i])), single_im_size[_i])
-        _cim = slice_image(filename, _full_im_shape, [num_buffer_frames+_drift_limits[0, 0]*_num_color, num_buffer_frames+_drift_limits[0, 1]*_num_color],
-                           _drift_limits[1], _drift_limits[2], zstep=_num_color, zstart=channel_id)
-        _cim = ndimage.interpolation.shift(_cim, -drift, mode='nearest')
-        # second crop
-        _limit_diffs = _limits - _drift_limits
-        for _m in range(len(_limits)):
-            if _limit_diffs[_m, 1] == 0:
-                _limit_diffs[_m, 1] = _limits[_m, 1] - _limits[_m, 0]
-        _limit_diffs = _limit_diffs.astype(np.int)
-        _cim = _cim[_limit_diffs[0, 0]:_limit_diffs[0, 0]+_limits[0, 1]-_limits[0, 0],
-                    _limit_diffs[1, 0]:_limit_diffs[1, 0]+_limits[1, 1]-_limits[1, 0],
-                    _limit_diffs[2, 0]:_limit_diffs[2, 0]+_limits[2, 1]-_limits[2, 0]]
-        _final_limits = np.array([_drift_limits[:, 0]+_limit_diffs[:, 0],
-                                  _drift_limits[:, 0]+_limit_diffs[:, 0]+_limits[:, 1]-_limits[:, 0]]).T
+    _zlims = [num_buffer_frames+_drift_limits[0, 0]*_num_color,
+              num_buffer_frames+_drift_limits[0, 1]*_num_color]
+    # slice image
+    _crp_im = slice_image(filename, _full_im_shape, _zlims, _drift_limits[1],
+                          _drift_limits[2], zstep=_num_color, zstart=_channel_id)
+    # do shift if drift exists
+    if drift.any():
+        _crp_im = ndimage.interpolation.shift(_crp_im, -drift, mode='nearest')
+
+    ## 2. second crop to adjust drift
+    # get differences between two limits
+    _limit_diffs = (crop_limits - _drift_limits).astype(np.int)
+
+    # do second crop
+    _crp_im = _crp_im[_limit_diffs[0, 0]: _limit_diffs[0, 0]+crop_limits[0, 1]-crop_limits[0, 0],
+                      _limit_diffs[1, 0]: _limit_diffs[1, 0]+crop_limits[1, 1]-crop_limits[1, 0],
+                      _limit_diffs[2, 0]: _limit_diffs[2, 0]+crop_limits[2, 1]-crop_limits[2, 0]]
+    _final_limits = np.array([_drift_limits[:, 0]+_limit_diffs[:, 0],
+                              _drift_limits[:, 0]+_limit_diffs[:, 0]+crop_limits[:, 1]-crop_limits[:, 0]]).T
     if return_limits:
-        return _cim, _final_limits
+        return _crp_im, _final_limits
     else:
-        return _cim
+        return _crp_im
 
 
 def crop_combo_group(ims, temp_filenames, seg_label, drift_dic, 

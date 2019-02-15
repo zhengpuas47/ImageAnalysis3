@@ -11,12 +11,16 @@ import multiprocessing as mp
 import psutil
 
 from . import get_img_info, corrections, visual_tools, analysis, classes
-from . import _correction_folder, _temp_folder, _distance_zxy, _sigma_zxy, _image_size
+from . import _correction_folder, _temp_folder, _distance_zxy, _sigma_zxy, _image_size, _allowed_colors
 from .External import Fitting_v3
+
 from scipy import ndimage, stats
 from scipy.spatial.distance import pdist, cdist, squareform
+
 from skimage import morphology
 from skimage.segmentation import random_walker
+
+from itertools import combinations
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -89,6 +93,109 @@ def align_manual_points(pos_file_before, pos_file_after,
     return R, t
 
 ## Translate images given drift
+
+# align single pair of bead images
+def align_single_image(_filename, _selected_crops, _ref_filename=None, _ref_ims=None, _ref_centers=None,
+                        _bead_channel='488', _all_channels=_allowed_colors, _single_im_size=_image_size,
+                        _num_buffer_frames=10, _ref_seed_per=95, _illumination_corr=True,
+                        _correction_folder=_correction_folder, _drift_cutoff=1, _verbose=False):
+    """Function to align single pair of bead images
+    Inputs:
+        _filename: filename for target image containing beads, string of filename
+        _selected_crops: selected crops for choosing beads, list of 3x2 array
+        _ref_filename: filename for reference image, string of filename
+        _ref_ims: cropped reference images as replacement for ref_filename, list of 2d images(arrays)
+        _ref_centers: fitted center coordinates for ref_ims, list of nx3 arrays
+        _bead_channel: channel name for beads, int or str (default:'488')
+        _all_channels: all allowed channels for given images, list of str (default: _allowed_colors)
+        _single_im_size: size for single 3d image, tuple or list of 3, (default: _image_size)
+        _num_buffer_frames: number of buffer frames in zscan, int (default: 10)
+        _ref_seed_per: seeding intensity percentile for ref-ims, float (default: 95)
+        _illumination_corr: whether do illumination correction for cropped images, bool (default: True)
+        _correction_folder: folder for where correction_profile is saved, string of path (default: _correction_folder)
+        _drift_cutoff: cutoff for selecting two drifts and combine, float (default: 1 pixel)
+        _verbose, whether say something!, bool (default: False)
+    Output:
+        _final_drift: 3d drift as target_im - ref_im, array of 3
+    """
+    ## check inputs
+    # check filename file type
+    if '.dax' not in _filename:
+        raise IOError(
+            f"Wrong input file type, {_filename} should be .dax file")
+    # check ref_filename
+    if _ref_filename is not None and '.dax' not in _ref_filename:
+        raise IOError(
+            f"Wrong input reference file type, {_ref_filename} should be .dax file")
+    # check ref_centers, should be given if ref_filename is not given
+    if _ref_centers is None and _ref_filename is None:
+        raise ValueError(f"Either ref_center or ref_filename should be given!")
+    if _ref_ims is None and _ref_filename is None:
+        raise ValueError(f"Either _ref_ims or ref_filename should be given!")
+    # printing info
+    _print_name = os.path.join(_filename.split(os.sep)[-2], _filename.split(os.sep)[-1])
+    if _verbose:
+        if _ref_filename is not None:
+            _ref_print_name = os.path.join(_ref_filename.split(os.sep)[-2], 
+                                           _ref_filename.split(os.sep)[-1])
+            print(f"- Aligning {_print_name} to {_ref_print_name}")
+        else:
+            print(f"- Aligning {_print_name} to reference images and centers")
+    _drifts = []
+    # for each target and reference pair, do alignment:
+    for _i, _crop in enumerate(_selected_crops):
+        if _verbose:
+            print("-- loading target image")
+        # load target images
+        _tar_im = corrections.correct_single_image(_filename, _bead_channel, crop_limits=_crop,
+                                                   single_im_size=_single_im_size,
+                                                   all_channels=_all_channels, num_buffer_frames=_num_buffer_frames,
+                                                   illumination_corr=_illumination_corr)
+        # get reference images
+        if _ref_ims is None:
+            _ref_im = corrections.correct_single_image(_ref_filename, _bead_channel, crop_limits=_crop,
+                                                       single_im_size=_single_im_size,
+                                                       all_channels=_all_channels, num_buffer_frames=_num_buffer_frames,
+                                                       illumination_corr=_illumination_corr)
+        else:
+            _ref_im = _ref_ims[_i].copy()
+        # get ref center
+        if _ref_centers is None:
+            _ref_center = visual_tools.get_STD_centers(
+                _ref_im, dynamic=True, th_seed_percentile=_ref_seed_per, verbose=_verbose)
+        else:
+            _ref_center = np.array(_ref_centers[_i]).copy()
+        # rough align ref_im and target_im
+        _rough_drift = fft3d_from2d(_ref_im, _tar_im)
+        # apply drift to ref_center and used as seed to find target centers
+        _tar_center = visual_tools.get_STD_centers(
+            _tar_im, seeds=_ref_center+_rough_drift, remove_close_pts=False)
+        # compare and get drift
+        _drift = np.nanmedian(_tar_center - _ref_center, axis=0)
+        _drifts.append(_drift)
+        # compare difference and exit if two drifts close enough
+        if len(_drifts) > 1:
+            # calculate pair-wise distance
+            _dists = pdist(_drifts)
+            # check whether any two of drifts are close enough
+            if (_dists < _drift_cutoff).any():
+                _inds = list(combinations(range(len(_drifts)), 2))[
+                    np.argmin(_dists)]
+                _selected_drifts = np.array(_drifts)[_inds, :]
+                _final_drift = np.mean(_selected_drifts, axis=0)
+                return _final_drift, 0
+
+    # if not exit during loops, pick the optimal one
+    if _verbose:
+        print(f"Suspecting failure for {_print_name}")
+    _inds = list(combinations(range(len(_drifts)), 2))[np.argmin(_dists)]
+    _selected_drifts = np.array(_drifts)[_inds, :]
+    if _verbose:
+        print(
+            f"-- selected drifts:{_selected_drifts[0]}, {_selected_drifts[1]}")
+    _final_drift = np.mean(_selected_drifts, axis=0)
+
+    return _final_drift, 1
 
 
 def fast_translate(im, trans):
@@ -185,8 +292,71 @@ def fft3d_from2d(im1, im2, gb=5, max_disp=150):
                         0, 0], max_disp=max_disp, plt_val=False)
     return np.array([tz, tx, ty])
 
+# translation alignment of points 
+def translation_align_pts(cents_fix, cents_target, cutoff=2., xyz_res=1,
+                          plt_val=False, return_pts=False, verbose=False):
+    """
+    This checks all pairs of points in cents_target for counterparts of same distance (+/- cutoff) in cents_fix
+    and adds them as posibilities. Then uses multi-dimensional histogram across txyz with resolution xyz_res.
+    Then it finds nearest neighbours and returns the median txyz_b within resolution.
+    """
+    from itertools import combinations
+    from scipy.spatial.distance import pdist
+    from scipy.spatial.distance import cdist
+    cents = np.array(cents_fix)
+    cents_target = np.array(cents_target)
+    dists_target = pdist(cents_target)
+    dists = pdist(cents_fix)
+    all_pairs = np.array(list(combinations(list(range(len(cents))), 2)))
+    all_pairs_target = np.array(
+        list(combinations(list(range(len(cents_target))), 2)))
+    #inds_all = np.arange(len(dists))
+    txyzs = []
+    for ind_target in range(len(dists_target)):
+        keep_cands = np.abs(dists-dists_target[ind_target]) < cutoff
+        good_pairs = all_pairs[keep_cands][:]
+        p1 = cents[good_pairs[:, 0]]
+        p2 = cents[good_pairs[:, 1]]
+        p1T = cents_target[all_pairs_target[ind_target, 0]]
+        p2T = cents_target[all_pairs_target[ind_target, 1]]
+        txyzs.extend(p1[:]-[p1T])
+        txyzs.extend(p1[:]-[p2T])
+    bin_txyz = np.array(
+        (np.max(txyzs, axis=0)-np.min(txyzs, axis=0))/float(xyz_res), dtype=int)
 
-
+    hst_res = np.histogramdd(np.array(txyzs), bins=bin_txyz)
+    ibest = np.unravel_index(np.argmax(hst_res[0]), hst_res[0].shape)
+    txyz_f = [hst[ib]for hst, ib in zip(hst_res[1], ibest)]
+    txyz_f = np.array(txyz_f)
+    inds_closestT = np.argmin(cdist(cents, cents_target + txyz_f), axis=1)
+    inds_closestF = np.arange(len(inds_closestT))
+    keep = np.sqrt(np.sum(
+        (cents_target[inds_closestT] + txyz_f-cents[inds_closestF])**2, axis=-1)) < 2*xyz_res
+    inds_closestT = inds_closestT[keep]
+    inds_closestF = inds_closestF[keep]
+    # check result target len
+    if len(cents[inds_closestF]) == 0:
+        raise ValueError(f"No matched points exist in cents[inds_closestF]")
+    if len(cents_target[inds_closestT]) == 0:
+        raise ValueError(
+            f"No matched points exist in cents_target[inds_closestT]")
+    txyz_b = np.median(
+        cents_target[inds_closestT]-cents[inds_closestF], axis=0)
+    if plt_val:
+        plt.figure()
+        plt.plot(cents[inds_closestF].T[1], cents[inds_closestF].T[2], 'go')
+        plt.plot(cents_target[inds_closestT].T[1]-txyz_b[1],
+                 cents_target[inds_closestT].T[2]-txyz_b[2], 'ro')
+        plt.figure()
+        dists = np.sqrt(
+            np.sum((cents_target[inds_closestT]-cents[inds_closestF])**2, axis=-1))
+        plt.hist(dists)
+        plt.show()
+    if verbose:
+        print(f"--- {len(cents[inds_closestF])} points are aligned")
+    if return_pts:
+        return txyz_b, cents[inds_closestF], cents_target[inds_closestT]
+    return txyz_b
 
 
 #Tzxy = fft3d_from2d(im_ref_sm2, im_sm2, gb=5, max_disp=np.inf)

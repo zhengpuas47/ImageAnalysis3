@@ -1435,11 +1435,13 @@ class Cell_Data():
             if len(_unique_args) > 0:
                 # multi-processing to do cropping
                 if _verbose:
-                    print(f"-- start cropping {_type} for fov:{self.fov_id}, 
-                          cell:{self.cell_id} with {_num_threads} threads")
+                    print(
+                        f"-- start cropping {_type} for fov:{self.fov_id}, cell:{self.cell_id} with {_num_threads} threads")
+
                 with mp.Pool(_num_threads, 
                             maxtasksperchild=int(np.ceil(len(_unique_args)/_num_threads)),
                             ) as _crop_pool:
+                    _full_args = [_arg+(False, _verbose) for _arg in _unique_args]
                     # Multi-proessing!
                     _cropped_unique_ims = _crop_pool.starmap(corrections.correct_single_image, _unique_args, chunksize=1)
                     # close multiprocessing
@@ -1448,7 +1450,7 @@ class Cell_Data():
                     _crop_pool.join()
                 # clear
                 killchild()
-                del(_crop_pool, _unique_args)
+                del(_crop_pool, _unique_args, _full_args)
                 # append (Notice: unique_ids and unique_channels has been appended)
                 _unique_ims += _cropped_unique_ims
             # sort
