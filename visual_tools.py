@@ -1239,9 +1239,6 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405, cap_percenti
     ## import images
     if not isinstance(filenames, list):
         filenames = [filenames]
-    if verbose:
-        print(f"- loading {len(filenames)} images for segmentation")
-    _ims = [corrections.correct_single_image(_fl, correction_channel) for _fl in filenames]
     ## load segmentation if already existed:
     if save_folder is None:
         save_folder = os.path.dirname(os.path.dirname(filenames[0]))
@@ -1267,9 +1264,16 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405, cap_percenti
             _seg_labels = [pickle.load(open(_fl, 'rb')) for _fl in save_filenames]
         # return    
         if return_images:
+            if verbose:
+                print(f"- loading {len(filenames)} images for output")
+            _ims = [corrections.correct_single_image(_fl, correction_channel) for _fl in filenames]
             return _seg_labels, _ims
         else:
             return _seg_labels
+    else:
+        if verbose:
+            print(f"- loading {len(filenames)} images for segmentation")
+        _ims = [corrections.correct_single_image(_fl, correction_channel) for _fl in filenames]
     ## rescaling and stack
     # rescale image to 0-1 gray scale
     _limits = [stats.scoreatpercentile(_im, (cap_percentile, 100.-cap_percentile)).astype(np.float) for _im in _ims];

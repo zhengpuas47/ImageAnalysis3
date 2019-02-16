@@ -542,21 +542,23 @@ class Cell_List():
                     print(f"++ directly loading segmentation label:{_new_fl}")
                 if _save_npy:
                     _new_label = np.load(_new_fl)
-                    _dapi_im = corrections.correct_single_image(os.path.join(
-                        _dapi_fd, _dapi_im_name), self.channels[self.dapi_channel_index],
-                         correction_folder=self.correction_folder)
+                    if return_all:
+                        _dapi_im = corrections.correct_single_image(os.path.join(
+                            _dapi_fd, _dapi_im_name), self.channels[self.dapi_channel_index],
+                            correction_folder=self.correction_folder)
                 else:
                     _new_label, _dapi_im = pickle.load(open(_new_fl, 'rb'))
             # append
             _new_labels.append(_new_label)
-            _dapi_ims.append(_dapi_im)
+            if 'dapi_im' in locals():
+                _dapi_ims.append(_dapi_im)
 
         if return_all:
             return _new_labels, _dapi_ims
         else:
             return True
 
-    def _create_cell(self, _parameter, _load_info=True,
+    def _create_cell(self, _parameter, _load_info=True, _color_filename='Color_Usage',
                      _load_segmentation=True, _load_drift=True, _drift_size=300, _drift_ref=0, 
                      _drift_postfix='_sequential_current_cor.pkl', _dynamic=True, 
                      _load_cell=True, _save=False, _append_cell_list=False, _verbose=True):
@@ -566,7 +568,7 @@ class Cell_List():
         _cell = Cell_Data(_parameter, _load_all_attr=True)
         if _load_info:
             if not hasattr(_cell, 'color_dic') or not hasattr(_cell, 'channels'):
-                _cell._load_color_info()
+                _cell._load_color_info(_color_filename=_color_filename)
         # load segmentation
         if _load_segmentation and (not hasattr(_cell, 'segmentation_label') or not hasattr(_cell, 'segmentation_crop')):
             _cell._load_segmentation(_load_in_ram=True)
@@ -585,7 +587,7 @@ class Cell_List():
         return _cell
 
     def _create_cells_fov(self, _fov_ids, _num_threads=None, _sequential_mode=False, _plot_segmentation=True, 
-                          _load_exist_info=True, _load_annotated_only=True,
+                          _load_exist_info=True, _color_filename='Color_Usage', _load_annotated_only=True,
                           _drift_size=500, _drift_ref=0, _drift_postfix='_current_cor.pkl', 
                           _dynamic=True, _save=False, _force_drift=False, _remove_bead_temp=True, _verbose=True):
         """Create Cele_data objects for one field of view"""
@@ -607,7 +609,7 @@ class Cell_List():
             _folders = self.folders
         # check attributes
         if not hasattr(self, 'channels') or not hasattr(self, 'color_dic'):
-            self._load_color_info()
+            self._load_color_info(_color_filename=_color_filename)
         # find the folder name for dapi
         _select_dapi = False  # not select dapi fd yet
         for _fd, _info in self.color_dic.items():
@@ -626,12 +628,12 @@ class Cell_List():
             if _verbose:
                 print("+ Load segmentation for fov", _fov_id)
             # do segmentation if necessary, or just load existing segmentation file
-            _fov_segmentation_labels, _fov_dapi_ims  = visual_tools.DAPI_convoluted_segmentation(
+            _fov_segmentation_labels = visual_tools.DAPI_convoluted_segmentation(
                 os.path.join(_dapi_fd, self.fovs[_fov_id]), self.channels[self.dapi_channel_index],
-                make_plot=_plot_segmentation, return_images=True,
+                make_plot=_plot_segmentation, return_images=False,
                 save=_save, save_npy=True, save_folder=self.segmentation_folder, force=False,verbose=_verbose)
             # extract result segmentation and image
-            _fov_segmentation_label, _fov_dapi_im = _fov_segmentation_labels[0], _fov_dapi_ims[0]
+            _fov_segmentation_label = _fov_segmentation_labels[0]
             # make plot if necesary
             if _plot_segmentation:
                 plt.figure()
@@ -681,9 +683,11 @@ class Cell_List():
                       'distance_zxy' : self.distance_zxy,
                       'sigma_zxy': self.sigma_zxy,
                       } for _cell_id in _cell_ids]
-            _args += [(_p, True, True, _direct_load_drift, _drift_size, _drift_ref, 
-                       _drift_postfix, _dynamic, True, False, False, _verbose) for _p in _params]
-            del(_fov_segmentation_label, _fov_dapi_im, _params, _cell_ids)
+            _args += [(_p, True, _color_filename, True, 
+                       _direct_load_drift, _drift_size, _drift_ref, 
+                       _drift_postfix, _dynamic, True, False, 
+                       False, _verbose) for _p in _params]
+            del(_fov_segmentation_label, _params, _cell_ids)
         
         ## do multi-processing to create cells!
         if _verbose:
@@ -1082,7 +1086,7 @@ class Cell_Data():
     initialization of cell_data requires:
     """
     # initialize
-    def __init__(self, parameters, _load_all_attr=False):
+    def __init__(self, parameters, _load_all_attr=False, _color_filename='Color_Usage'):
         if not isinstance(parameters, dict):
             raise TypeError('wrong input type of parameters, should be a dictionary containing essential info.')
         # necessary parameters
@@ -1158,7 +1162,7 @@ class Cell_Data():
 
         # load color info
         if not hasattr(self, 'color_dic') or not hasattr(self, 'channels'):
-            self._load_color_info()
+            self._load_color_info(_color_filename=_color_filename)
         # annotated folders
         if not hasattr(self, 'annotated_folders'):
             self.annotated_folders = []
@@ -1239,17 +1243,17 @@ class Cell_Data():
         if not _select_dapi:
             raise ValueError("No DAPI folder detected in annotated_folders, stop!")
         # do segmentation if necessary, or just load existing segmentation file
-        _segmentation_labels, _dapi_ims = visual_tools.DAPI_convoluted_segmentation(
+        _segmentation_labels = visual_tools.DAPI_convoluted_segmentation(
             os.path.join(_dapi_fd, self.fovs[self.fov_id]), self.channels[self.dapi_channel_index],
             min_shape_ratio=_min_shape_ratio, signal_cap_ratio=_signal_cap_ratio,
             denoise_window=_denoise_window, shrink_percent=_shrink_percent,
             max_conv_th=_max_conv_th, min_boundary_th=_min_boundary_th,
-            make_plot=False, return_images=True, 
+            make_plot=False, return_images=False, 
             save=_save, save_npy=True, save_folder=self.segmentation_folder, force=_force,
             verbose=_verbose
         )
         fov_segmentation_label = _segmentation_labels[0]
-        fov_dapi_im = _dapi_ims[0]
+        #fov_dapi_im = _dapi_ims[0]
         ## pick corresponding cell
         # exclude special cases
         if not hasattr(self, 'cell_id'):
@@ -1260,14 +1264,14 @@ class Cell_Data():
         else:
             _seg_label = - np.ones(fov_segmentation_label.shape)
             _seg_label[fov_segmentation_label==self.cell_id+1] = 1
-            _dapi_im = visual_tools.crop_cell(fov_dapi_im, _seg_label, drift=None)[0]
+            #_dapi_im = visual_tools.crop_cell(fov_dapi_im, _seg_label, drift=None)[0]
             _seg_crop = visual_tools.Extract_crop_from_segmentation(_seg_label)
             if _load_in_ram:
                 self.segmentation_label = _seg_label
-                self.dapi_im = _dapi_im
+                #self.dapi_im = _dapi_im
                 self.segmentation_crop = _seg_crop
-
-        return _seg_label, _dapi_im, _seg_crop
+        return _seg_label, _seg_crop
+        #return _seg_label, _dapi_im, _seg_crop
     
     ## check drift info
     def _check_drift(self, _verbose=False):
@@ -1339,13 +1343,16 @@ class Cell_Data():
             _drift, _failed_count = corrections.Calculate_Bead_Drift(_folders, self.fovs, self.fov_id, 
                                         num_threads=_num_threads,sequential_mode=_sequential_mode, 
                                         ref_id=_ref_id, drift_size=_size, save_postfix=_drift_postfix,
+                                        save_folder=self.drift_folder,
                                         overwrite=_force, verbose=_verbose)
             if _verbose:
                 print(f"- drift correction for {len(_drift)} frames has been generated.")
             _exist = [os.path.join(os.path.basename(_fd),self.fovs[self.fov_id]) for _fd in _folders \
                 if os.path.join(os.path.basename(_fd),self.fovs[self.fov_id]) in _drift]
-            print(_drift)
-
+            # print if some are failed
+            if _failed_count > 0:
+                print(f"-- failed number: {_failed_count}"
+                )
             if len(_exist) == len(_folders):
                 self.drift = _drift
                 return self.drift
