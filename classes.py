@@ -2112,7 +2112,7 @@ class Cell_Data():
                 self._save_to_file('combo', _overwrite=_force)
         return _chrom_coords
 
-    def _multi_fitting_for_chromosome(self, _type='unique', _decoded_flag='diff', _use_chrom_coords=True, _num_threads=5,
+    def _multi_fitting_for_chromosome(self, _type='unique', _decoded_flag='diff', _use_chrom_coords=True, _num_threads=6,
                        _gfilt_size=0.75, _background_gfilt_size=10, _max_filt_size=3,
                        _seed_th_per=50, _max_seed_count=10, _min_seed_count=3,
                        _width_zxy=None, _fit_radius=5, _expect_weight=1000, _min_height=100, _max_iter=10, _th_to_end=1e-6,
@@ -2124,76 +2124,82 @@ class Cell_Data():
             raise KeyError(f"Wrong input key for _type:{_type}")
         if _width_zxy is None:
             _width_zxy = self.sigma_zxy
+        if hasattr(self, 'num_threads'):
+            _num_threads = max(self.num_threads, _num_threads)
         if _use_chrom_coords:
             if not hasattr(self, 'chrom_coords'):
                 self._load_from_file('cell_info')
                 if not hasattr(self, 'chrom_coords'):
                     raise AttributeError("No chrom-coords info found in cell-data and saved cell_info.")
-            if _verbose:
-                print(f"+ Start multi-fitting for {_type} images")
-            # check specific attributes
-            if _type == 'unique':
-                # check attributes
-                if not hasattr(self, 'unique_ims') or not hasattr(self, 'unique_ids'):
-                    _temp_flag = True # this means the unique images are temporarily loaded
-                    print("++ no unique image info loaded to this cell, try loading:")
-                    self._load_from_file('unique', _overwrite=False, _verbose=_verbose)
-                else:
-                    _temp_flag = False # not temporarily loaded
-                _ims = self.unique_ims
-                _ids = self.unique_ids
-            elif _type == 'decoded':
-                # check attributes
-                if not hasattr(self, 'decoded_ims') or not hasattr(self, 'decoded_ids'):
-                    _temp_flag = True  # this means the unique images are temporarily loaded
-                    print("++ no decoded image info loaded to this cell, try loading:")
-                    self._load_from_file('decoded', _decoded_flag=_decoded_flag, _overwrite=False, _verbose=_verbose)
-                else:
-                    _temp_flag = False  # not temporarily loaded
-                _ims = self.decoded_ims
-                _ids = self.decoded_ids
+        if _verbose:
+            print(f"+ Start multi-fitting for {_type} images")
+        # check specific attributes
+        if _type == 'unique':
+            # check attributes
+            if not hasattr(self, 'unique_ims') or not hasattr(self, 'unique_ids'):
+                _temp_flag = True # this means the unique images are temporarily loaded
+                print("++ no unique image info loaded to this cell, try loading:")
+                self._load_from_file('unique', _overwrite=False, _verbose=_verbose)
+            else:
+                _temp_flag = False # not temporarily loaded
+            _ims = self.unique_ims
+            _ids = self.unique_ids
+        elif _type == 'decoded':
+            # check attributes
+            if not hasattr(self, 'decoded_ims') or not hasattr(self, 'decoded_ids'):
+                _temp_flag = True  # this means the unique images are temporarily loaded
+                print("++ no decoded image info loaded to this cell, try loading:")
+                self._load_from_file('decoded', _decoded_flag=_decoded_flag, _overwrite=False, _verbose=_verbose)
+            else:
+                _temp_flag = False  # not temporarily loaded
+            _ims = self.decoded_ims
+            _ids = self.decoded_ids
 
-            ## Do the multi-fitting
-            if _type == 'unique':
-                _seeding_args = (_max_seed_count, 30, _gfilt_size, _background_gfilt_size, _max_filt_size, _seed_th_per, 300, True, 10, _min_seed_count, 0, False)
-                #_fitting_args = (_width_zxy, _fit_radius, 100, 500, _expect_weight, _th_to_end, _max_iter, 0.25, _min_height, False, _verbose)
-                _fitting_args = (_fit_radius, 1, 2.5, _max_iter, 0.1, _width_zxy, _expect_weight)
-            elif _type == 'decoded':
-                _seeding_args = (_max_seed_count, 30, _gfilt_size, _background_gfilt_size, _max_filt_size, _seed_th_per, 300, True, 10, _min_seed_count, 0, False)
-                #_fitting_args = (_width_zxy, _fit_radius, 0.1, 0.5, _expect_weight/1000, _th_to_end, _max_iter, 0.25, 0.1, False, _verbose)
-                _fitting_args = (_fit_radius, 1, 2.5, _max_iter, 0.1, _width_zxy, _expect_weight/1000)
-            # merge arguments
+        ## Do the multi-fitting
+        if _type == 'unique':
+            _seeding_args = (_max_seed_count, 30, _gfilt_size, _background_gfilt_size, _max_filt_size, _seed_th_per, 300, True, 10, _min_seed_count, 0, False)
+            #_fitting_args = (_width_zxy, _fit_radius, 100, 500, _expect_weight, _th_to_end, _max_iter, 0.25, _min_height, False, _verbose)
+            _fitting_args = (_fit_radius, 1, 2.5, _max_iter, 0.1, _width_zxy, _expect_weight)
+        elif _type == 'decoded':
+            _seeding_args = (_max_seed_count, 30, _gfilt_size, _background_gfilt_size, _max_filt_size, _seed_th_per, 300, True, 10, _min_seed_count, 0, False)
+            #_fitting_args = (_width_zxy, _fit_radius, 0.1, 0.5, _expect_weight/1000, _th_to_end, _max_iter, 0.25, 0.1, False, _verbose)
+            _fitting_args = (_fit_radius, 1, 2.5, _max_iter, 0.1, _width_zxy, _expect_weight/1000)
+        # merge arguments
+        if _use_chrom_coords:
             _args = [(_im, _id, self.chrom_coords, _seeding_args, _fitting_args, 
-                      _check_fitting, _verbose) for _im, _id in zip(_ims, _ids)]
-            # multi-processing for multi-Fitting
-            if _verbose:
-                print(f"++ start fitting {_type} for fov:{self.fov_id}, cell:{self.cell_id} with {_num_threads} threads")
-            _start_time = time.time()
-            _fitting_pool = mp.Pool(_num_threads)
-            _spots = _fitting_pool.starmap(_fit_single_image, _args, chunksize=1)
-            _fitting_pool.close()
-            _fitting_pool.join()
-            _fitting_pool.terminate()
-            # release
-            _ims, _ids = None, None
-            if _temp_flag:
-                if _type == 'unique':
-                    delattr(self, 'unique_ims')
-                elif _type == 'decoded':
-                    delattr(self, 'decoded_ims')
-            if _verbose:
-                print(f"++ total time in fitting {_type}: {time.time()-_start_time}")
-            ## return and save
+                    _check_fitting, _verbose) for _im, _id in zip(_ims, _ids)]
+        else:
+            _args = [(_im, _id, [None], _seeding_args, _fitting_args, 
+                    _check_fitting, _verbose) for _im, _id in zip(_ims, _ids)]
+        # multi-processing for multi-Fitting
+        if _verbose:
+            print(f"++ start fitting {_type} for fov:{self.fov_id}, cell:{self.cell_id} with {_num_threads} threads")
+        _start_time = time.time()
+        _fitting_pool = mp.Pool(_num_threads)
+        _spots = _fitting_pool.starmap(_fit_single_image, _args, chunksize=1)
+        _fitting_pool.close()
+        _fitting_pool.join()
+        _fitting_pool.terminate()
+        # release
+        _ims, _ids = None, None
+        if _temp_flag:
             if _type == 'unique':
-                self.unique_spots = _spots
-                if _save:
-                    self._save_to_file('cell_info',_save_dic={'unique_spots':self.unique_spots})
-                return self.unique_spots
+                delattr(self, 'unique_ims')
             elif _type == 'decoded':
-                self.decoded_spots = _spots
-                if _save:
-                    self._save_to_file('cell_info',_save_dic={'decoded_id':self.decoded_ids, 'decoded_spots':self.decoded_spots})
-                return self.decoded_spots
+                delattr(self, 'decoded_ims')
+        if _verbose:
+            print(f"++ total time in fitting {_type}: {time.time()-_start_time}")
+        ## return and save
+        if _type == 'unique':
+            self.unique_spots = _spots
+            if _save:
+                self._save_to_file('cell_info',_save_dic={'unique_spots':self.unique_spots})
+            return self.unique_spots
+        elif _type == 'decoded':
+            self.decoded_spots = _spots
+            if _save:
+                self._save_to_file('cell_info',_save_dic={'decoded_id':self.decoded_ids, 'decoded_spots':self.decoded_spots})
+            return self.decoded_spots
 
     def _dynamic_picking_spots(self, _type='unique', _use_chrom_coords=True,
                                _distance_zxy=None, _w_int=1, _w_dist=2,
