@@ -207,7 +207,8 @@ def Calculate_Bead_Drift(folders, fovs, fov_id, num_threads=12, drift_size=500, 
                 args.append((_filename, selected_crops, _ref_filename, None, None,
                              bead_channel, all_channels, single_im_size,
                              num_buffer_frames, ref_seed_per, illumination_corr,
-                             correction_folder, drift_cutoff, verbose))
+                             correction_folder, match_distance, match_unique,
+                             rough_drift_gb, drift_cutoff, verbose))
 
     ## multiprocessing
     if verbose:
