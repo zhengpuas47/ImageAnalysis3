@@ -177,7 +177,7 @@ def align_single_image(_filename, _selected_crops, _ref_filename=None, _ref_ims=
                                                             search_distance=_match_distance, 
                                                             keep_unique=_match_unique,
                                                             verbose=_verbose)
-        print(len(_matched_tar_seeds), _rough_drift, _print_name)
+        #print(len(_matched_tar_seeds), _rough_drift, _print_name)
         _matched_ref_center = _ref_center[_find_pair]
         # apply drift to ref_center and used as seed to find target centers
         _tar_center = visual_tools.get_STD_centers(_tar_im, seeds=_matched_tar_seeds, remove_close_pts=False)
