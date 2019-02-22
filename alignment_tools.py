@@ -98,7 +98,8 @@ def align_manual_points(pos_file_before, pos_file_after,
 def align_single_image(_filename, _selected_crops, _ref_filename=None, _ref_ims=None, _ref_centers=None,
                         _bead_channel='488', _all_channels=_allowed_colors, _single_im_size=_image_size,
                         _num_buffer_frames=10, _ref_seed_per=95, _illumination_corr=True,
-                        _correction_folder=_correction_folder, _drift_cutoff=1, _verbose=False):
+                        _correction_folder=_correction_folder, 
+                        rough_drift_gb=0, _drift_cutoff=1, _verbose=False):
     """Function to align single pair of bead images
     Inputs:
         _filename: filename for target image containing beads, string of filename
@@ -138,9 +139,11 @@ def align_single_image(_filename, _selected_crops, _ref_filename=None, _ref_ims=
         if _ref_filename is not None:
             _ref_print_name = os.path.join(_ref_filename.split(os.sep)[-2], 
                                            _ref_filename.split(os.sep)[-1])
-            print(f"- Aligning {_print_name} to {_ref_print_name}")
+            if _verbose:
+                print(f"- Aligning {_print_name} to {_ref_print_name}")
         else:
-            print(f"- Aligning {_print_name} to reference images and centers")
+            if _verbose:
+                print(f"- Aligning {_print_name} to reference images and centers")
     _drifts = []
     # for each target and reference pair, do alignment:
     for _i, _crop in enumerate(_selected_crops):
@@ -164,12 +167,13 @@ def align_single_image(_filename, _selected_crops, _ref_filename=None, _ref_ims=
         else:
             _ref_center = np.array(_ref_centers[_i]).copy()
         # rough align ref_im and target_im
-        _rough_drift = fft3d_from2d(_ref_im, _tar_im)
+        _rough_drift = fft3d_from2d(_ref_im, _tar_im, gb=rough_drift_gb)
+        print(_rough_drift, _print_name)
         # apply drift to ref_center and used as seed to find target centers
         _tar_center = visual_tools.get_STD_centers(
             _tar_im, seeds=_ref_center+_rough_drift, remove_close_pts=False)
         # compare and get drift
-        _drift = np.nanmean(_tar_center - _ref_center, axis=0)
+        _drift = np.nanmean(_ref_center - _tar_center , axis=0)
         _drifts.append(_drift)
         # compare difference and exit if two drifts close enough
         if len(_drifts) > 1:
@@ -249,12 +253,10 @@ def fftalign_2d(im1, im2, center=[0, 0], max_disp=50, plt_val=False):
 
     sx_cor, sy_cor = im_cor.shape
     center_ = np.array(center)+np.array([sx_cor, sy_cor])/2.
-
     x_min = int(min(max(center_[0]-max_disp, 0), sx_cor))
     x_max = int(min(max(center_[0]+max_disp, 0), sx_cor))
     y_min = int(min(max(center_[1]-max_disp, 0), sy_cor))
     y_max = int(min(max(center_[1]+max_disp, 0), sy_cor))
-
     im_cor0 = np.zeros_like(im_cor)
     im_cor0[x_min:x_max, y_min:y_max] = 1
     im_cor = im_cor*im_cor0
@@ -269,7 +271,7 @@ def fftalign_2d(im1, im2, center=[0, 0], max_disp=50, plt_val=False):
         plt.plot([x], [y], 'k+')
         plt.imshow(im_cor, interpolation='nearest')
         plt.show()
-    xt, yt = np.round(-np.array(im_cor.shape)/2.+[y, x]).astype(int)
+    xt, yt = (-np.floor(np.array(im_cor.shape)/2)+[y, x]).astype(int)
     return xt, yt
 
 def fft3d_from2d(im1, im2, gb=5, max_disp=150):
@@ -277,15 +279,22 @@ def fft3d_from2d(im1, im2, gb=5, max_disp=150):
     this max-projects along the first (z) axis and finds the best tx,ty using fftalign_2d.
     Then it trims and max-projects along the last (y) axis and finds tz.
     Before applying fftalignment we normalize the images using blurnorm2d for stability."""
-    im1_ = blurnorm2d(np.max(im1, 0), gb)
-    im2_ = blurnorm2d(np.max(im2, 0), gb)
+    if gb > 1:
+        im1_ = blurnorm2d(np.max(im1, 0), gb)
+        im2_ = blurnorm2d(np.max(im2, 0), gb)
+    else:
+        im1_, im2_ = np.max(im1, 0), np.max(im2, 0)
     tx, ty = fftalign_2d(im1_, im2_, center=[0, 0], max_disp=max_disp, plt_val=False)
     sx, sy = im1_.shape
-
-    im1_t = blurnorm2d(
-        np.max(im1[:, max(tx, 0):sx+tx, max(ty, 0):sy+ty], axis=-1), gb)
-    im2_t = blurnorm2d(
-        np.max(im2[:, max(-tx, 0):sx-tx, max(-ty, 0):sy-ty], axis=-1), gb)
+    if gb > 1:
+        im1_t = blurnorm2d(
+            np.max(im1[:, max(tx, 0):sx+tx, max(ty, 0):sy+ty], axis=-1), gb)
+        im2_t = blurnorm2d(
+            np.max(im2[:, max(-tx, 0):sx-tx, max(-ty, 0):sy-ty], axis=-1), gb)
+    else:
+        im1_t = np.max(im1[:, max(tx, 0):sx+tx, max(ty, 0):sy+ty], axis=-1)
+        im2_t = np.max(
+            im2[:, max(-tx, 0):sx-tx, max(-ty, 0):sy-ty], axis=-1)
     tz, _ = fftalign_2d(im1_t, im2_t, center=[
                         0, 0], max_disp=max_disp, plt_val=False)
     return np.array([tz, tx, ty])

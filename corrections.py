@@ -72,16 +72,15 @@ def Calculate_Bead_Drift(folders, fovs, fov_id, num_threads=12, drift_size=500, 
         raise ValueError(
             f"Ref_id should be valid index of folders, however {ref_id} is given")
     # check save-folder
-    if save:
-        if save_folder is None:
-            save_folder = os.path.join(
-                os.path.dirname(folders[0]), 'Analysis', 'drift')
-            print(
-                f"No save_folder specified, use default save-folder:{save_folder}")
-        elif not os.path.exists(save_folder):
-            if verbose:
-                print(f"Create drift_folder:{save_folder}")
-            os.makedirs(save_folder)
+    if save_folder is None:
+        save_folder = os.path.join(
+            os.path.dirname(folders[0]), 'Analysis', 'drift')
+        print(
+            f"No save_folder specified, use default save-folder:{save_folder}")
+    elif not os.path.exists(save_folder):
+        if verbose:
+            print(f"Create drift_folder:{save_folder}")
+        os.makedirs(save_folder)
     # check save_name
     if sequential_mode:  # if doing drift-correction in a sequential mode:
         save_postfix = '_sequential'+save_postfix
@@ -104,7 +103,7 @@ def Calculate_Bead_Drift(folders, fovs, fov_id, num_threads=12, drift_size=500, 
                       [max(coord_sel[-1]-drift_size, 0), coord_sel[-1]]], dtype=np.int)
     # merge into one array which is easier to feed into function
     selected_crops = np.stack([crop0, crop1, crop2])
-
+    
     ## start loading existing profile
     _save_name = _fov_name.replace('.dax', save_postfix)
     _save_filename = os.path.join(save_folder, _save_name)
@@ -1088,7 +1087,7 @@ def correct_single_image(filename, channel, crop_limits=None, seg_label=None, ex
     elif seg_label is not None:
         _limits = visual_tools.Extract_crop_from_segmentation(seg_label, extend_dim=extend_dim,
                                                               single_im_size=single_im_size)
-    else:
+    else: # no crop-limit specified
         _limits = None
     # check drift
     if len(drift) != 3:
@@ -1103,11 +1102,12 @@ def correct_single_image(filename, channel, crop_limits=None, seg_label=None, ex
                                                             frame_per_color=single_im_size[0],
                                                             buffer_frame=num_buffer_frames)
     # crop image
-    _cropped_im, _limits = visual_tools.crop_single_image(filename, channel, crop_limits=_limits,
+    _cropped_im, _dft_limits = visual_tools.crop_single_image(filename, channel, crop_limits=_limits,
                                                           all_channels=all_channels,
                                                           drift=drift, single_im_size=single_im_size,
                                                           num_buffer_frames=num_buffer_frames,
                                                           return_limits=True, verbose=verbose)
+    print('limits:', _limits, _dft_limits, _cropped_im.shape)
     ## corrections
     _corr_im = _cropped_im.copy()
     if z_shift_corr:
@@ -1119,7 +1119,7 @@ def correct_single_image(filename, channel, crop_limits=None, seg_label=None, ex
     if illumination_corr:
         # illumination correction
         _corr_im = Illumination_correction(_corr_im, channel,
-                                           crop_limits=_limits,
+                                           crop_limits=_dft_limits,
                                            correction_folder=correction_folder,
                                            single_im_size=single_im_size,
                                            verbose=verbose)
@@ -1127,12 +1127,12 @@ def correct_single_image(filename, channel, crop_limits=None, seg_label=None, ex
         # chromatic correction
         _corr_im = Chromatic_abbrevation_correction(_corr_im, channel,
                                                     single_im_size=single_im_size,
-                                                    crop_limits=_limits[1:],
+                                                    crop_limits=_dft_limits,
                                                     correction_folder=correction_folder,
                                                     verbose=verbose)
     ## return
     if return_limits:
-        return _corr_im, _limits
+        return _corr_im, _dft_limits
     else:
         return _corr_im
 

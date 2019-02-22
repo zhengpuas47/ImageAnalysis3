@@ -864,7 +864,9 @@ class Cell_List():
         # chromsome savefile #
         _fov_ids = [_cell.fov_id for _cell in self.cells]
         _fov_ids = np.unique(_fov_ids)
-        _chrom_savefile = os.path.join(self.temp_folder, _coord_filename.replace('.pkl', str(_fov_ids)+'.pkl'))
+        _filename = '_'+str(min(_fov_ids)) + '-' + str(max(fov_ids))+'.pkl'
+        _chrom_savefile = os.path.join(
+            self.save_folder, _coord_filename.replace('.pkl', _filename))
         # load from chrom-coord and partition it
         _coord_dic = pickle.load(open(_chrom_savefile, 'rb'))
         _coord_list = visual_tools.partition_map(_coord_dic['coords'], _coord_dic['class_ids'], enumerate_all=True)
