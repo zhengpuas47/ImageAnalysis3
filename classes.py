@@ -559,7 +559,7 @@ class Cell_List():
             return True
 
     def _create_cell(self, _parameter, _load_info=True, _color_filename='Color_Usage',
-                     _load_segmentation=True, _load_drift=True, _drift_size=300, _drift_ref=0, 
+                     _load_segmentation=True, _load_drift=True, _drift_size=500, _drift_ref=0, 
                      _drift_postfix='_sequential_current_cor.pkl', _dynamic=True, 
                      _load_cell=True, _save=False, _append_cell_list=False, _verbose=True):
         """Function to create one cell_data object"""
@@ -1421,6 +1421,12 @@ class Cell_Data():
                             if len(_matched_folders) == 1:
                                 _im_filename = os.path.join(
                                     _matched_folders[0], _fov_name)
+                                # if already exist and going to overwrite, just delete old ones
+                                if _overwrite and int(_info.split(_allowed_kwds[_type])[-1]) not in _unique_ids:
+                                    _old_index = _unique_ids.index(int(_info.split(_allowed_kwds[_type])[-1]))
+                                    _unique_ids.pop(_old_index)
+                                    _unique_ims.pop(_old_index)
+                                    _unique_channels.pop(_old_index)
                                 # append id and arguments
                                 _unique_channels.append(_channel)
                                 _unique_ids.append(

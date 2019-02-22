@@ -2380,3 +2380,64 @@ def translate_segmentation(old_segmentation, old_dapi_im, new_dapi_im, rotation_
         return _cleaned_rot_seg_label, new_dapi_im
     else:
         return _cleaned_rot_seg_label
+
+# find nearby seeds for given center references, used in bead-drift
+def find_matched_seeds(im, ref_centers, search_distance=3, 
+                       gfilt_size=0.75, background_gfilt_size=10, filt_size=3, 
+                       dynamic=False, th_seed_percentile=95, th_seed=300, 
+                       keep_unique=False, verbose=True):
+    """Find nearby seeds for on given image for given ref_centers
+    Inputs:
+        im: image, np.ndarray or np.memmap
+        ref_centers: centers to find seeds nearby, list of array-3 or nx3 array
+        search_distance: allowed distance between any ref-center to acquired seeds, int (default: 3)
+        gilt_size: gaussian_filter size locally for seeding, float (default: 0.75)
+        background_gfilt_size: background gaussian_filter size, float (default: 10)
+        filt_size: maximum filter to identify local maximum, int (default: 3)
+        dynamic: whether do dynamic seeding, bool (default: False)
+        th_seed_percentile: intensity percentile for dynamic seeding, float (default: 95)
+        th_seed: seeding threshold if not doing dynamic seeding, float (default: 150)
+        keep_unique: whether keep only uniquely paired seeds to ref_centers, bool (default: False)
+        verbose: say something!, bool (default: True)
+    Outputs
+        _matched_seeds: seeds found to have match in ref_center, np.nx3 array
+        _find_pair: whether each ref_center finds corresponding seed, np.1d-array
+    """
+    ## check inputs
+    if not isinstance(im, np.ndarray) and not isinstance(im, np.memmap):
+        raise TypeError(f"Wrong input data type for im, should be np.ndarray or memmap, {type(im)} given!")
+    ref_centers = np.array(ref_centers)[:,:3]
+    if verbose:
+        print(f"- find seeds paired with {len(ref_centers)} centers in given image")
+    ## start seeding
+    _seeds = get_seed_in_distance(im, center=None, gfilt_size=gfilt_size, 
+                                  background_gfilt_size=background_gfilt_size, 
+                                  filt_size=filt_size, dynamic=dynamic, 
+                                  th_seed_percentile=th_seed_percentile, 
+                                  th_seed=th_seed, return_h=True)
+    ## find seed match
+    _matched_seeds = []
+    _find_pair = []
+    for _ct in ref_centers:
+        _dist = np.linalg.norm(_seeds[:,:3]-_ct[np.newaxis,:], axis=1)
+        _matched_inds, = np.where(_dist < search_distance)
+        # if unique matched, save and proceed
+        if len(_matched_inds) == 1:
+            _matched_seeds.append(_seeds[_matched_inds[0], :3])
+            _find_pair.append(True)
+        # keep the brightest one if multiple matches detected and not keeping unique
+        elif len(_matched_inds) > 1 and not keep_unique:
+            _cand_seeds = _seeds[_matched_inds, :]
+            _intensity_order = np.argsort(_cand_seeds[:,-1]) # sort to find the brightest one
+            _matched_seeds.append(_cand_seeds[_intensity_order[-1], :3])
+            _find_pair.append(True)
+        # otherwise dont record cand_seeds and record find-pair failed
+        else:
+            _find_pair.append(False)
+    
+    # return
+    _matched_seeds = np.array(_matched_seeds)
+    _find_pair = np.array(_find_pair, dtype=np.bool)
+    if verbose:
+        print(f"-- {len(_matched_seeds)} paired seeds are found. ")
+    return _matched_seeds, _find_pair

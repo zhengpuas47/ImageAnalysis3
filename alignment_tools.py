@@ -99,7 +99,8 @@ def align_single_image(_filename, _selected_crops, _ref_filename=None, _ref_ims=
                         _bead_channel='488', _all_channels=_allowed_colors, _single_im_size=_image_size,
                         _num_buffer_frames=10, _ref_seed_per=95, _illumination_corr=True,
                         _correction_folder=_correction_folder, 
-                        rough_drift_gb=0, _drift_cutoff=1, _verbose=False):
+                        _match_distance=3, _match_unique=True,
+                        _rough_drift_gb=2, _drift_cutoff=1, _verbose=False):
     """Function to align single pair of bead images
     Inputs:
         _filename: filename for target image containing beads, string of filename
@@ -167,13 +168,20 @@ def align_single_image(_filename, _selected_crops, _ref_filename=None, _ref_ims=
         else:
             _ref_center = np.array(_ref_centers[_i]).copy()
         # rough align ref_im and target_im
-        _rough_drift = fft3d_from2d(_ref_im, _tar_im, gb=rough_drift_gb)
-        print(_rough_drift, _print_name)
+        _rough_drift = fft3d_from2d(_ref_im, _tar_im, gb=_rough_drift_gb)
+        # based on ref_center and rough_drift, find matched_ref_center
+        _matched_tar_seeds, _find_pair = visual_tools.find_matched_seeds(_tar_im, 
+                                                            _ref_center-_rough_drift,
+                                                            dynamic=True, 
+                                                            th_seed_percentile=_ref_seed_per,
+                                                            search_distance=_match_distance, 
+                                                            keep_unique=_match_unique,
+                                                            verbose=_verbose)
+        _matched_ref_center = _ref_center[_find_pair]
         # apply drift to ref_center and used as seed to find target centers
-        _tar_center = visual_tools.get_STD_centers(
-            _tar_im, seeds=_ref_center+_rough_drift, remove_close_pts=False)
+        _tar_center = visual_tools.get_STD_centers(_tar_im, seeds=_matched_tar_seeds, remove_close_pts=False)
         # compare and get drift
-        _drift = np.nanmean(_ref_center - _tar_center , axis=0)
+        _drift = np.nanmean(_matched_ref_center - _tar_center, axis=0)
         _drifts.append(_drift)
         # compare difference and exit if two drifts close enough
         if len(_drifts) > 1:
