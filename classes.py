@@ -1422,7 +1422,7 @@ class Cell_Data():
                                 _im_filename = os.path.join(
                                     _matched_folders[0], _fov_name)
                                 # if already exist and going to overwrite, just delete old ones
-                                if _overwrite and int(_info.split(_allowed_kwds[_type])[-1]) not in _unique_ids:
+                                if _overwrite and int(_info.split(_allowed_kwds[_type])[-1]) in _unique_ids:
                                     _old_index = _unique_ids.index(int(_info.split(_allowed_kwds[_type])[-1]))
                                     _unique_ids.pop(_old_index)
                                     _unique_ims.pop(_old_index)
