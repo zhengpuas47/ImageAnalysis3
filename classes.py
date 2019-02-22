@@ -809,7 +809,7 @@ class Cell_List():
         # chromsome savefile #
         _fov_ids = [_cell.fov_id for _cell in self.cells]
         _fov_ids = np.unique(_fov_ids)
-        _filename = '_'+str(min(_fov_ids)) + '-' + str(max(fov_ids))+'.pkl'
+        _filename = '_'+str(min(_fov_ids)) + '-' + str(max(_fov_ids))+'.pkl'
         _chrom_savefile = os.path.join(self.save_folder, _coord_filename.replace('.pkl', _filename))
         # loop through cells to generate chromosome
         _chrom_ims = []

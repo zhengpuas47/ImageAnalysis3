@@ -100,7 +100,7 @@ def align_single_image(_filename, _selected_crops, _ref_filename=None, _ref_ims=
                         _num_buffer_frames=10, _ref_seed_per=95, _illumination_corr=True,
                         _correction_folder=_correction_folder, 
                         _match_distance=3, _match_unique=True,
-                        _rough_drift_gb=2, _drift_cutoff=1, _verbose=False):
+                        _rough_drift_gb=0, _drift_cutoff=1, _verbose=False):
     """Function to align single pair of bead images
     Inputs:
         _filename: filename for target image containing beads, string of filename
@@ -177,6 +177,7 @@ def align_single_image(_filename, _selected_crops, _ref_filename=None, _ref_ims=
                                                             search_distance=_match_distance, 
                                                             keep_unique=_match_unique,
                                                             verbose=_verbose)
+        print(len(_matched_tar_seeds), _rough_drift, _print_name)
         _matched_ref_center = _ref_center[_find_pair]
         # apply drift to ref_center and used as seed to find target centers
         _tar_center = visual_tools.get_STD_centers(_tar_im, seeds=_matched_tar_seeds, remove_close_pts=False)
@@ -245,7 +246,7 @@ def blurnorm2d(im, gb):
     return im_/blurred
 
 # calculate pixel-level drift for 2d by FFT
-def fftalign_2d(im1, im2, center=[0, 0], max_disp=50, plt_val=False):
+def fftalign_2d(im1, im2, center=[0, 0], max_disp=150, plt_val=False):
     """
     Inputs: 2 2D images <im1>, <im2>, the expected displacement <center>, the maximum displacement <max_disp> around the expected vector.
     This computes the cross-cor between im1 and im2 using fftconvolve (fast) and determines the maximum

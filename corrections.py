@@ -20,7 +20,7 @@ def Calculate_Bead_Drift(folders, fovs, fov_id, num_threads=12, drift_size=500, 
                          sequential_mode=False, bead_channel='488', all_channels=_allowed_colors,
                          illumination_corr=True, correction_folder=_correction_folder,
                          coord_sel=None, single_im_size=_image_size, num_buffer_frames=10,
-                         match_distance=3, match_unique=True, rough_drift_gb=2,
+                         match_distance=3, match_unique=True, rough_drift_gb=0,
                          max_ref_points=500, ref_seed_per=95, drift_cutoff=1,
                          save=True, save_folder=None, save_postfix='_current_cor.pkl',
                          overwrite=False, verbose=True):
@@ -185,7 +185,7 @@ def Calculate_Bead_Drift(folders, fovs, fov_id, num_threads=12, drift_size=500, 
                 new_keynames.append(_keyname)
                 args.append((_filename, selected_crops, None, _ref_ims, _ref_centers,
                              bead_channel, all_channels, single_im_size,
-                             num_buffer_frames, ref_seed_per, illumination_corr,
+                             num_buffer_frames, ref_seed_per * 0.99**_i, illumination_corr,
                              correction_folder, match_distance, match_unique, 
                              rough_drift_gb, drift_cutoff, verbose))
     
