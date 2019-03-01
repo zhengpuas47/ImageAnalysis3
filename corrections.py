@@ -264,49 +264,6 @@ def Calculate_Bead_Drift(folders, fovs, fov_id, num_threads=12, drift_size=500, 
     return new_drift_dic, fail_count
 
 
-
-
-# function to generate illumination profiles
-def generate_illumination_correction(ims, threshold_percentile=98, gaussian_sigma=40,
-                                     save=True, save_name='', save_dir=r'.', make_plot=False):
-    '''Take into a list of beads images, report a mean illumination strength image'''
-    from scipy import ndimage
-    import os
-    import pickle as pickle
-    from scipy.stats import scoreatpercentile
-    # initialize total image
-    _ims = ims
-    total_ims = []
-    # calculate total(average) image
-    for _i,_im in enumerate(_ims):
-        im_stack = _im.mean(0)
-        threshold = scoreatpercentile(_im, threshold_percentile);
-        im_stack[im_stack > threshold] = np.nan;
-        total_ims.append(im_stack);
-    # gaussian fliter total image to denoise
-    total_im = np.nanmean(np.array(total_ims),0)
-    total_im[np.isnan(total_im)] = np.nanmean(total_im)
-    if gaussian_sigma:
-        fit_im = ndimage.gaussian_filter(total_im, gaussian_sigma);
-    else:
-        fit_im = total_im;
-    fit_im = fit_im / np.max(fit_im);
-
-    # make plot
-    if make_plot:
-        f = plt.figure()
-        plt.imshow(fit_im)
-        plt.title('Illumination profile for '+ save_name)
-        plt.colorbar()
-    if save:
-        if not os.path.exists(save_dir):
-            os.mkdir(save_dir)
-        save_filename = save_dir + os.sep + 'illumination_correction_'+save_name+'.pkl';
-        pickle.dump(fit_im, open(save_filename, 'wb'));
-        if make_plot:
-            plt.savefig(save_filename.replace('.pkl','.png'));
-    return fit_im
-
 # illumination correction for one image
 
 def Illumination_correction(im, correction_channel, crop_limits=None, all_channels=_allowed_colors,
@@ -389,131 +346,6 @@ def Illumination_correction(im, correction_channel, crop_limits=None, all_channe
 
     return corr_im
 
-# Function to generate chromatic abbrevation profile
-def generate_chromatic_abbrevation_correction(ims, names, master_folder, channels, corr_channel, ref_channel,
-                                              fitting_save_subdir=r'Analysis\Beads', seed_th_per=99.92,
-                                              correction_folder=_correction_folder,
-                                              make_plot=False,
-                                              save=True, save_folder=_correction_folder,
-                                              force=False, verbose=True):
-    '''Generate chromatic abbrevation profile from list of images
-    Inputs:
-        ims: images, list of 3D image for beads, in multi color
-        names: list of corresponding names
-        master_folder: master directory of beads data, string
-        channels: list of channels used in this data, list of string or ints
-        corr_channel: channel to be corrected, str or int
-        ref_channel: reference channel, str or int
-        fitting_save_subdir: sub_directory under master_folder to save fitting results, str (default: None)
-        seed_th_per: intensity percentile for seeds during beads-fitting, float (default: 99.92)
-        correction_folder: full directory for illumination correction profiles, string (default: ...)
-        save: whether directly save profile, bool (default: True)
-        save_folder: full path to save correction file, str (default: correction_folder)
-        force: do fitting and saving despite of existing files, bool (default: False)
-        verbose: say something!, bool (default: True)
-    Output:
-        _cc_profiles: list of correction profiles (in order of z,x,y, based on x,y coordinates)
-    '''
-    # Check inputs
-    if len(ims) != len(names): # check length
-        raise ValueError('Input images and names doesnt match!')
-    _default_channels = ['750','647','561','488','405']
-    _channels = [str(_ch) for _ch in channels]
-    for _ch in _channels: # check channels
-        if _ch not in _default_channels:
-            raise ValueError('Channel '+_ch+" not exist in default channels")
-    if str(corr_channel) not in _channels:
-        raise ValueError("correction channel "+str(corr_channel)+" is not given in channels");
-    if str(ref_channel) not in _channels:
-        raise ValueError("reference channel "+str(ref_channel)+" is not given in channels");
-
-    # imports
-    from scipy.stats import scoreatpercentile
-    import os
-    import matplotlib.pyplot as plt
-    import scipy.linalg
-
-    # split images into channels
-    _splitted_ims = get_img_info.split_channels(ims, names, num_channel=len(_channels), buffer_frames=10, DAPI=False)
-    _cims = _splitted_ims[_channels.index(str(corr_channel))]
-    _rims = _splitted_ims[_channels.index(str(ref_channel))]
-    # initialize list of beads centers:
-    _ccts, _rcts, _shifts = [], [], []
-
-    # loop through all images and calculate profile
-    for _cim,_rim,_name in zip(_cims,_rims,names):
-        try:
-            # fit correction channel
-            _cim = Illumination_correction(_cim, corr_channel, correction_folder=correction_folder,
-                                                        verbose=verbose)[0]
-            _cct = visual_tools.get_STD_centers(_cim, th_seed=scoreatpercentile(_cim, seed_th_per), verbose=verbose,
-                                        save=save, force=force, save_folder=master_folder+os.sep+fitting_save_subdir,
-                                        save_name=_name.split(os.sep)[-1].replace('.dax', '_'+str(corr_channel)+'_fitting.pkl'))
-            # fit reference channel
-            _rim = Illumination_correction(_rim, ref_channel, correction_folder=correction_folder,
-                                                        verbose=verbose)[0]
-            _rct = visual_tools.get_STD_centers(_rim, th_seed=scoreatpercentile(_rim, seed_th_per), verbose=verbose,
-                                        save=save, force=force, save_folder=master_folder+os.sep+fitting_save_subdir,
-                                        save_name=_name.split(os.sep)[-1].replace('.dax', '_'+str(ref_channel)+'_fitting.pkl'))
-            # Align points
-            _aligned_cct, _aligned_rct, _shift = visual_tools.beads_alignment_fast(_cct ,_rct, outlier_sigma=1, unique_cutoff=2)
-            # append
-            _ccts.append(_aligned_cct)
-            _rcts.append(_aligned_rct)
-            _shifts.append(_shift)
-            # make plot
-            if make_plot:
-                fig = plt.figure()
-                plt.plot(_aligned_rct[:,2], _aligned_rct[:,1],'r.', alpha=0.3)
-                plt.quiver(_aligned_rct[:,2], _aligned_rct[:,1], _shift[:,2], _shift[:,1])
-                plt.imshow(_rim.sum(0))
-                plt.show()
-        except:
-            pass
-    ## do fitting to explain chromatic abbrevation
-    # merge
-    _corr_beads = np.concatenate(_ccts)
-    _ref_beads = np.concatenate(_rcts)
-    _shift_beads = np.concatenate(_shifts)
-    # initialize
-    dz, dx, dy = _cims[0].shape
-    _cc_profiles = []
-    # loop through
-    for _j in range(3): # 3d correction
-        if _j == 0: # for z, do order-2 polynomial fitting
-            _data = np.concatenate((_ref_beads[:,1:]**2, (_ref_beads[:,1] * _ref_beads[:,2])[:,np.newaxis], _ref_beads[:,1:], np.ones([_ref_beads.shape[0],1])),1);
-            _C,_r,_,_ = scipy.linalg.lstsq(_data, _shift_beads[:,_j])    # coefficients
-            if verbose:
-                print('Z axis fitting R^2=', 1 - _r / sum((_shift_beads[:,_j] - _shift_beads[:,_j].mean())**2))
-            _cc_profile = np.zeros([dx,dy])
-            for _m in range(dx):
-                for _n in range(dy):
-                    _cc_profile[_m, _n] = np.dot(_C, [_m**2, _n**2, _m*_n, _m, _n, 1]);
-        else: # for x and y, do linear decomposition
-            _data = np.concatenate((_ref_beads[:,1:], np.ones([_ref_beads.shape[0],1])),1);
-            _C,_r,_,_ = scipy.linalg.lstsq(_data, _shift_beads[:,_j])    # coefficients
-            if verbose:
-                print('axis'+str(_j)+' fitting R^2=', 1 - _r / sum((_shift_beads[:,_j] - _shift_beads[:,_j].mean())**2))
-            _cc_profile = np.zeros([dx,dy])
-            for _m in range(dx):
-                for _n in range(dy):
-                    _cc_profile[_m, _n] = np.dot(_C, [_m,_n,1])
-        _cc_profiles.append(_cc_profile)
-    if save:
-        if not os.path.exists(save_folder):
-            os.mkdir(save_folder)
-        _save_file = save_folder + os.sep + "Chromatic_correction_"+str(corr_channel)+'_'+str(ref_channel)+'.pkl';
-        if verbose:
-            print("-- save chromatic abbrevation correction to file", _save_file)
-        pickle.dump(_cc_profiles, open(_save_file, 'wb'))
-        if make_plot:
-            for _d, _cc in enumerate(_cc_profiles):
-                plt.figure()
-                plt.imshow(_cc)
-                plt.colorbar()
-                plt.savefig(_save_file.replace('.pkl', '_'+str(_d)+'.png'))
-
-    return _cc_profiles
 
 def Chromatic_abbrevation_correction(im, correction_channel, target_channel='647', crop_limits=None, 
                                      all_channels=_allowed_colors, single_im_size=_image_size,
@@ -649,11 +481,11 @@ def Remove_Hot_Pixels(im, dtype=np.uint16, hot_pix_th=0.50, hot_th=4,
 
 
 # fast function to generate illumination profiles
-def fast_generate_illumination_correction(color, data_folder, correction_folder, image_type='H', num_of_images=50,
-                                          folder_id=0, buffer_frame=10, frame_per_color=30, target_color_ind=-1,
-                                          gaussian_sigma=40, seeding_th_per=99.5, seeding_th_base=300, seeding_crop_size=9,
-                                          remove_cap=False, cap_th_per=99.5,
-                                          force=False, save=True, save_name='illumination_correction_', make_plot=False, verbose=True):
+def generate_illumination_correction(color, data_folder, correction_folder, image_type='H', num_of_images=50,
+                                    folder_id=0, buffer_frame=10, frame_per_color=30, target_color_ind=-1,
+                                    gaussian_sigma=40, seeding_th_per=99.5, seeding_th_base=300, seeding_crop_size=9,
+                                    remove_cap=False, cap_th_per=99.5,
+                                    force=False, save=True, save_name='illumination_correction_', make_plot=False, verbose=True):
     """Function to generate illumination correction profile from hybridization type of image or bead type of image
     Inputs:
         color: 
@@ -776,10 +608,10 @@ def fast_generate_illumination_correction(color, data_folder, correction_folder,
     return _mean_profile
 
 
-def fast_generate_chromatic_abbrevation_from_spots(corr_spots, ref_spots, corr_channel, ref_channel, 
-                                                   image_size=_image_size, fitting_order=2,
-                                                   correction_folder=_correction_folder, make_plot=False, 
-                                                   save=True, save_name='chromatic_correction_',force=False, verbose=True):
+def generate_chromatic_abbrevation_from_spots(corr_spots, ref_spots, corr_channel, ref_channel, 
+                                            image_size=_image_size, fitting_order=2,
+                                            correction_folder=_correction_folder, make_plot=False, 
+                                            save=True, save_name='chromatic_correction_',force=False, verbose=True):
     """Code to generate chromatic abbrevation from fitted and matched spots"""
     ## check inputs
     if len(corr_spots) != len(ref_spots):

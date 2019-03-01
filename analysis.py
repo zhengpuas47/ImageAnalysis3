@@ -1714,3 +1714,151 @@ def pca_components(im_cor):
     # carry out the transformation on the data using eigenvectors
     # and return the re-scaled data, eigenvalues, and eigenvectors
     return evals, evecs  # , np.dot(evecs_red.T, data.T).T
+
+
+def naive_pick_spots(cand_spots, region_ids, use_chrom_coord=True, chrom_id=None, verbose=True):
+    """Naive pick spots simply by intensity"""
+    ## check inputs
+    if len(cand_spots) != len(region_ids):
+        raise ValueError(
+            "cand_spots and region_ids should have the same length!")
+    if chrom_id is None:
+        raise ValueError(
+            f"chrom_id should be given if use_chrom_coord is True!")
+    elif not isinstance(chrom_id, int):
+        chrom_id = int(chrom_id)
+    ## For now only support use_chrom_coord mode.
+    if use_chrom_coord:
+        _selected_spots = []
+        for _i, (_spots, _id) in enumerate(zip(cand_spots, region_ids)):
+            # check chrom_id
+            if len(_spots) <= chrom_id:
+                raise IndexError(
+                    f" spots:{_spots} for region:{_id} doesn't have spots for chromosome {chrom_id}")
+            # extract points
+            _pts = np.array(_spots[chrom_id])
+            _selected_spots.append(_pts[np.argsort(_pts[:, 0])[-1]])
+        return np.array(_selected_spots)
+
+    ## for not use_chrom_coord
+    else:
+        print("Mode for not use_chrom_coord is not supported yet!")
+        return None
+
+
+def spot_score_in_chromosome(spots, reg_id, sel_spots, cand_spots, distance_zxy=_distance_zxy, local_size=5,
+                             w_ctdist=1, w_lcdist=1, w_int=1):
+    """Function to calculate log-score for given spot in selected chr_pts from candidiate_points
+    Inputs:
+        spots: given fitted spots info, list of spots or one spot
+        reg_id: region id for these given spots, int
+        sel_spots: currently selected spots for chromosome tracing, list of spots / 2darray
+        cand_spots: candidate spots, list of list of spots
+        distance_zxy: transform from pixel to nm for z,x,y axes
+        local_size: window size to calculate local distance, int (default: 5)
+        w_ctdist: weight for distance to chr-center, float (default: 1)
+        w_lcdist: weight for distance to local-center, float (default: 1)
+        w_int: weight for intensity, float (default: 1)
+    Output:
+        _log_score: log score for this given spot, float 
+    """
+    # accumulative prob.
+    def _cum_prob(data, target_value):
+        """Function to calculate CDF from a dataset"""
+        data = np.array(data, dtype=np.float)
+        target_value = np.array(target_value, dtype=np.float)
+        if len(target_value.shape) == 0:
+            target_value = np.array([target_value], dtype=np.float)
+        target_value[np.isnan(target_value)] = np.inf
+
+        cprob = np.array(
+            [np.nansum(data < _v) / np.nansum(1-np.isnan(data)) for _v in target_value])
+        cprob[cprob == 0] = 1 / np.nansum(1-np.isnan(data))
+        cprob[cprob == 1] = 1 - 1 / np.nansum(1-np.isnan(data))
+        return cprob
+
+    def _local_distance(spot_zxy, zxy, pt_id, size=local_size):
+        """Function to caluclate local distance"""
+        _half_size = int((size-1)/2)
+        if pt_id < _half_size:
+            _half_size = pt_id
+        elif pt_id >= len(zxy) - _half_size:
+            _half_size = len(zxy) - pt_id - 1
+        if _half_size == 0:
+            return 0.5
+        _ind = np.delete(np.arange(pt_id-_half_size,
+                                   pt_id+_half_size+1), _half_size)
+        _local_mean = np.nanmean(zxy[_ind], axis=0)
+        _local_dist = np.linalg.norm(_local_mean - spot_zxy, axis=1)
+        return _local_dist
+
+    # get chr coordinates
+    _zxy = np.array(sel_spots)[:, 1:4]*np.array(distance_zxy)[np.newaxis, :]
+    _chr_center = np.nanmean(_zxy, axis=0)
+    if isinstance(cand_spots[0], list):
+        _all_spots = np.concatenate(
+            [np.concatenate(__pts) for __pts in cand_spots])  # all candidate spots
+    elif isinstance(cand_spots, np.ndarray):
+        _all_spots = np.array(cand_spots)
+    else:
+        _all_spots = np.concatenate(cand_spots)
+    _cand_zxy = np.array(_all_spots)[:, 1:4] * \
+        np.array(distance_zxy)[np.newaxis, :]
+    # get pt coordinates
+    _pts = np.array(spots)
+    if len(np.shape(_pts)) == 1:
+        _pts = _pts[np.newaxis, :]
+    _pt_zxy = _pts[:, 1:4] * np.array(distance_zxy)[np.newaxis, :]
+    if len(reg_id) == 1:
+        pass
+
+    # get chr statistics
+    _ct_dists = np.linalg.norm(_cand_zxy - _chr_center, axis=1)
+    _lc_dists = np.array(
+        [_local_distance(_zxy[np.newaxis, _i], _zxy, _i) for _i in range(len(_zxy))])
+    _intensities = np.array(_all_spots)[:, 0]
+    # get pt statistics
+    _pt_ct_dist = np.linalg.norm(_pt_zxy - _chr_center, axis=1)
+    _pt_lc_dist = _local_distance(_pt_zxy, _zxy, reg_id)
+    _pt_intensity = _pts[:, 0]
+    # get score
+    _log_score = np.log(1-_cum_prob(_ct_dists, _pt_ct_dist))*w_ctdist \
+        + np.log(1-_cum_prob(_lc_dists, _pt_lc_dist))*w_lcdist \
+        + np.log(_cum_prob(_intensities, _pt_intensity))*w_int
+
+    return _log_score
+
+
+def distance_score_in_chromosome(dists, sel_spots, distance_zxy=_distance_zxy,
+                                 w_dist=1):
+    """Function to calculate log-score for given spot in selected chr_pts from candidiate_points
+    Inputs:
+        spots: given fitted spots info, list of spots or one spot
+        sel_spots: currently selected spots for chromosome tracing, list of spots / 2darray
+        distance_zxy: transform from pixel to nm for z,x,y axes
+        w_dist: weight for distances, float (default: 1)
+    Output:
+        _log_score: log score for this given spot, float 
+    """
+    # accumulative prob.
+    def _cum_prob(data, target_value):
+        """Function to calculate CDF from a dataset"""
+        data = np.array(data, dtype=np.float)
+        target_value = np.array(target_value, dtype=np.float)
+        if len(target_value.shape) == 0:
+            target_value = np.array([target_value], dtype=np.float)
+        target_value[np.isnan(target_value)] = np.inf
+
+        cprob = np.array(
+            [np.nansum(data < _v) / np.nansum(1-np.isnan(data)) for _v in target_value])
+        cprob[cprob == 0] = 1 / np.nansum(1-np.isnan(data))
+        cprob[cprob == 1] = 1 - 1 / np.nansum(1-np.isnan(data))
+        return cprob
+    _zxy = np.array(sel_spots)[:, 1:4]*np.array(distance_zxy)[np.newaxis, :]
+    _nb_dists = np.linalg.norm(_zxy[1:]-_zxy[:-1], axis=1)
+    # shape 
+    _dist_shape = np.shape(np.array(dists))
+    _
+    _scores = np.log(1-_cum_prob(_nb_dists, dists)) * w_dist
+
+    return _scores

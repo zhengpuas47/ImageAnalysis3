@@ -182,7 +182,7 @@ def align_single_image(_filename, _selected_crops, _ref_filename=None, _ref_ims=
         # apply drift to ref_center and used as seed to find target centers
         _tar_center = visual_tools.get_STD_centers(_tar_im, seeds=_matched_tar_seeds, remove_close_pts=False)
         # compare and get drift
-        _drift = np.nanmean(_matched_ref_center - _tar_center, axis=0)
+        _drift = np.nanmean(_tar_center - _matched_ref_center , axis=0)
         _drifts.append(_drift)
         # compare difference and exit if two drifts close enough
         if len(_drifts) > 1:

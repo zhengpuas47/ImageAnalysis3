@@ -864,7 +864,7 @@ class Cell_List():
         # chromsome savefile #
         _fov_ids = [_cell.fov_id for _cell in self.cells]
         _fov_ids = np.unique(_fov_ids)
-        _filename = '_'+str(min(_fov_ids)) + '-' + str(max(fov_ids))+'.pkl'
+        _filename = '_'+str(min(_fov_ids)) + '-' + str(max(_fov_ids))+'.pkl'
         _chrom_savefile = os.path.join(
             self.save_folder, _coord_filename.replace('.pkl', _filename))
         # load from chrom-coord and partition it
@@ -1989,7 +1989,7 @@ class Cell_Data():
                     delattr(self, 'combo_groups')
 
     # Generate pooled image representing chromosomes
-    def _generate_chromosome_image(self, _source='unique', _max_count=40, _verbose=False):
+    def _generate_chromosome_image(self, _source='unique', _max_count=90, _verbose=False):
         """Generate chromosome from existing combo / unique images"""
         _source = _source.lower()
         if _source != 'combo' and _source != 'unique':
