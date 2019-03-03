@@ -224,15 +224,15 @@ class Cell_List():
 
     ## Pick segmentations info for all fovs 
     def _pick_cell_segmentations(self, _num_threads=None, _allow_manual=True,
-                            _min_shape_ratio=0.035, _signal_cap_ratio=0.2, _denoise_window=5,
-                            _shrink_percent=15, _max_conv_th=0, _min_boundary_th=0.48,
+                            _min_shape_ratio=0.036, _signal_cap_ratio=0.2, _denoise_window=5,
+                            _shrink_percent=13, _max_conv_th=0, _min_boundary_th=0.48,
                             _load_in_ram=True, _save=True, _save_npy=True, _save_postfix='_segmentation',
                             _cell_coord_fl='cell_coords.pkl', _force=False, _verbose=True):
         ## load segmentation
         # check attributes
         if not hasattr(self, 'channels') or not hasattr(self, 'color_dic'):
             self._load_color_info()
-        if not _num_threads:
+        if _num_threads is None:
             if not hasattr(self, 'num_threads'):
                 raise AttributeError('No num_threads given in funtion kwds and class attributes')
             else:
@@ -255,7 +255,7 @@ class Cell_List():
         _chosen_files = [os.path.join(_dapi_fd, _fov) for _fov in self.chosen_fovs]
         # do segmentation
         _segmentation_labels, _dapi_ims = visual_tools.DAPI_convoluted_segmentation(
-            _chosen_files, self.channels[self.dapi_channel_index],
+            _chosen_files, self.channels[self.dapi_channel_index], num_threads=_num_threads,
             min_shape_ratio=_min_shape_ratio, signal_cap_ratio=_signal_cap_ratio,
             denoise_window=_denoise_window, shrink_percent=_shrink_percent,
             max_conv_th=_max_conv_th, min_boundary_th=_min_boundary_th,
@@ -293,7 +293,7 @@ class Cell_List():
 
     def _update_cell_segmentations(self, _cell_coord_fl='cell_coords.pkl',
                                   _overwrite_segmentation=True,
-                                  _marker_displace_th = 300,
+                                  _marker_displace_th = 50,
                                   _append_new=True, _append_radius=90,
                                   _overlap_percent=60,
                                   _save_npy=True, _save_postfix="_segmentation",
@@ -630,7 +630,7 @@ class Cell_List():
             # do segmentation if necessary, or just load existing segmentation file
             _fov_segmentation_labels = visual_tools.DAPI_convoluted_segmentation(
                 os.path.join(_dapi_fd, self.fovs[_fov_id]), self.channels[self.dapi_channel_index],
-                make_plot=_plot_segmentation, return_images=False,
+                num_threads=_num_threads, make_plot=_plot_segmentation, return_images=False,
                 save=_save, save_npy=True, save_folder=self.segmentation_folder, force=False,verbose=_verbose)
             # extract result segmentation and image
             _fov_segmentation_label = _fov_segmentation_labels[0]
@@ -683,6 +683,9 @@ class Cell_List():
                       'distance_zxy' : self.distance_zxy,
                       'sigma_zxy': self.sigma_zxy,
                       } for _cell_id in _cell_ids]
+            if not _direct_load_drift:
+                for _p in _params:
+                    _p['drift'] = _drift
             _args += [(_p, True, _color_filename, True, 
                        _direct_load_drift, _drift_size, _drift_ref, 
                        _drift_postfix, _dynamic, True, False, 

@@ -11,6 +11,7 @@ from skimage import morphology, restoration, measure
 from skimage.segmentation import random_walker
 from scipy.ndimage import gaussian_laplace
 import cv2
+import multiprocessing as mp
 
 from . import get_img_info, corrections, visual_tools, alignment_tools, analysis, classes
 from .External import Fitting_v3
@@ -1194,12 +1195,12 @@ def DAPI_segmentation(ims, names,
             plt.colorbar();plt.show();
 
     # return segmentation results
-    return _ft_seg_labels;
+    return _ft_seg_labels
 
 
 # segmentation with convolution of DAPI images
 
-def DAPI_convoluted_segmentation(filenames, correction_channel=405, cap_percentile=1,
+def DAPI_convoluted_segmentation(filenames, correction_channel=405, num_threads=12, cap_percentile=1,
       illumination_correction=True, illumination_correction_channel=405, correction_folder=_correction_folder,
       merge_layer_num=11, denoise_window=5, mft_size=25, glft_size=30,
       max_conv_th=0, min_boundary_th=0.48, signal_cap_ratio=0.20,
@@ -1266,14 +1267,24 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405, cap_percenti
         if return_images:
             if verbose:
                 print(f"- loading {len(filenames)} images for output")
-            _ims = [corrections.correct_single_image(_fl, correction_channel) for _fl in filenames]
+            _load_args = [(_fl, correction_channel) for _fl in filenames]
+            _load_pool = mp.Pool(num_threads)
+            _ims = _load_pool.starmap(corrections.correct_single_image, _load_args, chunksize=1)
+            _load_pool.close()
+            _load_pool.terminate()
+            _load_pool.join()
             return _seg_labels, _ims
         else:
             return _seg_labels
     else:
         if verbose:
             print(f"- loading {len(filenames)} images for segmentation")
-        _ims = [corrections.correct_single_image(_fl, correction_channel) for _fl in filenames]
+        _load_args = [(_fl, correction_channel) for _fl in filenames]
+        _load_pool = mp.Pool(num_threads)
+        _ims = _load_pool.starmap(corrections.correct_single_image, _load_args, chunksize=1)
+        _load_pool.close()
+        _load_pool.terminate()
+        _load_pool.join()
     ## rescaling and stack
     # rescale image to 0-1 gray scale
     _limits = [stats.scoreatpercentile(_im, (cap_percentile, 100.-cap_percentile)).astype(np.float) for _im in _ims];
@@ -1420,8 +1431,11 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405, cap_percenti
                     print(f"-- saving label: {np.max(_final_label)+1}")
                 _save_label = ndimage.binary_dilation(_sg_label, structure=morphology.disk(int(dialation_dim/2)))
                 _save_label = ndimage.binary_fill_holes(_save_label, structure=morphology.disk(int(dialation_dim/2)))
-                print('save1', _get_label_features(_save_label, 1))
-                _final_label[_save_label==1] = np.max(_final_label)+1
+                
+                if np.sum(_save_label==1) > min_size:
+                    if verbose:
+                        print('save1', _get_label_features(_save_label, 1))
+                    _final_label[_save_label==1] = np.max(_final_label)+1
                 continue
             # not pass, try to split
             else:
@@ -1434,10 +1448,12 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405, cap_percenti
                     if _check_label(_cand_label, 1, min_shape_ratio*0.9**_iter_ct, max_size, verbose=verbose):
                         if verbose:
                             print(f"-- saving label: {np.max(_final_label)+1}")
-                        _save_label = ndimage.binary_dilation(_cand_label, structure=morphology.disk(int(dialation_dim/2)))
+                        _save_label = ndimage.binary_dilation(_cand_label, structure=morphology.disk(int(dialation_dim/2+1)))
                         _save_label = ndimage.binary_fill_holes(_save_label, structure=morphology.disk(int(dialation_dim/2)))
-                        print('save2', _get_label_features(_save_label, 1))
-                        _final_label[_save_label==1] = np.max(_final_label)+1
+                        if np.sum(_save_label == 1) > min_size:
+                            if verbose:
+                                print('save2', _get_label_features(_save_label, 1))
+                            _final_label[_save_label==1] = np.max(_final_label)+1
                     elif _iter_ct > max_iter:
                         if verbose:
                             print("--- Exceeding max-iteration count, skip.")
@@ -1481,7 +1497,7 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405, cap_percenti
     if random_walker_beta:
         if verbose:
             print ("- random walker segmentation!")
-        _seg_labels = [random_walker(_im, _label, beta=random_walker_beta, mode='bf') for _im, _label in zip(_stack_ims, _seg_labels)];
+        _seg_labels = [random_walker(_im, _label, beta=random_walker_beta, mode='bf') for _im, _label in zip(_stack_ims, _seg_labels)]
 
     ## plot
     if make_plot:
