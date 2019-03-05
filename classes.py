@@ -727,7 +727,7 @@ class Cell_List():
         ## check inputs
         # check whether cells and segmentation,drift info exists
         if _verbose:
-            print ("+ Load images for cells in this cell list")
+            print (f"+ Load images for {len(self.cells)} cells in this cell list")
         if not hasattr(self, 'cells'):
             raise ValueError("No cells loaded in cell_list")
         if len(self.cells) == 0:
