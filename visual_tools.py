@@ -2459,12 +2459,12 @@ def find_matched_seeds(im, ref_centers, search_distance=3,
     return _matched_seeds, _find_pair
 
 # select sparse centers given candidate centers
-def select_sparse_centers(centers, distance_th=9, distance_norm=1):
+def select_sparse_centers(centers, distance_th=9, distance_norm=np.inf):
     """Select sparse centers from given centers
     Inputs:
         centers: center coordinates (zxy) for all candidates, list of 3-array or nx3 2d-array
         distance_th: threshold for distance between neighboring centers, float (default: 9)
-        distance_norm: norm for the distance, int (default: 1)
+        distance_norm: norm for the distance, int (default: np.inf)
     Output:
         _sel_centers: selected centers, nx3 2d-array"""
     _sel_centers = []
@@ -2478,4 +2478,5 @@ def select_sparse_centers(centers, distance_th=9, distance_norm=1):
                 continue
             else:
                 _sel_centers.append(ct)
+    
     return np.array(_sel_centers)
