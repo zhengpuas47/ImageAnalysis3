@@ -970,4 +970,94 @@ def correct_single_image(filename, channel, crop_limits=None, seg_label=None, ex
     else:
         return _corr_im
 
+# generate bleedthrough 
+def generate_bleedthrough_info(filename, ref_channel, bld_channel, single_im_size=_image_size, 
+                               all_channels=_allowed_colors, num_buffer_frames=10,
+                               illumination_corr=True, th_seed=3000, crop_window=9,
+                               remove_boundary_pts=True, rsq_th=0.81, verbose=True):
+    """Generate bleedthrough coefficient
+    Inputs:
+        filename: full filename for image, str
+        ref_channel: channel for labeling, int or str (example: 750)
+        bld_channel: channel for checking bleedthrough, int or str (example: 647)
+        single_im_size: image size for single channel, array of 3 (default:[30,2048,2048])
+        all_channels: all allowed channel list, list of channels (default:[750,647,561,488,405])
+        num_buffer_frame: number of frames that is not used in zscan, int (default: 10)
+        illumination_corr: whether do illumination correction, bool (default: Ture)
+        th_seed: seeding threshold for getting candidate centers, int (default: 3000)
+        crop_window: window size for cropping, int (default: 9)
+        remove_boundary_pts: whether remove points that too close to boundary, bool (default: True)
+        rsq_th: threshold for rsquare from linear regression between bldthrough and ref image, float (default: 0.81)
+        verbose: say something!, bool (default: True)
+    Outputs:
+        picked_list: list of dictionary containing all info for bleedthrough correction"""
+    from sklearn.linear_model import LinearRegression
+    ## generate ref-image and bleed-through-image
+    ref_channel = str(ref_channel)
+    bld_channel = str(bld_channel)
+    all_channels = [str(ch) for ch in all_channels]
+    if ref_channel not in all_channels:
+        raise ValueError(f"ref_channel:{ref_channel} should be in all_channels:{all_channels}")
+    if bld_channel not in all_channels:
+        raise ValueError(f"bld_channel:{bld_channel} should be in all_channels:{all_channels}")
 
+    if verbose:
+        print(f"-- acquiring ref_im and bld_im from file:{filename}")
+    ref_im = correct_single_image(filename, ref_channel, single_im_size=single_im_size, 
+                                all_channels=all_channels, num_buffer_frames=num_buffer_frames,
+                                illumination_corr=illumination_corr, chromatic_corr=False,
+                                verbose=verbose)
+    bld_im = correct_single_image(filename, bld_channel, single_im_size=single_im_size, 
+                                all_channels=all_channels, num_buffer_frames=num_buffer_frames,
+                                illumination_corr=illumination_corr, chromatic_corr=False,
+                                verbose=verbose)
+    # get candidate centers
+    centers = visual_tools.get_STD_centers(ref_im, th_seed=th_seed, verbose=True)
+    # pick sparse centers
+    sel_centers = visual_tools.select_sparse_centers(centers, crop_window)
+    
+    ## crop images
+    cropped_refs, cropped_blds = [], []
+    # local parameter, cropping radius
+    _radius = int((crop_window-1)/2)
+    if _radius < 1:
+        raise ValueError(f"Crop radius should be at least 1!")
+    # loop through all centers
+    for ct in sel_centers:
+        if len(ct) != 3:
+            raise ValueError(f"Wrong input dimension of centers, only expect [z,x,y] coordinates in center:{ct}")
+        crop_l = np.array([np.zeros(3), np.round(ct-_radius)], dtype=np.int).max(0)
+        crop_r = np.array([np.array(np.shape(ref_im)), 
+                           np.round(ct+_radius+1)], dtype=np.int).min(0)
+        cropped_refs.append(ref_im[crop_l[0]:crop_r[0], crop_l[1]:crop_r[1], crop_l[2]:crop_r[2]])
+        cropped_blds.append(bld_im[crop_l[0]:crop_r[0], crop_l[1]:crop_r[1], crop_l[2]:crop_r[2]])
+    # check cropped image shape    
+    cropped_shape = np.array([np.array(_cim.shape) for _cim in cropped_refs]).max(0)
+    if (cropped_shape > crop_window).any():
+        raise ValueError("Wrong dimension for cropped images, should be of crop_window={crop_window} size")
+    # remove centers that too close to boundary
+    sel_centers = list(sel_centers)
+    for _i, (_rim, _bim, _ct) in enumerate(zip(cropped_refs, cropped_blds, sel_centers)):
+        if remove_boundary_pts and (_rim.shape-cropped_shape).any():
+            # pop points at boundary
+            cropped_refs.pop(_i)
+            cropped_blds.pop(_i)
+            sel_centers.pop(_i)
+
+    ## final picked list
+    picked_list = []
+    rsqs, ks, bs = [], [], []
+    for _i, (_rim, _bim, _ct) in enumerate(zip(cropped_refs, cropped_blds, sel_centers)):
+        _x = np.ravel(cropped_refs[_i])[:,np.newaxis]
+        _y = np.ravel(cropped_blds[_i])
+        _reg = LinearRegression().fit(_x,_y)
+        if _reg.score(_x,_y) > rsq_th:
+            _pair_dic = {'zxy': _ct,
+                         'ref_im': _rim,
+                         'bld_im': _bim,
+                         'rsquare': _reg.score(_x,_y),
+                         'slope': _reg.coef_,
+                         'intercept': _reg.intercept_}
+            picked_list.append(_pair_dic)
+    
+    return picked_list
