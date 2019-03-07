@@ -1028,21 +1028,22 @@ def generate_bleedthrough_info(filename, ref_channel, bld_channel, single_im_siz
             raise ValueError(f"Wrong input dimension of centers, only expect [z,x,y] coordinates in center:{ct}")
         crop_l = np.array([np.zeros(3), np.round(ct-_radius)], dtype=np.int).max(0)
         crop_r = np.array([np.array(np.shape(ref_im)), 
-                           np.round(ct+_radius+1)], dtype=np.int).min(0)
+                           np.round(ct-_radius)+crop_window], dtype=np.int).min(0)
         cropped_refs.append(ref_im[crop_l[0]:crop_r[0], crop_l[1]:crop_r[1], crop_l[2]:crop_r[2]])
         cropped_blds.append(bld_im[crop_l[0]:crop_r[0], crop_l[1]:crop_r[1], crop_l[2]:crop_r[2]])
-    # check cropped image shape    
-    cropped_shape = np.array([np.array(_cim.shape) for _cim in cropped_refs]).max(0)
-    if (cropped_shape > crop_window).any():
-        raise ValueError(f"Wrong dimension for cropped images:{cropped_shape}, should be of crop_window={crop_window} size")
     # remove centers that too close to boundary
     sel_centers = list(sel_centers)
     for _i, (_rim, _bim, _ct) in enumerate(zip(cropped_refs, cropped_blds, sel_centers)):
-        if remove_boundary_pts and (_rim.shape-cropped_shape).any():
+        if remove_boundary_pts and (_rim.shape-np.array([crop_window, crop_window, crop_window], dtype=np.int)).any():
             # pop points at boundary
             cropped_refs.pop(_i)
             cropped_blds.pop(_i)
             sel_centers.pop(_i)
+    # check cropped image shape    
+    cropped_shape = np.array([np.array(_cim.shape) for _cim in cropped_refs]).max(0)
+    if (cropped_shape > crop_window).any():
+        raise ValueError(f"Wrong dimension for cropped images:{cropped_shape}, should be of crop_window={crop_window} size")
+
     if verbose:
         print(f"-- {len(sel_centers)} centers are selected.")
     ## final picked list
@@ -1061,5 +1062,5 @@ def generate_bleedthrough_info(filename, ref_channel, bld_channel, single_im_siz
             picked_list.append(_pair_dic)
     if verbose:
         print(f"-- {len(picked_list)} pairs are saved.")
-           
+
     return picked_list
