@@ -973,7 +973,7 @@ def correct_single_image(filename, channel, crop_limits=None, seg_label=None, ex
 # generate bleedthrough 
 def generate_bleedthrough_info(filename, ref_channel, bld_channel, single_im_size=_image_size, 
                                all_channels=_allowed_colors, num_buffer_frames=10,
-                               illumination_corr=True, th_seed=3000, crop_window=9,
+                               illumination_corr=True, th_seed=2000, crop_window=9,
                                remove_boundary_pts=True, rsq_th=0.81, verbose=True):
     """Generate bleedthrough coefficient
     Inputs:
@@ -1034,7 +1034,7 @@ def generate_bleedthrough_info(filename, ref_channel, bld_channel, single_im_siz
     # check cropped image shape    
     cropped_shape = np.array([np.array(_cim.shape) for _cim in cropped_refs]).max(0)
     if (cropped_shape > crop_window).any():
-        raise ValueError("Wrong dimension for cropped images, should be of crop_window={crop_window} size")
+        raise ValueError(f"Wrong dimension for cropped images:{cropped_shape}, should be of crop_window={crop_window} size")
     # remove centers that too close to boundary
     sel_centers = list(sel_centers)
     for _i, (_rim, _bim, _ct) in enumerate(zip(cropped_refs, cropped_blds, sel_centers)):
@@ -1043,10 +1043,10 @@ def generate_bleedthrough_info(filename, ref_channel, bld_channel, single_im_siz
             cropped_refs.pop(_i)
             cropped_blds.pop(_i)
             sel_centers.pop(_i)
-
+    if verbose:
+        print(f"-- {len(sel_centers)} centers are selected.")
     ## final picked list
     picked_list = []
-    rsqs, ks, bs = [], [], []
     for _i, (_rim, _bim, _ct) in enumerate(zip(cropped_refs, cropped_blds, sel_centers)):
         _x = np.ravel(cropped_refs[_i])[:,np.newaxis]
         _y = np.ravel(cropped_blds[_i])
@@ -1059,5 +1059,7 @@ def generate_bleedthrough_info(filename, ref_channel, bld_channel, single_im_siz
                          'slope': _reg.coef_,
                          'intercept': _reg.intercept_}
             picked_list.append(_pair_dic)
-    
+    if verbose:
+        print(f"-- {len(picked_list)} pairs are saved.")
+           
     return picked_list
