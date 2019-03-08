@@ -372,15 +372,15 @@ def Chromatic_abbrevation_correction(im, correction_channel, target_channel='647
         raise ValueError(
             f"Wrong input type for im: {type(im)}, np.ndarray or np.memmap expected")
     if verbose:
-        print(f"-- correcting chromatic abbrevation for iamge with size:{im.shape}")
+        print(f"-- correcting chromatic abbrevation for iamge size:{im.shape}, channel:{correction_channel}")
     # correction channel
     correction_channel = str(correction_channel)
     if correction_channel not in all_channels:
-        raise ValueError(f"Input channel:{correction_channel} is not in allowed channels:{allowed_channels}")
+        raise ValueError(f"Input channel:{correction_channel} is not in allowed channels:{all_channels}")
     # target channel
     target_channel = str(target_channel)
     if target_channel not in all_channels:
-        raise ValueError(f"Input channel:{target_channel} is not in allowed channels:{allowed_channels}")
+        raise ValueError(f"Input channel:{target_channel} is not in allowed channels:{all_channels}")
     # if no correction required, directly return
     if correction_channel == target_channel:
         if verbose:
