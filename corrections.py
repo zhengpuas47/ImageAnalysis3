@@ -361,7 +361,9 @@ def Chromatic_abbrevation_correction(im, correction_channel, target_channel='647
         all_channels: allowed channels to be corrected, list 
         single_im_size: full image size before any slicing, list of 3 (default:[30,2048,2048])
         correction_folder: correction folder to find correction profile, string of path (default: Z://Corrections/)
-        correction_power: power for correction factor, float (default: 1)
+        profile_dtype: data type for correction profile, numpy datatype (default: np.float)
+        image_dtype: image data type, numpy datatype (default: np.uint16)
+        cc_profile_name: chromatic correction file basename, str (default: 'chromatic_correction')
         verbose: say something!, bool (default: True)"""
     
     ## check inputs
@@ -884,12 +886,11 @@ def correct_single_image(filename, channel, crop_limits=None, seg_label=None, ex
         filename: full filename of a dax_file or npy_file for one image, string
         channel: channel to be extracted, str (for example. '647')
         seg_label: segmentation label, 2D array
-        drift: 3d drift vector for this image, 1d-array
+        extend_dim: extension pixel number if doing cropping, int (default: 20)
         single_im_size: z-x-y size of the image, list of 3
         all_channels: all_channels used in this image, list of str(for example, ['750','647','561'])
-        raw_im: directly give image rather than loading, this will overwrite filename etc.
         num_buffer_frames: number of buffer frame in front and back of image, int (default:10)
-        extend_dim: extension pixel number if doing cropping, int (default: 20)
+        drift: 3d drift vector for this image, 1d-array
         correction_folder: path to find correction files
         z_shift_corr: whether do z-shift correction, bool (default: True)
         hot_pixel_remove: whether remove hot-pixels, bool (default: True)
@@ -1064,3 +1065,101 @@ def generate_bleedthrough_info(filename, ref_channel, bld_channel, single_im_siz
         print(f"-- {len(picked_list)} pairs are saved.")
 
     return picked_list
+
+# bleedthrough correction
+def Bleedthrough_correction(input_im, crop_limits=None, all_channels=_allowed_colors,
+                            correction_channels=None, single_im_size=_image_size,
+                            num_buffer_frames=10, drift=np.array([0, 0, 0]), correction_folder=_correction_folder,
+                            profile_basename='Bleedthrough_correction_matrix',
+                            profile_dtype=np.float, image_dtype=np.uint16,
+                            return_original_ims=False, verbose=True):
+    """Bleedthrough correction for a composite image
+    Inputs:
+        input_im: input image filename or list of images, str or list
+        crop_limits: 2d or 3d crop limits given for this image,
+            required if im is already sliced, 2x2 or 3x2 np.ndarray (default: None, no cropping at all)
+        all_channels: allowed channels to be corrected, list 
+        single_im_size: full image size before any slicing, list of 3 (default:[30,2048,2048])
+        num_buffer_frames: number of buffer frame in front and back of image, int (default:10)
+        drift: 3d drift vector for this image, 1d-array (default:np.array([0,0,0]))
+        correction_folder: correction folder to find correction profile, string of path (default: Z://Corrections/)
+        profile_basename: base filename for bleedthrough correction profile file, str (default: 'Bleedthrough_correction_matrix')
+        profile_dtype: data type for correction profile, numpy datatype (default: np.float)
+        image_dtype: image data type, numpy datatype (default: np.uint16)
+        verbose: say something!, bool (default: True)
+    Outputs:
+        _corr_ims: list of corrected images
+    """
+    ## check inputs
+    # input_im
+    _start_time = time.time()
+    if isinstance(input_im, str):
+        if not os.path.isfile(input_im):
+            raise IOError(f"input image file:{input_im} doesn't exist, exit!")
+    elif isinstance(input_im, list):
+        if len(input_im) != 3:
+            raise ValueError(
+                f"input images should be 3, but {len(input_im)} are given!")
+    else:
+        raise ValueError(
+            f"input_im should be str or list, but {type(input_im)} is given!")
+    # crop_limits:
+    if crop_limits is None:
+        crop_limits = np.array([np.zeros(len(single_im_size)), np.array(
+            single_im_size)], dtype=np.int).transpose()[:3]
+    if len(crop_limits) != 2 and len(crop_limits) != 3:
+        raise ValueError(
+            f"crop_limits should be 2d or 3d, but {len(crop_limits)} is given!")
+    # correction_channels:
+    if correction_channels is None:
+        correction_channels = all_channels[:3]
+    elif len(correction_channels) != 3:
+        raise ValueError("correction_channels should have 3 elements!")
+    # correction profile
+    _basename = profile_basename
+    for _ch in correction_channels:
+        _basename += '_'+str(_ch)
+    profile_filename = os.path.join(correction_folder, _basename+'.npy')
+    if not os.path.isfile(profile_filename):
+        raise IOError(f"Bleedthrough correction profile:{profile_filename} doesn't exist, exit!")\
+
+    ## start correction
+    # load image if necessary
+    if isinstance(input_im, str):
+        if verbose:
+            print(f"- Start bleedthrough correction from file:{input_im}")
+        _ld_args = [(input_im, _ch, crop_limits, None, 20, single_im_size, all_channels, num_buffer_frames,
+                     drift, correction_folder, True, True, False, False, False, verbose) for _ch in correction_channels]
+        with mp.Pool(3) as ld_pool:
+            _ims = ld_pool.starmap(correct_single_image, _ld_args)
+            ld_pool.close()
+            ld_pool.join()
+            ld_pool.terminate()
+            del(_ld_args)
+            classes.killchild()
+    elif isinstance(input_im, list):
+        if verbose:
+            print(f"- Start bleedthrough correction for images")
+        _ims = input_im
+    #print(time.time()-_start_time)
+    # load profile
+    if verbose:
+        print("-- loading bleedthrough profile")
+    _bld_profile = visual_tools.slice_image(profile_filename, [9, single_im_size[-2], single_im_size[-1]],
+                                            [0, 9], crop_limits[-2], crop_limits[-1], image_dtype=profile_dtype)
+    _bld_profile = _bld_profile.reshape(
+        (3, 3, _bld_profile.shape[-2], _bld_profile.shape[-1]))
+    #print(time.time()-_start_time)
+    # do bleedthrough correction
+    if verbose:
+        print("-- applying bleedthrough correction")
+    _corr_ims = []
+    for _i in range(3):
+        _nim = _ims[0]*_bld_profile[_i, 0] + _ims[1] * \
+            _bld_profile[_i, 1] + _ims[2]*_bld_profile[_i, 2]
+        _corr_ims.append(_nim)
+    #print(time.time()-_start_time)
+    if return_original_ims:
+        return _ims, _corr_ims
+    else:
+        return _corr_ims
