@@ -718,8 +718,8 @@ class Cell_List():
 
 
     def _crop_image_for_cells(self, _type='all', _load_in_ram=False, _load_annotated_only=True,
-                              _extend_dim=20, _corr_drift=True, _corr_Z_shift=True, _corr_hot_pixel=True, 
-                              _corr_illumination=True, _corr_chromatic=True,
+                              _extend_dim=20, _corr_drift=True, _corr_bleed=True, _corr_Z_shift=True, 
+                              _corr_hot_pixel=True, _corr_illumination=True, _corr_chromatic=True,
                               _save=True, _force=False, _overwrite_cell_info=False, _verbose=True):
         """Load images for all cells in this cell_list
         Inputs:
@@ -764,7 +764,7 @@ class Cell_List():
                         if _verbose:
                             print(f"+ Crop unique images for fov:{_cell.fov_id}, cell:{_cell.cell_id}")
                         _cell._crop_images('unique', _num_threads=self.num_threads, _single_im_size=_image_size,
-                                           _corr_drift=_corr_drift, _corr_Z_shift=_corr_Z_shift, _corr_hot_pixel=_corr_hot_pixel,
+                                           _corr_drift=_corr_drift, _corr_bleed=_corr_bleed, _corr_Z_shift=_corr_Z_shift, _corr_hot_pixel=_corr_hot_pixel,
                                            _corr_illumination=_corr_illumination, _corr_chromatic=_corr_chromatic,
                                            _load_in_ram=_load_in_ram, _extend_dim=_extend_dim,_num_buffer_frames=10,
                                            _save=_save, _overwrite=_force, _verbose=_verbose)
@@ -1366,10 +1366,10 @@ class Cell_Data():
 
     ## crop images given segmentation and images/temp_filenames
     def _crop_images(self, _type, _num_threads=12, _single_im_size=_image_size,
-                     _corr_drift=True, _corr_Z_shift=True, _corr_hot_pixel=True, 
+                     _corr_drift=True, _corr_bleed=True,
+                     _corr_Z_shift=True, _corr_hot_pixel=True,
                      _corr_illumination=True, _corr_chromatic=True,
                      _load_in_ram=False, _extend_dim=20, _num_buffer_frames=10,
-                     #_corr_images=None, _ref_names=None, _ref_channels=None,
                      _save=True, _overwrite=False, _verbose=True):
         "Function to crop combo/unique images "
         ## check inputs
@@ -1390,84 +1390,107 @@ class Cell_Data():
             raise ValueError(
                 f"Wrong type kwd! {_type} is given, {_allowed_kwds} expected.")
 
-        ## Start crop image
+        ### Start crop image
         if _verbose:
             print(f"- Start cropping {_type} image")
         _fov_name = self.fovs[self.fov_id]  # name of this field-of-view
-        ## unique
+        ### unique
         if _type == 'unique':
+            ## load from savefile if exists
             _unique_savefile = os.path.join(
                 self.save_folder, 'unique_rounds.npz')
             if os.path.isfile(_unique_savefile):
+                if _verbose:
+                    print("-- loading unique_rounds.npz", end=', ')
+                    _loading_start_time = time.time()
                 with np.load(_unique_savefile, mmap_mode='r+') as handle:
                     _unique_ims = list(handle['observation'])
                     _unique_ids = list(handle['ids'])
                     _unique_channels = list(handle['channels'])
+                if _verbose:
+                    print(f"time:{time.time()-_loading_start_time}")
             else:
                 _unique_ims, _unique_ids, _unique_channels = [], [], []
 
-            # initialize unique_args anyway
+            ## Acquire unique args to be cropped
             _unique_args = []
             # loop through color-dic and find all matched type
             for _hyb_fd, _infos in self.color_dic.items():
+                # extract reference name
+                _ref_name = os.path.join(_hyb_fd, _fov_name)
+                # select channels in this hybe to be corrected:
+                _sel_channels = []
+                _sel_ids = []
                 for _channel, _info in zip(self.channels[:len(_infos)], _infos):
+                    # if keyword type matches:
                     if _allowed_kwds[_type] in _info:
-                        # if overwrite, or this unique_id doesnot exist:
+                        # if this channel requires loading:
                         if _overwrite or int(_info.split(_allowed_kwds[_type])[-1]) not in _unique_ids:
-                            # extract reference name
-                            _ref_name = os.path.join(_hyb_fd, _fov_name)
-                            # channel_id
-                            _channel_id = self.channels.index(str(_channel))
-                            # match to folders
-                            _matched_folders = [
-                                _fd for _fd in self.annotated_folders if _hyb_fd == os.path.basename(_fd)]
-                            if len(_matched_folders) == 1:
-                                _im_filename = os.path.join(
-                                    _matched_folders[0], _fov_name)
-                                # if already exist and going to overwrite, just delete old ones
-                                if _overwrite and int(_info.split(_allowed_kwds[_type])[-1]) in _unique_ids:
-                                    _old_index = _unique_ids.index(int(_info.split(_allowed_kwds[_type])[-1]))
-                                    _unique_ids.pop(_old_index)
-                                    _unique_ims.pop(_old_index)
-                                    _unique_channels.pop(_old_index)
-                                # append id and arguments
-                                _unique_channels.append(_channel)
-                                _unique_ids.append(
-                                    int(_info.split(_allowed_kwds[_type])[-1]))
-                                # prepare args for function "correct_single_image"
-                                _unique_args.append((_im_filename, _channel, None, self.segmentation_label, _extend_dim,
-                                                     _single_im_size, self.channels, _num_buffer_frames,
-                                                     self.drift[_ref_name], self.correction_folder,
-                                                     _corr_Z_shift, _corr_hot_pixel, _corr_illumination, _corr_chromatic,
-                                                     False, _verbose))
-                            # if not uniquely-matched, skip
-                            else:
-                                print(
-                                    f"Ref_name:{_ref_name} has non-unique matches:{_matched_folders}, skip!")
-                                continue
-                        # skip the following if already existed & not overwrite
-                        else:
-                            if _verbose:
-                                print(f"- {int(_info.split(_allowed_kwds[_type])[-1])} already exists in unique_ims, skip!")
+                            # append _sel_channel
+                            _sel_channels.append(_channel)
+                            _sel_ids.append(
+                                int(_info.split(_allowed_kwds[_type])[-1]))
+                # do cropping if there are any channels selected:
+                if len(_sel_channels) > 0:
+                    # match to annotated_folders
+                    _matched_folders = [_fd for _fd in self.annotated_folders if _hyb_fd == os.path.basename(_fd)]
+                    # if there is uniquely matched folder, append to unique_args
+                    if len(_matched_folders) == 1:
+                        # get filename for this image
+                        _im_filename = os.path.join(
+                            _matched_folders[0], _fov_name)
+                        # if already exist and going to overwrite, just delete old ones
+                        for _uid in _sel_ids:
+                            if _overwrite and _uid in _unique_ids:
+                                _old_index = _unique_ids.index(_uid)
+                                _unique_ids.pop(_old_index)
+                                _unique_ims.pop(_old_index)
+                                _unique_channels.pop(_old_index)
+                        # append ids and channels
+                        _unique_ids += _sel_ids
+                        _unique_channels += _sel_channels
+                        # add unique_arg
+                        _new_arg = (_im_filename, _sel_channels, None, self.segmentation_label,
+                                    _extend_dim, _single_im_size, self.channels,
+                                    _num_buffer_frames, self.drift[_ref_name],
+                                    self.correction_folder, _corr_bleed,
+                                    _corr_Z_shift, _corr_hot_pixel, _corr_illumination, _corr_chromatic,
+                                    False, _verbose)
+                        _unique_args.append(_new_arg)
+                    # if not uniquely-matched, skip
+                    else:
+                        print(
+                            f"Ref_name:{_ref_name} has non-unique matches:{_matched_folders}, skip!")
+                        continue
+                # skip the following if already existed & not overwrite
+                else:
+                    if _verbose:
+                        print( f"- all channels in hyb:{_ref_name} already exists in unique_ims, skip!")
+
+            ## Multiprocessing for unique_args
             _start_time = time.time()
             if len(_unique_args) > 0:
                 # multi-processing to do cropping
                 if _verbose:
-                    print(f"-- start cropping {_type} for fov:{self.fov_id}, cell:{self.cell_id} with {_num_threads} threads")
-                with mp.Pool(_num_threads, 
-                            maxtasksperchild=int(np.ceil(len(_unique_args)/_num_threads)),
-                            ) as _crop_pool:
+                    print(
+                        f"-- start cropping {_type} for fov:{self.fov_id}, cell:{self.cell_id} with {_num_threads} threads")
+                with mp.Pool(_num_threads,
+                             maxtasksperchild=int(
+                                 np.ceil(len(_unique_args)/_num_threads))+1,
+                             ) as _crop_pool:
                     # Multi-proessing!
-                    _cropped_unique_ims = _crop_pool.starmap(corrections.correct_single_image, _unique_args, chunksize=1)
+                    _cropped_results = _crop_pool.starmap(
+                        corrections.correct_one_dax, _unique_args, chunksize=1)
                     # close multiprocessing
                     _crop_pool.close()
-                    _crop_pool.terminate()
                     _crop_pool.join()
+                    _crop_pool.terminate()
                 # clear
                 killchild()
-                del(_crop_pool, _unique_args)
+                del(_unique_args)
                 # append (Notice: unique_ids and unique_channels has been appended)
-                _unique_ims += _cropped_unique_ims
+                for _uims in _cropped_results:
+                    _unique_ims += _uims
             # sort
             _tp = [(_id, _im, _ch) for _id, _im, _ch in sorted(
                 zip(_unique_ids, _unique_ims, _unique_channels))]
@@ -1492,105 +1515,11 @@ class Cell_Data():
                 self._save_to_file('unique', _save_dic=_dc,
                                    _overwrite=_overwrite, _verbose=_verbose)
                 # update cell_list
-                self._save_to_file('cell_info', _overwrite=False, _verbose=_verbose)
+                self._save_to_file(
+                    'cell_info', _overwrite=False, _verbose=_verbose)
 
             return _unique_ims, _unique_ids, _unique_channels
 
-        elif _type == 'combo':
-            # load encoding
-            if not hasattr(self, 'encoding_scheme'):
-                self._load_encoding_scheme()
-            ## initialize
-            _raw_combo_fl = "rounds.npz"
-            _combo_groups = []  # list to store encoding groups
-            _combo_args = []  # list of arguments used for multi-processing
-            # load the images in the order of encoding scheme (which corresponding to experiment order)
-            for _channel, _encoding_info in self.encoding_scheme.items():
-                for _group_id, (_hyb_fds, _matrix) in enumerate(zip(_encoding_info['names'], _encoding_info['matrices'])):
-                    _combo_file = os.path.join(self.save_folder,
-                                               'group-'+str(_group_id),
-                                               'channel-'+str(_channel),
-                                               _raw_combo_fl)
-                    if os.path.isfile(_combo_file) and not _overwrite:
-                        with np.load(_combo_file, mmap_mode='r+') as handle:
-                            _ims = list(handle['observation'])
-                            _old_matrix = handle['encoding']
-                            _names = handle['names']
-                        _name_info = _combo_file.split(os.sep)
-                        _fov_id = [int(_i.split('-')[-1])
-                                   for _i in _name_info if "fov" in _i][0]
-                        _cell_id = [int(_i.split('-')[-1])
-                                    for _i in _name_info if "cell" in _i][0]
-                        _group_id = [int(_i.split('-')[-1])
-                                     for _i in _name_info if "group" in _i][0]
-                        _channel = [_i.split('-')[-1]
-                                    for _i in _name_info if "channel" in _i][0]
-                        _combo_groups.append(Encoding_Group(_ims, _names, _matrix, self.save_folder,
-                                                            _fov_id, _cell_id, _channel, _group_id))
-                    else:
-                        # use temp_filenames:
-                        if None in _corr_images:
-                            _arg = (None, _temp_filenames, self.segmentation_label, self.drift,
-                                    _channel, _hyb_fds, self.fovs[self.fov_id], _single_size, _extend_dim,
-                                    self.fov_id, self.cell_id, _group_id, self.save_folder, _matrix)
-                            _combo_args.append(_arg)
-                        # use images
-                        else:
-                            _matched_ims = []
-                            for _fd in _hyb_fds:
-                                _matches = [_im for _im, _ref_nm, _ref_ch in zip(_corr_images, _ref_names, _ref_channels)
-                                            if _ref_nm.split(os.sep)[0] == _fd and str(_channel) == str(_ref_ch)]
-                                if len(_matches) == 1:
-                                    _matched_ims.append(_matches[0])
-                                else:
-                                    raise ValueError(
-                                        f"Corrected image for folder:{_fd}, color:{_channel} doesnt have unique match")
-                            _arg = (_matched_ims, None, self.segmentation_label, self.drift,
-                                    _channel, _hyb_fds, self.fovs[self.fov_id], _single_size, _extend_dim,
-                                    self.fov_id, self.cell_id, _group_id, self.save_folder, _matrix)
-                            _combo_args.append(_arg)
-            if _verbose:
-                print(f"-- total group to be created: {len(_combo_args)}")
-            ## multi-processing to do cropping
-            if len(_combo_args) > 0:
-                if _verbose:
-                    print(
-                        f"-- start cropping {_type} for fov:{self.fov_id}, cell:{self.cell_id} with {_num_threads} threads")
-                _start_time = time.time()
-                _crop_pool = mp.Pool(_num_threads, maxtasksperchild=int(
-                    np.ceil(len(_combo_args)/_num_threads)))
-                _new_groups = _crop_pool.starmap(
-                    _generate_single_encoding_group, _combo_args, chunksize=1)
-                # close multiprocessing
-                _crop_pool.close()
-                _crop_pool.terminate()
-                _crop_pool.join()
-                # clear
-                killchild()
-                if _verbose:
-                    print(
-                        f"-- time spent in cropping:{time.time()-_start_time}")
-                # add new group to combo_groups
-                _combo_groups += _new_groups
-                print(len(_combo_groups))
-                # sort groups
-                _combo_groups = sorted(
-                    _combo_groups, key=lambda c: (c.color, c.group_id))
-                if _load_in_ram:
-                    self.combo_groups = _combo_groups
-                # save
-                if _save or not _load_in_ram:  # if not load-in-ram, then save something to file
-                    _dc = {'combo_groups': _combo_groups}
-                    self._save_to_file('combo', _save_dic=_dc,
-                                       _overwrite=_overwrite, _verbose=_verbose)
-                    self._save_to_file(
-                        'cell_info', _overwrite=False, _verbose=_verbose)
-                return _combo_groups
-            else:
-                # no need to update anything
-                if _load_in_ram:
-                    self.combo_groups = _combo_groups
-                return
 
     # function to give boolean output of whether a centain type of images are fully generated
     def _check_full_set(self, _type, _unique_marker='u', _decoded_flag='diff', _verbose=False):
@@ -2637,5 +2566,4 @@ class Merfish_Group():
         else:
             pass
 
-        
-     
+

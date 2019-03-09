@@ -1979,8 +1979,8 @@ def fit_multi_gaussian(im, seeds, width_zxy = [1.5, 2, 2], fit_radius=5,
     else:
         return np.array([])
 
-
-def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0, 
+# slice 3d image
+def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0,
                 npy_start=128, image_dtype=np.uint16, verbose=False):
     """
     Slice image in a memory-efficient manner.
@@ -1993,7 +1993,7 @@ def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0,
         xlims: limits in x axis (axis1), array-like struct of 2
         ylims: limits in y axis (axis2), array-like struct of 2
         zstep: number of steps to take one z-stack image, positive int (default: 1)
-        zstart: channel id, non-negative int (default: 0)
+        zstart: channel id(s), non-negative int or list of nn-int (default: 0)
         npy_start: starting bytes for npy format, int (default: 64)
     Output:
         data: cropped 3D image
@@ -2001,9 +2001,17 @@ def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0,
         fl = 'Z:\\20181022-IMR90_whole-chr21-unique\\H0R0\\Conv_zscan_00.dax'
         im = slice_image(fl, [170, 2048, 2048],[10, 160], [100, 300], [1028, 2048],5,4)
     """
-    if zstart >= zstep or zstart < 0:
-        raise Warning(
-            f"Wrong z-start input, should be non-negeative integer < {zstep}")
+    if isinstance(zstart, int):
+        zs = [zstart]
+    elif isinstance(zstart, list):
+        zs = list(np.unique(zstart))
+    else:
+        raise TypeError(
+            f"Wrong input type for zstart, should be int or list of int, {type(zstart)} is given!")
+    for _z in zs:
+        if _z >= zstep or _z < 0:
+            raise Warning(
+                f"Wrong z-start input:{_z}, should be non-negeative integer < {zstep}")
     if zstep <= 0:
         raise ValueError(
             f"Wrong z-step input:{zstep}, should be positive integer.")
@@ -2024,7 +2032,7 @@ def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0,
         print("-- slicing result is empty.")
         return np.array([])
     # initialize
-    data = np.zeros([dz, dx, dy], dtype=image_dtype)
+    _ims = [np.zeros([dz, dx, dy], dtype=image_dtype) for _z in zs]
     # file handle
     f = open(fl, "rb")
     # starting point
@@ -2034,22 +2042,51 @@ def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0,
         pt_pos = np.int(npy_start / element_size)
     else:
         pt_pos = 0
-    # start slicing
-    _start_layer = minz + (zstart+1+minz) % zstep
-    if (zstart+1+minz) % zstep == 0 and fl.split('.')[-1] == 'dax': # this gaurentees that frame 10 is not included
-        _start_layer += zstep
-    pt_pos += sx*sy*_start_layer + minx*sy + miny
-    # loop through dim1 and dim2
-    for iz in range(dz):
-        for ix in range(dx):
-            f.seek(pt_pos * element_size, 0)
-            data[iz, ix, :] = np.fromfile(f, dtype=image_dtype, count=dy)
-            pt_pos += sy
-        # finish one layer of z, some extra pt moving:
-        pt_pos += (sx-dx) * sy + (zstep-1)*sx*sy
+    # initialize pointers
+    pt_pos += minx*sy + miny
+
+    # start layer
+    _start_layer = minz
+
+    if fl.split('.')[-1] == 'dax' and zstep > 1:
+        _lims = [minz + (_z+1+minz) % zstep for _z in zs]
+        _new_lims = []
+        for _i, _l in enumerate(_lims):
+            if _l - minz == 0:
+                _lims[_i] += zstep
+        _start_layer = min(_lims)
+    else:
+        _start_layer = minz + min([(_z+1+minz) % zstep for _z in zs])
+    # get data
+    _data_cts = [0 for _z in zs]
+    _res = [(_z+1) % zstep for _z in zs]
+    for iz in range(sz):
+        if (np.array(_data_cts) >= dz).all():
+            # stop if all data image filled
+            break
+        elif iz >= _start_layer and iz % zstep in _res:
+            _data_index = _res.index(iz % zstep)
+            _data_layer = np.zeros([dx, dy], dtype=image_dtype)
+            for ix in range(dx):
+                # record dy data
+                f.seek(pt_pos * element_size, 0)
+                _data_layer[ix, :] = np.fromfile(
+                    f, dtype=image_dtype, count=dy)
+                # skip to next line
+                pt_pos += sy
+            _ims[_data_index][_data_cts[_data_index], :, :] = _data_layer
+            _data_cts[_data_index] += 1
+            # skip to next layer
+            pt_pos += (sx-dx) * sy
+        else:
+            # skip the whole layer
+            pt_pos += sx * sy
     # close and return
     f.close()
-    return data
+    if isinstance(zstart, int):
+        return _ims[0]
+    else:
+        return _ims
 
 
 def slice_2d_image(fl, im_shape, xlims, ylims, npy_start=128, image_dtype=np.uint16, verbose=False):
@@ -2189,51 +2226,91 @@ def crop_single_image(filename, channel, crop_limits=None, num_buffer_frames=10,
         return _crp_im
 
 
-def crop_combo_group(ims, temp_filenames, seg_label, drift_dic, 
-                     group_channel, group_names, fov_name=None, 
-                     im_size=_image_size, extend_dim=20):
-    '''Given '''
-    if ims is None and temp_filenames is None:
-        raise ValueError("Keywords ims and temp_filenames cannot be both None!")
-    if np.max(seg_label) > 1:
-        raise ValueError(
-            "seg_label must be binary label, either 0-1 label or bool")
-    if temp_filenames is None:
-        if group_names is None or fov_name is None:
-            raise ValueError("When image are given, group_names and fov_name should be given as well")
-        if len(group_names) != len(ims):
-            raise ValueError("number of images and number of group_names doesn't match")
+# function to crop multi-channel images from one dax file given filename, color_channel and crop_limits
+def crop_multi_channel_image(filename, channels, crop_limits=None, num_buffer_frames=10,
+                             all_channels=_allowed_colors, single_im_size=_image_size,
+                             drift=np.array([0, 0, 0]), return_limits=False, verbose=False):
+    """Function to crop one image given filename, color_channel and crop_limits
+    Inputs:
+        filename: .dax filename for given image, string of filename
+        channel: color_channel for the specific data, int or str
+        crop_limits: 2x2 or 3x2 array specifying where to crop, 
+            np.ndarray (default: None, i.e. the whole image)
+        num_buffer_frame: number of frames before z-scan starts, int (default:10)
+        all_channels: all allowed colors in given data, list (default: _allowed_colors)
+        single_im_size: image size for single color full image, list/array of 3 (default:[30,2048,2048])
+        drift: drift to ref-frame of this image, np.array of 3 (default:[0,0,0])
+        verbose: say something!, bool (default:False)
+    Output:
+        _crp_im: cropped image
+        """
+    ## 0. check inputs
+    # filename
+    if not os.path.isfile(filename):
+        raise ValueError(f"file {filename} doesn't exist!")
+    # check input channel
+    channels = [str(_ch) for _ch in channels]
+    for _ch in channels:
+        if _ch not in all_channels:
+            raise ValueError(
+                f"Input channel:{_ch} is not included in all_channels{all_channels}, exit!")
+    _channel_ids = [all_channels.index(_ch) for _ch in channels]
+    # drift
+    drift = np.array(drift)
+    if len(drift) != 3:
+        raise ValueError("dimension of drift should be 3!")
+    # crop_limits
+    if crop_limits is None:
+        crop_limits = np.stack([np.zeros(3), single_im_size]).T.astype(np.int)
+    elif len(crop_limits) == 2:
+        crop_limits = np.array(
+            [np.array([0, single_im_size[0]])]+list(crop_limits), dtype=np.int)
+    elif len(crop_limits) == 3:
+        crop_limits = np.array(crop_limits, dtype=np.int)
     else:
-        matched_filenames = []
-        for _gname in group_names:
-            _matches = [_fl for _fl in temp_filenames if _gname in _fl and str(group_channel) in _fl]
-            if len(_matches) == 1:
-                matched_filenames.append(_matches[0])
-            else:
-                raise ValueError("there are no matched temp files matched with group_names")
-    # binarilize segmentation label            
-    seg_label = np.array(seg_label > 0, dtype=np.int)
-    # extract reference name, used to extract drift
-    if group_names is not None and fov_name is not None:
-        ref_names = [os.path.join(_gn, fov_name) for _gn in group_names]
-    else:
-        ref_names = [os.path.basename(_fl).split('_'+group_channel)[0].replace('-',os.sep)+'.dax' for _fl in matched_filenames]
-    # match filename
-    for _rn in ref_names:
-        if _rn not in drift_dic:
-            raise KeyError(f"Drift_dic doesn't have key:{_rn} for ref_name")
-    # initialzie
-    cropped_ims = []
+        raise IndexError(
+            f"Wrong shape for crop_limits:{np.shape(crop_limits)}")
+    # convert negative slices into positives
+    for _lims, _s in zip(crop_limits, single_im_size):
+        if _lims[1] < 0:
+            _lims[1] += _s
+    # convert crop_limits into drift_limits
+    _drift_limits = np.zeros(crop_limits.shape, dtype=np.int)
+    for _i, (_d, _lims) in enumerate(zip(drift, crop_limits)):
+        # expand drift_limits a bit for shifting
+        _drift_limits[_i, 0] = max(_lims[0]-np.ceil(np.abs(_d)), 0)
+        _drift_limits[_i, 1] = min(
+            _lims[1]+np.ceil(np.abs(_d)), single_im_size[_i])
 
-    if temp_filenames is not None:
-        for filename, ref_name in zip(matched_filenames, ref_names):
-            cropped_ims.append(crop_single_image(
-                None, filename, seg_label, drift=drift_dic[ref_name], im_size=im_size, extend_dim=extend_dim))
+    ## 1. load image
+    # extract image info
+    _full_im_shape, _num_color = get_img_info.get_num_frame(filename,
+                                                            frame_per_color=single_im_size[0],
+                                                            buffer_frame=num_buffer_frames)
+    _zlims = [num_buffer_frames+_drift_limits[0, 0]*_num_color,
+              num_buffer_frames+_drift_limits[0, 1]*_num_color]
+    # slice image
+    _crp_ims = slice_image(filename, _full_im_shape, _zlims, _drift_limits[1],
+                           _drift_limits[2], zstep=_num_color, zstart=_channel_ids)
+    # do shift if drift exists
+    if drift.any():
+        _crp_ims = [ndimage.interpolation.shift(_im, -drift, mode='nearest') for _im in _crp_ims]
+
+    ## 2. second crop to adjust drift
+    # get differences between two limits
+    _limit_diffs = (crop_limits - _drift_limits).astype(np.int)
+
+    # do second crop
+    _crp_ims = [_im[_limit_diffs[0, 0]: _limit_diffs[0, 0]+crop_limits[0, 1]-crop_limits[0, 0],
+                    _limit_diffs[1, 0]: _limit_diffs[1, 0]+crop_limits[1, 1]-crop_limits[1, 0],
+                    _limit_diffs[2, 0]: _limit_diffs[2, 0]+crop_limits[2, 1]-crop_limits[2, 0]]
+                for _im in _crp_ims]
+    _final_limits = np.array([_drift_limits[:, 0]+_limit_diffs[:, 0],
+                              _drift_limits[:, 0]+_limit_diffs[:, 0]+crop_limits[:, 1]-crop_limits[:, 0]]).T
+    if return_limits:
+        return _crp_ims, _final_limits
     else:
-        for im, ref_name in zip(ims, ref_names):
-            cropped_ims.append(crop_cell(im, seg_label, drift=drift_dic[ref_name],extend_dim=extend_dim))
-    # return 
-    return cropped_ims        
+        return _crp_ims
 
 
 def visualize_fitted_spots(im, centers, radius=10):

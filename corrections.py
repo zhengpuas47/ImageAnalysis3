@@ -384,8 +384,7 @@ def Chromatic_abbrevation_correction(im, correction_channel, target_channel='647
     # if no correction required, directly return
     if correction_channel == target_channel:
         if verbose:
-            print(
-                f"-- no chromatic abbrevation required for channel:{correction_channel}")
+            print(f"--- no chromatic abbrevation required for channel:{correction_channel}")
         return im
     
     # check correction profile exists:
@@ -1131,24 +1130,21 @@ def Bleedthrough_correction(input_im, crop_limits=None, all_channels=_allowed_co
     ## start correction
     # load image if necessary
     if isinstance(input_im, str):
-        if verbose:
-            print(f"-- correcting bleedthrough from file:{input_im}")
-        _ld_args = [(input_im, _ch, crop_limits, None, 20, single_im_size, all_channels, num_buffer_frames,
-                     drift, correction_folder, z_shift_corr, hot_pixel_remove, 
-                     False, False, True, verbose) for _ch in correction_channels]
-        with mp.Pool(3) as ld_pool:
-            _results = ld_pool.starmap(correct_single_image, _ld_args)
-            _ims = [_cr[0] for _cr in _results]
-            _dft_limits = _results[0][1]
-            ld_pool.close()
-            ld_pool.join()
-            ld_pool.terminate()
-            del(_ld_args)
-            classes.killchild()
+        _ims, _dft_limits = visual_tools.crop_multi_channel_image(input_im, correction_channels, 
+                                                     crop_limits,
+                                                     num_buffer_frames, all_channels, single_im_size,
+                                                     drift, return_limits=True, verbose=verbose)
+        # do zshift and hot-pixel correction
+        # correct for z axis shift
+        _ims = [Z_Shift_Correction(_cim, verbose=False) for _cim in _ims]
+        # correct for hot pixels
+        _ims = [Remove_Hot_Pixels(_cim, hot_th=3, verbose=False) for _cim in _ims]
     elif isinstance(input_im, list):
         if verbose:
             print(f"-- correcting bleedthrough for images")
         _ims = input_im
+        _dft_limits = crop_limits
+    _ims = [_im.astype(np.float) for _im in _ims]
     #print(time.time()-_start_time)
     # load profile
     if verbose:
@@ -1165,7 +1161,9 @@ def Bleedthrough_correction(input_im, crop_limits=None, all_channels=_allowed_co
     for _i in range(3):
         _nim = _ims[0]*_bld_profile[_i, 0] + _ims[1] * \
             _bld_profile[_i, 1] + _ims[2]*_bld_profile[_i, 2]
-        _corr_ims.append(_nim)
+        _nim[_nim > np.iinfo(image_dtype).max] = np.iinfo(image_dtype).max
+        _nim[_nim < np.iinfo(image_dtype).min] = np.iinfo(image_dtype).min
+        _corr_ims.append(_nim.astype(image_dtype))
     #print(time.time()-_start_time)
     if return_limits:
         return _corr_ims, _dft_limits
@@ -1233,8 +1231,9 @@ def correct_one_dax(filename, sel_channels=None, crop_limits=None, seg_label=Non
         raise ValueError(f"Wrong input drift:{drift}, should be an array of 3")
 
     ## Start correction
+    _ref_name = os.path.join(filename.split(os.sep)[-2],filename.split(os.sep)[-1])
     if verbose:
-        print(f"- Start correct one dax file: {filename}")
+        print(f"- Start correct one dax file: {_ref_name}")
     # load image by bleedthrough correction
     if bleed_corr:
         _corr_ims, _dft_limits = Bleedthrough_correction(filename, _limits, all_channels=all_channels,
@@ -1244,30 +1243,21 @@ def correct_one_dax(filename, sel_channels=None, crop_limits=None, seg_label=Non
                                                          z_shift_corr=z_shift_corr, hot_pixel_remove=hot_pixel_remove,
                                                          return_limits=True, verbose=verbose)
     else:
-        _ref_name = os.path.join(filename.split(
-            os.sep)[-2], filename.split(os.sep)[-1])
         if verbose:
-            print(
-                f"- loading image from {_ref_name} for channels:{correction_channels}")
-        _ld_args = [(filename, _ch, _limits, None, 20, single_im_size, all_channels, num_buffer_frames,
-                     drift, correction_folder, z_shift_corr,
-                     hot_pixel_remove, False, False, True, verbose) for _ch in correction_channels]
-        with mp.Pool(3) as ld_pool:
-            _corr_results = ld_pool.starmap(correct_single_image, _ld_args)
-            _corr_ims = [_cr[0] for _cr in _corr_results]
-            _dft_limits = _corr_results[0][1]
-            ld_pool.close()
-            ld_pool.join()
-            ld_pool.terminate()
-            del(_ld_args)
-            classes.killchild()
+            print(f"- loading image from {_ref_name} for channels:{correction_channels}")
+        _corr_ims, _dft_limits = visual_tools.crop_multi_channel_image(filename, correction_channels, 
+                                                                       _limits, num_buffer_frames, 
+                                                                       all_channels, single_im_size,
+                                                                       drift, return_limits=True, 
+                                                                       verbose=verbose)
+
 
     # proceed with only selected channels
     _corr_ims = [_im for _im, _ch in zip(
         _corr_ims, correction_channels) if str(_ch) in sel_channels]
-
-    # make up if not done by bleedthrough correction
+    # do z-shift and hot-pixel correction
     if not bleed_corr:
+        # correct for z axis shift
         if z_shift_corr:
             # correct for z axis shift
             _corr_ims = [Z_Shift_Correction(
@@ -1276,7 +1266,6 @@ def correct_one_dax(filename, sel_channels=None, crop_limits=None, seg_label=Non
             # correct for hot pixels
             _corr_ims = [Remove_Hot_Pixels(
                 _cim, hot_th=3, verbose=verbose) for _cim in _corr_ims]
-
     # illumination and chromatic correction
     if illumination_corr:
         # illumination correction
@@ -1292,5 +1281,7 @@ def correct_one_dax(filename, sel_channels=None, crop_limits=None, seg_label=Non
                                                       crop_limits=_dft_limits,
                                                       correction_folder=correction_folder,
                                                       verbose=verbose) for _cim, _ch in zip(_corr_ims, sel_channels)]
-
-    return _corr_ims
+    if return_limits:
+        return _corr_ims, _dft_limits
+    else:
+        return _corr_ims
