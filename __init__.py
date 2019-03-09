@@ -19,6 +19,8 @@ from . import analysis
 from . import visual_tools
 # everything about aligments
 from . import alignment_tools
+# everything about domain analysis
+from . import domain_tools
 # functions to get hybe, folders
 from . import get_img_info
 # Drift and illumination correction
