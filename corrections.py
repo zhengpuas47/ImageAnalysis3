@@ -90,6 +90,8 @@ def Calculate_Bead_Drift(folders, fovs, fov_id, num_threads=12, drift_size=500, 
     if coord_sel is None:
         coord_sel = np.array(
             [int(single_im_size[-2]/2), int(single_im_size[-1]/2)], dtype=np.int)
+    else:
+        coord_sel = np.array(coord_sel, dtype=np.int)
     # collect crop coordinates (slices)
     crop0 = np.array([[0, single_im_size[0]],
                       [max(coord_sel[-2]-drift_size, 0), coord_sel[-2]],

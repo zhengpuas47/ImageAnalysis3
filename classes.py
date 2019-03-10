@@ -588,7 +588,7 @@ class Cell_List():
 
     def _create_cells_fov(self, _fov_ids, _num_threads=None, _sequential_mode=False, _plot_segmentation=True, 
                           _load_exist_info=True, _color_filename='Color_Usage', _load_annotated_only=True,
-                          _drift_size=500, _drift_ref=0, _drift_postfix='_current_cor.pkl', 
+                          _drift_size=500, _drift_ref=0, _drift_postfix='_current_cor.pkl', _coord_sel=None,
                           _dynamic=True, _save=False, _force_drift=False, _remove_bead_temp=True, _verbose=True):
         """Create Cele_data objects for one field of view"""
         if not _num_threads:
@@ -656,6 +656,7 @@ class Cell_List():
                 _drift, _failed_count = corrections.Calculate_Bead_Drift(_folders, self.fovs, _fov_id, 
                                             num_threads=_num_threads, sequential_mode=_sequential_mode, 
                                             ref_id=_drift_ref, drift_size=_drift_size, save_postfix=_drift_postfix, 
+                                            coord_sel=_coord_sel,
                                             overwrite=_force_drift, verbose=_verbose)
 
             # create cells in parallel
