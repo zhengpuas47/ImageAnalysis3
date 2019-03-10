@@ -2368,7 +2368,8 @@ def Extract_crop_from_segmentation(segmentation_label, extend_dim=20, single_im_
     return _limits
 
 # translate segmentation from previous experiment
-def translate_segmentation(old_segmentation, old_dapi_im, new_dapi_im, rotation_mat=None, rotation_ref_file=None,
+def translate_segmentation(old_segmentation, old_dapi_im, new_dapi_im, 
+                           rotation_mat=None, rotation_ref_file=None,
                            dapi_channel='405', all_channels=_allowed_colors, 
                            old_correction_folder=_correction_folder, 
                            new_correction_folder=_correction_folder, 

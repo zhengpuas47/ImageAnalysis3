@@ -471,10 +471,14 @@ class Cell_List():
     def _translate_old_segmentations(self, old_segmentation_folder, old_dapi_folder, rotation_mat,
                                     _old_correction_folder=_correction_folder,
                                     _new_correction_folder=_correction_folder,
+                                    _num_threads=12, _fft_gb=0, _fft_max_disp=200,
                                     _save=True, _save_postfix='_segmentation',
-                                    _save_npy=True, return_all=False, _force=False, _verbose=True):
+                                    _save_npy=True, _return_all=False, _force=False, _verbose=True):
         """Function to translate segmenation from a previous experiment 
         given old_segmentation_folder and rotation matrix"""
+        # number of threads
+        if hasattr(self, 'num_threads'):
+            _num_threads = max(_num_threads, self.num_threads)
         # decide filetype
         if _save_npy:
             _file_postfix = '.npy'
@@ -511,7 +515,8 @@ class Cell_List():
             raise ValueError("No DAPI folder detected in annotated_folders, stop!")
 
         # translate segmentation file
-        _new_labels, _dapi_ims = [], []
+        _seg_args, _seg_fls = [], [] # list for multi-processing
+        _new_filenames, _new_labels, _dapi_ims = [], [], [] # list for final results
         for _old_fl in old_seg_filenames:
             _new_fl = os.path.join(self.segmentation_folder,
                                 os.path.basename(_old_fl))
@@ -520,40 +525,61 @@ class Cell_List():
             # translate new segmentation if it doesn't exists or force to generate new ones
             if _force or not os.path.exists(_new_fl):
                 if _verbose:
-                    print(f"++ translating segmentation label:{_old_fl}")
-                _new_label, _dapi_im = visual_tools.translate_segmentation(_old_fl,
-                                                                        os.path.join(
-                                                                            old_dapi_folder, _dapi_im_name),
-                                                                        os.path.join(
-                                                                            _dapi_fd, _dapi_im_name),
-                                                                        rotation_mat=rotation_mat,
-                                                                        old_correction_folder=_old_correction_folder,
-                                                                        new_correction_folder=_new_correction_folder,
-                                                                        return_new_dapi=True)
-                if _save:
-                    if _verbose:
-                        print(f"++ saving segmentation result to file:{_new_fl}")
-                    if _save_npy:
-                        np.save(_new_fl.replace('.npy', ''), _new_label)
-                    else:
-                        pickle.dump([_new_label, _dapi_im], open(_new_fl, 'wb'))
+                    print(f"++ prepare translating segmentation label:{_old_fl}")
+                # prepare args for multi-processing
+                _arg = (_old_fl, os.path.join(old_dapi_folder, _dapi_im_name), os.path.join(_dapi_fd, _dapi_im_name),
+                        rotation_mat, None, '405', self.channels, _old_correction_folder, _new_correction_folder,
+                        _fft_gb, _fft_max_disp, _return_all, _verbose)
+                _seg_args.append(_arg)
+                _seg_fls.append(_new_fl)
             else:
                 if _verbose:
                     print(f"++ directly loading segmentation label:{_new_fl}")
                 if _save_npy:
                     _new_label = np.load(_new_fl)
-                    if return_all:
+                    if _return_all:
                         _dapi_im = corrections.correct_single_image(os.path.join(
                             _dapi_fd, _dapi_im_name), self.channels[self.dapi_channel_index],
                             correction_folder=self.correction_folder)
                 else:
                     _new_label, _dapi_im = pickle.load(open(_new_fl, 'rb'))
-            # append
-            _new_labels.append(_new_label)
-            if 'dapi_im' in locals():
+                _new_labels.append(_new_label)
                 _dapi_ims.append(_dapi_im)
 
-        if return_all:
+        ## multi-processing for translating segmentation
+        with mp.Pool(_num_threads,) as _seg_pool:
+            if _verbose:
+                print(f"+ Start multi-processing of translate_segmentation for {len(_seg_args)} fovs!")
+            # Multi-proessing!
+            _seg_result = _seg_pool.starmap(visual_tools.translate_segmentation, _seg_args, chunksize=1)
+            # close multiprocessing
+            _seg_pool.close()
+            _seg_pool.join()
+            _seg_pool.terminate()
+        # clear
+        killchild()
+        del(_seg_args) 
+        # extract result
+        _new_filenames += _seg_fls # filenames
+        if _return_all:
+            _new_labels += [_r[0] for _r in _seg_result] # segmentation_label
+            _dapi_ims += [_r[1] for _r in _seg_result] # dapi_im
+        else:
+            _new_labels += _seg_result # segmentation_label only
+        
+        ## save
+        if _save:
+            if _verbose:
+                print(f"++ saving segmentation result to file:{_new_fl}")
+            if _save_npy or not _return_all:
+                [np.save(_new_fl.replace('.npy', ''), _new_label) 
+                 for _new_fl, _new_label in zip(_new_filenames, _new_labels)]
+            else:
+                [pickle.dump([_new_label, _dapi_im], open(_new_fl, 'wb'))
+                 for _new_fl, _new_label in zip(_new_filenames, _new_labels)]
+
+        # return
+        if _return_all:
             return _new_labels, _dapi_ims
         else:
             return True
