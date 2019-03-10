@@ -2444,7 +2444,7 @@ def translate_segmentation(old_segmentation, old_dapi_im, new_dapi_im, rotation_
     # generated rotated image by rotation at the x-y center
     _rot_new_im = np.array([cv2.warpAffine(_lyr, _rotation_M, _lyr.shape, borderMode=cv2.BORDER_DEFAULT) for _lyr in new_dapi_im], dtype=np.uint16)
     # calculate drift by FFT
-    _drift = alignment_tools.fft3d_from2d(old_dapi_im, _rot_new_im, max_disp=fft_max_disp, gb=fft_gb)
+    _drift = alignment_tools.fft3d_from2d(old_dapi_im, _rot_new_im, max_disp=200, gb=fft_gb)
     if verbose:
         print(f"--- drift between DAPI images:{_drift}")
     ## 2. rotate segmentation
