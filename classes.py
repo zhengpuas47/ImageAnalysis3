@@ -61,16 +61,6 @@ def _fit_single_image(_im, _id, _chrom_coords, _seeding_args, _fitting_args, _ch
             _spots_for_chrom.append(np.array(_fitter.ps))
     return _spots_for_chrom
 
-def _generate_single_encoding_group(ims, temp_filenames, seg_label, drift_dic, 
-                                    group_channel,group_names,fov_name, im_size, extend_dim,
-                                    fov_id, cell_id, group_id, save_folder, matrix):
-    """Function used for multi-processing generating encoding groups"""
-    _cropped_ims = visual_tools.crop_combo_group(ims, temp_filenames, seg_label, drift_dic,
-                                                    group_channel, group_names, fov_name,im_size, extend_dim)
-    _group = Encoding_Group(_cropped_ims, group_names, matrix, save_folder, 
-                            fov_id, cell_id, group_channel, group_id)
-    return _group 
-
 
 class Cell_List():
     """
@@ -1329,7 +1319,7 @@ class Cell_Data():
     ## Load drift (better load, although de novo drift is allowed)
     def _load_drift(self, _sequential_mode=True, _load_annotated_only=True, 
                     _size=500, _ref_id=0, _drift_postfix='_current_cor.pkl', _num_threads=12,
-                    _force=False, _dynamic=True, _verbose=True):
+                    _coord_sel=None, _force=False, _dynamic=True, _verbose=True):
         # num-threads
         if hasattr(self, 'num_threads'):
             _num_threads = min(_num_threads, self.num_threads)
@@ -1374,7 +1364,8 @@ class Cell_Data():
             ## proceed to amend drift correction
             _drift, _failed_count = corrections.Calculate_Bead_Drift(_folders, self.fovs, self.fov_id, 
                                         num_threads=_num_threads,sequential_mode=_sequential_mode, 
-                                        ref_id=_ref_id, drift_size=_size, save_postfix=_drift_postfix,
+                                        ref_id=_ref_id, drift_size=_size, coord_sel=_coord_sel,
+                                        save_postfix=_drift_postfix,
                                         save_folder=self.drift_folder,
                                         overwrite=_force, verbose=_verbose)
             if _verbose:

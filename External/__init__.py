@@ -4,3 +4,7 @@ from .. import _correction_folder, _temp_folder, _distance_zxy, _sigma_zxy, _all
 
 # import existing module
 from . import Fitting_v3
+
+# import domain_tools
+from . import DomainTools
+

@@ -31,5 +31,4 @@ from . import classes
 
 ## import exteral functions
 from .External import Fitting_v3
-
-
+from .External import DomainTools
