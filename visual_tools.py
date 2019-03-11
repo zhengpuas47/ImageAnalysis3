@@ -1568,16 +1568,16 @@ def generate_chromosome_from_dic(im_dic, merging_channel, color_dic,  bead_label
                     _bead = _ims[_i]
                     break;
             # calculate drift fastly with FFT
-            _rough_dft = fftalign(_ref_bead, _bead);
+            _rough_dft = fftalign(_ref_bead, _bead)
             _rough_dfts.append(_rough_dft)
             # roughly align image and save
             if merging_channel >=0 and merging_channel < len(_ims): # if merging_channel is provided properly
-                _corr_im = translate(_ims[merging_channel],-_rough_dft);
-                _mean_im.append(_corr_im);
+                _corr_im = translate(_ims[merging_channel],-_rough_dft)
+                _mean_im.append(_corr_im)
             else: # if merging_channel is not provided etc:
                 for _i, _label in enumerate(color_dic[_name.split(os.sep)[0]]):
                     if bead_label != _label and _label != '':
-                        _corr_im = fast_translate(_ims[_i],-_rough_dft);
+                        _corr_im = fast_translate(_ims[_i],-_rough_dft)
                         _mean_im.append(_corr_im)
     if verbose:
         print('- number of images to calculate mean: '+str(len(_mean_im))+'\n- number of FFT drift corrections: '+str(len(_rough_dfts)))
@@ -1606,7 +1606,7 @@ def crop_cell(im, segmentation_label, drift=None, extend_dim=20, overlap_thresho
     _label_dim = np.shape(segmentation_label)
     if drift is not None:
         if len(drift) != len(im.shape):
-            raise ValueError('drift dimension and image dimension doesnt match!');
+            raise ValueError('drift dimension and image dimension doesnt match!')
     # initialize cropped image list
     _crop_ims = []
 
@@ -1656,17 +1656,17 @@ def crop_cell(im, segmentation_label, drift=None, extend_dim=20, overlap_thresho
             _limits = np.zeros([len(_label_dim),2], dtype=np.int); # initialize matrix to save cropping limit
             _binary_label = segmentation_label == _l+1 # extract binary image
             for _m in range(len(_label_dim)):
-                _1d_label = _binary_label.sum(_m) > 0;
-                _has_label=False;
+                _1d_label = _binary_label.sum(_m) > 0
+                _has_label=False
                 for _n in range(len(_1d_label)):
                     if _1d_label[_n] and not _has_label:
-                        _limits[_m,0] = max(_n-extend_dim, 0);
-                        _has_label = True;
+                        _limits[_m,0] = max(_n-extend_dim, 0)
+                        _has_label = True
                     elif not _1d_label[_n] and _has_label:
-                        _limits[_m,1] = min(_n+extend_dim, _im_dim[1+_m]);
-                        _has_label = False;
+                        _limits[_m,1] = min(_n+extend_dim, _im_dim[1+_m])
+                        _has_label = False
                 if _has_label: # if label touch boundary
-                    _limits[_m,1] = _im_dim[1+_m];
+                    _limits[_m,1] = _im_dim[1+_m]
             #print _limits
             # crop image and save to _crop_ims
             if drift is None:
