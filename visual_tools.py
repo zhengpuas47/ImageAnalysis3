@@ -408,7 +408,7 @@ def beads_alignment_fast(beads, ref_beads, unique_cutoff=2., check_outlier=True,
             _candidate_beads = beads[np.sqrt(np.sum((beads - _rb)**2,1)) < unique_cutoff]
             if len(_candidate_beads) == 1: # if unique pairs identified
                 _paired_beads.append(_candidate_beads[0])
-                _paired_ref_beads.append(_rb);
+                _paired_ref_beads.append(_rb)
                 _shifts.append(_candidate_beads[0] - _rb)
     # covert to numpy array
     _paired_beads = np.array(_paired_beads)
@@ -429,33 +429,33 @@ def beads_alignment_fast(beads, ref_beads, unique_cutoff=2., check_outlier=True,
         from scipy.spatial import Delaunay
         from mpl_toolkits.mplot3d import Axes3D
         # initialize list for shifts calculated by neighboring points
-        _alter_shifts = [];
+        _alter_shifts = []
         # calculate Delaunay triangulation for ref_beads
-        _tri = Delaunay(_paired_ref_beads);
+        _tri = Delaunay(_paired_ref_beads)
         # loop through all beads
         for _i in range(_paired_ref_beads.shape[0]):
             # initialize diff, which used to judge whether keep this
-            _keep = True;
+            _keep = True
             # extract shift
-            _shift = _shifts[_i];
+            _shift = _shifts[_i]
             # initialize neighboring point ids
             _neighbor_ids = []
             # find neighbors for this point
             for _simplex in _tri.simplices.copy():
                 if _i in _simplex:
-                    _neighbor_ids.append(_simplex);
-            _neighbor_ids = np.array(np.unique(_neighbor_ids).astype(np.int));
-            _neighbor_ids = _neighbor_ids[_neighbor_ids != _i]; # remove itself
-            _neighbor_ids = _neighbor_ids[_neighbor_ids != -1]; # remove error
+                    _neighbor_ids.append(_simplex)
+            _neighbor_ids = np.array(np.unique(_neighbor_ids).astype(np.int))
+            _neighbor_ids = _neighbor_ids[_neighbor_ids != _i] # remove itself
+            _neighbor_ids = _neighbor_ids[_neighbor_ids != -1] # remove error
             # calculate alternative shift
             _neighbors = _paired_ref_beads[_neighbor_ids,:]
             _neighbor_shifts = _shifts[_neighbor_ids,:]
             _neighbor_weights = 1/np.sqrt(np.sum((_neighbors-_paired_ref_beads[_i])**2,1))
             _alter_shift = np.dot(_neighbor_shifts.T, _neighbor_weights) / np.sum(_neighbor_weights)
-            _alter_shifts.append(_alter_shift);
+            _alter_shifts.append(_alter_shift)
             #print _i,  _alter_shift, _shift
         # differences between shifts and alternative shifts
-        _diff = [np.linalg.norm(_shift-_alter_shift) for _shift,_alter_shift in zip(_shifts, _alter_shifts)];
+        _diff = [np.linalg.norm(_shift-_alter_shift) for _shift,_alter_shift in zip(_shifts, _alter_shifts)]
         # determine whether keep this:
         print('-- differences in original drift and neighboring dirft:', np.mean(_diff), np.std(_diff))
         _keeps = np.array(_diff < np.mean(_diff)+np.std(_diff)*outlier_sigma, dtype=np.bool)
@@ -1062,18 +1062,18 @@ def DAPI_segmentation(ims, names,
     # check whether input is a list of images or just one image
     if isinstance(ims, list):
         if verbose:
-            print("Start segmenting list of images");
-        _ims = ims;
-        _names = names;
+            print("Start segmenting list of images")
+        _ims = ims
+        _names = names
     else:
         if verbose:
-            print("Start segmenting one image");
-        _ims = [ims];
-        _names = [names];
+            print("Start segmenting one image")
+        _ims = [ims]
+        _names = [names]
 
     # check input length
     if len(_names) != len(_ims):
-        raise ValueError('input images and names length not compatible!');
+        raise ValueError('input images and names length not compatible!')
 
     # illumination correction
     if illumination_correction:
@@ -1081,7 +1081,7 @@ def DAPI_segmentation(ims, names,
                                                 verbose=verbose) for _im in _ims]
 
     # rescale image to 0-1 gray scale
-    _limits = [stats.scoreatpercentile(_im, (cap_percentile, 100.-cap_percentile)).astype(np.float) for _im in _ims];
+    _limits = [stats.scoreatpercentile(_im, (cap_percentile, 100.-cap_percentile)).astype(np.float) for _im in _ims]
     _norm_ims = [(_im-np.min(_limit))/(np.max(_limit)-np.min(_limit)) for _im,_limit in zip(_ims, _limits)]
     for _im in _norm_ims:
         _im[_im < 0] = 0
@@ -1093,17 +1093,17 @@ def DAPI_segmentation(ims, names,
     # stack images close to this focal layer
     if verbose:
         print('- find focal plane and slice')
-    _stack_ims = [];
+    _stack_ims = []
     for _im, _layer in zip(_norm_ims, _focus_layers):
         if _im.shape[0] - _layer < np.ceil((merge_layer_num-1)/2):
-            _stack_lims = [_im.shape[0]-merge_layer_num, _im.shape[0]];
+            _stack_lims = [_im.shape[0]-merge_layer_num, _im.shape[0]]
         elif _layer < np.floor((merge_layer_num-1)/2):
-            _stack_lims = [0, merge_layer_num];
+            _stack_lims = [0, merge_layer_num]
         else:
             _stack_lims = [_layer-np.ceil((merge_layer_num-1)/2), _layer+np.floor((merge_layer_num-1)/2)]
         _stack_lims = np.array(_stack_lims, dtype=np.int)
         # extract image
-        _stack_im = np.zeros([np.max(_stack_lims)-np.min(_stack_lims), np.shape(_im)[1], np.shape(_im)[2]]);
+        _stack_im = np.zeros([np.max(_stack_lims)-np.min(_stack_lims), np.shape(_im)[1], np.shape(_im)[2]])
         # denoise and merge
         if denoise_window:
             for _i,_l in enumerate(range(np.min(_stack_lims), np.max(_stack_lims))):
@@ -1117,26 +1117,26 @@ def DAPI_segmentation(ims, names,
 
     # laplace of gaussian filter
     if verbose:
-        print("- apply by laplace-of-gaussian filter");
+        print("- apply by laplace-of-gaussian filter")
     _conv_ims = [gaussian_laplace(_im, log_window) for _im in _stack_ims]
 
     # binarilize the image
     _supercell_masks = [(_cim < -1e-6) *( _sim > signal_cap_ratio) for _cim, _sim in zip(_conv_ims, _stack_ims)]
-    _supercell_masks = [ndimage.binary_dilation(_im, structure=morphology.disk(4)) for _im in _supercell_masks];
-    _supercell_masks = [ndimage.binary_erosion(_im, structure=morphology.disk(12)) for _im in _supercell_masks];
-    _supercell_masks = [ndimage.binary_fill_holes(_im, structure=morphology.disk(3)) for _im in _supercell_masks];
+    _supercell_masks = [ndimage.binary_dilation(_im, structure=morphology.disk(4)) for _im in _supercell_masks]
+    _supercell_masks = [ndimage.binary_erosion(_im, structure=morphology.disk(12)) for _im in _supercell_masks]
+    _supercell_masks = [ndimage.binary_fill_holes(_im, structure=morphology.disk(3)) for _im in _supercell_masks]
 
     # acquire labels
     if verbose:
         print("- acquire labels")
-    _open_objects = [morphology.opening(_im, morphology.disk(3)) for _im in _supercell_masks];
+    _open_objects = [morphology.opening(_im, morphology.disk(3)) for _im in _supercell_masks]
     _close_objects = [morphology.closing(_open, morphology.disk(3)) for _open in _open_objects]
-    _close_objects = [morphology.remove_small_objects(_close, 2000) for _close in _close_objects];
-    _bboxes = [ndimage.find_objects(_close) for _close in _close_objects];
-    _masks = [_close[_bbox[0]] for _bbox, _close in zip(_bboxes, _close_objects)];
-    _labels = [];
+    _close_objects = [morphology.remove_small_objects(_close, 2000) for _close in _close_objects]
+    _bboxes = [ndimage.find_objects(_close) for _close in _close_objects]
+    _masks = [_close[_bbox[0]] for _bbox, _close in zip(_bboxes, _close_objects)]
+    _labels = []
     for _close,_sim in zip(_close_objects,_stack_ims):
-        _label, _num = ndimage.label(_close);
+        _label, _num = ndimage.label(_close)
         _label[(_sim > signal_cap_ratio)*(_label==0)] = 0
         _label[(_sim <= signal_cap_ratio)*(_label==0)] = -1
         _labels.append(_label)
@@ -1144,7 +1144,7 @@ def DAPI_segmentation(ims, names,
     # random walker segmentation
     if verbose:
         print ("- random walker segmentation!")
-    _seg_labels = [random_walker(_im, _label, beta=1, mode='bf') for _im, _label in zip(_stack_ims, _labels)];
+    _seg_labels = [random_walker(_im, _label, beta=1, mode='bf') for _im, _label in zip(_stack_ims, _labels)]
 
     # remove bad labels by shape ratio: A(x)/I(x)^2
     if verbose:
@@ -1159,7 +1159,7 @@ def DAPI_segmentation(ims, names,
             _contour = measure.find_contours(np.array(_seg_label==_l+1, dtype=np.int), 0)[0]
             _length = np.sum(np.sqrt(np.sum((_contour[1:] - _contour[:-1])**2, axis=1)))
             _size = np.sum(_seg_label==_l+1)
-            _center = np.round(ndimage.measurements.center_of_mass(_seg_label==_l+1));
+            _center = np.round(ndimage.measurements.center_of_mass(_seg_label==_l+1))
             _shape_ratio = _size/_length**2
             if _shape_ratio < shape_ratio_threshold:
 
@@ -1174,25 +1174,26 @@ def DAPI_segmentation(ims, names,
                     _failed_labels.append(_l+1)
                     if verbose:
                         print("-- fail by center_coordinate, label:", _l+1, "center of this nucleus:", _center[-2:])
-                    break;
+                    break
 
         _lb = 1
         while _lb <= np.max(_seg_label):
             if np.sum(_seg_label == _lb) == 0:
                 print ("-- remove", _lb)
-                _seg_label[_seg_label>_lb] -= 1;
+                _seg_label[_seg_label>_lb] -= 1
             else:
                 print ("-- pass", _lb)
-                _lb += 1;
+                _lb += 1
 
         _ft_seg_labels.append(_seg_label)
     # plot
     if make_plot:
         for _seg_label, _name in zip(_ft_seg_labels, _names):
-            plt.figure();
+            plt.figure()
             plt.imshow(_seg_label)
             plt.title(_name)
-            plt.colorbar();plt.show();
+            plt.colorbar()
+            plt.show()
 
     # return segmentation results
     return _ft_seg_labels
@@ -1287,7 +1288,7 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405, num_threads=
         _load_pool.join()
     ## rescaling and stack
     # rescale image to 0-1 gray scale
-    _limits = [stats.scoreatpercentile(_im, (cap_percentile, 100.-cap_percentile)).astype(np.float) for _im in _ims];
+    _limits = [stats.scoreatpercentile(_im, (cap_percentile, 100.-cap_percentile)).astype(np.float) for _im in _ims]
     _norm_ims = [(_im-np.min(_limit))/(np.max(_limit)-np.min(_limit)) for _im,_limit in zip(_ims, _limits)]
     for _im in _norm_ims:
         _im[_im < 0] = 0
@@ -1308,7 +1309,7 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405, num_threads=
             _stack_lims = [_layer-np.ceil((merge_layer_num-1)/2), _layer+np.floor((merge_layer_num-1)/2)]
         _stack_lims = np.array(_stack_lims, dtype=np.int)
         # extract image
-        _stack_im = np.zeros([np.max(_stack_lims)-np.min(_stack_lims), np.shape(_im)[1], np.shape(_im)[2]]);
+        _stack_im = np.zeros([np.max(_stack_lims)-np.min(_stack_lims), np.shape(_im)[1], np.shape(_im)[2]])
         # denoise and merge
         if denoise_window:
             for _i,_l in enumerate(range(np.min(_stack_lims), np.max(_stack_lims))):
@@ -1348,19 +1349,19 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405, num_threads=
     def _label_binary_im(_im, obj_size=3):
         '''Given an binary image, find labels for all isolated objects with given size'''
         # make sure image is binary
-        _bim = np.array(_im > 0, dtype=np.int);
+        _bim = np.array(_im > 0, dtype=np.int)
         # find objects
         _open = morphology.opening(_bim, morphology.disk(obj_size))
         _close = morphology.closing(_open, morphology.disk(obj_size))
         # label objects
-        _label, _num = ndimage.label(_close.astype(bool));
+        _label, _num = ndimage.label(_close.astype(bool))
         # return
         return _label, _num
 
     def _check_label(_label, _id, _min_shape_ratio, _max_size, verbose=False):
         """Check whether the label is qualified as a cell"""
         # get features
-        _length,_size,_center,_ratio = _get_label_features(_label, _id);
+        _length,_size,_center,_ratio = _get_label_features(_label, _id)
         if _ratio < _min_shape_ratio:
             if verbose:
                 print(f"--- {_ratio} is smaller than minimum shape ratio, failed")
@@ -1384,7 +1385,7 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405, num_threads=
             plt.imshow(_label)
             plt.show()
         _size = np.sum(_label==_id)
-        _center = np.round(ndimage.measurements.center_of_mass(_label==_id));
+        _center = np.round(ndimage.measurements.center_of_mass(_label==_id))
         _shape_ratio = _size/_length**2
         return _length, _size, _center, _shape_ratio
 
@@ -1416,7 +1417,7 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405, num_threads=
                                 erosion_dim=2, dialation_dim=10,
                                 verbose=False):
         """Function to iteratively split labels within one fov"""
-        _single_labels = [np.array(_label==_i+1,dtype=np.int) for _i in range(int(np.max(_label))) if np.sum(np.array(_label==_i+1,dtype=np.int))>0];
+        _single_labels = [np.array(_label==_i+1,dtype=np.int) for _i in range(int(np.max(_label))) if np.sum(np.array(_label==_i+1,dtype=np.int))>0]
         _iter_counts = [0 for _i in range(len(_single_labels))]
         _final_label = np.zeros(np.shape(_label), dtype=np.int)
         # start selecting labels
@@ -1536,12 +1537,12 @@ def generate_chromosome_from_dic(im_dic, merging_channel, color_dic,  bead_label
         _mean_im: merged image, 3d-array
         _rough_dfts: drifts calculated by FFT, list of 1d-arrays
     '''
-    import numpy as np;
+    import numpy as np
     import os
     from ImageAnalysis3.corrections import fast_translate, fftalign
     # initialize mean_image as chromosome
     _mean_im=[]
-    _rough_dfts = [];
+    _rough_dfts = []
     # get ref frame
     _ref_name = sorted(list(im_dic.items()), key=lambda k_v: int(k_v[0].split('H')[1].split('R')[0]))[ref_frame][0]
     _ref_ims = sorted(list(im_dic.items()), key=lambda k_v1: int(k_v1[0].split('H')[1].split('R')[0]))[ref_frame][1]
@@ -1551,11 +1552,11 @@ def generate_chromosome_from_dic(im_dic, merging_channel, color_dic,  bead_label
         # check bead label
         if bead_label == _label:
             _ref_bead = _ref_ims[_i]
-            break;
+            break
     # loop through all images for this field of view
     for _name, _ims in sorted(list(im_dic.items()), key=lambda k_v2: int(k_v2[0].split('H')[1].split('R')[0])):
         if len(_rough_dfts) >= merge_num: # stop if images more than merge_num are already calclulated.
-            break;
+            break
         if _name == _ref_name: # pass the ref frame
             continue
         if bead_label in color_dic[_name.split(os.sep)[0]]:
@@ -1566,7 +1567,7 @@ def generate_chromosome_from_dic(im_dic, merging_channel, color_dic,  bead_label
                 # check bead label
                 if bead_label == _label:
                     _bead = _ims[_i]
-                    break;
+                    break
             # calculate drift fastly with FFT
             _rough_dft = fftalign(_ref_bead, _bead)
             _rough_dfts.append(_rough_dft)
@@ -1582,7 +1583,7 @@ def generate_chromosome_from_dic(im_dic, merging_channel, color_dic,  bead_label
     if verbose:
         print('- number of images to calculate mean: '+str(len(_mean_im))+'\n- number of FFT drift corrections: '+str(len(_rough_dfts)))
         print("- drifts are: \n", _rough_dfts)
-    _mean_im = np.mean(_mean_im,0);
+    _mean_im = np.mean(_mean_im,0)
 
     return _mean_im, _rough_dfts
 
@@ -1613,20 +1614,20 @@ def crop_cell(im, segmentation_label, drift=None, extend_dim=20, overlap_thresho
     for _l in range(int(np.max(segmentation_label))):
         #print _l
         if len(_label_dim) == 3: # 3D
-            _limits = np.zeros([len(_label_dim),2]); # initialize matrix to save cropping limit
+            _limits = np.zeros([len(_label_dim),2]) # initialize matrix to save cropping limit
             _binary_label = segmentation_label == _l+1 # extract binary image
             for _m in range(len(_label_dim)):
-                _1d_label = _binary_label.sum(_m) > 0;
-                _has_label=False;
+                _1d_label = _binary_label.sum(_m) > 0
+                _has_label=False
                 for _n in range(len(_1d_label)):
                     if _1d_label[_n] and not _has_label:
-                        _limits[_m,0] = max(_n-extend_dim, 0);
-                        _has_label = True;
+                        _limits[_m,0] = max(_n-extend_dim, 0)
+                        _has_label = True
                     elif not _1d_label[_n] and _has_label:
-                        _limits[_m,1] = min(_n+extend_dim, _im_dim[_m]);
-                        _has_label = False;
+                        _limits[_m,1] = min(_n+extend_dim, _im_dim[_m])
+                        _has_label = False
                 if _has_label:
-                    _limits[_m,1] = _im_dim[_m];
+                    _limits[_m,1] = _im_dim[_m]
             # crop image and save to _crop_ims
             if drift is None:
                 _crop_ims.append(im[_limits[0,0]:_limits[0,1], _limits[2,0]:_limits[2,1], _limits[1,0]:_limits[1,1]])
@@ -1634,26 +1635,26 @@ def crop_cell(im, segmentation_label, drift=None, extend_dim=20, overlap_thresho
                 # define a new drift limits to do cropping
                 _drift_limits = np.zeros(_limits.shape)
                 for _m, _dim, _d in zip(list(range(len(_label_dim))), _im_dim[-len(_label_dim):], drift[[0,2,1]]):
-                    _drift_limits[_m, 0] = max(_limits[_m, 0]-np.ceil(np.max(np.abs(_d))), 0);
-                    _drift_limits[_m, 1] = min(_limits[_m, 1]+np.ceil(np.max(np.abs(_d))), _dim);
+                    _drift_limits[_m, 0] = max(_limits[_m, 0]-np.ceil(np.max(np.abs(_d))), 0)
+                    _drift_limits[_m, 1] = min(_limits[_m, 1]+np.ceil(np.max(np.abs(_d))), _dim)
                 #print _drift_limits
                 # crop image for pre-correction
                 _pre_im = im[_drift_limits[0,0]:_drift_limits[0,1],_drift_limits[2,0]:_drift_limits[2,1],_drift_limits[1,0]:_drift_limits[1,1]]
                 # drift correction
-                _post_im = shift(_pre_im, -drift);
+                _post_im = shift(_pre_im, -drift)
                 # re-crop
-                _limit_diffs = _limits - _drift_limits;
+                _limit_diffs = _limits - _drift_limits
                 for _m in range(len(_label_dim)):
                     if _limit_diffs[_m,1] == 0:
                         _limit_diffs[_m,1] = _limits[_m,1] - _limits[_m,0]
-                _limit_diffs = _limit_diffs.astype(np.int);
+                _limit_diffs = _limit_diffs.astype(np.int)
                 #print _limit_diffs
                 _crop_ims.append(_post_im[_limit_diffs[0,0]:_limit_diffs[0,0]+_limits[0,1]-_limits[0,0],\
                                           _limit_diffs[2,0]:_limit_diffs[2,0]+_limits[2,1]-_limits[2,0],\
                                           _limit_diffs[1,0]:_limit_diffs[1,0]+_limits[1,1]-_limits[1,0]])
 
         else: # 2D
-            _limits = np.zeros([len(_label_dim),2], dtype=np.int); # initialize matrix to save cropping limit
+            _limits = np.zeros([len(_label_dim),2], dtype=np.int) # initialize matrix to save cropping limit
             _binary_label = segmentation_label == _l+1 # extract binary image
             for _m in range(len(_label_dim)):
                 _1d_label = _binary_label.sum(_m) > 0
@@ -1675,8 +1676,8 @@ def crop_cell(im, segmentation_label, drift=None, extend_dim=20, overlap_thresho
                 # define a new drift limits to do cropping
                 _drift_limits = np.zeros(_limits.shape, dtype=np.int)
                 for _m, _dim in zip(list(range(len(_label_dim))), _im_dim[-len(_label_dim):]):
-                    _drift_limits[_m, 0] = max(_limits[_m, 0]-np.ceil(np.abs(drift[2-_m])), 0);
-                    _drift_limits[_m, 1] = min(_limits[_m, 1]+np.ceil(np.abs(drift[2-_m])), _dim);
+                    _drift_limits[_m, 0] = max(_limits[_m, 0]-np.ceil(np.abs(drift[2-_m])), 0)
+                    _drift_limits[_m, 1] = min(_limits[_m, 1]+np.ceil(np.abs(drift[2-_m])), _dim)
                 #print _drift_limits
                 # crop image for pre-correction
                 _pre_im = im[:,_drift_limits[1,0]:_drift_limits[1,1],_drift_limits[0,0]:_drift_limits[0,1]]
@@ -1988,7 +1989,7 @@ def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0,
         fl: filename of a binary np.uint16 image or matrix. 
             Notice: .dax is binary file stored from data.tofile("temp.dax"), is a header-less nd-array. 
             However '.npy' file has some header in the beginning, which is ususally 128 Bytes, string(path)
-        sizes: size of raw image in z-x-y order, array-like struct of 3; example:[30,2048,2048]
+        sizes: size of raw image in z-x-y order, array-like struct of 3 example:[30,2048,2048]
         zlims: limits in z axis (axis0), array-like struct of 2
         xlims: limits in x axis (axis1), array-like struct of 2
         ylims: limits in y axis (axis2), array-like struct of 2
@@ -2349,7 +2350,7 @@ def Extract_crop_from_segmentation(segmentation_label, extend_dim=20, single_im_
         segmentation_label: 2d segmentation label for single cell, 2d-array
         extend_dim: num of pixels to extend for cropping, int (default: 20)
         single_im_size: expected image size for one color channel, list/array of 3 (default:[30,2048,2048])
-    Outputs;
+    Outputs
         _limits: 3-by-2 matrix for segmentation crop limits
         """
     # convert to local vars
