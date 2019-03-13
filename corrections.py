@@ -1083,6 +1083,7 @@ def Bleedthrough_correction(input_im, crop_limits=None, all_channels=_allowed_co
                             correction_channels=None, single_im_size=_image_size,
                             num_buffer_frames=10, drift=np.array([0, 0, 0]), 
                             correction_folder=_correction_folder,
+                            normalization=False,
                             z_shift_corr=True, hot_pixel_remove=True,
                             profile_basename='Bleedthrough_correction_matrix',
                             profile_dtype=np.float, image_dtype=np.uint16,
@@ -1147,7 +1148,8 @@ def Bleedthrough_correction(input_im, crop_limits=None, all_channels=_allowed_co
                                                      drift, return_limits=True, verbose=verbose)
         # do zshift and hot-pixel correction
         # correct for z axis shift
-        _ims = [Z_Shift_Correction(_cim, verbose=False) for _cim in _ims]
+        _ims = [Z_Shift_Correction(_cim, normalization=normalization,
+                    verbose=False) for _cim in _ims]
         # correct for hot pixels
         _ims = [Remove_Hot_Pixels(_cim, hot_th=3, verbose=False) for _cim in _ims]
     elif isinstance(input_im, list):
@@ -1185,8 +1187,9 @@ def Bleedthrough_correction(input_im, crop_limits=None, all_channels=_allowed_co
 def correct_one_dax(filename, sel_channels=None, crop_limits=None, seg_label=None,
                     extend_dim=20, single_im_size=_image_size, all_channels=_allowed_colors,
                     num_buffer_frames=10, drift=np.array([0, 0, 0]),
-                    correction_folder=_correction_folder, bleed_corr=True,
-                    z_shift_corr=True, hot_pixel_remove=True, illumination_corr=True, chromatic_corr=True,
+                    correction_folder=_correction_folder, normalization=False, 
+                    bleed_corr=True, z_shift_corr=True, hot_pixel_remove=True, 
+                    illumination_corr=True, chromatic_corr=True,
                     return_limits=False, verbose=False):
     """wrapper for all correction steps to one image, used for multi-processing
     Inputs:
@@ -1251,6 +1254,7 @@ def correct_one_dax(filename, sel_channels=None, crop_limits=None, seg_label=Non
                                                          correction_channels=correction_channels, single_im_size=single_im_size,
                                                          num_buffer_frames=num_buffer_frames, drift=drift,
                                                          correction_folder=correction_folder,
+                                                         normalization=normalization,
                                                          z_shift_corr=z_shift_corr, hot_pixel_remove=hot_pixel_remove,
                                                          return_limits=True, verbose=verbose)
     else:
@@ -1271,8 +1275,11 @@ def correct_one_dax(filename, sel_channels=None, crop_limits=None, seg_label=Non
         # correct for z axis shift
         if z_shift_corr:
             # correct for z axis shift
-            _corr_ims = [Z_Shift_Correction(
-                _cim, verbose=verbose) for _cim in _corr_ims]
+            _corr_ims = [Z_Shift_Correction(_cim, normalization=normalization,
+                            verbose=verbose) for _cim in _corr_ims]
+        elif normalization:
+            _corr_ims = [_cim/np.median(_cim) for _cim in _corr_ims]
+
         if hot_pixel_remove:
             # correct for hot pixels
             _corr_ims = [Remove_Hot_Pixels(

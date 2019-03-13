@@ -2005,7 +2005,8 @@ def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0,
     if isinstance(zstart, int):
         zs = [zstart]
     elif isinstance(zstart, list):
-        zs = list(np.unique(zstart))
+        _zs, _inds = np.unique(zstart, return_index=True)
+        zs = list(np.array(zstart)[np.sort(_inds)])
     else:
         raise TypeError(
             f"Wrong input type for zstart, should be int or list of int, {type(zstart)} is given!")
