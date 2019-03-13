@@ -452,11 +452,14 @@ def Chromatic_abbrevation_correction(im, correction_channel, target_channel='647
     return _corr_im
 
 # correct for illumination _shifts across z layers
-def Z_Shift_Correction(im, dtype=np.uint16, verbose=False):
+def Z_Shift_Correction(im, dtype=np.uint16, normalization=False, verbose=False):
     '''Function to correct for each layer in z, to make sure they match in term of intensity'''
     if verbose:
         print("-- correcting Z axis illumination shifts.")
-    _nim = im / np.mean(im, axis=(1, 2))[:,np.newaxis,np.newaxis] * np.mean(im)
+    if not normalization:
+        _nim = im / np.median(im, axis=(1, 2))[:,np.newaxis,np.newaxis] * np.median(im)
+    else:
+        _nim = im / np.median(im, axis=(1, 2))[:,np.newaxis,np.newaxis] * np.median(im)
     return _nim.astype(dtype)
 
 # remove hot pixels
@@ -880,7 +883,7 @@ def load_correction_profile(channel, corr_type, correction_folder=_correction_fo
 # merged function to crop and correct single image
 def correct_single_image(filename, channel, crop_limits=None, seg_label=None, extend_dim=20,
                          single_im_size=_image_size, all_channels=_allowed_colors, num_buffer_frames=10,
-                         drift=np.array([0, 0, 0]), correction_folder=_correction_folder,
+                         drift=np.array([0, 0, 0]), correction_folder=_correction_folder, normalization=False,
                          z_shift_corr=True, hot_pixel_remove=True, illumination_corr=True, chromatic_corr=True,
                          return_limits=False, verbose=False):
     """wrapper for all correction steps to one image, used for multi-processing
@@ -951,7 +954,11 @@ def correct_single_image(filename, channel, crop_limits=None, seg_label=None, ex
     _corr_im = _cropped_im.copy()
     if z_shift_corr:
         # correct for z axis shift
-        _corr_im = Z_Shift_Correction(_corr_im, verbose=verbose)
+        _corr_im = Z_Shift_Correction(
+            _corr_im,  normalization=normalization, verbose=verbose)
+    elif not z_shift_corr and normalization:
+        # normalize if not doing z_shift_corr
+        _corr_im = _corr_im / np.median(_corr_im)
     if hot_pixel_remove:
         # correct for hot pixels
         _corr_im = Remove_Hot_Pixels(_corr_im, hot_th=3, verbose=verbose)
@@ -978,7 +985,8 @@ def correct_single_image(filename, channel, crop_limits=None, seg_label=None, ex
 # generate bleedthrough 
 def generate_bleedthrough_info(filename, ref_channel, bld_channel, single_im_size=_image_size, 
                                all_channels=_allowed_colors, num_buffer_frames=10,
-                               illumination_corr=True, th_seed=2000, crop_window=9,
+                               normalization=False, illumination_corr=True, 
+                               th_seed=2000, crop_window=9,
                                remove_boundary_pts=True, rsq_th=0.81, verbose=True):
     """Generate bleedthrough coefficient
     Inputs:
@@ -1009,13 +1017,13 @@ def generate_bleedthrough_info(filename, ref_channel, bld_channel, single_im_siz
     if verbose:
         print(f"-- acquiring ref_im and bld_im from file:{filename}")
     ref_im = correct_single_image(filename, ref_channel, single_im_size=single_im_size, 
-                                all_channels=all_channels, num_buffer_frames=num_buffer_frames,
-                                illumination_corr=illumination_corr, chromatic_corr=False,
-                                verbose=verbose)
+                                  all_channels=all_channels, num_buffer_frames=num_buffer_frames,
+                                  normalization=normalization, illumination_corr=illumination_corr, 
+                                  chromatic_corr=False, verbose=verbose)
     bld_im = correct_single_image(filename, bld_channel, single_im_size=single_im_size, 
-                                all_channels=all_channels, num_buffer_frames=num_buffer_frames,
-                                illumination_corr=illumination_corr, chromatic_corr=False,
-                                verbose=verbose)
+                                  all_channels=all_channels, num_buffer_frames=num_buffer_frames,
+                                  normalization=normalization, illumination_corr=illumination_corr,
+                                  chromatic_corr=False, verbose=verbose)
     # get candidate centers
     centers = visual_tools.get_STD_centers(ref_im, th_seed=th_seed, verbose=True)
     # pick sparse centers

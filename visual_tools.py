@@ -2537,7 +2537,6 @@ def translate_chromosome_coordinates(source_cell_data, target_cell_data,
             tar_center[_i] = _lims[1]-_ct
         else:
             tar_center[_i] = _ct - _lims[0]
-    print(tar_center)
     # translated reference coords
     trans_ref_coords = [[_rc[0]]+list(np.dot(rotation_mat, _rc[-2:])) for _rc in ref_coords]
     # final target chrom_coords
