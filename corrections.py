@@ -484,7 +484,8 @@ def Remove_Hot_Pixels(im, dtype=np.uint16, hot_pix_th=0.50, hot_th=4,
 
 
 # fast function to generate illumination profiles
-def generate_illumination_correction(color, data_folder, correction_folder, image_type='H', num_of_images=50,
+def generate_illumination_correction(color, data_folder, correction_folder, image_type='H', 
+                                     all_colors=_allowed_colors,  num_of_images=50,
                                     folder_id=0, buffer_frame=10, frame_per_color=30, target_color_ind=-1,
                                     gaussian_sigma=40, seeding_th_per=99.5, seeding_th_base=300, seeding_crop_size=9,
                                     remove_cap=False, cap_th_per=99.5,
@@ -505,7 +506,7 @@ def generate_illumination_correction(color, data_folder, correction_folder, imag
     ## check inputs
     # color
     _color = str(color)
-    _allowed_colors = ['750','647','561','488','405']
+    _allowed_colors = all_colors
     if _color not in _allowed_colors:
         raise ValueError(f"Wrong color input, {color} is given, color among {_allowed_colors} is expected")
     # extract index of this color

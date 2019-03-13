@@ -40,10 +40,13 @@ def _init_unique_pool(_ic_profile_dic, _cac_profile_dic, _ic_shape, _cac_shape):
 
 
 
-def _fit_single_image(_im, _id, _chrom_coords, _seeding_args, _fitting_args, _check_fitting=True, _verbose=False):
+def _fit_single_image(_im, _id, _chrom_coords, _seeding_args, _fitting_args, _check_fitting=True, 
+                      _normalization=True, _verbose=False):
     if _verbose:
         print(f"+++ fitting for region:{_id}")
     _spots_for_chrom = []
+    if _normalization:
+        _norm_cst = np.nanmedian(_im)
     for _chrom_coord in _chrom_coords:
         if _im is None:
             _spots_for_chrom.append(np.array([]))
@@ -57,8 +60,13 @@ def _fit_single_image(_im, _id, _chrom_coords, _seeding_args, _fitting_args, _ch
             # if check-fitting
             if _check_fitting:
                 _fitter.repeatfit()
+            
             #_fits = visual_tools.fit_multi_gaussian(_im, _seeds, *_fitting_args)
-            _spots_for_chrom.append(np.array(_fitter.ps))
+            _spots = np.array(_fitter.ps)
+            if _normalization:
+                _spots[:,0] = _spots[:,0] / _norm_cst
+            _spots_for_chrom.append(_spots)    
+
     return _spots_for_chrom
 
 
@@ -85,11 +93,11 @@ class Cell_List():
             _hyb_fds, _fovs = get_img_info.get_folders(_fd, feature='H', verbose=True)
             self.folders += _hyb_fds
             self.fovs = _fovs
-        # temp_folder
-        if 'temp_folder' in parameters:
-            self.temp_folder = parameters['temp_folder']
+        # experiment_folder
+        if 'experiment_folder'  in parameters:
+            self.experiment_folder = parameters['experiment_folder']
         else:
-            self.temp_folder = _temp_folder
+            self.experiment_folder = os.path.join(self.data_folder[0], 'Experiment')
         ## analysis_folder, segmentation_folder, save_folder, correction_folder,map_folder
         if 'analysis_folder'  in parameters:
             self.analysis_folder = str(parameters['analysis_folder'])
@@ -690,7 +698,7 @@ class Cell_List():
                       'bead_channel_index': self.bead_channel_index,
                       'dapi_channel_index': self.dapi_channel_index,
                       'annotated_folders': self.annotated_folders,
-                      'temp_folder': self.temp_folder,
+                      'experiment_folder': self.experiment_folder,
                       'analysis_folder':self.analysis_folder,
                       'save_folder': self.save_folder,
                       'segmentation_folder': self.segmentation_folder,
@@ -920,18 +928,8 @@ class Cell_List():
                         if _verbose:
                             print(f"++ Combo info not complete for fov:{_cell.fov_id}, cell:{_cell.cell_id}, skip")
 
-    def _remove_temp_fov(self, _fov_id, _temp_marker='corrected.npy', _verbose=True):
-        """Remove all temp files for given fov """
-        print("Function _remove_temp_fov is going to be depricated")
-        _temp_fls = glob.glob(os.path.join(self.temp_folder, '*'))
-        if _verbose:
-            print(f"+ Remove temp file for fov:{_fov_id}")
-        for _fl in _temp_fls:
-            if os.path.isfile(_fl) and _temp_marker in _fl and self.fovs[_fov_id].replace('.dax', '') in _fl:
-                print("++ removing temp file:", os.path.basename(_fl))
-                os.remove(_fl)
-
-    def _spot_finding_for_cells(self, _type='unique', _decoded_flag='diff', _max_fitting_threads=12, _clear_image=False,
+    def _spot_finding_for_cells(self, _type='unique', _decoded_flag='diff', _max_fitting_threads=12, 
+                                _clear_image=False, _normalization=True, 
                                 _use_chrom_coords=True, _seed_th_per=50, _max_filt_size=3,
                                 _max_seed_count=6, _min_seed_count=3,
                                 _expect_weight=1000, _min_height=100, _max_iter=10, _th_to_end=1e-6,
@@ -959,7 +957,8 @@ class Cell_List():
             else:
                 raise ValueError("Wrong _type keyword given!")
             # do multi_fitting
-            _cell._multi_fitting_for_chromosome(_type=_type, _decoded_flag=_decoded_flag, _use_chrom_coords=_use_chrom_coords, _num_threads=max(_max_fitting_threads, self.num_threads),
+            _cell._multi_fitting_for_chromosome(_type=_type, _decoded_flag=_decoded_flag, _normalization=_normalization,
+                                 _use_chrom_coords=_use_chrom_coords, _num_threads=max(_max_fitting_threads, self.num_threads),
                                  _seed_th_per=_seed_th_per, _max_filt_size=_max_filt_size, _max_seed_count=_max_seed_count,
                                  _min_seed_count=_min_seed_count, _width_zxy=self.sigma_zxy, _fit_radius=5,
                                  _expect_weight=_expect_weight, _min_height=_min_height, _max_iter=_max_iter,
@@ -1121,12 +1120,12 @@ class Cell_Data():
         if 'analysis_folder'  in parameters:
             self.analysis_folder = str(parameters['analysis_folder'])
         else:
-            self.analysis_folder = self.data_folder[0]+os.sep+'Analysis'
-        # temp_folder
-        if 'temp_folder'  in parameters:
-            self.temp_folder = parameters['temp_folder']
+            self.analysis_folder = os.path.join(self.data_folder[0], 'Analysis')
+        # experiment_folder
+        if 'experiment_folder'  in parameters:
+            self.experiment_folder = parameters['experiment_folder']
         else:
-            self.temp_folder = _temp_folder
+            self.experiment_folder = os.path.join(self.data_folder[0], 'Experiment')
         # extract hybe folders and field-of-view names
         if 'folders' in parameters and 'fovs' in parameters:
             self.folders = parameters['folders']
@@ -2070,7 +2069,59 @@ class Cell_Data():
                 self._save_to_file('combo', _overwrite=_force)
         return _chrom_coords
 
-    def _multi_fitting_for_chromosome(self, _type='unique', _decoded_flag='diff', _use_chrom_coords=True, _num_threads=6,
+
+    def _calculate_background(self, _type='unique', _function_type='median', 
+                              _num_per_channel=20, _verbose=False):
+        """Function to get background levels for channels having signal"""
+        ## first check Inputs
+        # data_type
+        _allowed_type_dic = {'unique':'unique_ims', 
+                            'combo':'combo_groups',
+                            }
+        _type_marker_dic = {'unique':'u', 
+                            'combo':'c'}
+        _type = _type.lower()
+        if _type not in _allowed_type_dic or _type not in _type_marker_dic:
+            raise KeyError(f"Wrong input key for _type:{_type}")
+        # function_type
+        _allowed_function_types = ['median', 'mean']
+        _function_type = _function_type.lower()
+        if _function_type not in _allowed_function_types:
+            raise KeyError(f"Wrong input key for _function_type:{_function_type}")
+        # load from color_dic
+        if not hasattr(self, 'channels') or not hasattr(self, 'color_dic'):
+            self._load_color_info()
+        # initialize color_indices dict
+        _color_indices = {_c:[] for _c in self.channels}
+        for _hyb_fd, _info_lst in self.color_dic.items():
+            for _info, _c in zip(_info_lst, list(_color_indices.keys())[:len(_info_lst)]):
+                if _type_marker_dic[_type] in _info:
+                    _uid = int(_info.split(_type_marker_dic[_type])[1])
+                    _id_lst_name = _allowed_type_dic[_type].replace('ims', 'ids')
+                    if _uid in getattr(self, _id_lst_name) and len(_color_indices[_c]) < _num_per_channel:
+                        _color_indices[_c].append(getattr(self, _id_lst_name).index(_uid))
+        # calculate background
+        if _verbose:
+            print(f"-- calculating background for {[_c for _c,_l in _color_indices.items() if len(_l)>0]}")
+        _background_dic = {}
+        _ims = np.array(getattr(self, _allowed_type_dic[_type]))
+        for _c, _ind_lst in _color_indices.items():
+            if len(_ind_lst) == 0:
+                continue
+            else:
+                _ind_lst = np.array(_ind_lst, dtype=np.int)
+                _ims_in_channel = _ims[_ind_lst]
+                if _function_type == 'median':
+                    _backgrounds = np.nanmedian(_ims_in_channel, axis=0)
+                elif _function_type == 'mean':
+                    _backgrounds = np.nanmean(_ims_in_channel, axis=0)
+                
+                _background_dic[_c] = np.median(_backgrounds)
+        return _background_dic
+
+
+    def _multi_fitting_for_chromosome(self, _type='unique', _decoded_flag='diff', 
+                       _normalization=True,  _use_chrom_coords=True, _num_threads=6,
                        _gfilt_size=0.75, _background_gfilt_size=10, _max_filt_size=3,
                        _seed_th_per=50, _max_seed_count=10, _min_seed_count=3,
                        _width_zxy=None, _fit_radius=5, _expect_weight=1000, _min_height=100, _max_iter=10, _th_to_end=1e-6,
@@ -2125,10 +2176,10 @@ class Cell_Data():
         # merge arguments
         if _use_chrom_coords:
             _args = [(_im, _id, self.chrom_coords, _seeding_args, _fitting_args, 
-                    _check_fitting, _verbose) for _im, _id in zip(_ims, _ids)]
+                    _check_fitting, _normalization, _verbose) for _im, _id in zip(_ims, _ids)]
         else:
             _args = [(_im, _id, [None], _seeding_args, _fitting_args, 
-                    _check_fitting, _verbose) for _im, _id in zip(_ims, _ids)]
+                      _check_fitting, _normalization, _verbose) for _im, _id in zip(_ims, _ids)]
         # multi-processing for multi-Fitting
         if _verbose:
             print(f"++ start fitting {_type} for fov:{self.fov_id}, cell:{self.cell_id} with {_num_threads} threads")
