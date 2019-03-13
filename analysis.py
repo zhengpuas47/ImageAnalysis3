@@ -399,132 +399,6 @@ def load_image_fov(folders, fovs, fov_id, channels, color_dic,
         pass
         
 
-# load from temp, follow-up for function load_image_fov
-def reconstruct_from_temp(temp_filelist, folders, fovs, fov_id, channels, color_dic,
-                          temp_folder=_temp_folder, find_all=False,
-                          num_threads=15, loading_type='raw', type_key=None, verbose=False):
-    """Function to reconstruct image object from temp files by loading memory maps.
-    Inputs
-        temp_filelist: file-name list for temp files, list of strings
-        folders: name of hyb-folders used in this experiment, list of strings
-        fovs: name of field-of-views in this experiment, list of strings
-        fov_id: index of chosen fov in fovs, int (smaller than len(fovs))
-        channels: channels used in this experiment, list
-        color_dic: color usage of this experiment, loaded from Color_Usage.csv, dic
-        temp_folder: directory for storing temp files, string (default: somewhere in SSD)
-        find_all: extra check whether find all matching images for given folders, bool (default: False)
-        num_threads: number of threads used in this loading process, int (default:5)
-        loading_type: type of images you want to load, raw/beads/dapi/unique/combo
-        type_key: special key used for certain type, None/'beads'/'DAPI'/'u'/'c'
-        verbose: whether say something!, bool (default:False)
-    Outputs:
-        v1: splitted_ims (dic)
-        v2: bead_ims (list)
-        v3: dapi_ims (list)
-    """
-    # convert to local variables
-    _channels = [str(ch) for ch in channels];
-    _fov_name = fovs[fov_id];
-    # default settings
-    loading_keys = {'raw':'',
-                    'all':'',
-                    'beads':'beads',
-                    'dapi':'DAPI',
-                    'unique':'u',
-                    'combo':'c'}
-    if not type_key:
-        type_key = loading_keys[loading_type.lower()];
-
-    if verbose:
-        print(f"- Reconstructing images from temp files \n\t temp_directory:{temp_folder}")
-        print(f"-- loading type: {loading_type}")
-
-    if loading_type.lower() in ['all', 'raw', 'unique', 'combo']:
-        _image_ct = 0;
-        # initialize a specific _splitted_ims
-        _splitted_ims = {};
-        for _fd in folders:
-            _hyb_fd = os.path.basename(_fd);
-            _im_name = _hyb_fd +os.sep+_fov_name
-            if _im_name not in _splitted_ims:
-                _splitted_ims[_im_name] = [[] for _i in range(len(color_dic[_hyb_fd]))];
-        # check find all
-        if find_all:
-            for _name, _info in _splitted_ims.items():
-                for _i, _im in enumerate(_info):
-                    if type_key in color_dic[_name.split(os.sep)[0]][_i]:
-                        matches = [_name.replace(os.sep,'-').replace('.dax','') in _fl and _channels[_i] in _fl for _fl in temp_filelist]
-                        if sum(matches) == 0:
-                            raise IOError(f'No temp file for name:{_name}, channel:{_channels[_i]}')
-        # load images
-        for _fl in temp_filelist:
-
-            if _fov_name.replace('.dax','') in _fl:
-                _fl_fd = os.path.basename(_fl.split('-')[0]);
-                _fl_ch = _fl.split('_corrected.npy')[0].split('_')[-1]
-                # load raw/combo/unique
-                if _fl_fd+os.sep+_fov_name in _splitted_ims and type_key in color_dic[_fl_fd][_channels.index(_fl_ch)]:
-                    _splitted_ims[_fl_fd+os.sep+_fov_name][_channels.index(_fl_ch)] = np.load(_fl, mmap_mode='r')
-                    _image_ct += 1;
-        if verbose:
-            print("-- number of images loaded:", _image_ct)
-            print("-- converted into splitted_ims version.")
-
-        return _splitted_ims
-
-    elif loading_type.lower() == 'beads':
-        _bead_index = get_img_info.find_bead_channel(color_dic, type_key)
-        # initialize a bead image list
-        _bead_ims = [];
-        _bead_names = [];
-        if find_all:
-            for _fd in folders:
-                _hyb_fd = os.path.basename(_fd);
-                _im_name = _hyb_fd +os.sep+_fov_name
-                matches = [_im_name.replace(os.sep,'-').replace('.dax','') in _fl and _channels[_bead_index] in _fl for _fl in temp_filelist]
-                if sum(matches) == 0:
-                    raise IOError(f'No temp file for name:{_im_name}, channel:{_channels[_bead_index]}')
-        # load images
-        for _fd in folders:
-            _hyb_fd = os.path.basename(_fd);
-            _im_name = _hyb_fd +'-'+_fov_name.replace('.dax','_')
-            matches = [_im_name.replace(os.sep,'-').replace('.dax','') in _fl and _channels[_bead_index] in _fl for _fl in temp_filelist]
-            _fl = temp_filelist[matches.index(True)]
-            _bead_ims.append(np.load(_fl, mmap_mode='r'))
-            _bead_names.append(_hyb_fd+os.sep+_fov_name)
-        if verbose:
-            print("-- number of beads images loaded:", len(_bead_ims))
-
-        return _bead_ims, _bead_names
-
-    elif loading_type.lower() == 'dapi':
-        if '405' not in _channels:
-            raise ValueError('No 405 channel given.')
-        _dapi_index = get_img_info.find_dapi_channel(color_dic, type_key)
-        # initialize a bead image list
-        _dapi_ims = [];
-        _dapi_names = [];
-        if find_all:
-            for _fd in folders:
-                _hyb_fd = os.path.basename(_fd);
-                if len(_channels) == len(color_dic[_hyb_fd]):
-                    _im_name = _hyb_fd +os.sep+_fov_name
-                    matches = [_im_name.replace(os.sep,'-').replace('.dax','') in _fl and _channels[_dapi_index] in _fl for _fl in temp_filelist]
-                    if sum(matches) == 0:
-                        raise IOError(f'No temp file for name:{_im_name}, channel:{_channels[_bead_index]}')
-        # load images
-        for _fd in folders:
-            _hyb_fd = os.path.basename(_fd);
-            if len(_channels) == len(color_dic[_hyb_fd]):
-                _im_name = _hyb_fd +'-'+_fov_name.replace('.dax','_')
-                matches = [_im_name.replace(os.sep,'-').replace('.dax','') in _fl and _channels[_dapi_index] in _fl for _fl in temp_filelist]
-                _fl = temp_filelist[matches.index(True)]
-                _dapi_ims.append(np.load(_fl, mmap_mode='r'))
-                _dapi_names.append(_hyb_fd +os.sep+_fov_name);
-        if verbose:
-            print("-- number of dapi images loaded:", len(_dapi_ims))
-        return _dapi_ims, _dapi_names
-
 
 
 # Function
@@ -841,8 +715,6 @@ def Update_Raw_Data(raw_file, decode_file, im_key='cs_ims', name_key='cs_names',
     _kept_cell_list = [_cell for _cell, _kept in zip(_cell_list, _success_cells) if _kept]
 
     return _kept_cell_list
-
-
 
 
 # decoding by compressive sensing
@@ -1862,3 +1734,5 @@ def distance_score_in_chromosome(dists, sel_spots, distance_zxy=_distance_zxy,
     _scores = np.log(1-_cum_prob(_nb_dists, dists)) * w_dist
 
     return _scores
+
+

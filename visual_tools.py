@@ -2477,6 +2477,81 @@ def translate_segmentation(old_segmentation, old_dapi_im, new_dapi_im,
     else:
         return _cleaned_rot_seg_label
 
+# translate chromosome coordinates
+def translate_chromosome_coordinates(source_cell_data, target_cell_data, 
+                                     rotation_mat=None, rotation_ref_file=None, rotation_order='reverse', 
+                                     border_lim=10, force=True, add_attribute=True, verbose=True):
+    """Function to translate chromosome coordinate given cell_data object before and after translation
+    Inputs:
+        source_cell_data: cell_data providing chromosome_coordinates, classes.Cell_Data,
+        target_cell_data: cell_data to receive translated chromosomes, classes.Cell_Data, 
+        rotation_mat: rotation matrix, if provided, np.2darray (default:None), 
+        rotation_ref_file file for rotation matrix, string (default:None), 
+        rotation_order: whether rotation_mat is forward or reverse, (default:'reverse'), 
+        verbose: say something!, bool (default:True)
+    Outputs:
+        tar_coords: list of translated chromosome coordinates, list of array-3"""
+    ## check input attributes
+    if verbose:
+        print(f"-- start translating chrom_coord for fov:{source_cell_data.fov_id}, cell:{source_cell_data.cell_id}")
+    # check chrom_coords
+    if not hasattr(source_cell_data, 'chrom_coords'):
+        raise AttributeError(f"Cell_Data:{source_cell_data} doesn't have chromosome coordinates, exit!")
+    # load segmentation crop
+    if not hasattr(source_cell_data, 'segmentation_crop'):
+        source_cell_data._load_segmentation(_load_in_ram=True)
+    if not hasattr(target_cell_data, 'segmentation_crop'):
+        target_cell_data._load_segmentation(_load_in_ram=True)   
+    # check rotation matrix
+    if rotation_mat is None and rotation_ref_file is None:
+        raise ValueError(f"rotation_mat and rotation_ref_file should at least be given 1!")
+    # load rotation_mat
+    elif rotation_ref_file is not None:
+        if verbose:
+            print(f"--- loading rotation matrix from file:{rotation_ref_file}")
+        rotation_mat = np.load(rotation_ref_file)
+    if len(rotation_mat.shape) != 2 or (np.array(rotation_mat.shape)!=2).any():
+        raise ValueError(f"Rotation_mat should be 2x2 array, but {rotation_mat.shape} is given!")
+    # check rotation_order
+    rotation_order = str(rotation_order).lower()
+    if rotation_order not in ['forward','reverse']:
+        raise ValueError(f"Wrong input for rotation_order:{rotation_order}, should be forward or reverse!")
+    if rotation_order == 'reverse':
+        rotation_mat = np.transpose(rotation_mat)
+        if verbose:
+            print(f"--- {rotation_order}-ing rotation_mat")
+    
+    # if chrom_coord already exist and not force:
+    if not force and hasattr(target_cell_data, 'chrom_coords'):
+        return target_cell_data.chrom_coords
+    
+    ## start rotation!
+    # source rotation center
+    src_center = np.mean(source_cell_data.segmentation_crop, 1) \
+                 - source_cell_data.segmentation_crop[:,0]
+    ref_coords = [_coord - src_center for _coord in source_cell_data.chrom_coords]
+    # target rotation center
+    tar_center = np.mean(target_cell_data.segmentation_crop, 1)
+    for _i, (_ct,_lims) in enumerate(zip(tar_center, target_cell_data.segmentation_crop)):
+        if _lims[0] <= border_lim:
+            tar_center[_i] = _lims[1]-_ct
+        else:
+            tar_center[_i] = _ct - _lims[0]
+    print(tar_center)
+    # translated reference coords
+    trans_ref_coords = [[_rc[0]]+list(np.dot(rotation_mat, _rc[-2:])) for _rc in ref_coords]
+    # final target chrom_coords
+    tar_coords = [np.array(_tc)+tar_center for _tc in trans_ref_coords]
+    if verbose:
+        print(f"--- translated chromsome coordinates:\n{tar_coords}")
+    if add_attribute:
+        setattr(target_cell_data, 'chrom_coords', tar_coords)
+        if verbose:
+            print(f"--- appended translated chromosomes to target_cell_data")
+    return tar_coords
+
+
+
 # find nearby seeds for given center references, used in bead-drift
 def find_matched_seeds(im, ref_centers, search_distance=3, 
                        gfilt_size=0.75, background_gfilt_size=10, filt_size=3, 
@@ -2560,3 +2635,4 @@ def select_sparse_centers(centers, distance_th=9, distance_norm=np.inf):
                 _sel_centers.append(ct)
     
     return np.array(_sel_centers)
+
