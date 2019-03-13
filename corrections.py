@@ -1071,7 +1071,8 @@ def generate_bleedthrough_info(filename, ref_channel, bld_channel, single_im_siz
                          'bld_im': _bim,
                          'rsquare': _reg.score(_x,_y),
                          'slope': _reg.coef_,
-                         'intercept': _reg.intercept_}
+                         'intercept': _reg.intercept_,
+                         'input_file':filename}
             picked_list.append(_pair_dic)
     if verbose:
         print(f"-- {len(picked_list)} pairs are saved.")
