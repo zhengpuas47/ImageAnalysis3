@@ -985,6 +985,7 @@ def correct_single_image(filename, channel, crop_limits=None, seg_label=None, ex
 # generate bleedthrough 
 def generate_bleedthrough_info(filename, ref_channel, bld_channel, single_im_size=_image_size, 
                                all_channels=_allowed_colors, num_buffer_frames=10,
+                               correction_folder=_correction_folder,
                                normalization=False, illumination_corr=True, 
                                th_seed=2000, crop_window=9,
                                remove_boundary_pts=True, rsq_th=0.81, verbose=True):
@@ -996,6 +997,8 @@ def generate_bleedthrough_info(filename, ref_channel, bld_channel, single_im_siz
         single_im_size: image size for single channel, array of 3 (default:[30,2048,2048])
         all_channels: all allowed channel list, list of channels (default:[750,647,561,488,405])
         num_buffer_frame: number of frames that is not used in zscan, int (default: 10)
+        correction_folder: folder for correction profiles, str(default: _correction_folder)
+        normalization" whether do normalization for images, bool (default:False)
         illumination_corr: whether do illumination correction, bool (default: Ture)
         th_seed: seeding threshold for getting candidate centers, int (default: 3000)
         crop_window: window size for cropping, int (default: 9)
@@ -1016,14 +1019,22 @@ def generate_bleedthrough_info(filename, ref_channel, bld_channel, single_im_siz
 
     if verbose:
         print(f"-- acquiring ref_im and bld_im from file:{filename}")
-    ref_im = correct_single_image(filename, ref_channel, single_im_size=single_im_size, 
-                                  all_channels=all_channels, num_buffer_frames=num_buffer_frames,
-                                  normalization=normalization, illumination_corr=illumination_corr, 
-                                  chromatic_corr=False, verbose=verbose)
-    bld_im = correct_single_image(filename, bld_channel, single_im_size=single_im_size, 
-                                  all_channels=all_channels, num_buffer_frames=num_buffer_frames,
-                                  normalization=normalization, illumination_corr=illumination_corr,
-                                  chromatic_corr=False, verbose=verbose)
+    ref_im, bld_im = correct_one_dax(filename, [ref_channel, bld_channel], single_im_size=single_im_size, 
+                                     all_channels=all_channels, num_buffer_frames=num_buffer_frames,
+                                     normalization=normalization, bleed_corr=False, 
+                                     z_shift_corr=True, hot_pixel_remove=True,
+                                     illumination_corr=illumination_corr, chromatic_corr=False,
+                                     return_limits=False, verbose=verbose)
+
+    #ref_im = correct_single_image(filename, ref_channel, single_im_size=single_im_size, 
+    #                              all_channels=all_channels, num_buffer_frames=num_buffer_frames,
+    #                              normalization=normalization, illumination_corr=illumination_corr, 
+    #                              chromatic_corr=False, verbose=verbose)
+    #bld_im = correct_single_image(filename, bld_channel, single_im_size=single_im_size, 
+    #                              all_channels=all_channels, num_buffer_frames=num_buffer_frames,
+    #                              normalization=normalization, illumination_corr=illumination_corr,
+    #                              chromatic_corr=False, verbose=verbose)
+
     # get candidate centers
     centers = visual_tools.get_STD_centers(ref_im, th_seed=th_seed, verbose=True)
     # pick sparse centers
@@ -1221,13 +1232,14 @@ def correct_one_dax(filename, sel_channels=None, crop_limits=None, seg_label=Non
     if sel_channels is None:
         sel_channels = all_channels[:3]
     else:
+        print("proper input")
         sel_channels = [str(_ch) for _ch in sel_channels]
         for _ch in sel_channels:
             if _ch not in all_channels:
                 raise ValueError(
                     f"All channels in selected channels should be in all_channels, but {_ch} is given")
     # correction_channels:
-    if len(sel_channels) < 3:
+    if len(sel_channels) < 3 and bleed_corr:
         correction_channels = all_channels[:3]
     elif len(sel_channels) > 3:
         raise ValueError("correction_channels should have 3 elements!")
