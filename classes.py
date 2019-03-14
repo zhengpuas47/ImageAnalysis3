@@ -743,7 +743,8 @@ class Cell_List():
 
 
     def _crop_image_for_cells(self, _type='all', _load_in_ram=False, _load_annotated_only=True,
-                              _extend_dim=20, _corr_drift=True, _corr_bleed=True, _corr_Z_shift=True, 
+                              _extend_dim=20, _corr_drift=True, _normalization=False,
+                              _corr_bleed=True, _corr_Z_shift=True, 
                               _corr_hot_pixel=True, _corr_illumination=True, _corr_chromatic=True,
                               _save=True, _force=False, _overwrite_cell_info=False, _verbose=True):
         """Load images for all cells in this cell_list
@@ -789,7 +790,8 @@ class Cell_List():
                         if _verbose:
                             print(f"+ Crop unique images for fov:{_cell.fov_id}, cell:{_cell.cell_id}")
                         _cell._crop_images('unique', _num_threads=self.num_threads, _single_im_size=_image_size,
-                                           _corr_drift=_corr_drift, _corr_bleed=_corr_bleed, _corr_Z_shift=_corr_Z_shift, _corr_hot_pixel=_corr_hot_pixel,
+                                           _corr_drift=_corr_drift, _normalization=_normalization, _corr_bleed=_corr_bleed,
+                                           _corr_Z_shift=_corr_Z_shift, _corr_hot_pixel=_corr_hot_pixel,
                                            _corr_illumination=_corr_illumination, _corr_chromatic=_corr_chromatic,
                                            _load_in_ram=_load_in_ram, _extend_dim=_extend_dim,_num_buffer_frames=10,
                                            _save=_save, _overwrite=_force, _verbose=_verbose)
@@ -1383,7 +1385,7 @@ class Cell_Data():
 
     ## crop images given segmentation and images/temp_filenames
     def _crop_images(self, _type, _num_threads=12, _single_im_size=_image_size,
-                     _corr_drift=True, _corr_bleed=True,
+                     _corr_drift=True, _normalization=False, _corr_bleed=True,
                      _corr_Z_shift=True, _corr_hot_pixel=True,
                      _corr_illumination=True, _corr_chromatic=True,
                      _load_in_ram=False, _extend_dim=20, _num_buffer_frames=10,
@@ -1470,7 +1472,7 @@ class Cell_Data():
                         _new_arg = (_im_filename, _sel_channels, None, self.segmentation_label,
                                     _extend_dim, _single_im_size, self.channels,
                                     _num_buffer_frames, self.drift[_ref_name],
-                                    self.correction_folder, _corr_bleed,
+                                    self.correction_folder, _normalization, _corr_bleed,
                                     _corr_Z_shift, _corr_hot_pixel, _corr_illumination, _corr_chromatic,
                                     False, _verbose)
                         _unique_args.append(_new_arg)

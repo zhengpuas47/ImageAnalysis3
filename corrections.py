@@ -1232,7 +1232,6 @@ def correct_one_dax(filename, sel_channels=None, crop_limits=None, seg_label=Non
     if sel_channels is None:
         sel_channels = all_channels[:3]
     else:
-        print("proper input")
         sel_channels = [str(_ch) for _ch in sel_channels]
         for _ch in sel_channels:
             if _ch not in all_channels:
