@@ -11,7 +11,7 @@ from scipy import ndimage, stats
 from scipy.spatial.distance import pdist,cdist,squareform
 from skimage import morphology
 from skimage.segmentation import random_walker
-from copy import copy 
+
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.cm import seismic_r
@@ -948,6 +948,7 @@ class Cell_List():
             _overwrite: whether overwrite existing chrom_coords in this cell_list, bool (default:False)
             _verbose: say something!, bool (default:True)
         """
+        from copy import copy
         if _verbose:
             print(f"+ Start translating chromosome coordinates from other cell_list:{_source_cell_list}")
         # load rotation matrix
