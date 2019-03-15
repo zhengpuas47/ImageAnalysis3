@@ -2204,6 +2204,7 @@ class Cell_Data():
                        _width_zxy=None, _fit_radius=5, _fit_window=40, 
                        _expect_weight=1000, _min_height=100, _max_iter=10, _th_to_end=1e-6,
                        _check_fitting=True, _save=True, _verbose=True):
+        """Function for multi-fitting for chromosomes in cell_data"""
         # first check Inputs
         _allowed_types = ['unique', 'decoded']
         _type = _type.lower()
