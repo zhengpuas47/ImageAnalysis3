@@ -11,10 +11,11 @@ from scipy import ndimage, stats
 from scipy.spatial.distance import pdist,cdist,squareform
 from skimage import morphology
 from skimage.segmentation import random_walker
-
+from copy import copy 
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.cm import seismic_r
+
 
 def killtree(pid, including_parent=False, verbose=False):
     parent = psutil.Process(pid)
@@ -719,7 +720,7 @@ class Cell_List():
         
         ## do multi-processing to create cells!
         if _verbose:
-            print(f"+ Creating cells with {_num_threads} threads.")
+            print(f"+ Creating {len(_args)} cells with {_num_threads} threads.")
         _cell_pool = mp.Pool(_num_threads)
         _cells = _cell_pool.starmap(self._create_cell, _args, chunksize=1)
         _cell_pool.close()
@@ -820,6 +821,7 @@ class Cell_List():
                 _cell._load_from_file(_type=_type, _save_folder=None, _load_attrs=[],
                                         _overwrite=_overwrite_cells, _verbose=_verbose)
 
+    # generate chromosome coordinates
     def _get_chromosomes_for_cells(self, _source='unique', _max_count= 30,
                                    _gaussian_size=2, _cap_percentile=1, _seed_dim=3,
                                    _th_percentile=99.5, _min_obj_size=125,
@@ -929,6 +931,75 @@ class Cell_List():
                     else:
                         if _verbose:
                             print(f"++ Combo info not complete for fov:{_cell.fov_id}, cell:{_cell.cell_id}, skip")
+
+    def _translate_chromosome_coords(self, _source_cell_list, _num_threads=12,
+                                    _rotation_mat=None, _rotation_ref_file=None,
+                                    _rotation_order='reverse', _border_lim=10, 
+                                    _single_im_size=_image_size,
+                                    _save=True, _overwrite=False, _verbose=True):
+        """Function to translate chromosome coordinates from source_cell_list
+        Inputs:
+            _source_cell_list
+            _num_threads
+            _rotation_mat: rotation matrix, if provided, np.2darray (default:None)
+            _rotation_ref_file: file for rotation matrix, string (default:None)
+            _rotation_order: whether rotation_mat is forward or reverse, (default:'reverse')
+            _border_lim: limit to judge whether close to border, int (default:10)
+            _overwrite: whether overwrite existing chrom_coords in this cell_list, bool (default:False)
+            _verbose: say something!, bool (default:True)
+        """
+        if _verbose:
+            print(f"+ Start translating chromosome coordinates from other cell_list:{_source_cell_list}")
+        # load rotation matrix
+        if _rotation_mat is None or len(_rotation_mat.shape())!=2 or np.array(_rotation_mat.shape()-2).any():
+            if _rotation_ref_file is None:
+                _rotation_ref_file = os.path.join(self.experiment_folder, 'rotation.npy')
+                _rotation_mat = np.load(_rotation_ref_file)
+                if _verbose:
+                    print(f"++ neither rotation_mat and rotation_ref_file are given, load from default:\n\t{_rotation_ref_file}")
+            else:
+                if not os.path.isfile(_rotation_ref_file):
+                    raise IOError(f"Wrong input rotation_ref_file:{_rotation_ref_file}")
+        # start recording args
+        _trans_args = []
+        _trans_ids = []
+        for _i, _cell in enumerate(self.cells):
+            # find matched cell_data 
+            _matched_cell = [_src_cell for _src_cell in _source_cell_list.cells 
+                            if getattr(_src_cell,'fov_id')==getattr(_cell,'fov_id') 
+                            and getattr(_src_cell,'cell_id')==getattr(_cell,'cell_id') ]
+            # unique match
+            if len(_matched_cell) == 1: 
+                _trans_args.append((copy(_matched_cell[0]), copy(_cell), _rotation_mat, 
+                                    None, _rotation_order, _single_im_size, 
+                                    _border_lim, _overwrite, True, _verbose))
+                _trans_ids.append(_i)
+            else:
+                if _verbose:
+                    print(f"++ cell from fov:{_cell.fov_id}, cell:{_cell.cell_id} \
+                            doesn't have uniquely matched source cell, skip")
+        # multiprocessing for translating chrom_coords
+        if hasattr(self, 'num_threads'):
+            _num_threads = getattr(self, 'num_threads')
+        if _verbose:
+            print(
+                f"++ start translating chromosomes for {len(_trans_args)} cells with {_num_threads} threads")
+        with mp.Pool(_num_threads) as _trans_pool:
+            _new_coords = _trans_pool.starmap(visual_tools.translate_chromosome_coordinates, _trans_args)
+            _trans_pool.close()
+            _trans_pool.join()
+            _trans_pool.terminate()
+        killchild()
+
+        # save
+        for _i, _cell in enumerate(self.cells):
+            if _i in _trans_ids:
+                _coords = _new_coords[_trans_ids.index(_i)]
+                if _overwrite or not hasattr(_cell, 'chrom_coords'):
+                    setattr(_cell, 'chrom_coords', _coords)
+            if _save:
+                _cell._save_to_file('cell_info',_save_dic={'chrom_coords':_coords}, _verbose=_verbose)
+        
 
     def _spot_finding_for_cells(self, _type='unique', _decoded_flag='diff', _max_fitting_threads=12, 
                                 _clear_image=False, _normalization=True, 

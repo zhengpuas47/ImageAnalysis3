@@ -1272,8 +1272,8 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405, num_threads=
             _load_pool = mp.Pool(num_threads)
             _ims = _load_pool.starmap(corrections.correct_single_image, _load_args, chunksize=1)
             _load_pool.close()
-            _load_pool.terminate()
             _load_pool.join()
+            _load_pool.terminate()
             return _seg_labels, _ims
         else:
             return _seg_labels
@@ -1284,8 +1284,8 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405, num_threads=
         _load_pool = mp.Pool(num_threads)
         _ims = _load_pool.starmap(corrections.correct_single_image, _load_args, chunksize=1)
         _load_pool.close()
-        _load_pool.terminate()
         _load_pool.join()
+        _load_pool.terminate()
     ## rescaling and stack
     # rescale image to 0-1 gray scale
     _limits = [stats.scoreatpercentile(_im, (cap_percentile, 100.-cap_percentile)).astype(np.float) for _im in _ims]
@@ -2479,16 +2479,19 @@ def translate_segmentation(old_segmentation, old_dapi_im, new_dapi_im,
         return _cleaned_rot_seg_label
 
 # translate chromosome coordinates
-def translate_chromosome_coordinates(source_cell_data, target_cell_data, 
-                                     rotation_mat=None, rotation_ref_file=None, rotation_order='reverse', 
-                                     border_lim=10, force=True, add_attribute=True, verbose=True):
+
+def translate_chromosome_coordinates(source_cell_data, target_cell_data, rotation_mat=None,
+                                     rotation_ref_file=None, rotation_order='reverse', 
+                                     single_im_size=_image_size, border_lim=10, 
+                                     force=True, add_attribute=True, verbose=True):
     """Function to translate chromosome coordinate given cell_data object before and after translation
     Inputs:
         source_cell_data: cell_data providing chromosome_coordinates, classes.Cell_Data,
         target_cell_data: cell_data to receive translated chromosomes, classes.Cell_Data, 
         rotation_mat: rotation matrix, if provided, np.2darray (default:None), 
         rotation_ref_file file for rotation matrix, string (default:None), 
-        rotation_order: whether rotation_mat is forward or reverse, (default:'reverse'), 
+        rotation_order: whether rotation_mat is forward or reverse, (default:'reverse')
+        border_lim: limit to judge whether close to border, int (default:10)
         verbose: say something!, bool (default:True)
     Outputs:
         tar_coords: list of translated chromosome coordinates, list of array-3"""
@@ -2527,28 +2530,63 @@ def translate_chromosome_coordinates(source_cell_data, target_cell_data,
         return target_cell_data.chrom_coords
     
     ## start rotation!
-    # source rotation center
-    src_center = np.mean(source_cell_data.segmentation_crop, 1) \
-                 - source_cell_data.segmentation_crop[:,0]
-    ref_coords = [_coord - src_center for _coord in source_cell_data.chrom_coords]
-    # target rotation center
-    tar_center = np.mean(target_cell_data.segmentation_crop, 1)
-    for _i, (_ct,_lims) in enumerate(zip(tar_center, target_cell_data.segmentation_crop)):
-        if _lims[0] <= border_lim:
-            tar_center[_i] = _lims[1]-_ct
+    
+    ## get rotation centers
+    # extract crop information
+    _src_crop = source_cell_data.segmentation_crop
+    _tar_crop = target_cell_data.segmentation_crop
+    # init centers
+    _src_center = [np.mean(_src_crop[0])]
+    _tar_center = [np.mean(_tar_crop[0])]
+    # get x,y
+    for _fov_lim, _src_lim, _tar_lim in zip(single_im_size[-2:], _src_crop[-2:], _tar_crop[-2:]):
+        # now we are assuming a cell cannot go across the whole fov
+        if _src_lim[0] < border_lim and _tar_lim[0] < border_lim:
+            if verbose:
+                print(f"---- both cells are out of fov")
+            _ct = max(np.mean(_src_lim) - _src_lim[0], np.mean(_tar_lim)- _tar_lim[0])
+            _src_center.append(_src_lim[1] - _src_lim[0] - _ct)
+            _tar_center.append(_tar_lim[1] - _tar_lim[0] - _ct)
+        elif _src_lim[0] < border_lim:
+            _ct = np.mean(_tar_lim) - _tar_lim[0]
+            _src_center.append(_src_lim[1] - _src_lim[0] - _ct)
+            _tar_center.append(_tar_lim[1] - _tar_lim[0] - _ct)
+        elif _tar_lim[0] < border_lim:
+            _ct = np.mean(_src_lim)- _src_lim[0]
+            _src_center.append(_src_lim[1] - _src_lim[0] - _ct)
+            _tar_center.append(_tar_lim[1] - _tar_lim[0] - _ct)
+        elif _src_lim[1] > _fov_lim - border_lim and _tar_lim[1] > _fov_lim - border_lim:
+            if verbose:
+                print(f"---- both cells are out of fov")
+            _ct = max(np.mean(_src_lim) - _src_lim[0], np.mean(_tar_lim) - _tar_lim[0])
+            _src_center.append(_ct)
+            _tar_center.append(_ct)
+        elif _src_lim[1] > _fov_lim - border_lim:
+            _ct = np.mean(_tar_lim) - _tar_lim[0]
+            _src_center.append(_ct)
+            _tar_center.append(_ct)
+        elif _tar_lim[1] > _fov_lim - border_lim:
+            _ct = np.mean(_src_lim) - _src_lim[0]
+            _src_center.append(_ct)
+            _tar_center.append(_ct)
         else:
-            tar_center[_i] = _ct - _lims[0]
-    # translated reference coords
-    trans_ref_coords = [[_rc[0]]+list(np.dot(rotation_mat, _rc[-2:])) for _rc in ref_coords]
-    # final target chrom_coords
-    tar_coords = [np.array(_tc)+tar_center for _tc in trans_ref_coords]
+            _src_center.append(np.mean(_src_lim) - _src_lim[0])
+            _tar_center.append(np.mean(_tar_lim) - _tar_lim[0])
+    # transform 
+    _src_center, _tar_center = np.array(_src_center), np.array(_tar_center)
+    _src_ref_coords = [
+        _coord - _src_center for _coord in source_cell_data.chrom_coords]
+    _tar_ref_coords = [[_rc[0]]+list(np.dot(rotation_mat, _rc[-2:])) for _rc in _src_ref_coords]
+    # get final coord
+    _tar_coords  = [np.array(_tc) + _tar_center for _tc in _tar_ref_coords]
+
     if verbose:
-        print(f"--- translated chromsome coordinates:\n{tar_coords}")
+        print(f"--- translated chromsome coordinates:\n{_tar_coords}")
     if add_attribute:
-        setattr(target_cell_data, 'chrom_coords', tar_coords)
+        setattr(target_cell_data, 'chrom_coords', _tar_coords)
         if verbose:
             print(f"--- appended translated chromosomes to target_cell_data")
-    return tar_coords
+    return _tar_coords
 
 
 
