@@ -23,7 +23,7 @@ def Calculate_Bead_Drift(folders, fovs, fov_id, num_threads=12, drift_size=500, 
                          match_distance=3, match_unique=True, rough_drift_gb=0,
                          max_ref_points=500, ref_seed_per=95, drift_cutoff=1,
                          save=True, save_folder=None, save_postfix='_current_cor.pkl',
-                         overwrite=False, verbose=True):
+                         stringent=True, overwrite=False, verbose=True):
     """Function to generate drift profile given a list of corrected bead files
     Inputs:
         folders: hyb-folder names planned for drift-correction, list of folders
@@ -47,6 +47,7 @@ def Calculate_Bead_Drift(folders, fovs, fov_id, num_threads=12, drift_size=500, 
         save: whether save drift result dictionary to pickle file, bool (default: True)
         save_folder: folder to save drift result, required if save is True, string of path (default: None)
         save_postfix: drift file postfix, string (default: '_sequential_current_cor.pkl')
+        strigent: whether keep only confirmed results, bool (default:True)
         overwrite: whether overwrite existing drift_dic, bool (default: False)
         verbose: say something during the process! bool (default:True)
     Outputs:
@@ -226,8 +227,12 @@ def Calculate_Bead_Drift(folders, fovs, fov_id, num_threads=12, drift_size=500, 
     classes.killchild()
     # convert to dict
     if not sequential_mode:
-        new_drift_dic = {_ref_name: _ar[0] for _ref_name, _ar in zip(
-            new_keynames, align_results)}
+        if stringent:
+            new_drift_dic = {_ref_name: _ar[0] for _ref_name, _ar in zip(
+                new_keynames, align_results) if _ar[1]==0 }
+        else:
+            new_drift_dic = {_ref_name: _ar[0] for _ref_name, _ar in zip(
+                new_keynames, align_results)}
     else:
         _total_dfts = [_ar[0][0] for _ar in zip(align_results)]
         _total_dfts = [sum(_total_dfts[:i+1])

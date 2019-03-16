@@ -614,7 +614,7 @@ class Cell_List():
     def _create_cells_fov(self, _fov_ids, _num_threads=None, _sequential_mode=False, _plot_segmentation=True, 
                           _load_exist_info=True, _color_filename='Color_Usage', _load_annotated_only=True,
                           _drift_size=500, _drift_ref=0, _drift_postfix='_current_cor.pkl', _coord_sel=None,
-                          _dynamic=True, _save=False, _force_drift=False, _remove_bead_temp=True, _verbose=True):
+                          _dynamic=True, _save=False, _force_drift=False, _stringent=True, _verbose=True):
         """Create Cele_data objects for one field of view"""
         if not _num_threads:
             _num_threads = int(self.num_threads)
@@ -681,7 +681,7 @@ class Cell_List():
                 _drift, _failed_count = corrections.Calculate_Bead_Drift(_folders, self.fovs, _fov_id, 
                                             num_threads=_num_threads, sequential_mode=_sequential_mode, 
                                             ref_id=_drift_ref, drift_size=_drift_size, save_postfix=_drift_postfix, 
-                                            coord_sel=_coord_sel,
+                                            coord_sel=_coord_sel, stringent=_stringent,
                                             overwrite=_force_drift, verbose=_verbose)
 
             # create cells in parallel
@@ -822,7 +822,7 @@ class Cell_List():
                                         _overwrite=_overwrite_cells, _verbose=_verbose)
 
     # generate chromosome coordinates
-    def _get_chromosomes_for_cells(self, _source='unique', _max_count= 30,
+    def _get_chromosomes_for_cells(self, _source='unique', _max_count= 90,
                                    _gaussian_size=2, _cap_percentile=1, _seed_dim=3,
                                    _th_percentile=99.5, _min_obj_size=125,
                                    _coord_filename='chrom_coords.pkl', _overwrite=False, _verbose=True):
@@ -1395,7 +1395,8 @@ class Cell_Data():
     ## Load drift (better load, although de novo drift is allowed)
     def _load_drift(self, _sequential_mode=True, _load_annotated_only=True, 
                     _size=500, _ref_id=0, _drift_postfix='_current_cor.pkl', _num_threads=12,
-                    _coord_sel=None, _force=False, _dynamic=True, _verbose=True):
+                    _coord_sel=None, _force=False, _dynamic=True, 
+                    _stringent=True, _verbose=True):
         # num-threads
         if hasattr(self, 'num_threads'):
             _num_threads = min(_num_threads, self.num_threads)
@@ -1442,7 +1443,7 @@ class Cell_Data():
                                         num_threads=_num_threads,sequential_mode=_sequential_mode, 
                                         ref_id=_ref_id, drift_size=_size, coord_sel=_coord_sel,
                                         save_postfix=_drift_postfix,
-                                        save_folder=self.drift_folder,
+                                        save_folder=self.drift_folder, stringent=_stringent,
                                         overwrite=_force, verbose=_verbose)
             if _verbose:
                 print(f"- drift correction for {len(_drift)} frames has been generated.")
@@ -1581,10 +1582,10 @@ class Cell_Data():
                     _crop_pool.terminate()
                 # clear
                 killchild()
-                del(_unique_args)
                 # append (Notice: unique_ids and unique_channels has been appended)
                 for _uims in _cropped_results:
                     _unique_ims += _uims
+                    print('image length:'len(_unique_ims))
             # sort
             _tp = [(_id, _im, _ch) for _id, _im, _ch in sorted(
                 zip(_unique_ids, _unique_ims, _unique_channels))]
@@ -1609,8 +1610,7 @@ class Cell_Data():
                 self._save_to_file('unique', _save_dic=_dc,
                                    _overwrite=_overwrite, _verbose=_verbose)
                 # update cell_list
-                self._save_to_file(
-                    'cell_info', _overwrite=False, _verbose=_verbose)
+                self._save_to_file('cell_info', _overwrite=False, _verbose=_verbose)
 
             return _unique_ims, _unique_ids, _unique_channels
 

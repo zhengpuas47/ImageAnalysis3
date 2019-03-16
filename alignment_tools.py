@@ -179,6 +179,9 @@ def align_single_image(_filename, _selected_crops, _ref_filename=None, _ref_ims=
                                                             verbose=_verbose)
         #print(len(_matched_tar_seeds), _rough_drift, _print_name)
         _matched_ref_center = _ref_center[_find_pair]
+        if len(_matched_ref_center) == 0:
+            _drifts.append(np.inf*np.ones(3))
+            continue
         # apply drift to ref_center and used as seed to find target centers
         _tar_center = visual_tools.get_STD_centers(_tar_im, seeds=_matched_tar_seeds, remove_close_pts=False)
         # compare and get drift
