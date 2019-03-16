@@ -1497,9 +1497,9 @@ class Cell_Data():
                 self.save_folder, 'unique_rounds.npz')
             if hasattr(self, 'unique_ims') and hasattr(self, 'unique_ids') and hasattr(self, 'unique_channels') \
                 and len(self.unique_ims) == len(self.unique_ids) and len(self.unique_ids)==len(self.unique_channels):
-                _unique_ims = self.unique_ims
-                _unique_ids = self.unique_ids
-                _unique_channels = self.unique_channels
+                _unique_ims = list(self.unique_ims)
+                _unique_ids = list(self.unique_ids)
+                _unique_channels = list(self.unique_channels)
                 if _verbose:
                     print(f"-- {len(_unique_ims)} unique_image already loaded")
             elif os.path.isfile(_unique_savefile):
@@ -1547,9 +1547,11 @@ class Cell_Data():
                                 _unique_ids.pop(_old_index)
                                 _unique_ims.pop(_old_index)
                                 _unique_channels.pop(_old_index)
+                                print('-image length 1:', len(_unique_ims), len(_unique_ids), len(_unique_channels))
                         # append ids and channels
                         _unique_ids += _sel_ids
                         _unique_channels += _sel_channels
+                        print('-image length 2:', len(_unique_ims), len(_unique_ids), len(_unique_channels))
                         # add unique_arg
                         _new_arg = (_im_filename, _sel_channels, None, self.segmentation_label,
                                     _extend_dim, _single_im_size, self.channels,
@@ -1591,7 +1593,7 @@ class Cell_Data():
                 # append (Notice: unique_ids and unique_channels has been appended)
                 for _uims in _cropped_results:
                     _unique_ims += _uims
-                    print('image length:', len(_unique_ims))
+                    print('image length:', len(_unique_ims), len(_unique_ids), len(_unique_channels))
             # sort
             print("lengths:", len(_unique_ims), len(_unique_ids), len(_unique_channels))
 
@@ -1602,10 +1604,13 @@ class Cell_Data():
             _sorted_unique_channels = [_t[2] for _t in _tp]
             if _verbose:
                 print(f"-- time spent in cropping:{time.time()-_start_time}")
-            # check if load_in_ram
+            # save unique_ids anyway
+            self.unique_ids = _sorted_unique_ids
+            # dict to update unique_ids in cell_info
+            _id_info_dict={'unique_ids': _sorted_unique_ids}
+            # check if load_in_ram, if true keep images as well
             if _load_in_ram:
                 self.unique_ims = _sorted_unique_ims
-                self.unique_ids = _sorted_unique_ids
                 self.unique_channels = _sorted_unique_channels
             else:
                 _save = True  # not load-in-ram, then save to file
@@ -1618,7 +1623,8 @@ class Cell_Data():
                 self._save_to_file('unique', _save_dic=_dc,
                                    _overwrite=_overwrite, _verbose=_verbose)
                 # update cell_list
-                self._save_to_file('cell_info', _overwrite=_overwrite_cell_info, _verbose=_verbose)
+                self._save_to_file('cell_info', _save_dic=_id_info_dict, 
+                                   _overwrite=_overwrite_cell_info, _verbose=_verbose)
 
             return _sorted_unique_ims, _sorted_unique_ids, _sorted_unique_channels
 
@@ -1810,28 +1816,29 @@ class Cell_Data():
         # save unique
         if _type == 'all' or _type == 'unique':
             _unique_savefile = _save_folder + os.sep + 'unique_rounds.npz'
+            _start_time = time.time()
             # check unique_ims
-            if hasattr(self, 'unique_ims'):
-                _unique_ims = self.unique_ims
-            elif 'unique_ims' in _save_dic:
+            if 'unique_ims' in _save_dic:
                 _unique_ims = _save_dic['unique_ims']
+            elif hasattr(self, 'unique_ims'):
+                _unique_ims = self.unique_ims
             else:
                 raise ValueError(f'No unique_ims information given in fov:{self.fov_id}, cell:{self.cell_id}')
             # check unique_ids
-            if hasattr(self, 'unique_ids'):
-                _unique_ids = self.unique_ids
-            elif 'unique_ids' in _save_dic:
+            if 'unique_ids' in _save_dic:
                 _unique_ids = _save_dic['unique_ids']
+            elif hasattr(self, 'unique_ids'):
+                _unique_ids = self.unique_ids
             else:
                 raise ValueError(f'No unique_ids information given in fov:{self.fov_id}, cell:{self.cell_id}')
             # check unique_channels
-            if hasattr(self, 'unique_channels'):
-                _unique_channels = self.unique_channels
-            elif 'unique_channels' in _save_dic:
+            if 'unique_channels' in _save_dic:
                 _unique_channels = _save_dic['unique_channels']
+            elif hasattr(self, 'unique_channels'):
+                _unique_channels = self.unique_channels
             else:
                 raise ValueError(f'No unique_channels information given in fov:{self.fov_id}, cell:{self.cell_id}')
-
+            # generate dict to save into npz
             _unique_dic = {
                 'observation': np.stack(_unique_ims),
                 'ids': np.array(_unique_ids),
@@ -1839,8 +1846,10 @@ class Cell_Data():
             }
             # save
             if _verbose:
-                print("- saving unique to:", _unique_savefile)
+                print(f"- saving unique to file: {_unique_savefile} with {len(_unique_ims)} images" )
             np.savez_compressed(_unique_savefile, **_unique_dic)
+            if _verbose:
+                print(f"-- time spent in saving:{time.time()-_start_time}")
 
     def _load_from_file(self, _type='all', _save_folder=None, _decoded_flag=None, _load_attrs=[],
                         _overwrite=False, _verbose=True):
