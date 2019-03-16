@@ -1604,14 +1604,15 @@ class Cell_Data():
             _sorted_unique_channels = [_t[2] for _t in _tp]
             if _verbose:
                 print(f"-- time spent in cropping:{time.time()-_start_time}")
-            # save unique_ids anyway
+            # save unique_ids and unique_channels anyway
             self.unique_ids = _sorted_unique_ids
+            self.unique_channels = _sorted_unique_channels
             # dict to update unique_ids in cell_info
-            _id_info_dict={'unique_ids': _sorted_unique_ids}
+            _id_info_dict={'unique_ids': _sorted_unique_ids,
+                           'unique_channels':_sorted_unique_channels}
             # check if load_in_ram, if true keep images as well
             if _load_in_ram:
                 self.unique_ims = _sorted_unique_ims
-                self.unique_channels = _sorted_unique_channels
             else:
                 _save = True  # not load-in-ram, then save to file
             # save
