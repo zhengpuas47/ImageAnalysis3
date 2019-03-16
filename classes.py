@@ -795,7 +795,8 @@ class Cell_List():
                                            _corr_Z_shift=_corr_Z_shift, _corr_hot_pixel=_corr_hot_pixel,
                                            _corr_illumination=_corr_illumination, _corr_chromatic=_corr_chromatic,
                                            _load_in_ram=_load_in_ram, _extend_dim=_extend_dim,_num_buffer_frames=10,
-                                           _save=_save, _overwrite=_force, _verbose=_verbose)
+                                           _save=_save, _overwrite=_force, _overwrite_cell_info=_overwrite_cell_info,
+                                           _verbose=_verbose)
                     else:
                         if _verbose:
                             print(f"+ unique info exists for fov:{_cell.fov_id}, cell:{_cell.cell_id}, skip")
@@ -1465,7 +1466,7 @@ class Cell_Data():
                      _corr_Z_shift=True, _corr_hot_pixel=True,
                      _corr_illumination=True, _corr_chromatic=True,
                      _load_in_ram=False, _extend_dim=20, _num_buffer_frames=10,
-                     _save=True, _overwrite=False, _verbose=True):
+                     _save=True, _overwrite=False, _overwrite_cell_info=False, _verbose=True):
         "Function to crop combo/unique images "
         ## check inputs
         # Num of threads
@@ -1610,7 +1611,7 @@ class Cell_Data():
                 self._save_to_file('unique', _save_dic=_dc,
                                    _overwrite=_overwrite, _verbose=_verbose)
                 # update cell_list
-                self._save_to_file('cell_info', _overwrite=False, _verbose=_verbose)
+                self._save_to_file('cell_info', _overwrite=_overwrite_cell_info, _verbose=_verbose)
 
             return _unique_ims, _unique_ids, _unique_channels
 
