@@ -1585,7 +1585,7 @@ class Cell_Data():
                 # append (Notice: unique_ids and unique_channels has been appended)
                 for _uims in _cropped_results:
                     _unique_ims += _uims
-                    print('image length:'len(_unique_ims))
+                    print('image length:', len(_unique_ims))
             # sort
             _tp = [(_id, _im, _ch) for _id, _im, _ch in sorted(
                 zip(_unique_ids, _unique_ims, _unique_channels))]
