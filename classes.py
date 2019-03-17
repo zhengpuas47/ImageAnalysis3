@@ -1510,6 +1510,9 @@ class Cell_Data():
                     _unique_ims = list(handle['observation'])
                     _unique_ids = list(handle['ids'])
                     _unique_channels = list(handle['channels'])
+                if len(_unique_ims) != len(_unique_ids) or len(_unique_ims) != len(_unique_channels):
+                    print(f"length for unique info doesn't match! \n ims:{len(_unique_ims)}, ids:{len(_unique_ids)}, channels:{len(_unique_channels)}\n - start a new crop")
+                    _unique_ims, _unique_ids, _unique_channels = [], [], []
                 if _verbose:
                     print(f"time:{time.time()-_loading_start_time}")
             else:
