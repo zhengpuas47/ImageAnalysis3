@@ -1649,7 +1649,7 @@ class Cell_Data():
                     print("-- unique file does not exist")
                 return False
             else:
-                with np.load(_unique_savefile, mmap_mode='r+') as handle:
+                with np.load(_unique_savefile) as handle:
                     _keys = handle.keys()
                     if 'observation' not in _keys or 'ids' not in _keys or 'channels' not in _keys:
                         if _verbose:
