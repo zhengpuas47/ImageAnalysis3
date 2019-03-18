@@ -786,7 +786,7 @@ class Cell_List():
             for _fov_id in _used_fov_ids:
                 _fov_cells = [_cell for _cell in self.cells if _cell.fov_id==_fov_id]
                 for _cell in _fov_cells:
-                    # if not all combo exists for this cell:
+                    # if not all unique exists for this cell:
                     if not _cell._check_full_set('unique') or _force:
                         if _verbose:
                             print(f"+ Crop unique images for fov:{_cell.fov_id}, cell:{_cell.cell_id}")
