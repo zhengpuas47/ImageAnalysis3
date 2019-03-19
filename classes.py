@@ -129,7 +129,7 @@ class Cell_List():
         if 'num_threads' in parameters:
             self.num_threads = parameters['num_threads']
         else:
-            self.num_threads = int(os.cpu_count() / 3) # default: use one third of cpus.
+            self.num_threads = int(os.cpu_count() / 4) # default: use one third of cpus.
 
         ## if loading all remaining attr in parameter
         if _load_all_attr:
@@ -1495,6 +1495,7 @@ class Cell_Data():
             ## load from savefile if exists
             _unique_savefile = os.path.join(
                 self.save_folder, 'unique_rounds.npz')
+            # case 1: unique info already loaded in ram
             if hasattr(self, 'unique_ims') and hasattr(self, 'unique_ids') and hasattr(self, 'unique_channels') \
                 and len(self.unique_ims) == len(self.unique_ids) and len(self.unique_ids)==len(self.unique_channels):
                 _unique_ims = list(self.unique_ims)
@@ -1502,6 +1503,7 @@ class Cell_Data():
                 _unique_channels = list(self.unique_channels)
                 if _verbose:
                     print(f"-- {len(_unique_ims)} unique_image already loaded")
+            # case 2: unique info saved, so load from file
             elif os.path.isfile(_unique_savefile):
                 if _verbose:
                     print("-- loading unique_rounds.npz", end=', ')
@@ -1515,6 +1517,7 @@ class Cell_Data():
                     _unique_ims, _unique_ids, _unique_channels = [], [], []
                 if _verbose:
                     print(f"time:{time.time()-_loading_start_time}")
+            # case 3: start from scratch
             else:
                 _unique_ims, _unique_ids, _unique_channels = [], [], []
 
@@ -1550,11 +1553,11 @@ class Cell_Data():
                                 _unique_ids.pop(_old_index)
                                 _unique_ims.pop(_old_index)
                                 _unique_channels.pop(_old_index)
-                                print('-image length 1:', len(_unique_ims), len(_unique_ids), len(_unique_channels))
+                                print(f"-- overwrite regions:{_uid}, {len(_unique_ims)} remains")
                         # append ids and channels
                         _unique_ids += _sel_ids
                         _unique_channels += _sel_channels
-                        print('-image length 2:', len(_unique_ims), len(_unique_ids), len(_unique_channels))
+                        #print('-image length 2:', len(_unique_ims), len(_unique_ids), len(_unique_channels))
                         # add unique_arg
                         _new_arg = (_im_filename, _sel_channels, None, self.segmentation_label,
                                     _extend_dim, _single_im_size, self.channels,
@@ -1596,9 +1599,9 @@ class Cell_Data():
                 # append (Notice: unique_ids and unique_channels has been appended)
                 for _uims in _cropped_results:
                     _unique_ims += _uims
-                    print('image length:', len(_unique_ims), len(_unique_ids), len(_unique_channels))
+                    #print('image length:', len(_unique_ims), len(_unique_ids), len(_unique_channels))
             # sort
-            print("lengths:", len(_unique_ims), len(_unique_ids), len(_unique_channels))
+            print("-- lengths:", len(_unique_ims), len(_unique_ids), len(_unique_channels))
 
             _tp = [(_id, _im, _ch) for _id, _im, _ch in sorted(
                 zip(_unique_ids, _unique_ims, _unique_channels))]
@@ -2226,7 +2229,7 @@ class Cell_Data():
 
 
     def _multi_fitting_for_chromosome(self, _type='unique', _decoded_flag='diff', 
-                       _normalization=True,  _use_chrom_coords=True, _num_threads=6,
+                       _normalization=True,  _use_chrom_coords=True, _num_threads=12,
                        _gfilt_size=0.75, _background_gfilt_size=10, _max_filt_size=3,
                        _seed_th_per=50, _max_seed_count=10, _min_seed_count=3,
                        _width_zxy=None, _fit_radius=5, _fit_window=40, 

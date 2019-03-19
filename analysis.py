@@ -1681,24 +1681,25 @@ def spot_score_in_chromosome(spots, reg_id, sel_spots, cand_spots, distance_zxy=
     if len(np.shape(_pts)) == 1:
         _pts = _pts[np.newaxis, :]
     _pt_zxy = _pts[:, 1:4] * np.array(distance_zxy)[np.newaxis, :]
-    if len(reg_id) == 1:
-        pass
-
-    # get chr statistics
-    _ct_dists = np.linalg.norm(_cand_zxy - _chr_center, axis=1)
-    _lc_dists = np.array(
-        [_local_distance(_zxy[np.newaxis, _i], _zxy, _i) for _i in range(len(_zxy))])
-    _intensities = np.array(_all_spots)[:, 0]
+    if isinstance(reg_id, int) or len(reg_id) == 1:
+        _rids = reg_id * np.ones(len(_pts), dtype=np.int)
+    elif len(reg_id) == len(_pts):
+        _rids = np.array(reg_id, dtype=np.int)
+    else:
+        raise ValueError(f"Input reg_id should be either a int or list of ints aligned with spots!")# get chr statistics
+    _ct_dists = np.linalg.norm(_zxy - _chr_center, axis=1)
+    _lc_dists = np.array([_local_distance(_zxy[np.newaxis, _i], _zxy, _i) for _i in range(len(_zxy))])
+    _intensities = _pts[:, 0]
     # get pt statistics
-    _pt_ct_dist = np.linalg.norm(_pt_zxy - _chr_center, axis=1)
-    _pt_lc_dist = _local_distance(_pt_zxy, _zxy, reg_id)
-    _pt_intensity = _pts[:, 0]
+    #_pt_ct_dist = np.linalg.norm(_pt_zxy - _chr_center, axis=1)
+    #_pt_lc_dist = _local_distance(_pt_zxy, _zxy, reg_id)
+    #_pt_intensity = _pts[:, 0]
     # get score
-    _log_score = np.log(1-_cum_prob(_ct_dists, _pt_ct_dist))*w_ctdist \
-        + np.log(1-_cum_prob(_lc_dists, _pt_lc_dist))*w_lcdist \
-        + np.log(_cum_prob(_intensities, _pt_intensity))*w_int
+    #_log_score = np.log(1-_cum_prob(_ct_dists, _pt_ct_dist))*w_ctdist \
+    #    + np.log(1-_cum_prob(_lc_dists, _pt_lc_dist))*w_lcdist \
+    #    + np.log(_cum_prob(_intensities, _pt_intensity))*w_int
 
-    return _log_score
+    #return _log_score
 
 
 def distance_score_in_chromosome(dists, sel_spots, distance_zxy=_distance_zxy,
@@ -1730,7 +1731,7 @@ def distance_score_in_chromosome(dists, sel_spots, distance_zxy=_distance_zxy,
     _nb_dists = np.linalg.norm(_zxy[1:]-_zxy[:-1], axis=1)
     # shape 
     _dist_shape = np.shape(np.array(dists))
-    _
+    
     _scores = np.log(1-_cum_prob(_nb_dists, dists)) * w_dist
 
     return _scores
