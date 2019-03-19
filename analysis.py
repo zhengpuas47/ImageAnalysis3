@@ -1618,14 +1618,14 @@ def naive_pick_spots(cand_spots, region_ids, use_chrom_coord=True, chrom_id=None
         return None
 
 
-def spot_score_in_chromosome(spots, reg_id, sel_spots, cand_spots, distance_zxy=_distance_zxy, local_size=5,
+def spot_score_in_chromosome(spots, reg_id, sel_spots, distance_zxy=_distance_zxy, 
+                             local_size=5, _ct_dists=None, _lc_dists=None, _intensities=None,
                              w_ctdist=1, w_lcdist=1, w_int=1):
     """Function to calculate log-score for given spot in selected chr_pts from candidiate_points
     Inputs:
         spots: given fitted spots info, list of spots or one spot
         reg_id: region id for these given spots, int
         sel_spots: currently selected spots for chromosome tracing, list of spots / 2darray
-        cand_spots: candidate spots, list of list of spots
         distance_zxy: transform from pixel to nm for z,x,y axes
         local_size: window size to calculate local distance, int (default: 5)
         w_ctdist: weight for distance to chr-center, float (default: 1)
@@ -1649,33 +1649,26 @@ def spot_score_in_chromosome(spots, reg_id, sel_spots, cand_spots, distance_zxy=
         cprob[cprob == 1] = 1 - 1 / np.nansum(1-np.isnan(data))
         return cprob
 
-    def _local_distance(spot_zxy, zxy, pt_id, size=local_size):
+    def _local_distance(spot_zxys, sel_zxy, pt_ids, size=local_size, minimal_dist=0.5):
         """Function to caluclate local distance"""
+        sel_zxy = np.array(sel_zxy)
         _half_size = int((size-1)/2)
-        if pt_id < _half_size:
-            _half_size = pt_id
-        elif pt_id >= len(zxy) - _half_size:
-            _half_size = len(zxy) - pt_id - 1
-        if _half_size == 0:
-            return 0.5
-        _ind = np.delete(np.arange(pt_id-_half_size,
-                                   pt_id+_half_size+1), _half_size)
-        _local_mean = np.nanmean(zxy[_ind], axis=0)
-        _local_dist = np.linalg.norm(_local_mean - spot_zxy, axis=1)
-        return _local_dist
+        _chr_len = len(sel_zxy)
+        _sizes = [min(_half_size, _id, _chr_len-_id-1) for _id in pt_ids]
+        _inds = [np.delete(np.arange(_id-_sz,_id+_sz+1),_sz) for _id,_sz in zip(pt_ids, _sizes)]
+        _local_dists = []
+        for _spot, _ind in zip(spot_zxys,_inds):
+            if len(_ind) == 0:
+                _local_dists.append(minimal_dist)
+            else:
+                _local_dists.append(np.linalg.norm(
+                    np.nanmean(sel_zxy[_ind], axis=0) - _spot))
+
+        return _local_dists
 
     # get chr coordinates
     _zxy = np.array(sel_spots)[:, 1:4]*np.array(distance_zxy)[np.newaxis, :]
     _chr_center = np.nanmean(_zxy, axis=0)
-    if isinstance(cand_spots[0], list):
-        _all_spots = np.concatenate(
-            [np.concatenate(__pts) for __pts in cand_spots])  # all candidate spots
-    elif isinstance(cand_spots, np.ndarray):
-        _all_spots = np.array(cand_spots)
-    else:
-        _all_spots = np.concatenate(cand_spots)
-    _cand_zxy = np.array(_all_spots)[:, 1:4] * \
-        np.array(distance_zxy)[np.newaxis, :]
     # get pt coordinates
     _pts = np.array(spots)
     if len(np.shape(_pts)) == 1:
@@ -1687,19 +1680,23 @@ def spot_score_in_chromosome(spots, reg_id, sel_spots, cand_spots, distance_zxy=
         _rids = np.array(reg_id, dtype=np.int)
     else:
         raise ValueError(f"Input reg_id should be either a int or list of ints aligned with spots!")# get chr statistics
-    _ct_dists = np.linalg.norm(_zxy - _chr_center, axis=1)
-    _lc_dists = np.array([_local_distance(_zxy[np.newaxis, _i], _zxy, _i) for _i in range(len(_zxy))])
-    _intensities = _pts[:, 0]
+    # if not given, generate from existing chrom_data
+    if _ct_dists is None:
+        _ct_dists = np.linalg.norm(_zxy - _chr_center, axis=1)
+    if _lc_dists is None:
+        _lc_dists = _local_distance(_zxy, _zxy, np.arange(len(_zxy)))
+    if _intensities is None:
+        _intensities = _pts[:, 0]
     # get pt statistics
-    #_pt_ct_dist = np.linalg.norm(_pt_zxy - _chr_center, axis=1)
-    #_pt_lc_dist = _local_distance(_pt_zxy, _zxy, reg_id)
-    #_pt_intensity = _pts[:, 0]
+    _pt_ct_dist = np.linalg.norm(_pt_zxy - _chr_center, axis=1)
+    _pt_lc_dist = _local_distance(_pt_zxy, _zxy, _rids)
+    _pt_intensity = _pts[:, 0]
     # get score
-    #_log_score = np.log(1-_cum_prob(_ct_dists, _pt_ct_dist))*w_ctdist \
-    #    + np.log(1-_cum_prob(_lc_dists, _pt_lc_dist))*w_lcdist \
-    #    + np.log(_cum_prob(_intensities, _pt_intensity))*w_int
+    _log_score = np.log(1-_cum_prob(_ct_dists, _pt_ct_dist))*w_ctdist \
+        + np.log(1-_cum_prob(_lc_dists, _pt_lc_dist))*w_lcdist \
+        + np.log(_cum_prob(_intensities, _pt_intensity))*w_int
 
-    #return _log_score
+    return _log_score
 
 
 def distance_score_in_chromosome(dists, sel_spots, distance_zxy=_distance_zxy,
