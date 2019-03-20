@@ -1102,8 +1102,9 @@ class Cell_List():
                                              _save_plot=_save_plot, _limits=_plot_limits, _verbose=_verbose)
 
     def _calculate_population_map(self, _type='unique', _max_loss_prob=0.15,
-                                  _ignore_inf=True, _stat_type='median',
+                                  _ignore_inf=True, _stat_type='median',_contact_th=200,
                                   _make_plot=True, _save_plot=True, _save_name='distance_map',
+                                  _cmap='seismic',
                                   _plot_limits=[0,2000], _verbose=True):
         """Calculate 'averaged' map for all cells in this list
         Inputs:
@@ -1118,8 +1119,10 @@ class Cell_List():
         elif _type == 'decoded':
             _picked_spots_attr = 'picked_decoded_spots'
             _distmap_attr = 'decoded_distance_map'
-        if _stat_type not in ['median', 'mean']:
+        if _stat_type not in ['median', 'mean', 'contact']:
             raise ValueError(f"Wrong _stat_type({_stat_type}) kwd is given!")
+        if _cmap not in ['seismic', 'Reds']:
+            raise ValueError(f"Wrong imnut _cmap:{_cmap}, exit!")
         # detect distmap shape
         _distmap_shape=[]
         for _cell in self.cells:
@@ -1154,8 +1157,15 @@ class Cell_List():
             _total_map[_total_map == np.inf] = np.nan
         if _stat_type == 'median':
             _averaged_map = np.nanmedian(_total_map, axis=0)
+            _cmap+= '_r'
         elif _stat_type == 'mean':
             _averaged_map = np.nanmean(_total_map, axis=0)
+            _cmap += '_r'
+        elif _stat_type == 'contact':
+            _averaged_map = np.nanmean(_total_map < _contact_th, axis=0)
+            # change scale if possible
+            if max(_plot_limits) > 0.05:
+                _plot_limits = [min(_plot_limits)/float(max(_plot_limits))*0.05, 0.05]
         ## make plots
         if _make_plot:
             if _verbose:
@@ -1167,13 +1177,22 @@ class Cell_List():
             _used_fovs = sorted(_used_fovs)
             plt.figure()
             plt.title(f"{_stat_type} distance map, num of chrom:{len(_cand_distmaps)}")
-            plt.imshow(_averaged_map, interpolation='nearest', cmap=matplotlib.cm.seismic_r,
+            plt.imshow(_averaged_map, interpolation='nearest', cmap=_cmap,
                        vmin=min(_plot_limits), vmax=max(_plot_limits))
-            plt.colorbar(ticks=range(min(_plot_limits),max(_plot_limits),200), label='distance (nm)')
+            if _stat_type == 'contact':
+                plt.colorbar(ticks=np.arange(min(_plot_limits),max(_plot_limits),
+                        (max(_plot_limits)-min(_plot_limits))/10), label='contact prob.')
+            else:
+                plt.colorbar(ticks=np.arange(min(_plot_limits), max(_plot_limits)+1,
+                                             200), label='distance (nm)')
+
             if _save_plot:
                 if _verbose:
                     print(f"++ saving {_stat_type} distance map.")
-                _filename = os.path.join(self.map_folder, f"{_stat_type}_{_save_name}_fov{_used_fovs}.png")
+                if len(_used_fovs) > 10:
+                    _filename = os.path.join(self.map_folder, f"{_stat_type}_{_save_name}_fov{min(_used_fovs)}-{max(_used_fovs)}_{_cmap}.png")
+                else:
+                    _filename = os.path.join(self.map_folder, f"{_stat_type}_{_save_name}_fov{_used_fovs}_{_cmap}.png")
                 if not os.path.exists(self.map_folder):
                     os.makedirs(self.map_folder)
                 plt.savefig(_filename, transparent=True)
