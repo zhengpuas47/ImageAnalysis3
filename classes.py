@@ -1176,7 +1176,7 @@ class Cell_List():
                     _used_fovs.append(_cell.fov_id)
             _used_fovs = sorted(_used_fovs)
             plt.figure()
-            plt.title(f"{_stat_type} distance map, num of chrom:{len(_cand_distmaps)}")
+            plt.title(f"{_stat_type} map, num of chrom:{len(_cand_distmaps)}")
             plt.imshow(_averaged_map, interpolation='nearest', cmap=_cmap,
                        vmin=min(_plot_limits), vmax=max(_plot_limits))
             if _stat_type == 'contact':
