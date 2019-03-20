@@ -1733,3 +1733,30 @@ def _cum_prob(data, target_value):
     cprob[cprob == 0] = 1 / np.nansum(1-np.isnan(data))
     cprob[cprob == 1] = 1 - 1 / np.nansum(1-np.isnan(data))
     return cprob
+
+# generate spot score pool 
+def generate_spot_score_pool(all_spots, distance_zxy=_distance_zxy,
+                             local_size=5, verbose=False):
+    """Generate pool for spot_scores
+    Inputs:
+        all_spots: list of spots, or np.2drray, or list of list of spots
+        distane_zxy: distance in nm for z,x,y pixels, array of 3 (defualt:[200,106,106])
+        local_size: window size of local distance calculation, int (default:5)
+        verbose: say something!, bool (default:False)
+    """
+    if isinstance(all_spots, np.ndarray):
+        _zxy = all_spots[:,1:4] * np.array(distance_zxy)[np.newaxis,:]
+        _intensities = all_spots[:,0]
+    elif isinstance(all_spots[0], np.ndarray) or len(all_spots[0].shape)==1:
+        _zxy =  np.array(all_spots)[:,1:4] * np.array(distance_zxy)[np.newaxis,:]
+        _intensities = np.array(all_spots)[:,0]
+    elif  isinstance(all_spots[0], list) or len(all_spots[0].shape)==2:
+        _spots = np.concatenate([np.array(_pts) for _pts in all_spots], axis=0)
+        _zxy =  np.array(_spots)[:,1:4] * np.array(distance_zxy)[np.newaxis,:]
+        _intensities = np.array(_spots)[:,0]
+    else:
+        raise TypeError("Wrong input datatype for all_spots, should be list of spots or list of list of spots!")
+    _chr_center = np.nanmean(_zxy, axis=0)
+    _ct_dists = np.linalg.norm(_zxy - _chr_center, axis=1)
+    _lc_dists = analysis._local_distance(_zxy, _zxy, np.arange(len(_zxy)))
+    return _ct_dists, _lc_dists, _intensities
