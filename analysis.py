@@ -1618,8 +1618,9 @@ def naive_pick_spots(cand_spots, region_ids, use_chrom_coord=True, chrom_id=None
         return None
 
 
-def spot_score_in_chromosome(spots, reg_id, sel_spots, distance_zxy=_distance_zxy, 
-                             local_size=5, _ct_dists=None, _lc_dists=None, _intensities=None,
+def spot_score_in_chromosome(spots, reg_id, sel_spots, 
+                             _ct_dists=None, _lc_dists=None, _intensities=None,
+                             distance_zxy=_distance_zxy, local_size=5, 
                              w_ctdist=1, w_lcdist=1, w_int=1):
     """Function to calculate log-score for given spot in selected chr_pts from candidiate_points
     Inputs:
@@ -1634,38 +1635,6 @@ def spot_score_in_chromosome(spots, reg_id, sel_spots, distance_zxy=_distance_zx
     Output:
         _log_score: log score for this given spot, float 
     """
-    # accumulative prob.
-    def _cum_prob(data, target_value):
-        """Function to calculate CDF from a dataset"""
-        data = np.array(data, dtype=np.float)
-        target_value = np.array(target_value, dtype=np.float)
-        if len(target_value.shape) == 0:
-            target_value = np.array([target_value], dtype=np.float)
-        target_value[np.isnan(target_value)] = np.inf
-
-        cprob = np.array(
-            [np.nansum(data < _v) / np.nansum(1-np.isnan(data)) for _v in target_value])
-        cprob[cprob == 0] = 1 / np.nansum(1-np.isnan(data))
-        cprob[cprob == 1] = 1 - 1 / np.nansum(1-np.isnan(data))
-        return cprob
-
-    def _local_distance(spot_zxys, sel_zxy, pt_ids, size=local_size, minimal_dist=0.5):
-        """Function to caluclate local distance"""
-        sel_zxy = np.array(sel_zxy)
-        _half_size = int((size-1)/2)
-        _chr_len = len(sel_zxy)
-        _sizes = [min(_half_size, _id, _chr_len-_id-1) for _id in pt_ids]
-        _inds = [np.delete(np.arange(_id-_sz,_id+_sz+1),_sz) for _id,_sz in zip(pt_ids, _sizes)]
-        _local_dists = []
-        for _spot, _ind in zip(spot_zxys,_inds):
-            if len(_ind) == 0:
-                _local_dists.append(minimal_dist)
-            else:
-                _local_dists.append(np.linalg.norm(
-                    np.nanmean(sel_zxy[_ind], axis=0) - _spot))
-
-        return _local_dists
-
     # get chr coordinates
     _zxy = np.array(sel_spots)[:, 1:4]*np.array(distance_zxy)[np.newaxis, :]
     _chr_center = np.nanmean(_zxy, axis=0)
@@ -1734,3 +1703,33 @@ def distance_score_in_chromosome(dists, sel_spots, distance_zxy=_distance_zxy,
     return _scores
 
 
+def _local_distance(spot_zxys, chr_sel_zxy, pt_ids, size=5, minimal_dist=0.5):
+    """Function to caluclate local distance"""
+    chr_sel_zxy = np.array(chr_sel_zxy)
+    _half_size = int((size-1)/2)
+    _chr_len = len(chr_sel_zxy)
+    _sizes = [min(_half_size, _id, _chr_len-_id-1) for _id in pt_ids]
+    _inds = [np.delete(np.arange(_id-_sz,_id+_sz+1),_sz) for _id,_sz in zip(pt_ids, _sizes)]
+    _local_dists = []
+    for _spot, _ind in zip(spot_zxys,_inds):
+        if len(_ind) == 0:
+            _local_dists.append(minimal_dist)
+        else:
+            _local_dists.append(np.linalg.norm(
+                np.nanmean(chr_sel_zxy[_ind], axis=0) - _spot))
+    return _local_dists
+
+# accumulative prob.
+def _cum_prob(data, target_value):
+    """Function to calculate CDF from a dataset"""
+    data = np.array(data, dtype=np.float)
+    target_value = np.array(target_value, dtype=np.float)
+    if len(target_value.shape) == 0:
+        target_value = np.array([target_value], dtype=np.float)
+    target_value[np.isnan(target_value)] = np.inf
+
+    cprob = np.array(
+        [np.nansum(data < _v) / np.nansum(1-np.isnan(data)) for _v in target_value])
+    cprob[cprob == 0] = 1 / np.nansum(1-np.isnan(data))
+    cprob[cprob == 1] = 1 - 1 / np.nansum(1-np.isnan(data))
+    return cprob
