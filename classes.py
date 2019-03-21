@@ -1104,7 +1104,7 @@ class Cell_List():
     def _calculate_population_map(self, _type='unique', _max_loss_prob=0.15,
                                   _ignore_inf=True, _stat_type='median',_contact_th=200,
                                   _make_plot=True, _save_plot=True, _save_name='distance_map',
-                                  _cmap='seismic',
+                                  _cmap='seismic', _fig_dpi=300, _fig_size=4,
                                   _plot_limits=[0,2000], _verbose=True):
         """Calculate 'averaged' map for all cells in this list
         Inputs:
@@ -1175,7 +1175,7 @@ class Cell_List():
                 if _cell.fov_id not in _used_fovs:
                     _used_fovs.append(_cell.fov_id)
             _used_fovs = sorted(_used_fovs)
-            plt.figure()
+            plt.figure(figsize=(1.25*_fig_size, _fig_size), dpi=_fig_dpi)
             plt.title(f"{_stat_type} map, num of chrom:{len(_cand_distmaps)}")
             plt.imshow(_averaged_map, interpolation='nearest', cmap=_cmap,
                        vmin=min(_plot_limits), vmax=max(_plot_limits))
@@ -1183,7 +1183,7 @@ class Cell_List():
                 plt.colorbar(ticks=np.arange(min(_plot_limits),max(_plot_limits),
                         (max(_plot_limits)-min(_plot_limits))/10), label='contact prob.')
             else:
-                plt.colorbar(ticks=np.arange(min(_plot_limits), max(_plot_limits)+1,
+                plt.colorbar(ticks=np.arange(min(_plot_limits), max(_plot_limits)+2,
                                              200), label='distance (nm)')
 
             if _save_plot:
