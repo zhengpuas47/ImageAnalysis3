@@ -1104,7 +1104,7 @@ class Cell_List():
     def _calculate_population_map(self, _type='unique', _max_loss_prob=0.15,
                                   _ignore_inf=True, _stat_type='median',_contact_th=200,
                                   _make_plot=True, _save_plot=True, _save_name='distance_map',
-                                  _cmap='seismic', _fig_dpi=300, _fig_size=4,
+                                  _cmap='seismic', _fig_dpi=300, _fig_size=4, _gfilt_size=0.75,
                                   _plot_limits=[0,2000], _verbose=True):
         """Calculate 'averaged' map for all cells in this list
         Inputs:
@@ -1163,9 +1163,19 @@ class Cell_List():
             _cmap += '_r'
         elif _stat_type == 'contact':
             _averaged_map = np.nanmean(_total_map < _contact_th, axis=0)
+
             # change scale if possible
             if max(_plot_limits) > 0.05:
                 _plot_limits = [min(_plot_limits)/float(max(_plot_limits))*0.05, 0.05]
+        if _gfilt_size:
+            from astropy.convolution import Gaussian2DKernel
+            from astropy.convolution import convolve
+            # remove smoothing artifacts caused by diagonal
+            for _i in range(_averaged_map.shape[0]):
+                _averaged_map[_i,_i] = np.nan
+            _kernel = Gaussian2DKernel(x_stddev=_gfilt_size)
+            _averaged_map = convolve(_averaged_map, _kernel)
+
         ## make plots
         if _make_plot:
             if _verbose:
@@ -1193,6 +1203,9 @@ class Cell_List():
                     _filename = os.path.join(self.map_folder, f"{_stat_type}_{_save_name}_fov{min(_used_fovs)}-{max(_used_fovs)}_{_cmap}.png")
                 else:
                     _filename = os.path.join(self.map_folder, f"{_stat_type}_{_save_name}_fov{_used_fovs}_{_cmap}.png")
+                # add gaussian info if given
+                if _gfilt_size:
+                    _filename = _filename.replace('.png', f'_g{_gfilt_size}.png')
                 if not os.path.exists(self.map_folder):
                     os.makedirs(self.map_folder)
                 plt.savefig(_filename, transparent=True)
