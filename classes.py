@@ -56,7 +56,8 @@ def _fit_single_image(_im, _id, _chrom_coords, _seeding_args, _fitting_args, _ch
             _seeds = visual_tools.get_seed_in_distance(_im, _chrom_coord, *_seeding_args)
             if len(_seeds) == 0:
                 # no seed found, return empty array
-                return np.array([])
+                _spots_for_chrom.append(np.array([]))
+                continue
             # fit
             _fitter = Fitting_v3.iter_fit_seed_points(
                 _im, _seeds.T, *_fitting_args)
