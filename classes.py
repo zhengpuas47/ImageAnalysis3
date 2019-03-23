@@ -1163,7 +1163,9 @@ class Cell_List():
             _averaged_map = np.nanmean(_total_map, axis=0)
             _cmap += '_r'
         elif _stat_type == 'contact':
-            _averaged_map = np.nanmean(_total_map < _contact_th, axis=0)
+
+            _averaged_map = np.nansum(_total_map < _contact_th, axis=0) / \
+                (np.nansum(_total_map < _contact_th, axis=0)+np.nansum(_total_map > _contact_th, axis=0))
 
             # change scale if possible
             if max(_plot_limits) > 0.05:
@@ -2583,6 +2585,7 @@ class Cell_Data():
             _coords_in_nm = _coords_in_pxl * _distance_zxy
             # calculate dist-map
             _distmap = squareform(pdist(_coords_in_nm))
+            _distmap[_distmap == np.inf] = np.nan
             # append
             _distance_maps.append(_distmap)
             # make plot
