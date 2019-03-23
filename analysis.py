@@ -1668,7 +1668,7 @@ def spot_score_in_chromosome(spots, reg_id, sel_spots,
     return _log_score
 
 
-def distance_score_in_chromosome(dists, sel_spots, distance_zxy=_distance_zxy,
+def distance_score_in_chromosome(dists, sel_spots, _nb_dists=None, distance_zxy=_distance_zxy,
                                  w_dist=1):
     """Function to calculate log-score for given spot in selected chr_pts from candidiate_points
     Inputs:
@@ -1679,28 +1679,27 @@ def distance_score_in_chromosome(dists, sel_spots, distance_zxy=_distance_zxy,
     Output:
         _log_score: log score for this given spot, float 
     """
-    # accumulative prob.
-    def _cum_prob(data, target_value):
-        """Function to calculate CDF from a dataset"""
-        data = np.array(data, dtype=np.float)
-        target_value = np.array(target_value, dtype=np.float)
-        if len(target_value.shape) == 0:
-            target_value = np.array([target_value], dtype=np.float)
-        target_value[np.isnan(target_value)] = np.inf
-
-        cprob = np.array(
-            [np.nansum(data < _v) / np.nansum(1-np.isnan(data)) for _v in target_value])
-        cprob[cprob == 0] = 1 / np.nansum(1-np.isnan(data))
-        cprob[cprob == 1] = 1 - 1 / np.nansum(1-np.isnan(data))
-        return cprob
     _zxy = np.array(sel_spots)[:, 1:4]*np.array(distance_zxy)[np.newaxis, :]
-    _nb_dists = np.linalg.norm(_zxy[1:]-_zxy[:-1], axis=1)
-    # shape 
-    _dist_shape = np.shape(np.array(dists))
+    if _nb_dists is None:
+        _nb_dists = np.linalg.norm(_zxy[1:]-_zxy[:-1], axis=1)
     
     _scores = np.log(1-_cum_prob(_nb_dists, dists)) * w_dist
 
     return _scores
+
+def generate_distance_score_pool(all_spots, distance_zxy=_distance_zxy):
+    """Generate distance score pool from sel_spots"""
+    if isinstance(all_spots, np.ndarray):
+        _zxy = all_spots[:,1:4] * np.array(distance_zxy)[np.newaxis,:]
+    elif isinstance(all_spots[0], np.ndarray) or len(all_spots[0].shape)==1:
+        _zxy =  np.array(all_spots)[:,1:4] * np.array(distance_zxy)[np.newaxis,:]
+    elif  isinstance(all_spots[0], list) or len(all_spots[0].shape)==2:
+        _spots = np.concatenate([np.array(_pts) for _pts in all_spots], axis=0)
+        _zxy =  np.array(_spots)[:,1:4] * np.array(distance_zxy)[np.newaxis,:]
+    else:
+        raise TypeError("Wrong input datatype for all_spots, should be list of spots or list of list of spots!")
+    _nb_dists = np.linalg.norm(_zxy[1:]-_zxy[:-1], axis=1)
+    return _nb_dists
 
 
 def _local_distance(spot_zxys, chr_sel_zxy, pt_ids, size=5, minimal_dist=0.5):
@@ -1760,3 +1759,4 @@ def generate_spot_score_pool(all_spots, distance_zxy=_distance_zxy,
     _ct_dists = np.linalg.norm(_zxy - _chr_center, axis=1)
     _lc_dists = analysis._local_distance(_zxy, _zxy, np.arange(len(_zxy)))
     return _ct_dists, _lc_dists, _intensities
+
