@@ -406,7 +406,7 @@ def Chromatic_abbrevation_correction(im, correction_channel, target_channel='647
     # image shape and ref-shape
     im_shape = np.array(im.shape, dtype=np.int)
     single_im_size = np.array(single_im_size, dtype=np.int)
-    
+
     # check crop_limits
     if crop_limits is None:
         if (im_shape[-2:]-single_im_size[-2:]).any():

@@ -1621,7 +1621,7 @@ def naive_pick_spots(cand_spots, region_ids, use_chrom_coord=True, chrom_id=None
 def spot_score_in_chromosome(spots, reg_id, sel_spots, 
                              _ct_dists=None, _lc_dists=None, _intensities=None,
                              distance_zxy=_distance_zxy, local_size=5, 
-                             w_ctdist=1, w_lcdist=1, w_int=1):
+                             w_ccdist=1, w_lcdist=1, w_int=1):
     """Function to calculate log-score for given spot in selected chr_pts from candidiate_points
     Inputs:
         spots: given fitted spots info, list of spots or one spot
@@ -1629,7 +1629,7 @@ def spot_score_in_chromosome(spots, reg_id, sel_spots,
         sel_spots: currently selected spots for chromosome tracing, list of spots / 2darray
         distance_zxy: transform from pixel to nm for z,x,y axes
         local_size: window size to calculate local distance, int (default: 5)
-        w_ctdist: weight for distance to chr-center, float (default: 1)
+        w_ccdist: weight for distance to chr-center, float (default: 1)
         w_lcdist: weight for distance to local-center, float (default: 1)
         w_int: weight for intensity, float (default: 1)
     Output:
@@ -1661,7 +1661,7 @@ def spot_score_in_chromosome(spots, reg_id, sel_spots,
     _pt_lc_dist = _local_distance(_pt_zxy, _zxy, _rids)
     _pt_intensity = _pts[:, 0]
     # get score
-    _log_score = np.log(1-_cum_prob(_ct_dists, _pt_ct_dist))*w_ctdist \
+    _log_score = np.log(1-_cum_prob(_ct_dists, _pt_ct_dist))*w_ccdist \
         + np.log(1-_cum_prob(_lc_dists, _pt_lc_dist))*w_lcdist \
         + np.log(_cum_prob(_intensities, _pt_intensity))*w_int
 
@@ -1757,6 +1757,41 @@ def generate_spot_score_pool(all_spots, distance_zxy=_distance_zxy,
         raise TypeError("Wrong input datatype for all_spots, should be list of spots or list of list of spots!")
     _chr_center = np.nanmean(_zxy, axis=0)
     _ct_dists = np.linalg.norm(_zxy - _chr_center, axis=1)
-    _lc_dists = analysis._local_distance(_zxy, _zxy, np.arange(len(_zxy)))
+    _lc_dists = _local_distance(_zxy, _zxy, np.arange(len(_zxy)))
     return _ct_dists, _lc_dists, _intensities
 
+
+# Pick spots by EM algorithm
+def EM_pick_spots(chrom_cand_spots, unique_ids, num_iters=np.inf, terminate_th=0.005,
+                  distance_zxy=_distance_zxy, local_size=5,
+                  w_ccdist=1, w_lcdist=1, w_int=2, w_nbdist=1,
+                  make_plot=True, verbose=True):
+    """Function to achieve EM spot picking
+    -------------------------------------------------------------------------------------
+    E-step: calculate spot score based on:
+        distance to chromosome center (consistency): w_ctdist
+        distance to local center (smoothing): w_lcdist
+        intensity (spot confidence): w_int
+    M-step: pick spots from candidate spots to maximize spot score + neighboring distances
+        distance to neighbor (continuity): w_nbdist
+    Iterate till:
+        a. iteration exceed num_iters
+        b. picked point change percentage lower than terminate_th
+    -------------------------------------------------------------------------------------
+    Inputs:
+        chrom_cand_spots: candidate spots for cenrtain chromosome, list of list of spots
+        unique_ids: region uid for candidate spots, list/array of ints
+        num_iters: maximum allowed number of iterations, int (default: np.inf, i.e. no limit)
+        terminate_th: termination threshold for change percentage of spot-picking, float (default: 0.005)
+        distance_zxy: translate pixel to nm, array of 3 (default: [200,106,106])
+        local_size: size to calculate local distance, int (default: 5)
+        w_ccdist: weight for distance_to_chromosome_center, float (default: 1)
+        w_lcdist: weight for distance_to_local_center, float (default: 1)
+        w_int: weight for spot intensity, float (default: 2)
+        w_nbdist:  weight for distance_to_neighbor_region, float (default: 1)
+        make_plot: make plot for each iteration, bool (default: True)
+        verbose: say something!, bool (default: True)
+    Outputs:
+        _sel_spots: list of selected spots, list
+    """
+    pass
