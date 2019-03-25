@@ -1163,12 +1163,11 @@ class Cell_List():
             _averaged_map = np.nanmean(_total_map, axis=0)
             _cmap += '_r'
         elif _stat_type == 'contact':
-
             _averaged_map = np.nansum(_total_map < _contact_th, axis=0) / \
                 (np.nansum(_total_map < _contact_th, axis=0)+np.nansum(_total_map > _contact_th, axis=0))
 
             # change scale if possible
-            if max(_plot_limits) > 0.05:
+            if max(_plot_limits) > 1:
                 _plot_limits = [min(_plot_limits)/float(max(_plot_limits))*0.05, 0.05]
         if _gfilt_size:
             from astropy.convolution import Gaussian2DKernel

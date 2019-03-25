@@ -1588,20 +1588,24 @@ def pca_components(im_cor):
     return evals, evecs  # , np.dot(evecs_red.T, data.T).T
 
 
-def naive_pick_spots(cand_spots, region_ids, use_chrom_coord=True, chrom_id=None, verbose=True):
+def naive_pick_spots(cand_spots, region_ids, use_chrom_coord=True, chrom_id=None, 
+                     return_indices=False, verbose=True):
     """Naive pick spots simply by intensity"""
     ## check inputs
     if len(cand_spots) != len(region_ids):
         raise ValueError(
             "cand_spots and region_ids should have the same length!")
-    if chrom_id is None:
+    if chrom_id is None and use_chrom_coord:
         raise ValueError(
             f"chrom_id should be given if use_chrom_coord is True!")
-    elif not isinstance(chrom_id, int):
+    elif chrom_id is not None and not isinstance(chrom_id, int):
         chrom_id = int(chrom_id)
+
     ## For now only support use_chrom_coord mode.
+    _selected_spots = []
+    _selected_indices = []
+
     if use_chrom_coord:
-        _selected_spots = []
         for _i, (_spots, _id) in enumerate(zip(cand_spots, region_ids)):
             # check chrom_id
             if len(_spots) <= chrom_id:
@@ -1609,17 +1613,33 @@ def naive_pick_spots(cand_spots, region_ids, use_chrom_coord=True, chrom_id=None
                     f" spots:{_spots} for region:{_id} doesn't have spots for chromosome {chrom_id}")
             # extract points
             _pts = np.array(_spots[chrom_id])
+            if len(_pts) == 0:
+                _selected_spots.append(np.inf * np.ones(11))
+                _selected_indices.append(-1)
             _selected_spots.append(_pts[np.argsort(_pts[:, 0])[-1]])
-        return np.array(_selected_spots)
-
+            _selected_indices.append(np.argsort(_pts[:, 0])[-1])
+        
     ## for not use_chrom_coord
     else:
-        print("Mode for not use_chrom_coord is not supported yet!")
-        return None
+        for _i, (_spots, _id) in enumerate(zip(cand_spots, region_ids)):
+            # extract points
+            _pts = np.array(_spots)
+            if len(_pts) == 0:
+                _selected_spots.append(np.inf * np.ones(11))
+                _selected_indices.append(-1)
+            _selected_spots.append(_pts[np.argsort(_pts[:, 0])[-1]])
+            _selected_indices.append(np.argsort(_pts[:, 0])[-1])
+    
+    # return 
+    if return_indices:
+        return np.array(_selected_spots), np.array(_selected_indices, dtype=np.int)
+    else:
+        return np.array(_selected_spots)
+
 
 
 def spot_score_in_chromosome(spots, reg_id, sel_spots, 
-                             _ct_dists=None, _lc_dists=None, _intensities=None,
+                             _cc_dists=None, _lc_dists=None, _intensities=None,
                              distance_zxy=_distance_zxy, local_size=5, 
                              w_ccdist=1, w_lcdist=1, w_int=1):
     """Function to calculate log-score for given spot in selected chr_pts from candidiate_points
@@ -1643,15 +1663,15 @@ def spot_score_in_chromosome(spots, reg_id, sel_spots,
     if len(np.shape(_pts)) == 1:
         _pts = _pts[np.newaxis, :]
     _pt_zxy = _pts[:, 1:4] * np.array(distance_zxy)[np.newaxis, :]
-    if isinstance(reg_id, int) or len(reg_id) == 1:
+    if isinstance(reg_id, int) or isinstance(reg_id, np.int32) or len(reg_id) == 1:
         _rids = reg_id * np.ones(len(_pts), dtype=np.int)
     elif len(reg_id) == len(_pts):
         _rids = np.array(reg_id, dtype=np.int)
     else:
         raise ValueError(f"Input reg_id should be either a int or list of ints aligned with spots!")# get chr statistics
     # if not given, generate from existing chrom_data
-    if _ct_dists is None:
-        _ct_dists = np.linalg.norm(_zxy - _chr_center, axis=1)
+    if _cc_dists is None:
+        _cc_dists = np.linalg.norm(_zxy - _chr_center, axis=1)
     if _lc_dists is None:
         _lc_dists = _local_distance(_zxy, _zxy, np.arange(len(_zxy)))
     if _intensities is None:
@@ -1661,14 +1681,14 @@ def spot_score_in_chromosome(spots, reg_id, sel_spots,
     _pt_lc_dist = _local_distance(_pt_zxy, _zxy, _rids)
     _pt_intensity = _pts[:, 0]
     # get score
-    _log_score = np.log(1-_cum_prob(_ct_dists, _pt_ct_dist))*w_ccdist \
+    _log_score = np.log(1-_cum_prob(_cc_dists, _pt_ct_dist))*w_ccdist \
         + np.log(1-_cum_prob(_lc_dists, _pt_lc_dist))*w_lcdist \
         + np.log(_cum_prob(_intensities, _pt_intensity))*w_int
 
     return _log_score
 
 
-def distance_score_in_chromosome(dists, sel_spots, _nb_dists=None, distance_zxy=_distance_zxy,
+def distance_score_in_chromosome(dists, sel_spots=None, _nb_dists=None, distance_zxy=_distance_zxy,
                                  w_dist=1):
     """Function to calculate log-score for given spot in selected chr_pts from candidiate_points
     Inputs:
@@ -1679,8 +1699,9 @@ def distance_score_in_chromosome(dists, sel_spots, _nb_dists=None, distance_zxy=
     Output:
         _log_score: log score for this given spot, float 
     """
-    _zxy = np.array(sel_spots)[:, 1:4]*np.array(distance_zxy)[np.newaxis, :]
     if _nb_dists is None:
+        _zxy = np.array(sel_spots)[:, 1:4] * \
+            np.array(distance_zxy)[np.newaxis, :]
         _nb_dists = np.linalg.norm(_zxy[1:]-_zxy[:-1], axis=1)
     
     _scores = np.log(1-_cum_prob(_nb_dists, dists)) * w_dist
@@ -1726,11 +1747,13 @@ def _cum_prob(data, target_value):
     if len(target_value.shape) == 0:
         target_value = np.array([target_value], dtype=np.float)
     target_value[np.isnan(target_value)] = np.inf
-
+    target_shape = np.shape(target_value)
+    target_value = target_value.reshape(-1)
     cprob = np.array(
         [np.nansum(data < _v) / np.nansum(1-np.isnan(data)) for _v in target_value])
     cprob[cprob == 0] = 1 / np.nansum(1-np.isnan(data))
     cprob[cprob == 1] = 1 - 1 / np.nansum(1-np.isnan(data))
+    cprob = cprob.reshape(target_shape)
     return cprob
 
 # generate spot score pool 
@@ -1756,16 +1779,94 @@ def generate_spot_score_pool(all_spots, distance_zxy=_distance_zxy,
     else:
         raise TypeError("Wrong input datatype for all_spots, should be list of spots or list of list of spots!")
     _chr_center = np.nanmean(_zxy, axis=0)
-    _ct_dists = np.linalg.norm(_zxy - _chr_center, axis=1)
+    _cc_dists = np.linalg.norm(_zxy - _chr_center, axis=1)
     _lc_dists = _local_distance(_zxy, _zxy, np.arange(len(_zxy)))
-    return _ct_dists, _lc_dists, _intensities
+    return _cc_dists, _lc_dists, _intensities
+
+
+# Pick spots by dynamic-programming
+def dynamic_pick_spots(chrom_cand_spots, unique_ids, cand_spot_scores, nb_dists,
+                       w_nbdist=1, distance_zxy=_distance_zxy,
+                       return_indices=False, verbose=True):
+    """Function to dynamic-programming pick spots
+    The idea is to use dynamic progamming to pick spots to get GLOBAL maximum
+    for both spot_score (likelihood) and neighboring spot distance (continuity)
+    ----------------------------------------------------------------------------
+    Inputs:
+        chrom_cand_spots: candidate spots for cenrtain chromosome, list of list of spots
+        unique_ids: region uid for candidate spots, list/array of ints
+        cand_spot_scores: scores for candidate spots corresponding to chrom_cand_spots, list of array of scores
+        nb_dists: previous neighboring distance references, could come from different sources, 1darray
+        w_nbdist: weight for neighboring distance score, float (default: 1)
+        distance_zxy: translate pixel to nm, array of 3 (default: [200,106,106])
+        return_indices: whether return indices for picked spots, bool (default: False)
+        verbose: say something!, bool (default: True)
+    Outputs:
+        _sel_spots: list of selected spots, list
+    optional outputs:
+        _sel_indices: list of indices for picked spots, list of ints        
+    """
+    from scipy.spatial.distance import cdist
+    # extract zxy coordiates
+    unique_ids = list(np.array(unique_ids, dtype=np.int))
+    _zxy_list = [np.array(_spots)[:, 1:4]*np.array(distance_zxy)[np.newaxis, :]
+                 for _spots in chrom_cand_spots if len(_spots) > 0]
+    _ids = [_id for _id, _spots in zip(
+        unique_ids, chrom_cand_spots) if len(_spots) > 0]
+    # initialize dynamic score and pointers
+    _dy_scores = [_scores for _scores, _spots in zip(
+        cand_spot_scores, chrom_cand_spots) if len(_spots) > 0]
+    _dy_pointers = [-np.ones(len(_spots), dtype=np.int)
+                    for _spots in chrom_cand_spots if len(_spots) > 0]
+
+    # if there are any spots:
+    if len(_dy_scores) > 0:
+        # forward
+        for _i, (_zxys, _id) in enumerate(zip(_zxy_list[1:], _ids[1:])):
+            # notice: i is actually 1 smaller than real indices
+            # calculate min_distance and give score
+            # real pair-wise distances
+            _dists = cdist(_zxy_list[_i], _zxy_list[_i+1])
+            # add distance score, which is normalized by how far exactly these two regions are
+            _measure = distance_score_in_chromosome(
+                _dists, _nb_dists=nb_dists, w_dist=w_nbdist) / (_ids[_i+1] - _ids[_i])
+            _measure += _dy_scores[_i]  # get previous maximum
+
+            # update maximum values and pointers
+            _dy_scores[_i+1] += np.max(_measure, axis=0)  # update maximum
+            _dy_pointers[_i+1] = np.argmax(_measure, axis=0)  # update pointer
+
+        # backward
+        _dy_indices = [np.argmax(_dy_scores[-1])]
+        _dy_spots = [
+            chrom_cand_spots[unique_ids.index(_ids[-1])][_dy_indices[-1]]]
+        for _id, _pointers in zip(_ids[:-1][::-1], _dy_pointers[1:][::-1]):
+            _dy_indices.append(_pointers[_dy_indices[-1]])
+            _dy_spots.append(
+                chrom_cand_spots[unique_ids.index(_id)][_dy_indices[-1]])
+        # inverse _sel_indices and _sel_spots
+        _dy_indices.reverse()
+        _dy_spots.reverse()
+        print(len(_dy_indices), len(_dy_pointers))
+        _sel_spots, _sel_indices = [], []
+        for _uid in unique_ids:
+            if _uid in _ids:
+                _sel_spots.append(_dy_spots[_ids.index(_uid)])
+                _sel_indices.append(_dy_indices[_ids.index(_uid)])
+            else:
+                _sel_spots.append(np.inf*np.ones(len(_dy_spots[-1])))
+                _sel_indices.append(-1)
+        if return_indices:
+            return _sel_spots, _sel_indices
+        else:
+            return _sel_spots
 
 
 # Pick spots by EM algorithm
-def EM_pick_spots(chrom_cand_spots, unique_ids, num_iters=np.inf, terminate_th=0.005,
-                  distance_zxy=_distance_zxy, local_size=5,
+def EM_pick_spots(chrom_cand_spots, unique_ids, num_iters=np.inf, terminate_th=0.002,
+                  distance_zxy=_distance_zxy, local_size=5, spot_num_th=200,
                   w_ccdist=1, w_lcdist=1, w_int=2, w_nbdist=1,
-                  make_plot=True, verbose=True):
+                  make_plot=False, return_indices=False, verbose=True):
     """Function to achieve EM spot picking
     -------------------------------------------------------------------------------------
     E-step: calculate spot score based on:
@@ -1777,6 +1878,7 @@ def EM_pick_spots(chrom_cand_spots, unique_ids, num_iters=np.inf, terminate_th=0
     Iterate till:
         a. iteration exceed num_iters
         b. picked point change percentage lower than terminate_th
+        c. current result is stable and oscilliating around miminum
     -------------------------------------------------------------------------------------
     Inputs:
         chrom_cand_spots: candidate spots for cenrtain chromosome, list of list of spots
@@ -1785,13 +1887,113 @@ def EM_pick_spots(chrom_cand_spots, unique_ids, num_iters=np.inf, terminate_th=0
         terminate_th: termination threshold for change percentage of spot-picking, float (default: 0.005)
         distance_zxy: translate pixel to nm, array of 3 (default: [200,106,106])
         local_size: size to calculate local distance, int (default: 5)
+        spot_num_th: minimum number of spots needed for calculate_spot_score, int (default:200)
         w_ccdist: weight for distance_to_chromosome_center, float (default: 1)
         w_lcdist: weight for distance_to_local_center, float (default: 1)
         w_int: weight for spot intensity, float (default: 2)
         w_nbdist:  weight for distance_to_neighbor_region, float (default: 1)
-        make_plot: make plot for each iteration, bool (default: True)
+        make_plot: make plot for each iteration, bool (default: False)
+        return_indices: whether return indices for picked spots, bool (default: False)
         verbose: say something!, bool (default: True)
     Outputs:
         _sel_spots: list of selected spots, list
+    optional outputs:
+        _sel_indices: list of indices for picked spots, list of ints
     """
-    pass
+    ## check inputs
+    # check candidate spot and unique id length
+    if len(chrom_cand_spots) != len(unique_ids):
+        raise ValueError(f"Length of chrom_cand_spots should match unique_ids, \
+            while {len(chrom_cand_spots)} and {len(unique_ids)} received!")
+    unique_ids = np.array(unique_ids, dtype=np.int)
+    # check termination flags
+    if num_iters == np.inf and terminate_th < 0:
+        raise ValueError(f"At least one valid termination flag required!")
+    # check other inputs
+    local_size = int(local_size)
+
+    ## initialize
+    if verbose:
+        print(f"- EM picking spots for {len(unique_ids)} regions.")
+    # select spots by naive
+    if verbose:
+        print(f"-- initialize EM by naively picking spots!")
+    _sel_spots, _sel_indices = naive_pick_spots(chrom_cand_spots, unique_ids,
+                                                use_chrom_coord=False, return_indices=True)
+    # make plot for initialized
+    if make_plot:
+        from scipy.spatial.distance import pdist, squareform
+        _distmap = squareform(pdist(_sel_spots))
+        _distmap[_distmap == np.inf] = np.nan
+        plt.figure()
+        plt.imshow(_distmap, cmap='seismic_r', vmin=0, vmax=2000)
+        plt.colorbar()
+        plt.title("Initialization by naive")
+        plt.show()
+    # initialize flags to finish EM
+    _iter = 0  # a counter for iteration
+    _change_ratio = 1  # keep record of how much picked-points are changed
+    _previous_ratios = []
+    ## get into EM loops if
+    # not exceeding num_iters and
+    # picked point change percentage lower than terminate_th
+    while(_iter < num_iters and _change_ratio >= terminate_th):
+        if verbose:
+            print(f"-- EM iter:{_iter}")
+        ## E-step
+        # distributions for spot-score
+        _estart = time.time()
+        if len(_sel_spots) < spot_num_th:
+            _cc_dists, _lc_dists, _intensities = generate_spot_score_pool(all_spots, distance_zxy=distance_zxy,
+                                                                          local_size=local_size, verbose=verbose)
+        else:
+            _cc_dists, _lc_dists, _intensities = generate_spot_score_pool(_sel_spots, distance_zxy=distance_zxy,
+                                                                          local_size=local_size, verbose=verbose)
+        # distribution for neighbor distance
+        _nb_dists = generate_distance_score_pool(_sel_spots)
+        if verbose:
+            print(f"--- E time:{np.round(time.time()-_estart, 4)}s.")
+
+        ## M-step
+        _mstart = time.time()
+        # calcualte spot score
+        _spot_scores = [spot_score_in_chromosome(_spots, _uid-1, _sel_spots,
+                        _cc_dists=_cc_dists, _lc_dists=_lc_dists,
+                        _intensities=_intensities, distance_zxy=distance_zxy,
+                        local_size=local_size, w_ccdist=w_ccdist, w_lcdist=w_lcdist,
+                        w_int=w_int) for _spots, _uid in zip(chrom_cand_spots, unique_ids)]
+        # pick spots by dynamic programming
+        _sel_spots, _new_indices = dynamic_pick_spots(chrom_cand_spots, unique_ids, _spot_scores, _nb_dists,
+                                                      w_nbdist=w_nbdist, distance_zxy=distance_zxy, return_indices=True, verbose=verbose)
+
+        if verbose:
+            print(f"--- M time:{np.round(time.time()-_mstart, 4)}s.")
+        # make plot for initialized
+        if make_plot:
+            from scipy.spatial.distance import pdist, squareform
+            _distmap = squareform(pdist(_sel_spots))
+            _distmap[_distmap == np.inf] = np.nan
+            plt.figure()
+            plt.imshow(_distmap, cmap='seismic_r', vmin=0, vmax=2000)
+            plt.colorbar()
+            plt.title(f"iter={_iter}")
+            plt.show()
+        # update exit checking flags
+        _iter += 1
+        _change_ratio = sum(np.array(_new_indices, dtype=np.int) -
+                            np.array(_sel_indices, dtype=np.int) != 0) / len(_sel_indices)
+        _previous_ratios.append(_change_ratio)
+        if verbose:
+            print(f"--- change_ratio: {_change_ratio}")
+        # update sel_indices
+        _sel_indices = _new_indices
+
+        # special exit for long term oscillation around minimum
+        if len(_previous_ratios) > 5 and _change_ratio <= 2 * np.mean(_previous_ratios[-5:]):
+            if verbose:
+                print("- exit loop because of long oscillation around minimum.")
+            break
+    if return_indices:
+        return _sel_spots, _sel_indices
+    else:
+        return _sel_spots
