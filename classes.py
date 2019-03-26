@@ -2543,6 +2543,156 @@ class Cell_Data():
                 # return
                 return self.picked_decoded_spots
 
+    def _pick_spots(self, _type='EM', _data_type='unique', _use_chrom_coords=True,
+                    _distance_zxy=_distance_zxy, _w_ccdist=1, _w_lcdist=1, _w_int=2, _w_nbdist=1,
+                    _save_inter_plot=False, _save_to_attr=True, _save_to_info=True,
+                    _check_spots=True, _check_th=0.01,  _return_indices=False,
+                    _overwrite=False, _verbose=True):
+        """Function to pick spots from all candidate spots within Cell_Data
+        There are three versions allowed for now:
+            - naive: pick spots solely based on intensity
+            - dynamic: pick spots based on neighboring distance + scores
+            - EM: Expectation-Maximization iterations to get optimum spot picking
+        -----------------------------------------------------------------------------
+        Inputs:
+            _type: method for picking spots, str ('EM', 'dynamic' or 'naive')
+            _data_type: data type of spots to be picked, str ('unique', 'decoded' etc)
+            _use_chrom_coords: whether use chrom_coords in cell_data, bool (default: True)
+            _save_inter_plot: whether save intermediate plots, bool (default: False)
+                * only useful in EM
+            _save_to_attr: whether save picked spots into attributes, bool (default: True)
+            _save_to_info: whether save picked spots into cell_info, bool (default: True)
+            _check_spots: whether do statistical check for spots, bool (default: True)
+            _check_th: threshold of spot_checking, float (default: )
+            _return_indices: whether return indices for selected spots, bool (default: False)
+            _overwrite: whether overwrite existing info, bool (default: False)
+            _verbose: say something!, bool (default: True)
+        Outputs:
+            _pick_spot_list: list of picked spots, list if use chrom_coord, otherwise array
+            (optional)
+            _pick_ind_list: list of picked indices, list if use chrom_coord, otherwise array
+        """
+        ## check inputs
+        _allowed_types = ['EM', 'naive', 'dynamic']
+        if _type not in _allowed_types:
+            raise ValueError(
+                f"Wrong input for {_type}, should be among {_allowed_types}")
+        _allowed_data_types = {
+            'unique': 'unique_spots', 'decoded': 'decoded_spots'}
+        _allowed_id_keys = {'unique': 'unique_ids', 'decoded': 'decoded_ids'}
+        if _data_type not in list(_allowed_data_types.keys()):
+            raise ValueError(
+                f"Wrong input for {_data_type}, should be among {list(_allowed_data_types.keys())}")
+        # get cand_spots
+        if _verbose:
+            print(
+                f"- Start {_type} picking {_data_type} spots, fov:{self.fov_id}, cell:{self.cell_id}.")
+        _all_spots = getattr(self, _allowed_data_types[_data_type])
+        _ids = getattr(self, _allowed_id_keys[_data_type])
+        # target attr
+        _target_attr = 'picked_' + _allowed_data_types[_data_type]
+        # if not overwrite:
+        if not _overwrite:
+            if not hasattr(self, _target_attr):
+                self._load_from_file('cell_info')
+            if hasattr(self, _target_attr):
+                _picked_spot_list = getattr(self, _target_attr)
+                # return if 
+                if _verbose:
+                    print(
+                        f"-- not overwriting {_target_attr} for fov:{self.fov_id}, cell:{self.cell_id}")
+                if not _return_indices:
+                    return _picked_spot_list
+
+        # check chrom_coords
+        if _use_chrom_coords and not hasattr(self, 'chrom_coords'):
+            self._load_from_file('cell_info')
+            if not hasattr(self, 'chrom_coords'):
+                raise AttributeError(
+                    "No chrom-coords info found in cell-data and saved cell_info.")
+            if len(getattr(self, 'chrom_coords')) != len(_all_spots):
+                raise ValueError(
+                    "Length of chrom_coords and all_spots doesn't match!")
+        elif not _use_chrom_coords and len(_all_spots) != len(_ids):
+            if hasattr(self, 'chrom_coords') and len(_all_spots) == len(getattr(self, 'chrom_coords')):
+                print("Probably wrong input for _use_chrom_coords?, switch to True")
+                _use_chrom_coords = True
+            else:
+                raise ValueError(
+                    "Length of ids and candidate_spots doesn't match!")
+        if _use_chrom_coords:
+            _cand_spot_list = []
+            for _chrom_id in range(len(getattr(self, 'chrom_coords'))):
+                _cand_spot_list.append([_spot_lst[_chrom_id]
+                                        for _spot_lst in _all_spots])
+        else:
+            _cand_spot_list = [_all_spots]
+        # distance_zxy
+        if hasattr(self, 'distance_zxy'):
+            _distance_zxy = getattr(self, 'distance_zxy')
+        ## Initialize
+        _picked_spot_list, _picked_ind_list = [], []
+
+        for _i, _cand_spots in enumerate(_cand_spot_list):
+            if _type == 'naive':
+                _picked_spots, _picked_inds = analysis.naive_pick_spots(_cand_spots, _ids,
+                                                                        use_chrom_coord=False,
+                                                                        return_indices=True, verbose=_verbose)
+            elif _type == 'dynamic':
+                _naive_spots = analysis.naive_pick_spots(_cand_spots, _ids,
+                                                         use_chrom_coord=False,
+                                                         return_indices=False, verbose=_verbose)
+                # generate neighbor distance distribution
+                _nb_dists = analysis.generate_distance_score_pool(
+                    _naive_spots, distance_zxy=_distance_zxy)
+                # generate scores
+                _scores = [_w_int * np.log(np.array(_pts)[:, 0])
+                           for _pts in _cand_spots]
+                # dynamic pick spots
+                _picked_spots, _picked_inds = analysis.dynamic_pick_spots(_cand_spots, _ids,
+                                                                          _scores, _nb_dists,
+                                                                          w_nbdist=_w_nbdist, distance_zxy=_distance_zxy,
+                                                                          return_indices=True, verbose=_verbose)
+            elif _type == 'EM':
+                # EM
+                _picked_spots, _picked_inds, _scores, _other_scores = \
+                    analysis.EM_pick_spots(_cand_spots, _ids, num_iters=10,
+                                           terminate_th=1/len(_ids), w_ccdist=_w_ccdist,
+                                           w_lcdist=_w_lcdist, w_int=_w_int, w_nbdist=_w_nbdist,
+                                           make_plot=_save_inter_plot, save_plot=_save_inter_plot,
+                                           save_path=self.save_folder, save_filename='chr_' +
+                                           str(_i),
+                                           return_indices=True, return_scores=True,
+                                           return_other_scores=True, verbose=_verbose)
+                # Check
+                if _check_spots:
+                    pass
+                    # this function has not been supported yet
+            # append
+            _picked_spot_list.append(_picked_spots)
+            _picked_ind_list.append(_picked_inds)
+
+        # convert cases for not use_chrom_coords
+        if not _use_chrom_coords:
+            _picked_spot_list = _picked_spot_list[0]
+            _picked_ind_list = _picked_ind_list[0]
+
+        # add to attribute
+        if _save_to_attr:
+            setattr(self, _target_attr, _picked_spot_list)
+
+        # save to info
+        if _save_to_info:
+            _save_dic = {_target_attr: _picked_spot_list}
+
+        # return
+        if _return_indices:
+            return _picked_spot_list, _picked_ind_list
+        else:
+            return _picked_spot_list
+
+
+
     def _match_regions(self, _save=True, _save_map=True):
         """Function to match decoded and unique regions and generate matched ids, spots, distance maps etc.
         Inputs:

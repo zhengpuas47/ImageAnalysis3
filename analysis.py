@@ -1717,7 +1717,7 @@ def generate_distance_score_pool(all_spots, distance_zxy=_distance_zxy):
     if isinstance(all_spots, np.ndarray):
         _zxy = all_spots[:,1:4] * np.array(distance_zxy)[np.newaxis,:]
     elif isinstance(all_spots[0], np.ndarray) or len(all_spots[0].shape)==1:
-        _zxy =  np.array(all_spots)[:,1:4] * np.array(distance_zxy)[np.newaxis,:]
+        _zxy =  np.stack(all_spots)[:,1:4] * np.array(distance_zxy)[np.newaxis,:]
     elif  isinstance(all_spots[0], list) or len(all_spots[0].shape)==2:
         _spots = np.concatenate([np.array(_pts) for _pts in all_spots], axis=0)
         _zxy =  np.array(_spots)[:,1:4] * np.array(distance_zxy)[np.newaxis,:]
@@ -1965,7 +1965,7 @@ def EM_pick_spots(chrom_cand_spots, unique_ids, num_iters=np.inf, terminate_th=0
         # distribution for neighbor distance
         _nb_dists = generate_distance_score_pool(_sel_spots)
         if verbose:
-            print(f"--- E time: {np.round(time.time()-_estart, 4)} s.")
+            print(f"--- E time: {np.round(time.time()-_estart, 4)} s,")
 
         ## M-step
         _mstart = time.time()
@@ -1997,7 +1997,7 @@ def EM_pick_spots(chrom_cand_spots, unique_ids, num_iters=np.inf, terminate_th=0
         _sel_indices = _new_indices
 
         # special exit for long term oscillation around minimum
-        if len(_previous_ratios) > 5 and np.mean(_previous_ratios[-5:]) < 2 * terminate_th:
+        if len(_previous_ratios) > 5 and np.mean(_previous_ratios[-5:]) <= 2 * terminate_th:
             if verbose:
                 print("- exit loop because of long oscillation around minimum.")
             break
