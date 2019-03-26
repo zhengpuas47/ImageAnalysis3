@@ -1616,8 +1616,9 @@ def naive_pick_spots(cand_spots, region_ids, use_chrom_coord=True, chrom_id=None
             if len(_pts) == 0:
                 _selected_spots.append(np.inf * np.ones(11))
                 _selected_indices.append(-1)
-            _selected_spots.append(_pts[np.argsort(_pts[:, 0])[-1]])
-            _selected_indices.append(np.argsort(_pts[:, 0])[-1])
+            else:
+                _selected_spots.append(_pts[np.argsort(_pts[:, 0])[-1]])
+                _selected_indices.append(np.argsort(_pts[:, 0])[-1])
         
     ## for not use_chrom_coord
     else:
@@ -1625,10 +1626,13 @@ def naive_pick_spots(cand_spots, region_ids, use_chrom_coord=True, chrom_id=None
             # extract points
             _pts = np.array(_spots)
             if len(_pts) == 0:
-                _selected_spots.append(np.inf * np.ones(11))
+                _bad_pt = np.inf*np.ones(11)
+                _bad_pt[0] = 0 # set bad_pt intensity=0
+                _selected_spots.append(_bad_pt)
                 _selected_indices.append(-1)
-            _selected_spots.append(_pts[np.argsort(_pts[:, 0])[-1]])
-            _selected_indices.append(np.argsort(_pts[:, 0])[-1])
+            else:
+                _selected_spots.append(_pts[np.argsort(_pts[:, 0])[-1]])
+                _selected_indices.append(np.argsort(_pts[:, 0])[-1])
     
     # return 
     if return_indices:
@@ -1830,7 +1834,7 @@ def dynamic_pick_spots(chrom_cand_spots, unique_ids, cand_spot_scores, nb_dists,
             # add distance score, which is normalized by how far exactly these two regions are
             _measure = distance_score_in_chromosome(
                 _dists, _nb_dists=nb_dists, w_dist=w_nbdist) / (_ids[_i+1] - _ids[_i])
-            _measure += _dy_scores[_i]  # get previous maximum
+            _measure += _dy_scores[_i][:,np.newaxis]  # get previous maximum
 
             # update maximum values and pointers
             _dy_scores[_i+1] += np.max(_measure, axis=0)  # update maximum
@@ -1847,26 +1851,34 @@ def dynamic_pick_spots(chrom_cand_spots, unique_ids, cand_spot_scores, nb_dists,
         # inverse _sel_indices and _sel_spots
         _dy_indices.reverse()
         _dy_spots.reverse()
-        print(len(_dy_indices), len(_dy_pointers))
-        _sel_spots, _sel_indices = [], []
-        for _uid in unique_ids:
-            if _uid in _ids:
-                _sel_spots.append(_dy_spots[_ids.index(_uid)])
-                _sel_indices.append(_dy_indices[_ids.index(_uid)])
-            else:
-                _sel_spots.append(np.inf*np.ones(len(_dy_spots[-1])))
-                _sel_indices.append(-1)
-        if return_indices:
-            return _sel_spots, _sel_indices
+
+    _sel_spots, _sel_indices = [], []
+    for _uid in unique_ids:
+        if _uid in _ids:
+            _sel_spots.append(_dy_spots[_ids.index(_uid)])
+            _sel_indices.append(_dy_indices[_ids.index(_uid)])
         else:
-            return _sel_spots
+            if len(_dy_spots) > 0:
+                _bad_pt = np.inf*np.ones(len(_dy_spots[-1]))
+                _bad_pt[0] = 0 # set bad_pt intensity=0
+            else:
+                _bad_pt = np.inf*np.ones(11)
+                _bad_pt[0] = 0 # set bad_pt intensity=0
+            _sel_spots.append(_bad_pt)
+            _sel_indices.append(-1)
+    if return_indices:
+        return np.array(_sel_spots), np.array(_sel_indices, dtype=np.int)
+    else:
+        return np.array(_sel_spots)
 
 
 # Pick spots by EM algorithm
-def EM_pick_spots(chrom_cand_spots, unique_ids, num_iters=np.inf, terminate_th=0.002,
+def EM_pick_spots(chrom_cand_spots, unique_ids, num_iters=np.inf, terminate_th=0.004,
                   distance_zxy=_distance_zxy, local_size=5, spot_num_th=200,
                   w_ccdist=1, w_lcdist=1, w_int=2, w_nbdist=1,
-                  make_plot=False, return_indices=False, verbose=True):
+                  make_plot=False, save_plot=False, save_path=None, save_filename='',
+                  return_indices=False, return_scores=False, 
+                  return_other_scores=False, verbose=True):
     """Function to achieve EM spot picking
     -------------------------------------------------------------------------------------
     E-step: calculate spot score based on:
@@ -1894,6 +1906,8 @@ def EM_pick_spots(chrom_cand_spots, unique_ids, num_iters=np.inf, terminate_th=0
         w_nbdist:  weight for distance_to_neighbor_region, float (default: 1)
         make_plot: make plot for each iteration, bool (default: False)
         return_indices: whether return indices for picked spots, bool (default: False)
+        return_scores: whether return scores for picked spots, bool (default: False)
+        return_other_scores: whether return Other scores for cand_spots, bool (default: False)
         verbose: say something!, bool (default: True)
     Outputs:
         _sel_spots: list of selected spots, list
@@ -1923,13 +1937,11 @@ def EM_pick_spots(chrom_cand_spots, unique_ids, num_iters=np.inf, terminate_th=0
     # make plot for initialized
     if make_plot:
         from scipy.spatial.distance import pdist, squareform
-        _distmap = squareform(pdist(_sel_spots))
+        _distmap_list = []
+        _distmap = squareform(pdist(_sel_spots[:,1:4] * distance_zxy[np.newaxis,:]))
         _distmap[_distmap == np.inf] = np.nan
-        plt.figure()
-        plt.imshow(_distmap, cmap='seismic_r', vmin=0, vmax=2000)
-        plt.colorbar()
-        plt.title("Initialization by naive")
-        plt.show()
+        _distmap_list.append(_distmap)
+
     # initialize flags to finish EM
     _iter = 0  # a counter for iteration
     _change_ratio = 1  # keep record of how much picked-points are changed
@@ -1940,11 +1952,12 @@ def EM_pick_spots(chrom_cand_spots, unique_ids, num_iters=np.inf, terminate_th=0
     while(_iter < num_iters and _change_ratio >= terminate_th):
         if verbose:
             print(f"-- EM iter:{_iter}")
+
         ## E-step
         # distributions for spot-score
         _estart = time.time()
         if len(_sel_spots) < spot_num_th:
-            _cc_dists, _lc_dists, _intensities = generate_spot_score_pool(all_spots, distance_zxy=distance_zxy,
+            _cc_dists, _lc_dists, _intensities = generate_spot_score_pool(chrom_cand_spots, distance_zxy=distance_zxy,
                                                                           local_size=local_size, verbose=verbose)
         else:
             _cc_dists, _lc_dists, _intensities = generate_spot_score_pool(_sel_spots, distance_zxy=distance_zxy,
@@ -1952,7 +1965,7 @@ def EM_pick_spots(chrom_cand_spots, unique_ids, num_iters=np.inf, terminate_th=0
         # distribution for neighbor distance
         _nb_dists = generate_distance_score_pool(_sel_spots)
         if verbose:
-            print(f"--- E time:{np.round(time.time()-_estart, 4)}s.")
+            print(f"--- E time: {np.round(time.time()-_estart, 4)} s.")
 
         ## M-step
         _mstart = time.time()
@@ -1965,19 +1978,14 @@ def EM_pick_spots(chrom_cand_spots, unique_ids, num_iters=np.inf, terminate_th=0
         # pick spots by dynamic programming
         _sel_spots, _new_indices = dynamic_pick_spots(chrom_cand_spots, unique_ids, _spot_scores, _nb_dists,
                                                       w_nbdist=w_nbdist, distance_zxy=distance_zxy, return_indices=True, verbose=verbose)
-
         if verbose:
-            print(f"--- M time:{np.round(time.time()-_mstart, 4)}s.")
+            print(f"--- M time: {np.round(time.time()-_mstart, 4)} s.")
         # make plot for initialized
         if make_plot:
             from scipy.spatial.distance import pdist, squareform
-            _distmap = squareform(pdist(_sel_spots))
+            _distmap = squareform(pdist(_sel_spots[:,1:4] * distance_zxy[np.newaxis,:] ) )
             _distmap[_distmap == np.inf] = np.nan
-            plt.figure()
-            plt.imshow(_distmap, cmap='seismic_r', vmin=0, vmax=2000)
-            plt.colorbar()
-            plt.title(f"iter={_iter}")
-            plt.show()
+            _distmap_list.append(_distmap)
         # update exit checking flags
         _iter += 1
         _change_ratio = sum(np.array(_new_indices, dtype=np.int) -
@@ -1989,11 +1997,81 @@ def EM_pick_spots(chrom_cand_spots, unique_ids, num_iters=np.inf, terminate_th=0
         _sel_indices = _new_indices
 
         # special exit for long term oscillation around minimum
-        if len(_previous_ratios) > 5 and _change_ratio <= 2 * np.mean(_previous_ratios[-5:]):
+        if len(_previous_ratios) > 5 and np.mean(_previous_ratios[-5:]) < 2 * terminate_th:
             if verbose:
                 print("- exit loop because of long oscillation around minimum.")
             break
-    if return_indices:
-        return _sel_spots, _sel_indices
+    
+    ## make plot
+    if make_plot:
+        _num_im = len(_distmap_list)
+        _plot_limits = [0,2000]
+        _font_size = 14
+        _dpi = 300
+        _single_im_size = 5
+        _fig,_axes = plt.subplots(1, _num_im, figsize=(_single_im_size*_num_im, _single_im_size*1.2), dpi=_dpi)
+        _fig.subplots_adjust(left=0.02, bottom=0, right=0.98, top=1, wspace=0.08, hspace=0)
+        for _i, (ax,_distmap) in enumerate(zip(_axes.ravel(), _distmap_list)):
+            # plot
+            im = ax.imshow(_distmap, interpolation='nearest',  cmap='seismic_r', 
+                           vmin=min(_plot_limits), vmax=max(_plot_limits))
+            ax.tick_params(left=False, labelsize=_font_size, length=2)
+            ax.yaxis.set_ticklabels([])
+            # title
+            if _i == 0:
+                ax.set_title('Initialized by naive', fontsize=_font_size+2)
+            else:
+                ax.set_title(f"EM iter:{_i-1}", fontsize=_font_size+2)
+            # add colorbar
+            cb = plt.colorbar(im, ax=ax, ticks=np.arange(0,2200,200), shrink=0.6)
+            cb.ax.tick_params(labelsize=_font_size, width=0.6, length=1)
+        # save filename
+        if save_plot and save_path is not None:
+            if not os.path.exists(save_path):
+                if verbose:
+                    print(f"-- create folder for image: {save_path}")
+                os.makedirs(save_path)
+            if save_filename == '':
+                save_filename = 'EM_iterations.png'
+            else:
+                save_filename = 'EM_iterations_'+save_filename
+                if '.png' not in save_filename:
+                    save_filename += '.png'
+            _plot_filename = os.path.join(save_path, save_filename)
+            if verbose:
+                print(f"-- saving image to file: {_plot_filename}")
+            _fig.savefig(_plot_filename)
+        elif save_plot:
+            print("Save path for plot is not given, skip!")
+        plt.show()
+
+    # Return!
+    # case 1: simple return selected spots
+    if not return_indices and not return_scores and not return_other_scores:
+        return np.array(_sel_spots)
+    # return spots combined with other info
     else:
-        return _sel_spots
+        _return_args = (np.array(_sel_spots),)
+        if return_indices:
+            _return_args += (np.array(_sel_indices, dtype=np.int),)
+        if return_scores:
+            _cc_dists, _lc_dists, _intensities = generate_spot_score_pool(_sel_spots, distance_zxy=distance_zxy,
+                                                                        local_size=local_size, verbose=verbose)
+            _sel_scores = spot_score_in_chromosome(_sel_spots, 
+                                np.array(unique_ids, dtype=np.int)-min(unique_ids), 
+                                _sel_spots, _cc_dists=_cc_dists, 
+                                _lc_dists=_lc_dists, _intensities=_intensities,
+                                distance_zxy=distance_zxy, local_size=local_size, 
+                                w_ccdist=w_ccdist, w_lcdist=w_lcdist,
+                                w_int=w_int)
+            _return_args += (np.array(_sel_scores),)
+        if return_other_scores:
+            _other_scores = []
+            for _scs, _sel_i in zip(_spot_scores, _sel_indices):
+                _other_cs = list(_scs)
+                if len(_other_cs) > 0:
+                    _other_cs.pop(_sel_i)
+                    _other_scores += list(_other_cs)
+            _return_args += (np.array(_other_scores),)
+
+        return _return_args

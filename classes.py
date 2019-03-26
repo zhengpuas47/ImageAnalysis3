@@ -1153,7 +1153,9 @@ class Cell_List():
             return None, 0
 
         ## calculate averaged map
+        # acquire total map
         _total_map = np.array(_cand_distmaps, dtype=np.float)
+        # calculate averaged map
         if _ignore_inf:
             _total_map[_total_map == np.inf] = np.nan
         if _stat_type == 'median':
@@ -1165,10 +1167,8 @@ class Cell_List():
         elif _stat_type == 'contact':
             _averaged_map = np.nansum(_total_map < _contact_th, axis=0) / \
                 (np.nansum(_total_map < _contact_th, axis=0)+np.nansum(_total_map > _contact_th, axis=0))
-
-            # change scale if possible
-            if max(_plot_limits) > 1:
-                _plot_limits = [min(_plot_limits)/float(max(_plot_limits))*0.05, 0.05]
+            
+        # add gaussian filter (to make it nicer!)
         if _gfilt_size:
             from astropy.convolution import Gaussian2DKernel
             from astropy.convolution import convolve
@@ -1177,7 +1177,12 @@ class Cell_List():
                 _averaged_map[_i,_i] = np.nan
             _kernel = Gaussian2DKernel(x_stddev=_gfilt_size)
             _averaged_map = convolve(_averaged_map, _kernel)
-
+        
+        # change plot_limits for contact map
+        if _stat_type=='contact' and  max(_plot_limits) > 1:
+            _plot_limits=[scipy.stats.scoreatpercentile(_averaged_map, 1),
+                          scipy.stats.scoreatpercentile(_averaged_map, 99)]
+        
         ## make plots
         if _make_plot:
             if _verbose:
@@ -2513,7 +2518,7 @@ class Cell_Data():
                     _cands = _cand_lst[_chrom_id]
                     # case 1: no fit at all:
                     if len(_cands) == 0:
-                        _picked_in_chrom.append(np.inf*np.ones(8))
+                        _picked_in_chrom.append(np.inf*np.ones(11))
                     else:
                         _intensity_order = np.argsort(_cands[:,0])
                         # PICK THE BRIGHTEST ONE
