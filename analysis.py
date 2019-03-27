@@ -1875,7 +1875,7 @@ def dynamic_pick_spots(chrom_cand_spots, unique_ids, cand_spot_scores, nb_dists,
 # Pick spots by EM algorithm
 def EM_pick_spots(chrom_cand_spots, unique_ids, num_iters=np.inf, terminate_th=0.004,
                   distance_zxy=_distance_zxy, local_size=5, spot_num_th=200,
-                  w_ccdist=1, w_lcdist=1, w_int=2, w_nbdist=1,
+                  w_ccdist=1, w_lcdist=1, w_int=4, w_nbdist=1,
                   make_plot=False, save_plot=False, save_path=None, save_filename='',
                   return_indices=False, return_scores=False, 
                   return_other_scores=False, verbose=True):
@@ -2040,10 +2040,12 @@ def EM_pick_spots(chrom_cand_spots, unique_ids, num_iters=np.inf, terminate_th=0
             _plot_filename = os.path.join(save_path, save_filename)
             if verbose:
                 print(f"-- saving image to file: {_plot_filename}")
-            _fig.savefig(_plot_filename)
+            _fig.savefig(_plot_filename, transparent=True)
         elif save_plot:
             print("Save path for plot is not given, skip!")
-        plt.show()
+        # plot show if only in main stream
+        if __name__ == '__main__':
+            plt.show()
 
     # Return!
     # case 1: simple return selected spots

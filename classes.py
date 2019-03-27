@@ -74,6 +74,30 @@ def _fit_single_image(_im, _id, _chrom_coords, _seeding_args, _fitting_args, _ch
 
     return _spots_for_chrom
 
+# function to allow multi-processing pick spots
+def _pick_spot_in_batch(_cell, _pick_type='EM', _data_type='unique', _use_chrom_coords=True,
+                        _distance_zxy=_distance_zxy, _w_ccdist=1, _w_lcdist=1, _w_int=4, _w_nbdist=1,
+                        _save_inter_plot=False, _save_to_info=True, _save_plot=True, 
+                        _check_spots=True, _check_th=0.01, _plot_limits=[0, 2000], 
+                        _cmap='seismic_r', _fig_dpi=300, _fig_size=4,
+                        _overwrite=False, _verbose=True):
+    """_cell: Cell_Data class"""
+    # notice: always load in attributes, never return indices in batch format
+    _picked_spots = _cell._pick_spots(_data_type=_data_type, _pick_type=_pick_type, _use_chrom_coords=_use_chrom_coords,
+                                      _distance_zxy=_distance_zxy, _w_ccdist=_w_ccdist, _w_lcdist=_w_lcdist,
+                                      _w_int=_w_int, _w_nbdist=_w_nbdist, _save_inter_plot=_save_inter_plot,
+                                      _save_to_attr=True, _save_to_info=_save_to_info,
+                                      _check_spots=_check_spots, _check_th=_check_th, _return_indices=False,
+                                      _overwrite=_overwrite, _verbose=_verbose)
+    
+    _distmaps = _cell._generate_distance_map(_data_type=_data_type, _pick_type=_pick_type, 
+                                             _distance_zxy=_distance_zxy,
+                                             _save_info=_save_to_info, _save_plot=_save_plot,
+                                             _limits=_plot_limits, _cmap=_cmap, 
+                                             _fig_dpi=_fig_dpi, _fig_size=_fig_size, 
+                                             _overwrite=_overwrite, _verbose=_verbose)
+    return _cell
+
 
 class Cell_List():
     """
@@ -1009,7 +1033,7 @@ class Cell_List():
                 else:
                     _cell._save_to_file('cell_info',_save_dic={'chrom_coords':_coords}, _verbose=_verbose)
 
-    def _spot_finding_for_cells(self, _type='unique', _decoded_flag='diff', _max_fitting_threads=12, 
+    def _spot_finding_for_cells(self, _data_type='unique', _decoded_flag='diff', _max_fitting_threads=12, 
                                 _clear_image=False, _normalization=True, 
                                 _use_chrom_coords=True, _seed_th_per=50, _max_filt_size=3,
                                 _max_seed_count=6, _min_seed_count=3, _fit_window=40,
@@ -1019,7 +1043,7 @@ class Cell_List():
         ## Check attributes
         for _cell_id, _cell in enumerate(self.cells):
             _clear_image_for_cell = _clear_image # whether clear image for this cell
-            if _type == 'unique':
+            if _data_type == 'unique':
                 _result_attr='unique_spots'
                 if not hasattr(_cell, 'unique_ims') or not hasattr(_cell, 'unique_ids'):
                     _clear_image_for_cell = True
@@ -1027,7 +1051,7 @@ class Cell_List():
                         _cell._load_from_file('unique')
                     except:
                         raise IOError("Cannot load unique files")
-            elif _type == 'decoded':
+            elif _data_type == 'decoded':
                 _result_attr='decoded_spots'
                 if not hasattr(_cell, 'decoded_ims') or not hasattr(_cell, 'decoded_ids'):
                     _clear_image_for_cell = True
@@ -1036,9 +1060,9 @@ class Cell_List():
                     except:
                         raise IOError("Cannot load decoded files")
             else:
-                raise ValueError("Wrong _type keyword given!")
+                raise ValueError("Wrong _data_type keyword given!")
             # do multi_fitting
-            _cell._multi_fitting_for_chromosome(_type=_type, _decoded_flag=_decoded_flag, _normalization=_normalization,
+            _cell._multi_fitting_for_chromosome(_type=_data_type, _decoded_flag=_decoded_flag, _normalization=_normalization,
                                  _use_chrom_coords=_use_chrom_coords, _num_threads=max(_max_fitting_threads, self.num_threads),
                                  _seed_th_per=_seed_th_per, _max_filt_size=_max_filt_size, _max_seed_count=_max_seed_count,
                                  _min_seed_count=_min_seed_count, _width_zxy=self.sigma_zxy, _fit_radius=5,
@@ -1047,13 +1071,13 @@ class Cell_List():
                                  _save=_save, _verbose=_verbose)
             if _clear_image_for_cell:
                 if _verbose:
-                    print(f"++ clear images for {_type} in fov:{_cell.fov_id}, cell:{_cell.cell_id}")
-                if _type == 'unique':
+                    print(f"++ clear images for {_data_type} in fov:{_cell.fov_id}, cell:{_cell.cell_id}")
+                if _data_type == 'unique':
                     delattr(_cell, 'unique_ims')
-                elif _type == 'decoded':
+                elif _data_type == 'decoded':
                     delattr(_cell, 'decoded_ims')
 
-    def _pick_spots_for_cells(self, _type='unique', _decoded_flag='diff', _pick_type='dynamic', _use_chrom_coords=True, _distance_zxy=None,
+    def _old_pick_spots_for_cells(self, _data_type='unique', _decoded_flag='diff', _pick_type='dynamic', _use_chrom_coords=True, _distance_zxy=None,
                               _w_dist=2, _dist_ref=None, _penalty_type='trapezoidal', _penalty_factor=5,
                               _gen_distmap=True, _save_plot=True, _plot_limits=[0,2000],
                               _save=True, _verbose=True):
@@ -1064,7 +1088,7 @@ class Cell_List():
         if _pick_type not in ['dynamic', 'naive']:
             raise ValueError(f"Wrong _pick_type kwd given ({_pick_type}), should be dynamic or naive.")
         for _cell in self.cells:
-            if _type == 'unique':
+            if _data_type == 'unique':
                 if not hasattr(_cell, 'unique_ids'):
                     try:
                         _cell._load_from_file('unique')
@@ -1074,50 +1098,107 @@ class Cell_List():
                     _cell._load_from_file('cell_info')
                     if not hasattr(_cell, 'unique_spots'):
                         raise ValueError(f"No unique spots info detected for cell:{_cell.cell_id}")
-            elif _type == 'combo' or _type == 'decoded':
+            elif _data_type == 'combo' or _data_type == 'decoded':
                 if not hasattr(_cell, 'decoded_ids'):
                     try:
                         _cell._load_from_file('decoded', _decoded_flag='diff')
                     except:
                         raise IOError("Cannot load decoded files!")
             else:
-                raise ValueError(f"Wrong _type kwd given ({_type}), should be unique or decoded.")
+                raise ValueError(f"Wrong _data_type kwd given ({_data_type}), should be unique or decoded.")
         ## start pick chromosome
         for _cell in self.cells:
             if _verbose:
                 print(f"++ picking spots for cell:{_cell.cell_id} by {_pick_type} method:")
             # pick spots
             if _pick_type == 'dynamic':
-                _cell._dynamic_picking_spots(_type=_type, _use_chrom_coords=_use_chrom_coords,
+                _cell._dynamic_picking_spots(_type=_data_type, _use_chrom_coords=_use_chrom_coords,
                                              _distance_zxy=_distance_zxy, _w_int=1, _w_dist=_w_dist,
                                              _dist_ref=_dist_ref, _penalty_type=_penalty_type, _penalty_factor=_penalty_factor,
                                              _save=_save, _verbose=_verbose)
             elif _pick_type == 'naive':
-                _cell._naive_picking_spots(_type=_type, _use_chrom_coords=_use_chrom_coords,
+                _cell._naive_picking_spots(_type=_data_type, _use_chrom_coords=_use_chrom_coords,
                                            _save=_save, _verbose=_verbose)
             # make map:
             if _gen_distmap:
                 if _verbose:
                     print(f"+++ generating distance map for cell:{_cell.cell_id}")
-                _cell._generate_distance_map(_type=_type, _distance_zxy=_distance_zxy, _save_info=_save,
+                _cell._generate_distance_map(_type=_data_type, _distance_zxy=_distance_zxy, _save_info=_save,
                                              _save_plot=_save_plot, _limits=_plot_limits, _verbose=_verbose)
 
-    def _calculate_population_map(self, _type='unique', _max_loss_prob=0.15,
+    # new version for batch pick spots
+    def _pick_spots_for_cells(self, _data_type='unique', _pick_type='EM',decoded_flag='diff',
+                              _num_threads=12, _use_chrom_coords=True, _distance_zxy=_distance_zxy,
+                              _w_ccdist=1, _w_lcdist=1, _w_int=4, _w_nbdist=1,
+                              _save_inter_plot=False, _save_to_info=True, _save_plot=True,
+                              _check_spots=True, _check_th=0.01, _plot_limits=[0, 2000],
+                              _cmap='seismic_r', _fig_dpi=300, _fig_size=4,
+                              _overwrite=False, _verbose=True):
+        """Function to pick spots given candidates in batch"""
+        ## Check Inputs
+        if _verbose:
+            print("+ Pick spots and convert to distmap.")
+        if _pick_type not in ['dynamic', 'naive', 'EM']:
+            raise ValueError(
+                f"Wrong _pick_type kwd given ({_pick_type}), should be dynamic or naive.")
+        # check num_threads
+        if _num_threads is None:
+            _num_threads = self.num_threads
+        if _save_inter_plot:
+            print(
+                "++ _save_inter_plot is ON for now, which may requires long time to finish.")
+        ## start generate multi-processing args
+        _pick_args = []
+
+        for _cell in self.cells:
+            _pick_args.append((_cell, _pick_type, _data_type, _use_chrom_coords,
+                               _distance_zxy, _w_ccdist, _w_lcdist, _w_int, _w_nbdist,
+                               _save_inter_plot, _save_to_info, _save_plot,
+                               _check_spots, _check_th, _plot_limits,
+                               _cmap, _fig_dpi, _fig_size,
+                               _overwrite, _verbose))
+            # create folder to save distmaps ahead
+            if _save_plot:
+                _distmap_fd = os.path.join(_cell.map_folder, _cell.fovs[_cell.fov_id].replace('.dax',''))
+                if not os.path.exists(_distmap_fd):
+                    if _verbose:
+                        print(f"+++ create distance map folder:{_distmap_fd}")
+                    os.makedirs(_distmap_fd)
+
+        with mp.Pool(_num_threads) as _pick_pool:
+            _pick_start = time.time()
+            if _verbose:
+                print(
+                    f"++ start multi-processing picking spots by {_pick_type} for {len(self.cells)} cells")
+            # feed in args
+            _updated_cells = _pick_pool.starmap(_pick_spot_in_batch,
+                                                _pick_args, chunksize=1)
+            # close multi-processing
+            _pick_pool.close()
+            _pick_pool.join()
+            _pick_pool.terminate()
+        # clear
+        killchild()
+        del(_pick_args)
+
+        self.cells = _updated_cells
+
+    def _calculate_population_map(self, _data_type='unique', _max_loss_prob=0.15,
                                   _ignore_inf=True, _stat_type='median',_contact_th=200,
                                   _make_plot=True, _save_plot=True, _save_name='distance_map',
                                   _cmap='seismic', _fig_dpi=300, _fig_size=4, _gfilt_size=0.75,
                                   _plot_limits=[0,2000], _verbose=True):
         """Calculate 'averaged' map for all cells in this list
         Inputs:
-            _type: unique or decoded
+            _data_type: unique or decoded
             _max_loss_prob: maximum """
         ## check inputs:
-        if _type not in ['unique','decoded']:
-            raise ValueError(f"Wrong _type kwd given, should be unique or decoded, {_type} is given!")
-        elif _type == 'unique':
+        if _data_type not in ['unique','decoded']:
+            raise ValueError(f"Wrong _data_type kwd given, should be unique or decoded, {_data_type} is given!")
+        elif _data_type == 'unique':
             _picked_spots_attr = 'picked_unique_spots'
             _distmap_attr = 'unique_distance_map'
-        elif _type == 'decoded':
+        elif _data_type == 'decoded':
             _picked_spots_attr = 'picked_decoded_spots'
             _distmap_attr = 'decoded_distance_map'
         if _stat_type not in ['median', 'mean', 'contact']:
@@ -1179,9 +1260,9 @@ class Cell_List():
             _averaged_map = convolve(_averaged_map, _kernel)
         
         # change plot_limits for contact map
-        if _stat_type=='contact' and  max(_plot_limits) > 1:
-            _plot_limits=[scipy.stats.scoreatpercentile(_averaged_map, 1),
-                          scipy.stats.scoreatpercentile(_averaged_map, 99)]
+        if _stat_type == 'contact' and  max(_plot_limits) > 1:
+            _plot_limits=[stats.scoreatpercentile(_averaged_map, 1),
+                          stats.scoreatpercentile(_averaged_map, 99)]
         
         ## make plots
         if _make_plot:
@@ -1197,8 +1278,8 @@ class Cell_List():
             plt.imshow(_averaged_map, interpolation='nearest', cmap=_cmap,
                        vmin=min(_plot_limits), vmax=max(_plot_limits))
             if _stat_type == 'contact':
-                plt.colorbar(ticks=np.arange(min(_plot_limits),max(_plot_limits),
-                        (max(_plot_limits)-min(_plot_limits))/10), label='contact prob.')
+                plt.colorbar(ticks=np.arange(min(_plot_limits), max(_plot_limits)+0.01,
+                             0.01), label='contact prob.')
             else:
                 plt.colorbar(ticks=np.arange(min(_plot_limits), max(_plot_limits)+2,
                                              200), label='distance (nm)')
@@ -1216,6 +1297,7 @@ class Cell_List():
                 if not os.path.exists(self.map_folder):
                     os.makedirs(self.map_folder)
                 plt.savefig(_filename, transparent=True)
+            plt.show()
 
         return _averaged_map, len(_cand_distmaps)
 
@@ -2543,8 +2625,18 @@ class Cell_Data():
                 # return
                 return self.picked_decoded_spots
 
-    def _pick_spots(self, _type='EM', _data_type='unique', _use_chrom_coords=True,
-                    _distance_zxy=_distance_zxy, _w_ccdist=1, _w_lcdist=1, _w_int=2, _w_nbdist=1,
+    def _match_regions(self, _save=True, _save_map=True):
+        """Function to match decoded and unique regions and generate matched ids, spots, distance maps etc.
+        Inputs:
+            _save: whether save matched info to cell_info, bool (default:True)
+            _save_map: whether save matched distance map, bool (default:True)
+        """
+        if not hasattr(self, 'decoded_ids'):
+            pass
+
+    # an integrated function to pick spots
+    def _pick_spots(self, _data_type='unique', _pick_type='EM', _use_chrom_coords=True,
+                    _distance_zxy=_distance_zxy, _w_ccdist=1, _w_lcdist=1, _w_int=4, _w_nbdist=1,
                     _save_inter_plot=False, _save_to_attr=True, _save_to_info=True,
                     _check_spots=True, _check_th=0.01,  _return_indices=False,
                     _overwrite=False, _verbose=True):
@@ -2555,7 +2647,7 @@ class Cell_Data():
             - EM: Expectation-Maximization iterations to get optimum spot picking
         -----------------------------------------------------------------------------
         Inputs:
-            _type: method for picking spots, str ('EM', 'dynamic' or 'naive')
+            _pick_type: method for picking spots, str ('EM', 'dynamic' or 'naive')
             _data_type: data type of spots to be picked, str ('unique', 'decoded' etc)
             _use_chrom_coords: whether use chrom_coords in cell_data, bool (default: True)
             _save_inter_plot: whether save intermediate plots, bool (default: False)
@@ -2574,9 +2666,9 @@ class Cell_Data():
         """
         ## check inputs
         _allowed_types = ['EM', 'naive', 'dynamic']
-        if _type not in _allowed_types:
+        if _pick_type not in _allowed_types:
             raise ValueError(
-                f"Wrong input for {_type}, should be among {_allowed_types}")
+                f"Wrong input for {_pick_type}, should be among {_allowed_types}")
         _allowed_data_types = {
             'unique': 'unique_spots', 'decoded': 'decoded_spots'}
         _allowed_id_keys = {'unique': 'unique_ids', 'decoded': 'decoded_ids'}
@@ -2586,11 +2678,11 @@ class Cell_Data():
         # get cand_spots
         if _verbose:
             print(
-                f"- Start {_type} picking {_data_type} spots, fov:{self.fov_id}, cell:{self.cell_id}.")
+                f"- Start {_pick_type} picking {_data_type} spots, fov:{self.fov_id}, cell:{self.cell_id}.")
         _all_spots = getattr(self, _allowed_data_types[_data_type])
         _ids = getattr(self, _allowed_id_keys[_data_type])
         # target attr
-        _target_attr = 'picked_' + _allowed_data_types[_data_type]
+        _target_attr = str(_pick_type) + '_' + 'picked_' + _allowed_data_types[_data_type]
         # if not overwrite:
         if not _overwrite:
             if not hasattr(self, _target_attr):
@@ -2634,11 +2726,11 @@ class Cell_Data():
         _picked_spot_list, _picked_ind_list = [], []
 
         for _i, _cand_spots in enumerate(_cand_spot_list):
-            if _type == 'naive':
+            if _pick_type == 'naive':
                 _picked_spots, _picked_inds = analysis.naive_pick_spots(_cand_spots, _ids,
                                                                         use_chrom_coord=False,
                                                                         return_indices=True, verbose=_verbose)
-            elif _type == 'dynamic':
+            elif _pick_type == 'dynamic':
                 _naive_spots = analysis.naive_pick_spots(_cand_spots, _ids,
                                                          use_chrom_coord=False,
                                                          return_indices=False, verbose=_verbose)
@@ -2653,7 +2745,7 @@ class Cell_Data():
                                                                           _scores, _nb_dists,
                                                                           w_nbdist=_w_nbdist, distance_zxy=_distance_zxy,
                                                                           return_indices=True, verbose=_verbose)
-            elif _type == 'EM':
+            elif _pick_type == 'EM':
                 # EM
                 _picked_spots, _picked_inds, _scores, _other_scores = \
                     analysis.EM_pick_spots(_cand_spots, _ids, num_iters=10,
@@ -2683,7 +2775,7 @@ class Cell_Data():
 
         # save to info
         if _save_to_info:
-            _save_dic = {_target_attr: _picked_spot_list}
+            self._save_to_file('cell_info', _save_dic={_target_attr: _picked_spot_list}, _verbose=_verbose)
 
         # return
         if _return_indices:
@@ -2691,95 +2783,84 @@ class Cell_Data():
         else:
             return _picked_spot_list
 
-
-
-    def _match_regions(self, _save=True, _save_map=True):
-        """Function to match decoded and unique regions and generate matched ids, spots, distance maps etc.
-        Inputs:
-            _save: whether save matched info to cell_info, bool (default:True)
-            _save_map: whether save matched distance map, bool (default:True)
-        """
-        if not hasattr(self, 'decoded_ids'):
-            pass
-
-    def _generate_distance_map(self, _type='unique', _distance_zxy=None, _save_info=True, _save_plot=True,
-                               _limits=[0,2000], _verbose=True):
+    def _generate_distance_map(self, _data_type='unique', _pick_type='EM', _distance_zxy=None, 
+                               _save_info=True, _save_plot=True, _limits=[0, 2000], _cmap='seismic_r',
+                               _fig_dpi=300, _fig_size=4, _overwrite=False, _verbose=True):
         """Function to generate distance map"""
         ## check inputs
         if _distance_zxy is None: # dimension for distance trasfromation
             _distance_zxy = self.distance_zxy
+        # use chrom_coords?
+        _use_chrom_coords = True
         if not hasattr(self, 'chrom_coords'):
             self._load_from_file('cell_info')
             if not hasattr(self, 'chrom_coords'):
-                raise AttributeError("No chrom_coords info found in cell-data and saved cell_info.")
+                _use_chrom_coords = False
         ## check specific attributes and initialize
-        if _type == 'unique':
-            # check attributes
-            if not hasattr(self, 'picked_unique_spots'):
-                self._load_from_file('cell_info')
-                if not hasattr(self, 'picked_unique_spots'):
-                    raise AttributeError("No picked_unique_spots info found in cell-data and saved cell_info.")
-            _picked_spots = self.picked_unique_spots
-        elif _type == 'decoded' or _type == 'combo':
-            # check attributes
-            if not hasattr(self, 'picked_decoded_spots'):
-                self._load_from_file('cell_info')
-                if not hasattr(self, 'picked_decoded_spots'):
-                    raise AttributeError("No picked_decoded_spots info found in cell-data and saved cell_info.")
-            _picked_spots = self.picked_decoded_spots
-
-        ## loop through chrom_coords and make distance map
-        _distance_maps = []
-        for _chrom_id, _coord in enumerate(self.chrom_coords):
+        _allowed_data_types = ['unique', 'decoded']
+        if _data_type not in _allowed_data_types:
+            raise ValueError(f"Wrong input for _data_type:{_data_type}, should be among {_allowed_data_types}")
+        # extract attribute names
+        _key_attr = str(_pick_type) + '_picked_' + str(_data_type) + '_spots'
+        _save_attr = str(_pick_type) + '_' + str(_data_type) + '_' + 'distance_map'
+        # check loading of necessary
+        if not hasattr(self, _key_attr):
+            self._load_from_file('cell_info')
+            if not hasattr(self, _key_attr):
+                raise AttributeError(f"No {_key_attr} info found in cell-data and saved cell_info.")
+        _picked_spots = getattr(self, _key_attr)
+        if hasattr(self, _save_attr):
             if _verbose:
-                print(f"++ generate {_type} dist-map for fov:{self.fov_id}, cell:{self.cell_id}, chrom:{_chrom_id}")
-            # get coordiates
-            _coords_in_pxl = np.stack([s[1:4] for s in _picked_spots[_chrom_id]]) # extract only coordnates
-            # convert to nm
-            _coords_in_nm = _coords_in_pxl * _distance_zxy
-            # calculate dist-map
-            _distmap = squareform(pdist(_coords_in_nm))
-            _distmap[_distmap == np.inf] = np.nan
-            # append
-            _distance_maps.append(_distmap)
-            # make plot
-            plt.figure()
-            plt.title(f"{_type} dist-map for fov:{self.fov_id}, cell:{self.cell_id}, chrom:{_chrom_id}")
-            plt.imshow(_distmap, interpolation='nearest', cmap=seismic_r, vmin=np.min(_limits), vmax=np.max(_limits))
-            plt.colorbar(ticks=range(np.min(_limits),np.max(_limits),200), label='distance (nm)')
+                print(f"-- directly load {_save_attr} from fov:{self.fov_id}, cell:{self.cell_id}")
+            _distmaps = getattr(self, _save_attr)
+        else:
+            ## loop through chrom_coords and make distance map
+            if not _use_chrom_coords:
+                _picked_spots = [_picked_spots]
+            # initialize distmaps    
+            _distmaps = []
+            for _id, _spots in enumerate(_picked_spots):
+                if _verbose:
+                    print(f"-- generate {_data_type} dist-map for fov:{self.fov_id}, cell:{self.cell_id}, chrom:{_id}")
+                # get zxy coordinates
+                _zxy = np.array(_spots)[:,1:4] * _distance_zxy[np.newaxis,:]
+                # generate distmap
+                _distmap = squareform(pdist(_zxy))
+                # append 
+                _distmaps.append(_distmap)
+        
+        ## make plot         
+        for _id, _distmap in enumerate(_distmaps):
+            plt.figure(figsize=(1.25*_fig_size, _fig_size), dpi=_fig_dpi)
+            plt.title(f"{_data_type} dist-map for fov:{self.fov_id}, cell:{self.cell_id}, chrom:{_id}")
+            plt.imshow(_distmap, interpolation='nearest', cmap=_cmap, vmin=np.min(_limits), vmax=np.max(_limits))
+            plt.colorbar(ticks=range(np.min(_limits),np.max(_limits)+200,200), label='distance (nm)')
+            # save plot
             if _save_plot:
-                if not os.path.exists(os.path.join(self.map_folder, self.fovs[self.fov_id].replace('.dax','')) ):
+                _distmap_fd = os.path.join(self.map_folder, self.fovs[self.fov_id].replace('.dax', ''))
+                if not os.path.exists(_distmap_fd):
                     if _verbose:
-                        print(f"++ Make directory:",os.path.join(self.map_folder, self.fovs[self.fov_id].replace('.dax','')))
-                    os.makedirs(os.path.join(self.map_folder, self.fovs[self.fov_id].replace('.dax','')))
-                _save_fl = os.path.join(self.map_folder,
-                                        self.fovs[self.fov_id].replace('.dax',''),
-                                        f"dist-map_{_type}_{self.cell_id}_{_chrom_id}.png")
+                        print(f"++ Make directory: {_distmap_fd}")
+                    os.makedirs(_distmap_fd)
+                _save_fl = os.path.join(_distmap_fd, f"dist-map_{_data_type}_{self.cell_id}_{_id}.png")
                 plt.savefig(_save_fl, transparent=True)
-            plt.show()
+            if __name__ == "__main__":
+                plt.show()
+        
+        # append into attribute and save
+        setattr(self, _save_attr, _distmaps)
+        if _save_info:
+            self._save_to_file('cell_info', _save_dic={_save_attr: _distmaps}, _verbose=_verbose)
 
-        ## dump into attribute and save
-        if _type == 'unique':
-            self.unique_distance_map = _distance_maps
-            # save
-            if _save_info:
-                self._save_to_file('cell_info', _save_dic={'unique_distance_map':self.unique_distance_map})
-            # return
-            return self.unique_distance_map
-        elif _type == 'decoded' or _type == 'combo':
-            self.decoded_distance_map = _distance_maps
-            # save
-            if _save_info:
-                self._save_to_file('cell_info', _save_dic={'decoded_distance_map':self.decoded_distance_map})
-            # return
-            return self.decoded_distance_map
+        # return
+        return _distmaps
 
-    def _call_AB_compartments(self, _type='unique', _force=False, _norm_matrix='normalization_matrix.npy', 
+    def _call_AB_compartments(self, _data_type='unique', _force=False, _norm_matrix='normalization_matrix.npy', 
                             _min_allowed_dist=50, _gaussian_size=2, _boundary_window_size=3, 
                             _make_plot=True, _save_coef_plot=False, _save_compartment_plot=False, _verbose=True):
         """Function to call AB compartment for given type of distance-map
         Inputs:
-            _type: type of distance map given, unique / decoded
+            _data_type: type of distance map given, unique / decoded
             _force: whether force doing compartment calling if result exists, bool (default: False)
             _norm_matrix: normalization matrix to remove polymer effect, np.ndarray or string(filename)
             _min_allowed_dist: minimal distance kept during the process, int (default: 50)
@@ -2793,11 +2874,11 @@ class Cell_Data():
         from astropy.convolution import Gaussian2DKernel
         from astropy.convolution import convolve    
         ## check inputs
-        _type = _type.lower()
-        if _type not in ['unique','decoded']:
-            raise ValueError("Wrong _type kwd is given!")
-        if not hasattr(self, _type+'_distance_map'):
-            raise AttributeError(f"Attribute { _type+'_distance_map'} doesn't exist for this cell, exist!")
+        _data_type = _data_type.lower()
+        if _data_type not in ['unique','decoded']:
+            raise ValueError("Wrong _data_type kwd is given!")
+        if not hasattr(self, _data_type+'_distance_map'):
+            raise AttributeError(f"Attribute { _data_type+'_distance_map'} doesn't exist for this cell, exist!")
         if isinstance(_norm_matrix, str):
             if os.sep not in _norm_matrix: # only filename is given, then assume the file is in analysis_folder
                 _norm_matrix = os.path.join(self.analysis_folder, _norm_matrix)
@@ -2816,11 +2897,11 @@ class Cell_Data():
                 print(f"-- directly load existing compartment information")
         else:
             if _verbose:
-                print(f"-- call compartment from {_type} distance map!")
+                print(f"-- call compartment from {_data_type} distance map!")
             self.compartment_boundaries = []
             self.compartment_boundary_scores = []
             ## start calculating compartments
-            _distmaps = getattr(self, _type+'_distance_map')
+            _distmaps = getattr(self, _data_type+'_distance_map')
             for _chrom_id, _distmap in enumerate(_distmaps):
                 _normed_map = _distmap.copy()
                 # exclude extreme values
@@ -2840,12 +2921,12 @@ class Cell_Data():
                 if _make_plot:
                     f1 = plt.figure()
                     plt.imshow(_coef_mat, cmap='seismic', vmin=-1, vmax=1)
-                    plt.title(f"{_type} coef-matrix for fov:{self.fov_id}, cell:{self.cell_id}, chrom:{_chrom_id}")
+                    plt.title(f"{_data_type} coef-matrix for fov:{self.fov_id}, cell:{self.cell_id}, chrom:{_chrom_id}")
                     plt.colorbar()
                     if _save_coef_plot:
                         _coef_savefile = os.path.join(self.map_folder,
                                                     self.fovs[self.fov_id].replace('.dax',''),
-                                                    f"coef_matrix_{_type}_{self.cell_id}_{_chrom_id}.png")
+                                                    f"coef_matrix_{_data_type}_{self.cell_id}_{_chrom_id}.png")
                         plt.savefig(_coef_savefile, transparent=True)
                         plt.close(f1)
                 #get the eigenvectors and eigenvalues
@@ -2854,7 +2935,7 @@ class Cell_Data():
                 if _save_compartment_plot:
                     _compartment_savefile = os.path.join(self.map_folder,
                                                         self.fovs[self.fov_id].replace('.dax',''),
-                                                        f"compartment_{_type}_{self.cell_id}_{_chrom_id}.png")
+                                                        f"compartment_{_data_type}_{self.cell_id}_{_chrom_id}.png")
                 else:
                     _compartment_savefile = None
                 _bds,_bd_scores =analysis.get_AB_boundaries(_coef_mat,_evecs[:,0],sz_min=_boundary_window_size,plt_val=_make_plot, plot_filename=_compartment_savefile, verbose=_verbose)
