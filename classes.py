@@ -1205,8 +1205,10 @@ class Cell_List():
         if _cmap not in ['seismic', 'Reds']:
             raise ValueError(f"Wrong imnut _cmap:{_cmap}, exit!")
         # get distmap attr
-        _distmap_attr = str(_pick_type) + '_' + str(_data_type) + '_' + 'distance_map'
-        
+        if _pick_type != '':
+            _distmap_attr = str(_pick_type) + '_' + str(_data_type) + '_' + 'distance_map'
+        else:
+            _distmap_attr = str(_data_type) + '_' + 'distance_map'    
         # detect distmap shape
         _distmap_shape=[]
         for _cell in self.cells:
