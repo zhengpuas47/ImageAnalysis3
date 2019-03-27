@@ -1183,8 +1183,9 @@ class Cell_List():
 
         self.cells = _updated_cells
 
-    def _calculate_population_map(self, _data_type='unique', _max_loss_prob=0.15,
-                                  _ignore_inf=True, _stat_type='median',_contact_th=200,
+    def _calculate_population_map(self, _data_type='unique', _pick_type='EM', 
+                                  _max_loss_prob=0.15,
+                                  _stat_type='median',_contact_th=200,
                                   _make_plot=True, _save_plot=True, _save_name='distance_map',
                                   _cmap='seismic', _fig_dpi=300, _fig_size=4, _gfilt_size=0.75,
                                   _plot_limits=[0,2000], _verbose=True):
@@ -1195,50 +1196,55 @@ class Cell_List():
         ## check inputs:
         if _data_type not in ['unique','decoded']:
             raise ValueError(f"Wrong _data_type kwd given, should be unique or decoded, {_data_type} is given!")
-        elif _data_type == 'unique':
-            _picked_spots_attr = 'picked_unique_spots'
-            _distmap_attr = 'unique_distance_map'
-        elif _data_type == 'decoded':
-            _picked_spots_attr = 'picked_decoded_spots'
-            _distmap_attr = 'decoded_distance_map'
+        _allowed_pick_types = ['EM', 'dynamic', 'naive']
+        if _pick_type not in _allowed_pick_types:
+            raise ValueError(
+                f"Wrong _pick_type kwd given ({_pick_type}), should be among {_allowed_pick_types}.")
         if _stat_type not in ['median', 'mean', 'contact']:
             raise ValueError(f"Wrong _stat_type({_stat_type}) kwd is given!")
         if _cmap not in ['seismic', 'Reds']:
             raise ValueError(f"Wrong imnut _cmap:{_cmap}, exit!")
+        # get distmap attr
+        _distmap_attr = str(_pick_type) + '_' + str(_data_type) + '_' + 'distance_map'
+        
         # detect distmap shape
         _distmap_shape=[]
         for _cell in self.cells:
-            for _distmap in getattr(_cell, _distmap_attr):
-                if np.shape(_distmap)[0] not in _distmap_shape:
-                    _distmap_shape.append(np.shape(_distmap)[0])
+            if hasattr(_cell, _distmap_attr):
+                for _distmap in getattr(_cell, _distmap_attr):
+                    if np.shape(_distmap)[0] not in _distmap_shape:
+                        _distmap_shape.append(np.shape(_distmap)[0])
+        if len(_distmap_shape) == 0:
+            print("No distant map loaded, return.")
+            return None, 0
         if _verbose:
             print(f"+++ maximum distance-map size is {max(_distmap_shape)}")
+
         _cand_distmaps = []
         ## check and collect distance maps
         for _cell in self.cells:
-            for _picked_spots, _distmap in zip(getattr(_cell, _picked_spots_attr), getattr(_cell, _distmap_attr)):
-
-                _failed_count = sum([np.inf in _coord or len(_coord)==0 for _coord in _picked_spots])
-                if _failed_count / len(_picked_spots) > _max_loss_prob:
-                    if _verbose:
-                        print(f"+++ chromosome filtered out by loss probability in fov:{_cell.fov_id}, cell:{_cell.cell_id}")
-                    continue
-                elif np.shape(_distmap)[0] != max(_distmap_shape):
-                    if _verbose:
-                        print(f"+++ chromosome filtered out by dist-map shape in fov:{_cell.fov_id}, cell:{_cell.cell_id}")
-                    continue
-                else:
-                    _cand_distmaps.append(_distmap)
-        if len(_cand_distmaps) == 0:
-            print("No distant map loaded, return.")
-            return None, 0
+            if not hasattr(_cell, _distmap_attr):
+                if _verbose:
+                    print(f"+++ fov:{_cell.fov_id}, cell:{_cell.cell_id} doesn't have {_distmap_attr}, skip!")
+            else:
+                for _chrom_id, _distmap in enumerate(getattr(_cell, _distmap_attr)):
+                    # calculate failed entries
+                    _failure_rate = np.sum(np.isnan(_distmap)) / np.size(_distmap)
+                    if _failure_rate > _max_loss_prob:
+                        if _verbose:
+                            print(f"+++ filtered out by loss probability, fov:{_cell.fov_id}, cell:{_cell.cell_id}, chrom:{_chrom_id}")
+                        continue
+                    elif np.shape(_distmap)[0] != max(_distmap_shape):
+                        if _verbose:
+                            print(f"+++ filtered out by dist-map shape, fov:{_cell.fov_id}, cell:{_cell.cell_id}, chrom:{_chrom_id}")
+                        continue
+                    else:
+                        _cand_distmaps.append(_distmap)
 
         ## calculate averaged map
         # acquire total map
         _total_map = np.array(_cand_distmaps, dtype=np.float)
         # calculate averaged map
-        if _ignore_inf:
-            _total_map[_total_map == np.inf] = np.nan
         if _stat_type == 'median':
             _averaged_map = np.nanmedian(_total_map, axis=0)
             _cmap+= '_r'
@@ -2826,6 +2832,8 @@ class Cell_Data():
                 _zxy = np.array(_spots)[:,1:4] * _distance_zxy[np.newaxis,:]
                 # generate distmap
                 _distmap = squareform(pdist(_zxy))
+                # transform inf into NaN
+                _distmap[_distmap == np.inf] = np.nan
                 # append 
                 _distmaps.append(_distmap)
         
