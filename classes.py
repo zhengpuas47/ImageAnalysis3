@@ -1133,7 +1133,7 @@ class Cell_List():
                               _save_inter_plot=False, _save_to_info=True, _save_plot=True,
                               _check_spots=True, _check_th=0.01, _plot_limits=[0, 2000],
                               _cmap='seismic_r', _fig_dpi=300, _fig_size=4,
-                              _overwrite=False, _verbose=True):
+                              _release_ram=False, _overwrite=False, _verbose=True):
         """Function to pick spots given candidates in batch"""
         ## Check Inputs
         if _verbose:
@@ -1180,15 +1180,25 @@ class Cell_List():
         # clear
         killchild()
         del(_pick_args)
+        if not _release_ram or not _save_to_info:
+            if _verbose:
+                print("")
+            self.cells = _updated_cells
+        else:
+            for _cell in _updated_cells:
+                for _attr in dir(_cell):
+                    if _attr[0] != '_' and 'distance_map' in _attr:
+                        delattr(_cell, _attr)
+            self.cells = _updated_cells
 
-        self.cells = _updated_cells
+
 
     def _calculate_population_map(self, _data_type='unique', _pick_type='EM', 
-                                  _max_loss_prob=0.15,
-                                  _stat_type='median',_contact_th=200,
-                                  _make_plot=True, _save_plot=True, _save_name='distance_map',
-                                  _cmap='seismic', _fig_dpi=300, _fig_size=4, _gfilt_size=0.75,
-                                  _plot_limits=[0,2000], _verbose=True):
+                                  _max_loss_prob=0.15,_stat_type='median',
+                                  _contact_th=200,_make_plot=True, _save_plot=True, 
+                                  _save_name='distance_map',_cmap='seismic', _fig_dpi=300, 
+                                  _fig_size=4, _gfilt_size=0.75, _plot_limits=[0,2000],
+                                  _release_ram=False, _verbose=True):
         """Calculate 'averaged' map for all cells in this list
         Inputs:
             _data_type: unique or decoded
@@ -1216,6 +1226,14 @@ class Cell_List():
                 for _distmap in getattr(_cell, _distmap_attr):
                     if np.shape(_distmap)[0] not in _distmap_shape:
                         _distmap_shape.append(np.shape(_distmap)[0])
+            else:
+                # try to load distmap
+                _cell._load_from_file('cell_info', _load_attrs=[_distmap_attr])
+                if hasattr(_cell, _distmap_attr):
+                    for _distmap in getattr(_cell, _distmap_attr):
+                        if np.shape(_distmap)[0] not in _distmap_shape:
+                            _distmap_shape.append(np.shape(_distmap)[0])
+
         if len(_distmap_shape) == 0:
             print("No distant map loaded, return.")
             return None, 0
@@ -1306,6 +1324,13 @@ class Cell_List():
                     os.makedirs(self.map_folder)
                 plt.savefig(_filename, transparent=True)
             plt.show()
+
+        # release ram if specified
+        if _release_ram:
+            for _cell in self.cells:
+                for _attr in dir(_cell):
+                    if _attr[0] != '_' and 'distance_map' in _attr:
+                        delattr(_cell, _attr)
 
         return _averaged_map, len(_cand_distmaps)
 
