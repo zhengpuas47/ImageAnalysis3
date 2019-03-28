@@ -53,6 +53,7 @@ def _fit_single_image(_im, _id, _chrom_coords, _seeding_args, _fitting_args, _ch
             _spots_for_chrom.append(np.array([]))
         else:
             # seeding
+            print('chrom_coord is', _chrom_coord)
             _seeds = visual_tools.get_seed_in_distance(_im, _chrom_coord, *_seeding_args)
             if len(_seeds) == 0:
                 # no seed found, return empty array
@@ -76,7 +77,8 @@ def _fit_single_image(_im, _id, _chrom_coords, _seeding_args, _fitting_args, _ch
 
 # function to allow multi-processing pick spots
 def _pick_spot_in_batch(_cell, _pick_type='EM', _data_type='unique', _use_chrom_coords=True,
-                        _distance_zxy=_distance_zxy, _w_ccdist=1, _w_lcdist=1, _w_int=4, _w_nbdist=1,
+                        _distance_zxy=_distance_zxy, _local_size=5, _intensity_th=1,
+                        _w_ccdist=1, _w_lcdist=1, _w_int=4, _w_nbdist=1,
                         _save_inter_plot=False, _save_to_info=True, _save_plot=True, 
                         _check_spots=True, _check_th=0.01, _plot_limits=[0, 2000], 
                         _cmap='seismic_r', _fig_dpi=300, _fig_size=4,
@@ -84,7 +86,9 @@ def _pick_spot_in_batch(_cell, _pick_type='EM', _data_type='unique', _use_chrom_
     """_cell: Cell_Data class"""
     # notice: always load in attributes, never return indices in batch format
     _picked_spots = _cell._pick_spots(_data_type=_data_type, _pick_type=_pick_type, _use_chrom_coords=_use_chrom_coords,
-                                      _distance_zxy=_distance_zxy, _w_ccdist=_w_ccdist, _w_lcdist=_w_lcdist,
+                                      _distance_zxy=_distance_zxy, _local_size=_local_size, 
+                                      _intensity_th=_intensity_th,
+                                      _w_ccdist=_w_ccdist, _w_lcdist=_w_lcdist,
                                       _w_int=_w_int, _w_nbdist=_w_nbdist, _save_inter_plot=_save_inter_plot,
                                       _save_to_attr=True, _save_to_info=_save_to_info,
                                       _check_spots=_check_spots, _check_th=_check_th, _return_indices=False,
@@ -1128,8 +1132,9 @@ class Cell_List():
 
     # new version for batch pick spots
     def _pick_spots_for_cells(self, _data_type='unique', _pick_type='EM',decoded_flag='diff',
-                              _num_threads=12, _use_chrom_coords=True, _distance_zxy=_distance_zxy,
-                              _w_ccdist=1, _w_lcdist=1, _w_int=4, _w_nbdist=1,
+                              _num_threads=12, _use_chrom_coords=True, 
+                              _distance_zxy=_distance_zxy, _local_size=5, _intensity_th=1,
+                              _w_ccdist=1, _w_lcdist=0.1, _w_int=1, _w_nbdist=3,
                               _save_inter_plot=False, _save_to_info=True, _save_plot=True,
                               _check_spots=True, _check_th=0.01, _plot_limits=[0, 2000],
                               _cmap='seismic_r', _fig_dpi=300, _fig_size=4,
@@ -1152,7 +1157,8 @@ class Cell_List():
 
         for _cell in self.cells:
             _pick_args.append((_cell, _pick_type, _data_type, _use_chrom_coords,
-                               _distance_zxy, _w_ccdist, _w_lcdist, _w_int, _w_nbdist,
+                               _distance_zxy, _local_size, _intensity_th,
+                               _w_ccdist, _w_lcdist, _w_int, _w_nbdist,
                                _save_inter_plot, _save_to_info, _save_plot,
                                _check_spots, _check_th, _plot_limits,
                                _cmap, _fig_dpi, _fig_size,
@@ -1192,7 +1198,7 @@ class Cell_List():
             self.cells = _updated_cells
 
 
-
+    # Calculate population median / contact map
     def _calculate_population_map(self, _data_type='unique', _pick_type='EM', 
                                   _max_loss_prob=0.15,_stat_type='median',
                                   _contact_th=200,_make_plot=True, _save_plot=True, 
@@ -2229,7 +2235,7 @@ class Cell_Data():
             if not hasattr(self, 'unique_ims') or not hasattr(self, 'unique_ids'):
                 _temp_flag = True # this means the unique images are temporarily loaded
                 print(f'-- cell:{self.cell_id} in fov:{self.fov_id} doesnot have unique images, trying to load now.')
-                self._load_from_file('unique', _verbose=False)
+                #self._load_from_file('unique', _verbose=False)
             else:
                 _temp_flag = False
             # sum up existing Images
@@ -2669,7 +2675,8 @@ class Cell_Data():
 
     # an integrated function to pick spots
     def _pick_spots(self, _data_type='unique', _pick_type='EM', _use_chrom_coords=True,
-                    _distance_zxy=_distance_zxy, _w_ccdist=1, _w_lcdist=1, _w_int=4, _w_nbdist=1,
+                    _distance_zxy=_distance_zxy, _local_size=5, _intensity_th=1, 
+                    _w_ccdist=1, _w_lcdist=0.1, _w_int=1, _w_nbdist=3,
                     _save_inter_plot=False, _save_to_attr=True, _save_to_info=True,
                     _check_spots=True, _check_th=0.01,  _return_indices=False,
                     _overwrite=False, _verbose=True):
@@ -2683,6 +2690,9 @@ class Cell_Data():
             _pick_type: method for picking spots, str ('EM', 'dynamic' or 'naive')
             _data_type: data type of spots to be picked, str ('unique', 'decoded' etc)
             _use_chrom_coords: whether use chrom_coords in cell_data, bool (default: True)
+            _distance_zxy
+            _local_size
+            _intensity_th
             _save_inter_plot: whether save intermediate plots, bool (default: False)
                 * only useful in EM
             _save_to_attr: whether save picked spots into attributes, bool (default: True)
@@ -2743,12 +2753,11 @@ class Cell_Data():
                 print("Probably wrong input for _use_chrom_coords?, switch to True")
                 _use_chrom_coords = True
             else:
-                raise ValueError(
-                    "Length of ids and candidate_spots doesn't match!")
+                raise ValueError("Length of ids and candidate_spots doesn't match!")
         if _use_chrom_coords:
             _cand_spot_list = []
             for _chrom_id in range(len(getattr(self, 'chrom_coords'))):
-                _cand_spot_list.append([_spot_lst[_chrom_id]
+                _cand_spot_list.append([np.array(_spot_lst[_chrom_id]).copy()
                                         for _spot_lst in _all_spots])
         else:
             _cand_spot_list = [_all_spots]
@@ -2758,7 +2767,12 @@ class Cell_Data():
         ## Initialize
         _picked_spot_list, _picked_ind_list = [], []
 
-        for _i, _cand_spots in enumerate(_cand_spot_list):
+        if not _use_chrom_coords:
+            _chrom_coords = [None]
+        else:
+            _chrom_coords = getattr(self, 'chrom_coords')
+
+        for _i, (_cand_spots, _chrom_coord) in enumerate(zip(_cand_spot_list, _chrom_coords)):
             if _pick_type == 'naive':
                 _picked_spots, _picked_inds = analysis.naive_pick_spots(_cand_spots, _ids,
                                                                         use_chrom_coord=False,
@@ -2781,12 +2795,13 @@ class Cell_Data():
             elif _pick_type == 'EM':
                 # EM
                 _picked_spots, _picked_inds, _scores, _other_scores = \
-                    analysis.EM_pick_spots(_cand_spots, _ids, num_iters=10,
-                                           terminate_th=1/len(_ids), w_ccdist=_w_ccdist,
-                                           w_lcdist=_w_lcdist, w_int=_w_int, w_nbdist=_w_nbdist,
+                    analysis.EM_pick_spots(_cand_spots, _ids, _chrom_coord.copy(),
+                                           num_iters=15, terminate_th=1/len(_ids), 
+                                           intensity_th=_intensity_th,
+                                           distance_zxy=_distance_zxy, local_size=_local_size,
+                                           w_ccdist=_w_ccdist, w_lcdist=_w_lcdist, w_int=_w_int, w_nbdist=_w_nbdist,
                                            make_plot=_save_inter_plot, save_plot=_save_inter_plot,
-                                           save_path=self.save_folder, save_filename='chr_' +
-                                           str(_i),
+                                           save_path=self.save_folder, save_filename='chr_'+str(_i),
                                            return_indices=True, return_scores=True,
                                            return_other_scores=True, verbose=_verbose)
                 # Check
@@ -2842,7 +2857,7 @@ class Cell_Data():
             if not hasattr(self, _key_attr):
                 raise AttributeError(f"No {_key_attr} info found in cell-data and saved cell_info.")
         _picked_spots = getattr(self, _key_attr)
-        if hasattr(self, _save_attr):
+        if hasattr(self, _save_attr) and not _overwrite:
             if _verbose:
                 print(f"-- directly load {_save_attr} from fov:{self.fov_id}, cell:{self.cell_id}")
             _distmaps = getattr(self, _save_attr)
@@ -2877,7 +2892,7 @@ class Cell_Data():
                     if _verbose:
                         print(f"++ Make directory: {_distmap_fd}")
                     os.makedirs(_distmap_fd)
-                _save_fl = os.path.join(_distmap_fd, f"dist-map_{_data_type}_{self.cell_id}_{_id}.png")
+                _save_fl = os.path.join(_distmap_fd, f"{_pick_type}_distance-map_{_data_type}_{self.cell_id}_{_id}.png")
                 plt.savefig(_save_fl, transparent=True)
             if __name__ == "__main__":
                 plt.show()

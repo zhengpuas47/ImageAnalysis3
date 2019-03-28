@@ -1614,7 +1614,7 @@ def naive_pick_spots(cand_spots, region_ids, use_chrom_coord=True, chrom_id=None
             # extract points
             _pts = np.array(_spots[chrom_id])
             if len(_pts) == 0:
-                _selected_spots.append(np.inf * np.ones(11))
+                _selected_spots.append(np.nan * np.ones(11))
                 _selected_indices.append(-1)
             else:
                 _selected_spots.append(_pts[np.argsort(_pts[:, 0])[-1]])
@@ -1626,7 +1626,7 @@ def naive_pick_spots(cand_spots, region_ids, use_chrom_coord=True, chrom_id=None
             # extract points
             _pts = np.array(_spots)
             if len(_pts) == 0:
-                _bad_pt = np.inf*np.ones(11)
+                _bad_pt = np.nan*np.ones(11)
                 _bad_pt[0] = 0 # set bad_pt intensity=0
                 _selected_spots.append(_bad_pt)
                 _selected_indices.append(-1)
@@ -1642,7 +1642,7 @@ def naive_pick_spots(cand_spots, region_ids, use_chrom_coord=True, chrom_id=None
 
 
 
-def spot_score_in_chromosome(spots, reg_id, sel_spots, 
+def spot_score_in_chromosome(spots, reg_id, sel_spots, _chr_center=None,
                              _cc_dists=None, _lc_dists=None, _intensities=None,
                              distance_zxy=_distance_zxy, local_size=5, 
                              w_ccdist=1, w_lcdist=1, w_int=1):
@@ -1661,7 +1661,10 @@ def spot_score_in_chromosome(spots, reg_id, sel_spots,
     """
     # get chr coordinates
     _zxy = np.array(sel_spots)[:, 1:4]*np.array(distance_zxy)[np.newaxis, :]
-    _chr_center = np.nanmean(_zxy, axis=0)
+    if _chr_center is None:
+        _chr_center = np.nanmean(_zxy, axis=0)
+    else:
+        _chr_center = _chr_center.copy() * distance_zxy
     # get pt coordinates
     _pts = np.array(spots)
     if len(np.shape(_pts)) == 1:
@@ -1692,7 +1695,8 @@ def spot_score_in_chromosome(spots, reg_id, sel_spots,
     return _log_score
 
 
-def distance_score_in_chromosome(dists, sel_spots=None, _nb_dists=None, distance_zxy=_distance_zxy,
+def distance_score_in_chromosome(dists, sel_spots=None, _nb_dists=None, 
+                                 distance_zxy=_distance_zxy, distance_th=400, 
                                  w_dist=1):
     """Function to calculate log-score for given spot in selected chr_pts from candidiate_points
     Inputs:
@@ -1707,8 +1711,12 @@ def distance_score_in_chromosome(dists, sel_spots=None, _nb_dists=None, distance
         _zxy = np.array(sel_spots)[:, 1:4] * \
             np.array(distance_zxy)[np.newaxis, :]
         _nb_dists = np.linalg.norm(_zxy[1:]-_zxy[:-1], axis=1)
-    
-    _scores = np.log(1-_cum_prob(_nb_dists, dists)) * w_dist
+        _nb_dists = _nb_dists[np.isnan(_nb_dists)==False]
+    _th_percentile = 1 - _cum_prob(_nb_dists, distance_th)[0]
+    _max_percentile = 1 - _cum_prob(_nb_dists, 0)[0]
+    _direct_scores = (1-_cum_prob(_nb_dists, dists)) / _th_percentile
+    _direct_scores[_direct_scores > _max_percentile] = _max_percentile
+    _scores = np.log( _direct_scores ) * w_dist
 
     return _scores
 
@@ -1724,6 +1732,7 @@ def generate_distance_score_pool(all_spots, distance_zxy=_distance_zxy):
     else:
         raise TypeError("Wrong input datatype for all_spots, should be list of spots or list of list of spots!")
     _nb_dists = np.linalg.norm(_zxy[1:]-_zxy[:-1], axis=1)
+    _nb_dists = _nb_dists[np.isnan(_nb_dists) == False]
     return _nb_dists
 
 
@@ -1859,10 +1868,10 @@ def dynamic_pick_spots(chrom_cand_spots, unique_ids, cand_spot_scores, nb_dists,
             _sel_indices.append(_dy_indices[_ids.index(_uid)])
         else:
             if len(_dy_spots) > 0:
-                _bad_pt = np.inf*np.ones(len(_dy_spots[-1]))
+                _bad_pt = np.nan*np.ones(len(_dy_spots[-1]))
                 _bad_pt[0] = 0 # set bad_pt intensity=0
             else:
-                _bad_pt = np.inf*np.ones(11)
+                _bad_pt = np.nan*np.ones(11)
                 _bad_pt[0] = 0 # set bad_pt intensity=0
             _sel_spots.append(_bad_pt)
             _sel_indices.append(-1)
@@ -1873,9 +1882,10 @@ def dynamic_pick_spots(chrom_cand_spots, unique_ids, cand_spot_scores, nb_dists,
 
 
 # Pick spots by EM algorithm
-def EM_pick_spots(chrom_cand_spots, unique_ids, num_iters=np.inf, terminate_th=0.004,
+def EM_pick_spots(chrom_cand_spots, unique_ids, _chrom_coord=None,
+                  num_iters=np.inf, terminate_th=0.004, intensity_th=1,
                   distance_zxy=_distance_zxy, local_size=5, spot_num_th=200,
-                  w_ccdist=1, w_lcdist=1, w_int=4, w_nbdist=1,
+                  w_ccdist=1, w_lcdist=0.2, w_int=1, w_nbdist=3,
                   make_plot=False, save_plot=False, save_path=None, save_filename='',
                   return_indices=False, return_scores=False, 
                   return_other_scores=False, verbose=True):
@@ -1897,6 +1907,8 @@ def EM_pick_spots(chrom_cand_spots, unique_ids, num_iters=np.inf, terminate_th=0
         unique_ids: region uid for candidate spots, list/array of ints
         num_iters: maximum allowed number of iterations, int (default: np.inf, i.e. no limit)
         terminate_th: termination threshold for change percentage of spot-picking, float (default: 0.005)
+        intensity_th: threshold for intensity that keep to try EM, float (default: 1)
+            * threshold=1 means SNR=1, which is a pretty generous threshold
         distance_zxy: translate pixel to nm, array of 3 (default: [200,106,106])
         local_size: size to calculate local distance, int (default: 5)
         spot_num_th: minimum number of spots needed for calculate_spot_score, int (default:200)
@@ -1929,9 +1941,15 @@ def EM_pick_spots(chrom_cand_spots, unique_ids, num_iters=np.inf, terminate_th=0
     ## initialize
     if verbose:
         print(f"- EM picking spots for {len(unique_ids)} regions.")
+    # filter spots
+    if verbose:
+        print(f"-- filtering spots by intensity threshold = {intensity_th}.")
+    for _i, _spots in enumerate(chrom_cand_spots):
+        chrom_cand_spots[_i] = _spots[np.array(_spots)[:, 0] > intensity_th]
     # select spots by naive
     if verbose:
         print(f"-- initialize EM by naively picking spots!")
+        
     _sel_spots, _sel_indices = naive_pick_spots(chrom_cand_spots, unique_ids,
                                                 use_chrom_coord=False, return_indices=True)
     # make plot for initialized
@@ -1949,7 +1967,7 @@ def EM_pick_spots(chrom_cand_spots, unique_ids, num_iters=np.inf, terminate_th=0
     ## get into EM loops if
     # not exceeding num_iters and
     # picked point change percentage lower than terminate_th
-    while(_iter < num_iters and _change_ratio >= terminate_th):
+    while(_iter < num_iters or _change_ratio >= terminate_th):
         if verbose:
             print(f"-- EM iter:{_iter}")
 
@@ -1971,10 +1989,18 @@ def EM_pick_spots(chrom_cand_spots, unique_ids, num_iters=np.inf, terminate_th=0
         _mstart = time.time()
         # calcualte spot score
         _spot_scores = [spot_score_in_chromosome(_spots, _uid-1, _sel_spots,
+                                                 _chrom_coord, 
                         _cc_dists=_cc_dists, _lc_dists=_lc_dists,
                         _intensities=_intensities, distance_zxy=distance_zxy,
                         local_size=local_size, w_ccdist=w_ccdist, w_lcdist=w_lcdist,
                         w_int=w_int) for _spots, _uid in zip(chrom_cand_spots, unique_ids)]
+        # special modification for 
+        _spot_scores[-1] += spot_score_in_chromosome(chrom_cand_spots[-1], len(unique_ids)-1, _sel_spots,
+                                                     _chrom_coord,
+                                                     _cc_dists=_cc_dists, _lc_dists=_lc_dists,
+                                                     _intensities=_intensities, distance_zxy=distance_zxy,
+                                                     local_size=local_size, w_ccdist=2, w_lcdist=0,
+                                                     w_int=0)
         # pick spots by dynamic programming
         _sel_spots, _new_indices = dynamic_pick_spots(chrom_cand_spots, unique_ids, _spot_scores, _nb_dists,
                                                       w_nbdist=w_nbdist, distance_zxy=distance_zxy, return_indices=True, verbose=verbose)
@@ -2061,7 +2087,7 @@ def EM_pick_spots(chrom_cand_spots, unique_ids, num_iters=np.inf, terminate_th=0
                                                                         local_size=local_size, verbose=verbose)
             _sel_scores = spot_score_in_chromosome(_sel_spots, 
                                 np.array(unique_ids, dtype=np.int)-min(unique_ids), 
-                                _sel_spots, _cc_dists=_cc_dists, 
+                                _sel_spots, _chrom_coord, _cc_dists=_cc_dists, 
                                 _lc_dists=_lc_dists, _intensities=_intensities,
                                 distance_zxy=distance_zxy, local_size=local_size, 
                                 w_ccdist=w_ccdist, w_lcdist=w_lcdist,
