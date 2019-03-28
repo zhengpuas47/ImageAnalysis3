@@ -1967,7 +1967,7 @@ def EM_pick_spots(chrom_cand_spots, unique_ids, _chrom_coord=None,
     ## get into EM loops if
     # not exceeding num_iters and
     # picked point change percentage lower than terminate_th
-    while(_iter < num_iters or _change_ratio >= terminate_th):
+    while(_iter < num_iters and _change_ratio >= terminate_th):
         if verbose:
             print(f"-- EM iter:{_iter}")
 
