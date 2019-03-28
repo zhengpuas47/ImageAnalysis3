@@ -2795,7 +2795,7 @@ class Cell_Data():
             elif _pick_type == 'EM':
                 # EM
                 _picked_spots, _picked_inds, _scores, _other_scores = \
-                    analysis.EM_pick_spots(_cand_spots, _ids, _chrom_coord.copy(),
+                    analysis.EM_pick_spots(_cand_spots, _ids, _chrom_coord,
                                            num_iters=15, terminate_th=1/len(_ids), 
                                            intensity_th=_intensity_th,
                                            distance_zxy=_distance_zxy, local_size=_local_size,
