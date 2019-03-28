@@ -53,7 +53,6 @@ def _fit_single_image(_im, _id, _chrom_coords, _seeding_args, _fitting_args, _ch
             _spots_for_chrom.append(np.array([]))
         else:
             # seeding
-            print('chrom_coord is', _chrom_coord)
             _seeds = visual_tools.get_seed_in_distance(_im, _chrom_coord, *_seeding_args)
             if len(_seeds) == 0:
                 # no seed found, return empty array
@@ -2335,7 +2334,7 @@ class Cell_Data():
             print(f"-- {len(_chrom_coords)} loaded")
         self.chrom_coords = _chrom_coords
         if _save:
-            self._save_to_file('cell_info', _save_dic={'chrom_coord':_chrom_coords})
+            self._save_to_file('cell_info', _save_dic={'chrom_coords':_chrom_coords})
             if hasattr(self,'combo_groups') or _force_save_combo:
                 self._save_to_file('combo', _overwrite=_force)
         return _chrom_coords
