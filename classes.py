@@ -2859,6 +2859,9 @@ class Cell_Data():
         if hasattr(self, _save_attr) and not _overwrite:
             if _verbose:
                 print(f"-- directly load {_save_attr} from fov:{self.fov_id}, cell:{self.cell_id}")
+            # turn off saving if directly loading
+            _save_info = False 
+            # loading
             _distmaps = getattr(self, _save_attr)
         else:
             ## loop through chrom_coords and make distance map
