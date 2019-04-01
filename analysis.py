@@ -1891,7 +1891,7 @@ def EM_pick_spots(chrom_cand_spots, unique_ids, _chrom_coord=None,
                   num_iters=np.inf, terminate_th=0.004, intensity_th=1,
                   distance_zxy=_distance_zxy, local_size=5, spot_num_th=200,
                   w_ccdist=1, w_lcdist=0.1, w_int=1, w_nbdist=3,
-                  check_spots=True, check_th=-2.5, 
+                  check_spots=True, check_th=-2.5, check_percentile=1., 
                   make_plot=False, save_plot=False, save_path=None, save_filename='',
                   return_indices=False, return_scores=False, 
                   return_other_scores=False, verbose=True):
@@ -1927,6 +1927,7 @@ def EM_pick_spots(chrom_cand_spots, unique_ids, _chrom_coord=None,
         check_spots: whether apply stringency check for selected spots, bool (default: True)
         check_th: the relative threshold for stringency check, 
             * which will multiply the sum of all weights to estimate threshold, bool (default: -2.5)
+        check_percentile: another percentile threshold that may apply to data, float (default: 1.)
         make_plot: make plot for each iteration, bool (default: False)
         return_indices: whether return indices for picked spots, bool (default: False)
         return_scores: whether return scores for picked spots, bool (default: False)
@@ -2040,7 +2041,35 @@ def EM_pick_spots(chrom_cand_spots, unique_ids, _chrom_coord=None,
             break
     ## check spots if specified
     if check_spots:
-        pass
+        from scipy.stats import scoreatpercentile
+        # weight for intensity now +1
+        _sel_scores = spot_score_in_chromosome(_sel_spots, 
+                            np.array(unique_ids, dtype=np.int)-min(unique_ids), 
+                            _sel_spots, _chrom_coord, _cc_dists=_cc_dists, 
+                            _lc_dists=_lc_dists, _intensities=_intensities,
+                            distance_zxy=distance_zxy, local_size=local_size, 
+                            w_ccdist=w_ccdist, w_lcdist=w_lcdist,
+                            w_int=w_int+1)  
+        _other_scores = []
+        for _scs, _sel_i in zip(_spot_scores, _sel_indices):
+            _other_cs = list(_scs)
+            if len(_other_cs) > 0:
+                _other_cs.pop(_sel_i)
+                _other_scores += list(_other_cs)
+
+        _th_sel = scoreatpercentile(_sel_scores, check_percentile)
+        _th_other = scoreatpercentile(_other_scores, 100-check_percentile)
+        _th_weight = check_th * (w_ccdist + w_lcdist + w_int + 1)
+        _final_check_th = max(_th_sel, _th_other, _th_weight)
+        if verbose:
+            print(f"-- applying stringency cehck for spots, theshold={_final_check_th}")
+        # remove bad spots
+        _inds = np.where(_sel_scores < _final_check_th)[0]
+        for _id in _inds:
+            _sel_spots[_i] = np.nan
+            _sel_spots[_i,0] = 0.
+        if verbose:
+            print(f"--- {len(_inds)} spots didn't pass stringent quality check.")
     ## make plot
     if make_plot:
         _num_im = len(_distmap_list)
@@ -2096,6 +2125,7 @@ def EM_pick_spots(chrom_cand_spots, unique_ids, _chrom_coord=None,
         if return_indices:
             _return_args += (np.array(_sel_indices, dtype=np.int),)
         if return_scores:
+            # if not check_spots, generate a new score set
             _cc_dists, _lc_dists, _intensities = generate_spot_score_pool(_sel_spots, distance_zxy=distance_zxy,
                                                                         local_size=local_size, verbose=verbose)
             _sel_scores = spot_score_in_chromosome(_sel_spots, 
@@ -2104,8 +2134,9 @@ def EM_pick_spots(chrom_cand_spots, unique_ids, _chrom_coord=None,
                                 _lc_dists=_lc_dists, _intensities=_intensities,
                                 distance_zxy=distance_zxy, local_size=local_size, 
                                 w_ccdist=w_ccdist, w_lcdist=w_lcdist,
-                                w_int=w_int)
+                                w_int=w_int+1)
             _return_args += (np.array(_sel_scores),)
+
         if return_other_scores:
             _other_scores = []
             for _scs, _sel_i in zip(_spot_scores, _sel_indices):
@@ -2114,5 +2145,5 @@ def EM_pick_spots(chrom_cand_spots, unique_ids, _chrom_coord=None,
                     _other_cs.pop(_sel_i)
                     _other_scores += list(_other_cs)
             _return_args += (np.array(_other_scores),)
-
+        # return!
         return _return_args
