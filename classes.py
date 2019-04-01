@@ -1,4 +1,4 @@
-import sys,glob,os,time, copy
+import sys,glob,os,time,copy
 import numpy as np
 import pickle as pickle
 import multiprocessing as mp
@@ -1811,6 +1811,11 @@ class Cell_Data():
 
             return _sorted_ims, _sorted_ids, _sorted_channels
 
+        elif _data_type == 'combo':
+            pass
+        elif _data_type == 'decoded':
+            pass
+
 
     # function to give boolean output of whether a centain type of images are fully generated
     def _check_full_set(self, _data_type, _decoded_flag='diff', _verbose=False):
@@ -1863,51 +1868,109 @@ class Cell_Data():
             return False
 
     # saving
-    def _save_to_file(self, _type='all', _save_dic={}, _save_folder=None, _overwrite=False, _verbose=True):
-        # special keys don't save in the 'cell_info' file. They are images!
-        _special_keys = ['unique_ims', 'combo_groups','bead_ims', 'splitted_ims', 'decoded_ims']
+    def _save_to_file(self, _data_type='all', _save_dic={}, _save_folder=None, 
+                      _unsaved_attrs=None, _clear_old_attrs=False, 
+                      _overwrite=False, _verbose=True):
+        """Function to save Cell_Data information into storage files."""
+        # if not specified attrs not to save, here's a basic list:
+        if _unsaved_attrs is None:
+            _unsaved_attrs = ['unique_ims', 'combo_groups','bead_ims', 'splitted_ims', 'decoded_ims']
+        # create save_folder if needed
         if _save_folder == None:
             _save_folder = self.save_folder
         if not os.path.exists(_save_folder):
+            if _verbose:
+                print(f"- create save_folder:{_save_folder}\n\t for fov:{self.fov_id}, cell:{self.cell_id}")
             os.makedirs(_save_folder)
 
-        if _type=='all' or _type =='cell_info':
-            # save file full name
-            _savefile = _save_folder + os.sep + 'cell_info.pkl'
+        # saving cell_info
+        if _data_type=='all' or _data_type =='cell_info':
+            
+            # get dict for attrs in file
+            _savefile = os.path.join(_save_folder, 'cell_info.pkl') # load from saved cell_info
             if _verbose:
-                print("- saving cell_info to:", _savefile)
-            if os.path.isfile(_savefile) and not _overwrite:
+                print(f"- saving cell_info to file:{_savefile}")
+            if os.path.isfile(_savefile) and not _clear_old_attrs:
                 if _verbose:
-                    print("-- loading existing info from file:", _savefile)
+                    print(f"-- loading existing info from file: {_savefile}")
                 _file_dic = pickle.load(open(_savefile, 'rb'))
             else: # no existing file:
                 _file_dic = {} # create an empty dic
 
-            _existing_attributes = [_attr for _attr in dir(self) if not _attr.startswith('_') and _attr not in _special_keys]
-            # store updated information
-            _updated_info = []
+            # get dict for attrs in RAM
+            _existing_attributes = [_attr for _attr in dir(self) if not _attr.startswith('_') and _attr not in _unsaved_attrs]
+            
+            # compare
+            _updated_info = [] # store updated information
+            # loop through all existing attributes 
             for _attr in _existing_attributes:
-                if _attr not in _special_keys:
-                    if _attr not in _file_dic:
+                # screen out special keys and images, which won't be stored in 
+                if _attr not in _unsaved_attrs and 'ims' not in _attr and 'distance_map' not in _attr: 
+                    # if this attribute is new, or about to overwrite:
+                    if _attr not in _file_dic or _overwrite:
                         _file_dic[_attr] = getattr(self, _attr)
                         _updated_info.append(_attr)
-
-            # if specified in save_dic, overwrite
+            # if specified in save_dic, overwrite with highest priority
             for _k,_v in _save_dic.items():
-                if _k not in _updated_info:
+                _file_dic[_k] = _v # this means overwrite!
+                if _k not in _updated_info: 
+                    # register in updated_info
                     _updated_info.append(_k)
-                _file_dic[_k] = _v
 
             if _verbose and len(_updated_info) > 0:
-                print("-- information updated in cell_info.pkl:", _updated_info)
+                print(f"-- information updated in cell_info.pkl: {_updated_info}")
             # save info to all
             with open(_savefile, 'wb') as output_handle:
                 if _verbose:
-                    print("- Writing cell data to file:", _savefile)
+                    print(f"- Writing cell data to file: {_savefile}")
                 pickle.dump(_file_dic, output_handle)
 
+        # save unique
+        if _data_type == 'all' or _data_type == 'unique' or _data_type == 'rna_unique':
+            # generate attribute names
+            _im_attr = _data_type + '_' + 'ims'
+            _id_attr = _data_type + '_' + 'ids'
+            _channel_attr = _data_type + '_' + 'channels'
+            # generate save_filename:
+            _save_filename = os.path.join(self.save_folder, _data_type+'_'+'rounds.npz')
+            _start_time = time.time()
+            # check images
+            if _im_attr in _save_dic:
+                _ims = _save_dic[_im_attr]
+            elif hasattr(self, _im_attr):
+                _ims = getattr(self, _im_attr)
+            else:
+                raise ValueError(f'No {_im_attr} information given in fov:{self.fov_id}, cell:{self.cell_id}')
+            # check ids
+            if _id_attr in _save_dic and len(_save_dic[_id_attr]) == len(_ims):
+                _ids = _save_dic[_id_attr]
+            elif hasattr(self, _id_attr) and len(getattr(self, _id_attr)) == len(_ims):
+                _ids = getattr(self, _id_attr)
+            else:
+                raise ValueError(f'No {_id_attr} information matched in fov:{self.fov_id}, cell:{self.cell_id}')
+            # check channels
+            if _channel_attr in _save_dic and len(_save_dic[_channel_attr]) == len(_ims):
+                _channels = _save_dic[_channel_attr]
+            elif hasattr(self, _channel_attr) and len(getattr(self, _channel_attr)) == len(_ims):
+                _channels = getattr(self, _channel_attr)
+            else:
+                raise ValueError(f'No {_channel_attr} information matched in fov:{self.fov_id}, cell:{self.cell_id}')
+
+            # generate dict to save into npz
+            _save_dic = {
+                'observation': np.stack(_ims),
+                'ids': np.array(_ids),
+                'channels': np.array(_channels)
+            }
+            # save
+            if _verbose:
+                print(f"-- saving {_data_type} to file: {_save_filename} with {len(_ims)} images" )
+            np.savez_compressed(_save_filename, **_save_dic)
+            if _verbose:
+                print(f"--- time spent in saving:{time.time()-_start_time}")
+
         # save combo
-        if _type =='all' or _type == 'combo':
+        if _data_type =='all' or _data_type == 'combo':
             if hasattr(self, 'combo_groups'):
                 _combo_groups = self.combo_groups
             elif 'combo_groups' in _save_dic:
@@ -1947,43 +2010,17 @@ class Cell_Data():
                     else:
                         print("")
                 np.savez_compressed(_combo_savefile, **_combo_dic)
-        # save unique
-        if _type == 'all' or _type == 'unique':
-            _unique_savefile = _save_folder + os.sep + 'unique_rounds.npz'
+        
+        if _data_type == 'distance_map':
+            # get save_file:
+            _save_file = os.path.join(self.save_folder, 'distance_maps.npz')
+            # get dict for attrs in RAM
+            _distance_map_attrs = [_attr for _attr in dir(self) if not _attr.startswith('_') and 'distance_map' in _attr]
             _start_time = time.time()
-            # check unique_ims
-            if 'unique_ims' in _save_dic:
-                _unique_ims = _save_dic['unique_ims']
-            elif hasattr(self, 'unique_ims'):
-                _unique_ims = self.unique_ims
-            else:
-                raise ValueError(f'No unique_ims information given in fov:{self.fov_id}, cell:{self.cell_id}')
-            # check unique_ids
-            if 'unique_ids' in _save_dic:
-                _unique_ids = _save_dic['unique_ids']
-            elif hasattr(self, 'unique_ids'):
-                _unique_ids = self.unique_ids
-            else:
-                raise ValueError(f'No unique_ids information given in fov:{self.fov_id}, cell:{self.cell_id}')
-            # check unique_channels
-            if 'unique_channels' in _save_dic:
-                _unique_channels = _save_dic['unique_channels']
-            elif hasattr(self, 'unique_channels'):
-                _unique_channels = self.unique_channels
-            else:
-                raise ValueError(f'No unique_channels information given in fov:{self.fov_id}, cell:{self.cell_id}')
-            # generate dict to save into npz
-            _unique_dic = {
-                'observation': np.stack(_unique_ims),
-                'ids': np.array(_unique_ids),
-                'channels': np.array(_unique_channels)
-            }
-            # save
-            if _verbose:
-                print(f"- saving unique to file: {_unique_savefile} with {len(_unique_ims)} images" )
-            np.savez_compressed(_unique_savefile, **_unique_dic)
-            if _verbose:
-                print(f"-- time spent in saving:{time.time()-_start_time}")
+        if _verbose:
+            print(f"-- saving {_data_type} to file: {_save_filename} with {len(_ims)} images" )
+
+
 
     def _load_from_file(self, _type='all', _save_folder=None, _decoded_flag=None, _load_attrs=[],
                         _overwrite=False, _verbose=True):

@@ -1,4 +1,3 @@
-from scipy.spatial.distance import pdist, squareform
 import sys,glob,os, time
 import numpy as np
 sys.path.append(r'C:\Users\puzheng\Documents\python-functions\python-functions-library')
@@ -7,6 +6,7 @@ import matplotlib.pyplot as plt
 import multiprocessing
 from . import get_img_info, corrections, visual_tools
 from . import _correction_folder,_temp_folder,_distance_zxy,_sigma_zxy
+from scipy.spatial.distance import pdist, squareform
 
 # function to do segmentation
 def Segmentation_All(analysis_folder, folders, fovs, type='small',
