@@ -2013,12 +2013,12 @@ class Cell_Data():
         
         if _data_type == 'distance_map':
             # get save_file:
-            _save_file = os.path.join(self.save_folder, 'distance_maps.npz')
+            _save_filename = os.path.join(self.save_folder, 'distance_maps.npz')
             # get dict for attrs in RAM
             _distance_map_attrs = [_attr for _attr in dir(self) if not _attr.startswith('_') and 'distance_map' in _attr]
             _start_time = time.time()
-        if _verbose:
-            print(f"-- saving {_data_type} to file: {_save_filename} with {len(_ims)} images" )
+            if _verbose:
+                print(f"-- saving {_data_type} to file: {_save_filename} with {len(_ims)} images" )
 
 
 
