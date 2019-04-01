@@ -1631,7 +1631,7 @@ class Cell_Data():
                 raise ValueError("length of _drift doesn't match _folders!")
 
     ## crop images given segmentation and images/temp_filenames
-    def _crop_images(self, _type, _num_threads=12, _single_im_size=_image_size,
+    def _crop_images(self, _data_type, _num_threads=12, _single_im_size=_image_size,
                      _corr_drift=True, _normalization=False, _corr_bleed=True,
                      _corr_Z_shift=True, _corr_hot_pixel=True,
                      _corr_illumination=True, _corr_chromatic=True,
@@ -1650,49 +1650,52 @@ class Cell_Data():
         if not hasattr(self, 'drift'):
             self._load_drift()
         # check type
-        _type = _type.lower()
-        _allowed_kwds = {'combo': 'c', 'unique': 'u', 'merfish': 'm'}
-        if _type not in _allowed_kwds:
+        _data_type = _data_type.lower()
+        _allowed_kwds = {'combo': 'c', 'unique': 'u', 'merfish': 'm', 'rna_unique':'r'}
+        if _data_type not in _allowed_kwds:
             raise ValueError(
-                f"Wrong type kwd! {_type} is given, {_allowed_kwds} expected.")
-
+                f"Wrong type kwd! {_data_type} is given, {_allowed_kwds} expected.")
+        # generate attribute names
+        _im_attr = _data_type + '_' + 'ims'
+        _id_attr = _data_type + '_' + 'ids'
+        _channel_attr = _data_type + '_' + 'channels'
+        # generate save_filename:
+        _save_filename = os.path.join(self.save_folder, _data_type+'_'+'rounds.npz')
         ### Start crop image
         if _verbose:
-            print(f"- Start cropping {_type} image")
+            print(f"- Start cropping {_data_type} image")
         _fov_name = self.fovs[self.fov_id]  # name of this field-of-view
         ### unique
-        if _type == 'unique':
-            ## load from savefile if exists
-            _unique_savefile = os.path.join(
-                self.save_folder, 'unique_rounds.npz')
+        if _data_type == 'unique' or _data_type =='rna_unique':
             # case 1: unique info already loaded in ram
-            if hasattr(self, 'unique_ims') and hasattr(self, 'unique_ids') and hasattr(self, 'unique_channels') \
-                and len(self.unique_ims) == len(self.unique_ids) and len(self.unique_ids)==len(self.unique_channels):
-                _unique_ims = list(self.unique_ims)
-                _unique_ids = list(self.unique_ids)
-                _unique_channels = list(self.unique_channels)
+            if hasattr(self, _im_attr) and hasattr(self, _id_attr) and hasattr(self, _channel_attr) \
+                and len(getattr(self, _im_attr)) == len(getattr(self, _id_attr)) \
+                and len(getattr(self, _id_attr))==len(getattr(self, _channel_attr)):
+                _ims = list(getattr(self, _im_attr))
+                _ids = list(getattr(self, _id_attr))
+                _channels = list(getattr(self, _channel_attr))
                 if _verbose:
-                    print(f"-- {len(_unique_ims)} unique_image already loaded")
+                    print(f"-- {len(_ims)} {_data_type} image already loaded")
             # case 2: unique info saved, so load from file
-            elif os.path.isfile(_unique_savefile):
+            elif os.path.isfile(_save_filename):
                 if _verbose:
-                    print("-- loading unique_rounds.npz", end=', ')
+                    print(f"-- loading {os.path.basename(_save_filename)}", end=', ')
                     _loading_start_time = time.time()
-                with np.load(_unique_savefile) as handle:
-                    _unique_ims = list(handle['observation'])
-                    _unique_ids = list(handle['ids'])
-                    _unique_channels = list(handle['channels'])
-                if len(_unique_ims) != len(_unique_ids) or len(_unique_ims) != len(_unique_channels):
-                    print(f"length for unique info doesn't match! \n ims:{len(_unique_ims)}, ids:{len(_unique_ids)}, channels:{len(_unique_channels)}\n - start a new crop")
-                    _unique_ims, _unique_ids, _unique_channels = [], [], []
+                with np.load(_save_filename) as handle:
+                    _ims = list(handle['observation'])
+                    _ids = list(handle['ids'])
+                    _channels = list(handle['channels'])
+                if len(_ims) != len(_ids) or len(_ims) != len(_channels):
+                    print(f"length for unique info doesn't match! \n ims:{len(_ims)}, ids:{len(_ids)}, channels:{len(_channels)}\n - start a new crop")
+                    _ims, _ids, _channels = [], [], []
                 if _verbose:
                     print(f"time:{time.time()-_loading_start_time}")
             # case 3: start from scratch
             else:
-                _unique_ims, _unique_ids, _unique_channels = [], [], []
+                _ims, _ids, _channels = [], [], []
 
             ## Acquire unique args to be cropped
-            _unique_args = []
+            _args = []
             # loop through color-dic and find all matched type
             for _hyb_fd, _infos in self.color_dic.items():
                 # extract reference name
@@ -1702,12 +1705,12 @@ class Cell_Data():
                 _sel_ids = []
                 for _channel, _info in zip(self.channels[:len(_infos)], _infos):
                     # if keyword type matches:
-                    if _allowed_kwds[_type] in _info:
+                    if _allowed_kwds[_data_type] in _info:
                         # if this channel requires loading:
-                        if _overwrite or int(_info.split(_allowed_kwds[_type])[1]) not in _unique_ids:
+                        if _overwrite or int(_info.split(_allowed_kwds[_data_type])[1]) not in _ids:
                             # append _sel_channel
                             _sel_channels.append(_channel)
-                            _sel_ids.append(int(_info.split(_allowed_kwds[_type])[1]) )
+                            _sel_ids.append(int(_info.split(_allowed_kwds[_data_type])[1]) )
                 # do cropping if there are any channels selected:
                 if len(_sel_channels) > 0:
                     # match to annotated_folders
@@ -1718,16 +1721,16 @@ class Cell_Data():
                         _im_filename = os.path.join(_matched_folders[0], _fov_name)
                         # if already exist and going to overwrite, just delete old ones
                         for _uid in _sel_ids:
-                            if _overwrite and _uid in _unique_ids:
-                                _old_index = _unique_ids.index(_uid)
-                                _unique_ids.pop(_old_index)
-                                _unique_ims.pop(_old_index)
-                                _unique_channels.pop(_old_index)
-                                print(f"-- overwrite regions:{_uid}, {len(_unique_ims)} remains")
+                            if _overwrite and _uid in _ids:
+                                _old_index = _ids.index(_uid)
+                                _ids.pop(_old_index)
+                                _ims.pop(_old_index)
+                                _channels.pop(_old_index)
+                                print(f"-- overwrite regions:{_uid}, {len(_ims)} remains")
                         # append ids and channels
-                        _unique_ids += _sel_ids
-                        _unique_channels += _sel_channels
-                        #print('-image length 2:', len(_unique_ims), len(_unique_ids), len(_unique_channels))
+                        _ids += _sel_ids
+                        _channels += _sel_channels
+                        #print('-image length 2:', len(_ims), len(_ids), len(_channels))
                         # add unique_arg
                         _new_arg = (_im_filename, _sel_channels, None, self.segmentation_label,
                                     _extend_dim, _single_im_size, self.channels,
@@ -1735,7 +1738,7 @@ class Cell_Data():
                                     self.correction_folder, _normalization, _corr_bleed,
                                     _corr_Z_shift, _corr_hot_pixel, _corr_illumination, _corr_chromatic,
                                     False, _verbose)
-                        _unique_args.append(_new_arg)
+                        _args.append(_new_arg)
                     # if not uniquely-matched, skip
                     else:
                         print(
@@ -1748,18 +1751,18 @@ class Cell_Data():
 
             ## Multiprocessing for unique_args
             _start_time = time.time()
-            if len(_unique_args) > 0:
+            if len(_args) > 0:
                 # multi-processing to do cropping
                 if _verbose:
                     print(
-                        f"-- start cropping {_type} for fov:{self.fov_id}, cell:{self.cell_id} with {_num_threads} threads")
+                        f"-- start cropping {_data_type} for fov:{self.fov_id}, cell:{self.cell_id} with {_num_threads} threads")
                 with mp.Pool(_num_threads,
                              maxtasksperchild=int(
-                                 np.ceil(len(_unique_args)/_num_threads))+1,
+                                 np.ceil(len(_args)/_num_threads))+1,
                              ) as _crop_pool:
                     # Multi-proessing!
                     _cropped_results = _crop_pool.starmap(
-                        corrections.correct_one_dax, _unique_args, chunksize=1)
+                        corrections.correct_one_dax, _args, chunksize=1)
                     # close multiprocessing
                     _crop_pool.close()
                     _crop_pool.join()
@@ -1768,34 +1771,34 @@ class Cell_Data():
                 killchild()
                 # append (Notice: unique_ids and unique_channels has been appended)
                 for _uims in _cropped_results:
-                    _unique_ims += _uims
-                    #print('image length:', len(_unique_ims), len(_unique_ids), len(_unique_channels))
+                    _ims += _uims
+                    #print('image length:', len(_ims), len(_ids), len(_channels))
             # sort
-            print("-- lengths:", len(_unique_ims), len(_unique_ids), len(_unique_channels))
+            print("-- lengths:", len(_ims), len(_ids), len(_channels))
 
             _tp = [(_id, _im, _ch) for _id, _im, _ch in sorted(
-                zip(_unique_ids, _unique_ims, _unique_channels))]
-            _sorted_unique_ids = [_t[0] for _t in _tp]
-            _sorted_unique_ims = [_t[1] for _t in _tp]
-            _sorted_unique_channels = [_t[2] for _t in _tp]
+                zip(_ids, _ims, _channels))]
+            _sorted_ids = [_t[0] for _t in _tp]
+            _sorted_ims = [_t[1] for _t in _tp]
+            _sorted_channels = [_t[2] for _t in _tp]
             if _verbose:
                 print(f"-- time spent in cropping:{time.time()-_start_time}")
             # save unique_ids and unique_channels anyway
-            self.unique_ids = _sorted_unique_ids
-            self.unique_channels = _sorted_unique_channels
+            self.unique_ids = _sorted_ids
+            self.unique_channels = _sorted_channels
             # dict to update unique_ids in cell_info
-            _id_info_dict={'unique_ids': _sorted_unique_ids,
-                           'unique_channels':_sorted_unique_channels}
+            _id_info_dict={'unique_ids': _sorted_ids,
+                           'unique_channels':_sorted_channels}
             # check if load_in_ram, if true keep images as well
             if _load_in_ram:
-                self.unique_ims = _sorted_unique_ims
+                self.unique_ims = _sorted_ims
             else:
                 _save = True  # not load-in-ram, then save to file
             # save
-            if _save and len(_unique_ids) > 0:
-                _dc = {'unique_ims': _sorted_unique_ims,
-                       'unique_ids': _sorted_unique_ids,
-                       'unique_channels': _sorted_unique_channels}
+            if _save and len(_ids) > 0:
+                _dc = {'unique_ims': _sorted_ims,
+                       'unique_ids': _sorted_ids,
+                       'unique_channels': _sorted_channels}
                 # save to unique
                 self._save_to_file('unique', _save_dic=_dc,
                                    _overwrite=_overwrite, _verbose=_verbose)
@@ -1803,107 +1806,58 @@ class Cell_Data():
                 self._save_to_file('cell_info', _save_dic=_id_info_dict, 
                                    _overwrite=_overwrite_cell_info, _verbose=_verbose)
 
-            return _sorted_unique_ims, _sorted_unique_ids, _sorted_unique_channels
+            return _sorted_ims, _sorted_ids, _sorted_channels
 
 
     # function to give boolean output of whether a centain type of images are fully generated
-    def _check_full_set(self, _type, _unique_marker='u', _decoded_flag='diff', _verbose=False):
+    def _check_full_set(self, _data_type, _decoded_flag='diff', _verbose=False):
         """Function to check whether files for a certain type exists"""
         # check inputs
-        _type = _type.lower()
-        _allowed_types = ['combo', 'unique', 'decoded']
-        if _type not in _allowed_types:
-            raise ValueError(f"Wrong _type kwd, {_type} is given, {_allowed_types} are expected")
+        _data_type = _data_type.lower()
+        _allowed_kwds = {'combo': 'c', 'unique': 'u', 'merfish': 'm', 'rna_unique':'r'}
+        if _data_type not in _allowed_kwds:
+            raise ValueError(
+                f"Wrong type kwd! {_data_type} is given, {_allowed_kwds} expected.")
         # start checking 
-        if _type == 'unique':
-            _unique_savefile = os.path.join(self.save_folder, 'unique_rounds.npz')
-            if not os.path.isfile(_unique_savefile):
+        if _data_type == 'unique' or _data_type == 'rna_unique':
+            # generate attribute names
+            _im_attr = _data_type + '_' + 'ims'
+            _id_attr = _data_type + '_' + 'ids'
+            _channel_attr = _data_type + '_' + 'channels'
+            # generate save_filename:
+            _save_filename = os.path.join(self.save_folder, _data_type+'_'+'rounds.npz')
+            if not os.path.isfile(_save_filename):
                 if _verbose:
                     print("-- unique file does not exist")
                 return False
             else:
-                with np.load(_unique_savefile) as handle:
+                with np.load(_save_filename) as handle:
                     _keys = handle.keys()
                     if 'observation' not in _keys or 'ids' not in _keys or 'channels' not in _keys:
                         if _verbose:
                             print("-- unique file missing key")
                         return False
                     else:
-                        _unique_ids = list(handle['ids'])
+                        _ids = list(handle['ids'])
                 # check unique in color_dic
                 if not hasattr(self, 'color_dic') or not hasattr(self,'channels'):
                     self._load_color_info()
                 for _hyb_fd, _infos in self.color_dic.items():
                     for _info in _infos:
-                        if _unique_marker in _info:
-                            _uid = int(_info.split(_unique_marker)[-1])
-                            if _uid not in _unique_ids:
+                        if _allowed_kwds[_data_type] in _info:
+                            _uid = int(_info.split(_allowed_kwds[_data_type])[-1])
+                            if _uid not in _ids:
                                 return False
             # if everything's right, return true
             return True
-        elif _type == 'combo':
-           # load existing combo files
-            _raw_combo_fl = "rounds.npz"
-            _combo_files = glob.glob(os.path.join(self.save_folder, "group-*", "channel-*", _raw_combo_fl))
-            _combo_ids = []
-            for _combo_file in _combo_files:
-                try:
-                    with np.load(_combo_file, mmap_mode='r+') as handle:
-                        _keys = handle.keys()
-                        if 'observation' not in _keys or 'encoding' not in _keys or 'names' not in _keys:
-                            if _verbose:
-                                print(f"combo file:{_combo_file} missing key")
-                        else:
-                            _matrix = handle['encoding']
-                            _combo_ids += [np.unique(_matrix[:, _col_id])[-1] for _col_id in range(_matrix.shape[1]) \
-                                    if np.unique(_matrix[:, _col_id])[-1] >= 0]
-                except:
-                    if _verbose:
-                        print(f"Cant open combo file:{_combo_file}")
-                    return False
-            _cmobo_ids = np.unique(_combo_ids)
-            # check with encoding scheme
-            _encoding_ids = []
-            if not hasattr(self, 'encoding_scheme'):
-                self._load_encoding_scheme()
-            for _color, _group_dic in self.encoding_scheme.items():
-                for _matrix in _group_dic['matrices']:
-                    _encoding_ids += [np.unique(_matrix[:, _col_id])[-1] for _col_id in range(_matrix.shape[1])
-                                      if np.unique(_matrix[:, _col_id])[-1] >= 0]
-            _encoding_ids = np.unique(_encoding_ids)
-            for _id in _encoding_ids:
-                if _id not in _combo_ids:
-                    return False
-            # if everything's fine return True
-            return True
-        elif _type == 'decoded':
-            if not self._check_full_set('combo'):
-                if _verbose:
-                    print("Combo not complete in this set, so decoded won't be complete")
-                return False
-            # load existing combo files
-            _decoded_ids = []
-            _raw_combo_fl = "rounds.npz"
-            _combo_files = glob.glob(os.path.join(self.save_folder, "group-*", "channel-*", _raw_combo_fl))
-            for _combo_file in _combo_files:
-                _decoded_file = _combo_file.replace(_raw_combo_fl, _decoded_flag+os.sep+'regions.npz')
-                if not os.path.isfile(_decoded_file):
-                    if _verbose:
-                        print(f"decoded file {_decoded_file} is missing")
-                    return False
-                else:
-                    try:
-                        with np.load(_decoded_file, mmap_mode='r+') as handle:
-                            if 'observation' not in handle.keys():
-                                if _verbose:
-                                    print(f"decoded file {_decoded_file} is lacking images")
-                                return False
-                    except:
-                        if _verbose:
-                            print(f"Cant open decoded file {_decoded_file}")
-                        return False
-            # if everything's fine
-            return True
+        if _data_type == 'combo':
+            pass
+        if _data_type == 'decoded':
+            pass
+        else:
+            if _verbose:
+                print("Wrong input data_type!")
+            return False
 
     # saving
     def _save_to_file(self, _type='all', _save_dic={}, _save_folder=None, _overwrite=False, _verbose=True):
