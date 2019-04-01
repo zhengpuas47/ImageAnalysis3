@@ -1203,7 +1203,7 @@ class Cell_List():
                                   _contact_th=200,_make_plot=True, _save_plot=True, 
                                   _save_name='distance_map',_cmap='seismic', _fig_dpi=300, 
                                   _fig_size=4, _gfilt_size=0.75, _plot_limits=[0,2000],
-                                  _release_ram=False, _verbose=True):
+                                  _release_ram=False, _return_all_maps=False, _verbose=True):
         """Calculate 'averaged' map for all cells in this list
         Inputs:
             _data_type: unique or decoded
@@ -1264,11 +1264,13 @@ class Cell_List():
                             print(f"+++ filtered out by dist-map shape, fov:{_cell.fov_id}, cell:{_cell.cell_id}, chrom:{_chrom_id}")
                         continue
                     else:
-                        _cand_distmaps.append(_distmap)
+                        _cand_distmaps.append(_distmap.astype(np.float))
 
         ## calculate averaged map
         # acquire total map
         _total_map = np.array(_cand_distmaps, dtype=np.float)
+        _region_failure = np.sum(np.sum(np.isnan(_total_map),axis=1) >= \
+                                 _total_map.shape[2]-1, axis=0) / len(_total_map)
         # calculate averaged map
         if _stat_type == 'median':
             _averaged_map = np.nanmedian(_total_map, axis=0)
@@ -1336,9 +1338,13 @@ class Cell_List():
                 for _attr in dir(_cell):
                     if _attr[0] != '_' and 'distance_map' in _attr:
                         delattr(_cell, _attr)
-
-        return _averaged_map, len(_cand_distmaps)
-
+        # add to attribute
+        _save_attr = 'population_' + str(_pick_type)
+        # return
+        if _return_all_maps:
+            return _averaged_map, _total_map, _region_failure
+        else:
+            return _averaged_map, _region_failure
 
 class Cell_Data():
     """
@@ -2483,7 +2489,7 @@ class Cell_Data():
             return self.decoded_spots
 
     def _dynamic_picking_spots(self, _type='unique', _use_chrom_coords=True,
-                               _distance_zxy=None, _w_int=1, _w_dist=2,
+                               _distance_zxy=None, _w_int=1, _w_dist=2, _w_center=0, 
                                _dist_ref = None, _penalty_type='trapezoidal', _penalty_factor=5,
                                _save=True, _verbose=True):
         """Given selected spots, do picking by dynamic programming
@@ -2547,7 +2553,9 @@ class Cell_Data():
                 _ch_pts = [chrpts[_chrom_id][:,1:4]*_distance_zxy for chrpts in _cand_spots if len(chrpts[_chrom_id]>0)]
                 _ch_ids = [_id for chrpts,_id in zip(_cand_spots, _ids) if len(chrpts[_chrom_id]>0)]
                 # initialize two stucture:
-                _dy_values = [np.log(chrpts[_chrom_id][:,0])*_w_int for chrpts in _cand_spots if len(chrpts[_chrom_id]>0)] # store maximum values
+                _dy_values = [np.log(chrpts[_chrom_id][:,0])*_w_int \
+                              + np.log( np.linalg.norm((chrpts[_chrom_id][:,1:4] - _coord) *_distance_zxy, axis=1) ) * _w_center\
+                              for chrpts in _cand_spots if len(chrpts[_chrom_id]>0)] # store maximum values
                 _dy_pointers = [-np.ones(len(pt), dtype=np.int) for pt in _ch_pts] # store pointer to previous level
                 
                 # Forward
@@ -2677,7 +2685,7 @@ class Cell_Data():
                     _distance_zxy=_distance_zxy, _local_size=5, _intensity_th=1, 
                     _w_ccdist=1, _w_lcdist=0.1, _w_int=1, _w_nbdist=3,
                     _save_inter_plot=False, _save_to_attr=True, _save_to_info=True,
-                    _check_spots=True, _check_th=0.01,  _return_indices=False,
+                    _check_spots=True, _check_th=-2.5,  _return_indices=False,
                     _overwrite=False, _verbose=True):
         """Function to pick spots from all candidate spots within Cell_Data
         There are three versions allowed for now:
@@ -2848,7 +2856,10 @@ class Cell_Data():
         if _data_type not in _allowed_data_types:
             raise ValueError(f"Wrong input for _data_type:{_data_type}, should be among {_allowed_data_types}")
         # extract attribute names
-        _key_attr = str(_pick_type) + '_picked_' + str(_data_type) + '_spots'
+        if _pick_type != '':
+            _key_attr = str(_pick_type) + '_picked_' + str(_data_type) + '_spots'
+        else:
+            _key_attr = 'picked_' + str(_data_type) + '_spots'
         _save_attr = str(_pick_type) + '_' + str(_data_type) + '_' + 'distance_map'
         # check loading of necessary
         if not hasattr(self, _key_attr):

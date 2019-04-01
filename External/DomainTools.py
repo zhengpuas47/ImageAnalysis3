@@ -204,7 +204,7 @@ def plot_dom(zxy,dom_starts,starters=None):
     plt.imshow(mat,cmap='seismic_r',vmax=1000)
     plt.colorbar()
     #plt.show()
-def standard_domain_calling_old(zxy,gaussian=None,su=7,sl=4,valley=4,cutoff_max=1):
+def standard_domain_calling_old(zxy,gaussian=None,su=7,sl=4,valley=4,dom_sz=5,cutoff_max=1):
     zxy_ = np.array(zxy)
     if gaussian is not None:
         zxy_ = interpolate_chr(zxy_,gaussian=gaussian)
@@ -218,23 +218,29 @@ def standard_domain_calling_old(zxy,gaussian=None,su=7,sl=4,valley=4,cutoff_max=
     
     return dom_starts
     
-def standard_domain_calling_new(zxy,gaussian=None,dom_sz=5):
+
+def standard_domain_calling_new(zxy, gaussian=None, dom_sz=5, cutoff_max=1.):
     zxy_ = np.array(zxy)
     if gaussian is not None:
         zxy_ = interpolate_chr(zxy_,gaussian=gaussian)
+
     dists = []
     for i in range(len(zxy_)):
-        cm1= np.nanmean(zxy_[max(i-dom_sz,0):i],axis=0)
-        cm2= np.nanmean(zxy_[i:i+dom_sz],axis=0)
-        dist = np.linalg.norm(cm1-cm2)
-        dists.append(dist)
+        if i >= dom_sz and i < len(zxy_)-dom_sz:
+            cm1 = np.nanmean(zxy_[max(i-dom_sz, 0):i], axis=0)
+            cm2 = np.nanmean(zxy_[i:i+dom_sz], axis=0)
+            dist = np.linalg.norm(cm1-cm2)
+            dists.append(dist)
+        else:
+            dists.append(0)
     
     bds_candidates = get_ind_loc_max(dists,cutoff_max=0,valley=dom_sz)
     
     mat = squareform(pdist(zxy))
     
     dom_starts= [0]+[dm for dm in bds_candidates if dm>dom_sz and dm<len(zxy_)-dom_sz]
-    dom_starts,seps = fuse_doms(mat,dom_starts,tag='median',cut_off=1.)
+    dom_starts, seps = fuse_doms(
+        mat, dom_starts, tag='median', cut_off=cutoff_max)
     
     return dom_starts
 def nan_gaussian_filter(mat,sigma,keep_nan=False):
@@ -265,12 +271,7 @@ def chromosome_segment_RG(_chr, _group):
     """Calculate radius of gyration given chr coordinates and selected segment group"""
     _segment = _chr[_group]
     return np.nanmean(np.nanvar(_segment, 0))
-def interpolate_chr(_chr):
-    """linear interpolate chromosome coordinates"""
-    _new_chr = np.array(_chr)
-    for i in range(_new_chr.shape[-1]):
-        _new_chr[:,i]=interp1dnan(_new_chr[:,i])
-    return _new_chr
+
 def best_combine_step(_chr, _groups):
     """Find the combination to minimize radius of gyration in the combination"""
     _combined_groups = [_groups[_i]+_groups[_i+1] for _i in range(len(_groups)-1)]
