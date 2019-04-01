@@ -79,7 +79,7 @@ def _pick_spot_in_batch(_cell, _pick_type='EM', _data_type='unique', _use_chrom_
                         _distance_zxy=_distance_zxy, _local_size=5, _intensity_th=1,
                         _w_ccdist=1, _w_lcdist=1, _w_int=4, _w_nbdist=1,
                         _save_inter_plot=False, _save_to_info=True, _save_plot=True, 
-                        _check_spots=True, _check_th=-2.5, _check_percentile=1.,
+                        _check_spots=True, _check_th=-3, _check_percentile=1.,
                         _ignore_nan=True, _plot_limits=[0, 2000], 
                         _cmap='seismic_r', _fig_dpi=300, _fig_size=4,
                         _overwrite=False, _verbose=True):
@@ -1138,7 +1138,7 @@ class Cell_List():
                               _distance_zxy=_distance_zxy, _local_size=5, _intensity_th=1,
                               _w_ccdist=1, _w_lcdist=0.1, _w_int=1, _w_nbdist=3,
                               _save_inter_plot=False, _save_to_info=True, _save_plot=True,
-                              _check_spots=True, _check_th=-2.5, _check_percentile=1., 
+                              _check_spots=True, _check_th=-3, _check_percentile=1., 
                               _ignore_nan=True, _plot_limits=[0, 2000],
                               _cmap='seismic_r', _fig_dpi=300, _fig_size=4,
                               _release_ram=False, _overwrite=False, _verbose=True):
@@ -2681,7 +2681,7 @@ class Cell_Data():
                     _distance_zxy=_distance_zxy, _local_size=5, _intensity_th=1, 
                     _w_ccdist=1, _w_lcdist=0.1, _w_int=1, _w_nbdist=3,
                     _save_inter_plot=False, _save_to_attr=True, _save_to_info=True,
-                    _check_spots=True, _check_th=-2.5, _check_percentile=1.,
+                    _check_spots=True, _check_th=-3., _check_percentile=1.,
                     _ignore_nan=True,
                     _return_indices=False, _overwrite=False, _verbose=True):
         """Function to pick spots from all candidate spots within Cell_Data
@@ -2702,7 +2702,7 @@ class Cell_Data():
             _save_to_attr: whether save picked spots into attributes, bool (default: True)
             _save_to_info: whether save picked spots into cell_info, bool (default: True)
             _check_spots: whether do statistical check for spots, bool (default: True)
-            _check_th: threshold of spot_checking, float (default: -2.5)
+            _check_th: threshold of spot_checking, float (default: -3)
             _check_percentile: another percentile threshold that may apply to data, float (default: 1.)
             _ignore_nan: whether ignore nan spots, bool (default:True)
             _return_indices: whether return indices for selected spots, bool (default: False)

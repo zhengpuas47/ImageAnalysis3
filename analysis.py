@@ -1894,7 +1894,7 @@ def EM_pick_spots(chrom_cand_spots, unique_ids, _chrom_coord=None,
                   num_iters=np.inf, terminate_th=0.004, intensity_th=1,
                   distance_zxy=_distance_zxy, local_size=5, spot_num_th=200,
                   w_ccdist=1, w_lcdist=0.1, w_int=1, w_nbdist=3,
-                  check_spots=True, check_th=-2.5, check_percentile=1., 
+                  check_spots=True, check_th=-3., check_percentile=1., 
                   ignore_nan=True, make_plot=False, 
                   save_plot=False, save_path=None, save_filename='',
                   return_indices=False, return_scores=False, 
@@ -1930,7 +1930,7 @@ def EM_pick_spots(chrom_cand_spots, unique_ids, _chrom_coord=None,
         w_nbdist:  weight for distance_to_neighbor_region, float (default: 1)
         check_spots: whether apply stringency check for selected spots, bool (default: True)
         check_th: the relative threshold for stringency check, 
-            * which will multiply the sum of all weights to estimate threshold, bool (default: -2.5)
+            * which will multiply the sum of all weights to estimate threshold, bool (default: -3)
         check_percentile: another percentile threshold that may apply to data, float (default: 1.)
         make_plot: make plot for each iteration, bool (default: False)
         return_indices: whether return indices for picked spots, bool (default: False)
