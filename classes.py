@@ -79,7 +79,8 @@ def _pick_spot_in_batch(_cell, _pick_type='EM', _data_type='unique', _use_chrom_
                         _distance_zxy=_distance_zxy, _local_size=5, _intensity_th=1,
                         _w_ccdist=1, _w_lcdist=1, _w_int=4, _w_nbdist=1,
                         _save_inter_plot=False, _save_to_info=True, _save_plot=True, 
-                        _check_spots=True, _check_th=0.01, _plot_limits=[0, 2000], 
+                        _check_spots=True, _check_th=-2.5, _check_percentile=1.,
+                        _plot_limits=[0, 2000], 
                         _cmap='seismic_r', _fig_dpi=300, _fig_size=4,
                         _overwrite=False, _verbose=True):
     """_cell: Cell_Data class"""
@@ -90,7 +91,8 @@ def _pick_spot_in_batch(_cell, _pick_type='EM', _data_type='unique', _use_chrom_
                                       _w_ccdist=_w_ccdist, _w_lcdist=_w_lcdist,
                                       _w_int=_w_int, _w_nbdist=_w_nbdist, _save_inter_plot=_save_inter_plot,
                                       _save_to_attr=True, _save_to_info=_save_to_info,
-                                      _check_spots=_check_spots, _check_th=_check_th, _return_indices=False,
+                                      _check_spots=_check_spots, _check_th=_check_th, 
+                                      _check_percentile=_check_percentile, _return_indices=False,
                                       _overwrite=_overwrite, _verbose=_verbose)
     
     _distmaps = _cell._generate_distance_map(_data_type=_data_type, _pick_type=_pick_type, 
@@ -2685,8 +2687,8 @@ class Cell_Data():
                     _distance_zxy=_distance_zxy, _local_size=5, _intensity_th=1, 
                     _w_ccdist=1, _w_lcdist=0.1, _w_int=1, _w_nbdist=3,
                     _save_inter_plot=False, _save_to_attr=True, _save_to_info=True,
-                    _check_spots=True, _check_th=-2.5,  _return_indices=False,
-                    _overwrite=False, _verbose=True):
+                    _check_spots=True, _check_th=-2.5, _chech_percentile=1.,
+                    _return_indices=False, _overwrite=False, _verbose=True):
         """Function to pick spots from all candidate spots within Cell_Data
         There are three versions allowed for now:
             - naive: pick spots solely based on intensity
@@ -2807,6 +2809,7 @@ class Cell_Data():
                                            intensity_th=_intensity_th,
                                            distance_zxy=_distance_zxy, local_size=_local_size,
                                            w_ccdist=_w_ccdist, w_lcdist=_w_lcdist, w_int=_w_int, w_nbdist=_w_nbdist,
+                                           check_spots=_check_spots, check_th=_check_th, check_percentile=_chech_percentile, 
                                            make_plot=_save_inter_plot, save_plot=_save_inter_plot,
                                            save_path=self.save_folder, save_filename='chr_'+str(_i),
                                            return_indices=True, return_scores=True,
