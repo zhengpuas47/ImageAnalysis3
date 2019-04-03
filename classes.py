@@ -699,7 +699,7 @@ class Cell_List():
         return _cell
 
     def _create_cells_fov(self, _fov_ids, _num_threads=None, _sequential_mode=False, _plot_segmentation=True, 
-                          _load_exist_info=True, _exclude_attrs=[],
+                          _load_segmentation=True, _load_exist_info=True, _exclude_attrs=[],
                           _color_filename='Color_Usage', _load_annotated_only=True,
                           _drift_size=500, _drift_ref=0, _drift_postfix='_current_cor.pkl', _coord_sel=None,
                           _dynamic=True, _save=False, _force_drift=False, _stringent=True, _verbose=True):
@@ -800,13 +800,13 @@ class Cell_List():
             if not _direct_load_drift:
                 for _p in _params:
                     _p['drift'] = _drift
-            _args += [(_p, True, _color_filename, True, 
+            _args += [(_p, True, _color_filename, _load_segmentation,
                        _direct_load_drift, _drift_size, _drift_ref, 
                        _drift_postfix, _dynamic, _load_exist_info, 
                        _exclude_attrs, _save, 
                        False, _verbose) for _p in _params]
             del(_fov_segmentation_label, _params, _cell_ids)
-        
+
         ## do multi-processing to create cells!
         if _verbose:
             print(f"+ Creating {len(_args)} cells with {_num_threads} threads.")
@@ -2161,7 +2161,6 @@ class Cell_Data():
                             setattr(self, _key, _value)
             else:
                 print(f"No cell-info file found for fov:{self.fov_id}, cell:{self.cell_id}, skip!")
-
 
         ## load unique
         if _data_type == 'all' or _data_type == 'unique' or _data_type == 'rna-unique':
