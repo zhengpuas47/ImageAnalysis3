@@ -1786,8 +1786,9 @@ def generate_spot_score_pool(all_spots, distance_zxy=_distance_zxy,
         _zxy = all_spots[:,1:4] * np.array(distance_zxy)[np.newaxis,:]
         _intensities = all_spots[:,0]
     elif isinstance(all_spots[0], np.ndarray) or len(all_spots[0].shape)==1:
-        _zxy =  np.array(all_spots)[:,1:4] * np.array(distance_zxy)[np.newaxis,:]
-        _intensities = np.array(all_spots)[:,0]
+        _spots = np.concatenate(all_spots)
+        _zxy =  _spots[:,1:4] * np.array(distance_zxy)[np.newaxis,:]
+        _intensities = _spots[:, 0]
     elif  isinstance(all_spots[0], list) or len(all_spots[0].shape)==2:
         _spots = np.concatenate([np.array(_pts) for _pts in all_spots], axis=0)
         _zxy =  np.array(_spots)[:,1:4] * np.array(distance_zxy)[np.newaxis,:]
@@ -1891,7 +1892,7 @@ def dynamic_pick_spots(chrom_cand_spots, unique_ids, cand_spot_scores, nb_dists,
 
 # Pick spots by EM algorithm
 def EM_pick_spots(chrom_cand_spots, unique_ids, _chrom_coord=None,
-                  num_iters=np.inf, terminate_th=0.004, intensity_th=1,
+                  num_iters=np.inf, terminate_th=0.002, intensity_th=1,
                   distance_zxy=_distance_zxy, local_size=5, spot_num_th=200,
                   w_ccdist=1, w_lcdist=0.1, w_int=1, w_nbdist=3,
                   check_spots=True, check_th=-3., check_percentile=1., 

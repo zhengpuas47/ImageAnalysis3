@@ -105,6 +105,25 @@ def _pick_spot_in_batch(_cell, _pick_type='EM', _data_type='unique', _use_chrom_
     return _cell
 
 
+def _load_cell_in_batch(_cell, _data_type='all', _save_folder=None,
+                        _decoded_flag=None, _distmap_data='unique', _distmap_pick='EM',
+                        _load_attrs=[], _overwrite=False, _verbose=True):
+    """Function to allow batch loading"""                   
+    _cell._load_from_file(_data_type=_data_type, _save_folder=_save_folder, 
+                          _decoded_flag=_decoded_flag, 
+                          _distmap_data=_distmap_data, _distmap_pick=_distmap_data,  
+                          _load_attrs=_load_attrs, _overwrite=_overwrite, _verbose=_verbose)
+
+def _save_cell_in_batch(_cell, _data_type='cell_info', _save_dic={}, _save_folder=None, 
+                      _unsaved_attrs=None, _clear_old_attrs=False, 
+                      _overwrite=False, _verbose=True):
+    """Function to allow batch saving"""
+    _cell._save_to_file(_data_type=_data_type, _save_dic=_save_dic, _save_folder=_save_folder, 
+                        _unsaved_attrs=_unsaved_attrs, _clear_old_attrs=_clear_old_attrs, 
+                        _overwrite=_overwrite, _verbose=_verbose)
+
+
+
 class Cell_List():
     """
     Class Cell_List:
@@ -112,7 +131,8 @@ class Cell_List():
 
     """
     # initialize
-    def __init__(self, parameters, _chosen_fovs=[], _exclude_fovs=[], _load_all_attr=False):
+    def __init__(self, parameters, _chosen_fovs=[], _exclude_fovs=[], 
+                 _load_all_attr=False, _load_reference_info=True):
         if not isinstance(parameters, dict):
             raise TypeError('wrong input type of parameters, should be a dictionary containing essential info.')
 
@@ -128,6 +148,13 @@ class Cell_List():
             _hyb_fds, _fovs = get_img_info.get_folders(_fd, feature='H', verbose=True)
             self.folders += _hyb_fds
             self.fovs = _fovs
+        
+        ## experiment_type, default is DNA
+        if 'experiment_type' in parameters:
+            setattr(self, 'experiment_type', parameters['experiment_type'])
+        else:
+            setattr(self, 'experiment_type', 'DNA')
+
         # experiment_folder
         if 'experiment_folder'  in parameters:
             self.experiment_folder = parameters['experiment_folder']
@@ -192,7 +219,15 @@ class Cell_List():
         self.fov_ids = _chosen_fovs
         self.chosen_fovs = list(np.array(self.fovs)[np.array(self.fov_ids, dtype=np.int)])
         # read color-usage and encodding-scheme
-        self._load_color_info()
+        if not hasattr(self, 'color_dic') or not hasattr(self, 'channels'):
+            self._load_color_info()
+        # load extra info for DNA / RNA 
+        if _load_reference_info:
+            if getattr(self, 'experiment_type') == 'RNA' and not hasattr(self, 'rna-info_dic'):
+                self._load_rna_info()
+            elif getattr(self, 'experiment_type') == 'DNA' and not hasattr(self, 'region_dic'):
+                self._load_genomic_regions()        
+
         # get annotated folders by color usage
         self.annotated_folders = []
         for _hyb_fd, _info in self.color_dic.items():
@@ -241,6 +276,21 @@ class Cell_List():
         self.dapi_channel_index = _dapi_channel
 
         return _color_dic
+
+    ## load RNA
+    def _load_rna_info(self, _filename='RNA_Info', _table_format='csv'):
+        """Load RNA information"""
+        _rna_dic = get_img_info.Load_RNA_Info(self.analysis_folder, filename=_filename,
+                                              table_format=_table_format)
+        setattr(self, 'rna-info_dic', _rna_dic)
+        return _rna_dic
+    ## load genomic regions
+    def _load_genomic_regions(self, _filename='Region_Positions', _table_format='csv', _verbose=True):
+        """Function to load Genomic Positions etc."""
+        _region_dic = get_img_info.Load_Region_Positions(self.analysis_folder, filename=_filename,
+                                                      table_format=_table_format, verbose=_verbose)
+        setattr(self, 'region_dic', _region_dic)
+        return _region_dic
 
     def _load_encoding_scheme(self, _encoding_filename='Encoding_Scheme', _encoding_format='csv', _save_encoding_scheme=True):
         _encoding_scheme, self.hyb_per_group, self.reg_per_group, \
@@ -624,7 +674,7 @@ class Cell_List():
         """Function to create one cell_data object"""
         if _verbose:
             print(f"+ creating cell for fov:{_parameter['fov_id']}, cell:{_parameter['cell_id']}")
-        _cell = Cell_Data(_parameter, _load_all_attr=True)
+        _cell = Cell_Data(_parameter, _load_all_attr=True, _load_reference_info=False)
         if _load_info:
             if not hasattr(_cell, 'color_dic') or not hasattr(_cell, 'channels'):
                 _cell._load_color_info(_color_filename=_color_filename)
@@ -776,15 +826,15 @@ class Cell_List():
             if _save:
                 _cell._save_to_file('cell_info', _verbose=_verbose)
 
-
-    def _crop_image_for_cells(self, _type='all', _load_in_ram=False, _load_annotated_only=True,
+    # function to do cropping
+    def _crop_image_for_cells(self, _data_type='unique', _load_in_ram=False, _load_annotated_only=True,
                               _extend_dim=20, _corr_drift=True, _normalization=False,
                               _corr_bleed=True, _corr_Z_shift=True, 
                               _corr_hot_pixel=True, _corr_illumination=True, _corr_chromatic=True,
                               _save=True, _force=False, _overwrite_cell_info=False, _verbose=True):
         """Load images for all cells in this cell_list
         Inputs:
-            _type: loading type for this """
+            _data_type: loading type for this """
         ## check inputs
         # check whether cells and segmentation,drift info exists
         if _verbose:
@@ -794,10 +844,10 @@ class Cell_List():
         if len(self.cells) == 0:
             print("cell_list is empty, exit.")
         # check type
-        _type = _type.lower()
-        _allowed_types = ['all', 'combo', 'unique', 'merfish']
-        if _type not in _allowed_types:
-            raise ValueError(f"Wrong _type kwd, {_type} is given, {_allowed_types} are expected")
+        _data_type = _data_type.lower()
+        _allowed_data_types = ['combo', 'unique', 'rna-unique', 'merfish']
+        if _data_type not in _allowed_data_types:
+            raise ValueError(f"Wrong _data_type kwd, {_data_type} is given, {_allowed_data_types} are expected")
         # whether load annotated hybs only
         if _load_annotated_only:
             _folders = self.annotated_folders
@@ -811,20 +861,20 @@ class Cell_List():
             if _cell.fov_id not in _used_fov_ids:
                 _used_fov_ids.append(_cell.fov_id)
         ## combo
-        if _type == 'all' or _type == 'combo':
+        if _data_type == 'combo':
             pass
         ## unique
-        if _type == 'all' or _type == 'unique':
+        elif _data_type == 'unique' or _data_type == 'rna-unique':
             if _verbose:
                 print(f"+ generating unique images for field-of-view:{_used_fov_ids}")
             for _fov_id in _used_fov_ids:
                 _fov_cells = [_cell for _cell in self.cells if _cell.fov_id==_fov_id]
                 for _cell in _fov_cells:
                     # if not all unique exists for this cell:
-                    if not _cell._check_full_set('unique') or _force:
+                    if not _cell._check_full_set(_data_type) or _force:
                         if _verbose:
                             print(f"+ Crop unique images for fov:{_cell.fov_id}, cell:{_cell.cell_id}")
-                        _cell._crop_images('unique', _num_threads=self.num_threads, _single_im_size=_image_size,
+                        _cell._crop_images(_data_type, _num_threads=self.num_threads, _single_im_size=_image_size,
                                            _corr_drift=_corr_drift, _normalization=_normalization, _corr_bleed=_corr_bleed,
                                            _corr_Z_shift=_corr_Z_shift, _corr_hot_pixel=_corr_hot_pixel,
                                            _corr_illumination=_corr_illumination, _corr_chromatic=_corr_chromatic,
@@ -835,11 +885,12 @@ class Cell_List():
                         if _verbose:
                             print(f"+ unique info exists for fov:{_cell.fov_id}, cell:{_cell.cell_id}, skip")
         ## merfish
-        if _type == 'all' or _type == 'merfish':
+        elif _data_type == 'merfish':
             pass 
 
     # load processed cell info/unique/decoded/merfish from files
-    def _load_cells_from_files(self, _type='all', _decoded_flag=None, _overwrite_cells=False, _verbose=True):
+    def _load_cells_from_files(self, _data_type='unique', _decoded_flag=None, 
+                               _distmap_pick=None, _distmap_data=None,  _overwrite_cells=False, _verbose=True):
         """Function to load cells from existing files"""
         if _verbose:
             print("+ Load cells from existing files.")
@@ -849,12 +900,10 @@ class Cell_List():
         for _cell in self.cells:
             if _verbose:
                 print(f"++ loading info for fov:{_cell.fov_id}, cell:{_cell.cell_id}")
-            if _type == 'decoded':
-                _cell._load_from_file(_type=_type, _save_folder=None, _load_attrs=[], _decoded_flag=_decoded_flag,
-                                        _overwrite=_overwrite_cells, _verbose=_verbose)
-            else:
-                _cell._load_from_file(_type=_type, _save_folder=None, _load_attrs=[],
-                                        _overwrite=_overwrite_cells, _verbose=_verbose)
+            # call loading function for each cell
+            _cell._load_from_file(_data_type=_data_type, _save_folder=None, _load_attrs=[], _decoded_flag=_decoded_flag,
+                                  _distmap_pick=_distmap_pick, _distmap_data=_distmap_data,
+                                  _overwrite=_overwrite_cells, _verbose=_verbose)
 
     # generate chromosome coordinates
     def _get_chromosomes_for_cells(self, _source='unique', _max_count= 90,
@@ -1039,6 +1088,7 @@ class Cell_List():
                 else:
                     _cell._save_to_file('cell_info',_save_dic={'chrom_coords':_coords}, _verbose=_verbose)
 
+    # multi-gaussian fitting
     def _spot_finding_for_cells(self, _data_type='unique', _decoded_flag='diff', _max_fitting_threads=12, 
                                 _clear_image=False, _normalization=True, 
                                 _use_chrom_coords=True, _seed_th_per=50, _max_filt_size=3,
@@ -1049,39 +1099,30 @@ class Cell_List():
         ## Check attributes
         for _cell_id, _cell in enumerate(self.cells):
             _clear_image_for_cell = _clear_image # whether clear image for this cell
-            if _data_type == 'unique':
-                _result_attr='unique_spots'
-                if not hasattr(_cell, 'unique_ims') or not hasattr(_cell, 'unique_ids'):
-                    _clear_image_for_cell = True
-                    try:
-                        _cell._load_from_file('unique')
-                    except:
-                        raise IOError("Cannot load unique files")
-            elif _data_type == 'decoded':
-                _result_attr='decoded_spots'
-                if not hasattr(_cell, 'decoded_ims') or not hasattr(_cell, 'decoded_ids'):
-                    _clear_image_for_cell = True
-                    try:
-                        _cell._load_from_file('decoded',_decoded_flag=_decoded_flag)
-                    except:
-                        raise IOError("Cannot load decoded files")
-            else:
-                raise ValueError("Wrong _data_type keyword given!")
+            _im_attr = _data_type + '_' + 'ims'
+            _id_attr = _data_type + '_' + 'ids'
+            _result_attr = _data_type + '_' + 'spots'
+            if not hasattr(self, _im_attr) or not hasattr(self, _id_attr):
+                _clear_image_for_cell = True
+                try:
+                    _cell._load_from_file(_data_type, _verbose=_verbose)
+                except:
+                    raise IOError(f"Cannot load {_data_type} files")
+
             # do multi_fitting
-            _cell._multi_fitting_for_chromosome(_type=_data_type, _decoded_flag=_decoded_flag, _normalization=_normalization,
-                                 _use_chrom_coords=_use_chrom_coords, _num_threads=max(_max_fitting_threads, self.num_threads),
-                                 _seed_th_per=_seed_th_per, _max_filt_size=_max_filt_size, _max_seed_count=_max_seed_count,
-                                 _min_seed_count=_min_seed_count, _width_zxy=self.sigma_zxy, _fit_radius=5,
-                                 _fit_window=_fit_window, _expect_weight=_expect_weight, 
-                                 _min_height=_min_height, _max_iter=_max_iter,
-                                 _save=_save, _verbose=_verbose)
+            _cell._multi_fitting_for_chromosome(_data_type=_data_type, _decoded_flag=_decoded_flag, 
+                                                _normalization=_normalization, _use_chrom_coords=_use_chrom_coords,
+                                                _num_threads=max(_max_fitting_threads, self.num_threads),
+                                                _seed_th_per=_seed_th_per, _max_filt_size=_max_filt_size, 
+                                                _max_seed_count=_max_seed_count, _min_seed_count=_min_seed_count, 
+                                                _width_zxy=self.sigma_zxy, _fit_radius=5,
+                                                _fit_window=_fit_window, _expect_weight=_expect_weight, 
+                                                _min_height=_min_height, _max_iter=_max_iter,
+                                                _save=_save, _verbose=_verbose)
             if _clear_image_for_cell:
                 if _verbose:
                     print(f"++ clear images for {_data_type} in fov:{_cell.fov_id}, cell:{_cell.cell_id}")
-                if _data_type == 'unique':
-                    delattr(_cell, 'unique_ims')
-                elif _data_type == 'decoded':
-                    delattr(_cell, 'decoded_ims')
+                delattr(_cell, _im_attr)
 
     def _old_pick_spots_for_cells(self, _data_type='unique', _decoded_flag='diff', _pick_type='dynamic', _use_chrom_coords=True, _distance_zxy=None,
                               _w_dist=2, _dist_ref=None, _penalty_type='trapezoidal', _penalty_factor=5,
@@ -1238,7 +1279,7 @@ class Cell_List():
                         _distmap_shape.append(np.shape(_distmap)[0])
             else:
                 # try to load distmap
-                _cell._load_from_file('cell_info', _load_attrs=[_distmap_attr])
+                _cell._load_from_file('distance_map', _distmap_data=_data_type, _distmap_pick=_pick_type, _verbose=False)
                 if hasattr(_cell, _distmap_attr):
                     for _distmap in getattr(_cell, _distmap_attr):
                         if np.shape(_distmap)[0] not in _distmap_shape:
@@ -1335,7 +1376,8 @@ class Cell_List():
                 if not os.path.exists(self.map_folder):
                     os.makedirs(self.map_folder)
                 plt.savefig(_filename, transparent=True)
-            plt.show()
+            if __name__=='__main__':
+                plt.show()
 
         # release ram if specified
         if _release_ram:
@@ -1358,7 +1400,8 @@ class Cell_Data():
     initialization of cell_data requires:
     """
     # initialize
-    def __init__(self, parameters, _load_all_attr=False, _color_filename='Color_Usage'):
+    def __init__(self, parameters, _load_all_attr=False, _color_filename='Color_Usage',
+                 _load_reference_info=False):
         if not isinstance(parameters, dict):
             raise TypeError('wrong input type of parameters, should be a dictionary containing essential info.')
         # necessary parameters
@@ -1367,6 +1410,11 @@ class Cell_Data():
             self.data_folder = [str(_fd) for _fd in parameters['data_folder']]
         else:
             self.data_folder = [str(parameters['data_folder'])]
+        # experiment_type, default is DNA
+        if 'experiment_type' in parameters:
+            setattr(self, 'experiment_type', parameters['experiment_type'])
+        else:
+            setattr(self, 'experiment_type', 'DNA')
         # analysis folder
         if 'analysis_folder'  in parameters:
             self.analysis_folder = str(parameters['analysis_folder'])
@@ -1435,6 +1483,11 @@ class Cell_Data():
         # load color info
         if not hasattr(self, 'color_dic') or not hasattr(self, 'channels'):
             self._load_color_info(_color_filename=_color_filename)
+        if _load_reference_info:
+            if getattr(self, 'experiment_type') == 'RNA' and not hasattr(self, 'rna-info_dic'):
+                self._load_rna_info()
+            elif getattr(self, 'experiment_type') == 'DNA' and not hasattr(self, 'region_dic'):
+                self._load_genomic_regions()
         # annotated folders
         if not hasattr(self, 'annotated_folders'):
             self.annotated_folders = []
@@ -1482,6 +1535,23 @@ class Cell_Data():
         self.dapi_channel_index = _dapi_channel
 
         return _color_dic
+
+    ## load RNA info
+    def _load_rna_info(self, _filename='RNA_Info', _table_format='csv', _verbose=True):
+        """Load RNA information"""
+        _rna_dic = get_img_info.Load_RNA_Info(self.analysis_folder, filename=_filename,
+                                              table_format=_table_format, verbose=_verbose)
+        setattr(self, 'rna-info_dic', _rna_dic)
+        return _rna_dic
+    
+    ## load genomic regions
+    def _load_genomic_regions(self, _filename='Region_Positions', _table_format='csv', _verbose=True):
+        """Function to load Genomic Positions etc."""
+        _region_dic = get_img_info.Load_Region_Positions(self.analysis_folder, filename=_filename,
+                                                      table_format=_table_format, verbose=_verbose)
+        setattr(self, 'region_dic', _region_dic)
+        return _region_dic
+
     ## Load encoding scheme
     def _load_encoding_scheme(self, _encoding_filename='Encoding_Scheme', _encoding_format='csv', _save_encoding_scheme=True):
         _encoding_scheme, self.hyb_per_group, self.reg_per_group, \
@@ -1654,7 +1724,7 @@ class Cell_Data():
             self._load_drift()
         # check type
         _data_type = _data_type.lower()
-        _allowed_kwds = {'combo': 'c', 'unique': 'u', 'merfish': 'm', 'rna_unique':'r'}
+        _allowed_kwds = {'combo': 'c', 'unique': 'u', 'merfish': 'm', 'rna-unique':'r'}
         if _data_type not in _allowed_kwds:
             raise ValueError(
                 f"Wrong type kwd! {_data_type} is given, {_allowed_kwds} expected.")
@@ -1669,7 +1739,7 @@ class Cell_Data():
             print(f"- Start cropping {_data_type} image")
         _fov_name = self.fovs[self.fov_id]  # name of this field-of-view
         ### unique
-        if _data_type == 'unique' or _data_type =='rna_unique':
+        if _data_type == 'unique' or _data_type =='rna-unique':
             # case 1: unique info already loaded in ram
             if hasattr(self, _im_attr) and hasattr(self, _id_attr) and hasattr(self, _channel_attr) \
                 and len(getattr(self, _im_attr)) == len(getattr(self, _id_attr)) \
@@ -1750,7 +1820,7 @@ class Cell_Data():
                 # skip the following if already existed & not overwrite
                 else:
                     if _verbose:
-                        print( f"- all channels in hyb:{_ref_name} already exists in unique_ims, skip!")
+                        print( f"- all channels in hyb:{_ref_name} already exists in {_im_attr}, skip!")
 
             ## Multiprocessing for unique_args
             _start_time = time.time()
@@ -1787,23 +1857,23 @@ class Cell_Data():
             if _verbose:
                 print(f"-- time spent in cropping:{time.time()-_start_time}")
             # save unique_ids and unique_channels anyway
-            self.unique_ids = _sorted_ids
-            self.unique_channels = _sorted_channels
+            setattr(self, _id_attr, _sorted_ids)
+            setattr(self, _channel_attr, _sorted_channels)
             # dict to update unique_ids in cell_info
             _id_info_dict={'unique_ids': _sorted_ids,
                            'unique_channels':_sorted_channels}
             # check if load_in_ram, if true keep images as well
             if _load_in_ram:
-                self.unique_ims = _sorted_ims
+                setattr(self, _im_attr, _sorted_ims)
             else:
                 _save = True  # not load-in-ram, then save to file
             # save
-            if _save and len(_ids) > 0:
-                _dc = {'unique_ims': _sorted_ims,
-                       'unique_ids': _sorted_ids,
-                       'unique_channels': _sorted_channels}
+            if _save and len(_ids) > 0 and len(_args) > 0:
+                _dc = {_im_attr: _sorted_ims,
+                       _id_attr: _sorted_ids,
+                       _channel_attr: _sorted_channels}
                 # save to unique
-                self._save_to_file('unique', _save_dic=_dc,
+                self._save_to_file(_data_type, _save_dic=_dc,
                                    _overwrite=_overwrite, _verbose=_verbose)
                 # update cell_list
                 self._save_to_file('cell_info', _save_dic=_id_info_dict, 
@@ -1816,18 +1886,17 @@ class Cell_Data():
         elif _data_type == 'decoded':
             pass
 
-
     # function to give boolean output of whether a centain type of images are fully generated
     def _check_full_set(self, _data_type, _decoded_flag='diff', _verbose=False):
         """Function to check whether files for a certain type exists"""
         # check inputs
         _data_type = _data_type.lower()
-        _allowed_kwds = {'combo': 'c', 'unique': 'u', 'merfish': 'm', 'rna_unique':'r'}
+        _allowed_kwds = {'combo': 'c', 'unique': 'u', 'merfish': 'm', 'rna-unique':'r'}
         if _data_type not in _allowed_kwds:
             raise ValueError(
                 f"Wrong type kwd! {_data_type} is given, {_allowed_kwds} expected.")
         # start checking 
-        if _data_type == 'unique' or _data_type == 'rna_unique':
+        if _data_type == 'unique' or _data_type == 'rna-unique':
             # generate attribute names
             _im_attr = _data_type + '_' + 'ims'
             _id_attr = _data_type + '_' + 'ids'
@@ -1926,7 +1995,7 @@ class Cell_Data():
                 pickle.dump(_file_dic, output_handle)
 
         # save unique
-        if _data_type == 'all' or _data_type == 'unique' or _data_type == 'rna_unique':
+        if _data_type == 'all' or _data_type == 'unique' or _data_type == 'rna-unique':
             # generate attribute names
             _im_attr = _data_type + '_' + 'ims'
             _id_attr = _data_type + '_' + 'ids'
@@ -2012,37 +2081,67 @@ class Cell_Data():
                 np.savez_compressed(_combo_savefile, **_combo_dic)
         
         if _data_type == 'distance_map':
+            _start_time = time.time()
             # get save_file:
             _save_filename = os.path.join(self.save_folder, 'distance_maps.npz')
+            _loaded_dic = {}
+            # load saved distmaps if necessary
+            if os.path.isfile(_save_filename) and not _clear_old_attrs:
+                with np.load(_save_filename) as handle:
+                    for _key in handle.iterkeys():
+                        _loaded_dic[_key] = handle[_key]
             # get dict for attrs in RAM
-            _distance_map_attrs = [_attr for _attr in dir(self) if not _attr.startswith('_') and 'distance_map' in _attr]
-            _start_time = time.time()
+            _distance_map_dic = {_attr:getattr(self, _attr) for _attr in dir(self) if not _attr.startswith('_') and 'distance_map' in _attr}
+            
             if _verbose:
-                print(f"-- saving {_data_type} to file: {_save_filename} with {len(_ims)} images" )
+                print(f"-- saving {_data_type} to file: {_save_filename}")
+            # acquire variables from cell_data attributes
+            _changed_attrs = []
+            for _k, _distmap in _distance_map_dic.items():
+                if _k not in _save_dic or _overwrite:
+                    _loaded_dic[_k] = _distmap
+                    _changed_attrs.append(_k)
+            # acquire variables in specified _save_dic
+            for _k, _v in _save_dic.items():
+                if 'distance_map' in _k:
+                    # if the key is distance_map, save with highest priority
+                    _loaded_dic[_k] = _v
+                    _changed_attrs.append(_k)
+            # save
+            if len(_changed_attrs):
+                np.savez_compressed(_save_filename, **_loaded_dic)
+            if _verbose:
+                if _changed_attrs:
+                    print(f"--- updated attributes: {_changed_attrs}")
+                print(f"--- time spent in saving:{time.time()-_start_time}")
 
-
-
-    def _load_from_file(self, _type='all', _save_folder=None, _decoded_flag=None, _load_attrs=[],
+    # load attributes or images or distance_maps into Cell_Data class
+    def _load_from_file(self, _data_type='all', _save_folder=None, 
+                        _decoded_flag=None, 
+                        _distmap_data='unique', _distmap_pick='EM',  
+                        _load_attrs=[],
                         _overwrite=False, _verbose=True):
         """ Function to load cell_data from existing npz and pickle files
         Inputs:
-            _type: 'all'/'combo'/'unique'/'decoded', string
+            _data_type: 'all'/'combo'/'unique'/'decoded', string
             _save_folder: where did the files save, None or path string (default: None)
+            _decoded_flag
+            _distance_map_flag
             _load_attrs: list of additional attributes that want to load to RAM, list of string (default: [])
             _overwrite: whether overwrite existing attributes in class, bool (default: false)
             _verbose: say something!, bool (default: True)
         (everything will be loaded into class attributes, so no return )
         """
         # check input
-        _type=str(_type).lower()
-        if _type not in ['all', 'cell_info', 'unique', 'combo', 'decoded']:
-            raise ValueError("Wrong _type kwd given!")
+        _data_type=str(_data_type).lower()
+        if _data_type not in ['all', 'cell_info', 'unique', 'rna-unique' ,'combo', 'decoded','distance_map']:
+            raise ValueError(f"Wrong _data_type kwd ({_data_type}) given!")
         if not _save_folder and not hasattr(self, 'save_folder'):
             raise ValueError('Save folder info not given!')
         elif not _save_folder:
             _save_folder = self.save_folder
 
-        if _type == 'all' or _type == 'cell_info':
+        if _data_type == 'all' or _data_type == 'cell_info':
             _infofile = _save_folder + os.sep + 'cell_info.pkl'
             if os.path.exists(_infofile):
                 _info_dic = pickle.load(open(_infofile, 'rb'))
@@ -2058,15 +2157,68 @@ class Cell_Data():
             else:
                 print(f"No cell-info file found for fov:{self.fov_id}, cell:{self.cell_id}, skip!")
 
-        if _type == 'all' or _type == 'combo':
+
+        ## load unique
+        if _data_type == 'all' or _data_type == 'unique' or _data_type == 'rna-unique':
+            # generate attribute names
+            _im_attr = _data_type + '_' + 'ims'
+            _id_attr = _data_type + '_' + 'ids'
+            _channel_attr = _data_type + '_' + 'channels'
+            # generate save_filename:
+            _save_filename = os.path.join(self.save_folder, _data_type+'_'+'rounds.npz')
+            _start_time = time.time()
+            if not os.path.exists(_save_filename):
+                print(f"- savefile {_save_filename} not exists, exit.")
+                return False
+            if _verbose:
+                print("- Loading unique from file:", _save_filename)
+            with np.load(_save_filename) as handle:
+                _ims = list(handle['observation'])
+                _ids = list(handle['ids'])
+                _channels = list(handle['channels'])
+            # save
+            # case1, directly load all
+            if not hasattr(self, _im_attr) or not hasattr(self, _id_attr) or not hasattr(self, _channel_attr) \
+                    or len(getattr(self, _im_attr)) != len(getattr(self, _id_attr)) \
+                    or len(getattr(self, _id_attr)) != len(getattr(self, _channel_attr)):
+                setattr(self, _im_attr, _ims)
+                setattr(self, _id_attr, _ids)
+                setattr(self, _channel_attr, _channels)
+
+                if _verbose:
+                    print(f"-- loaded unique images with ids:{_ids}")
+            # case 2: only load required ones
+            else:  
+                for _ct, (_uim, _uid, _channel) in enumerate(zip(_ims, _ids, _channels)):
+                    if int(_uid) not in getattr(self, _id_attr):
+                        if _verbose:
+                            print(f"{_uid},", end=' ')
+                            if _ct%10 == -1:
+                                print("")
+                        getattr(self, _id_attr).append(_uid)
+                        getattr(self, _im_attr).append(_uim)
+                        getattr(self, _channel_attr).append(_channel)
+
+                    elif int(_uid) in getattr(self, _id_attr) and _overwrite:
+                        if _verbose:
+                            print(f"overwriting image with unique_id: {_uid}")
+                        getattr(self, _im_attr)[list(getattr(self, _id_attr)).index(int(_uid))] = _uim
+                if _verbose:
+                    print("]")
+                    print(f"--- time spent in loading unique images:{time.time()-_start_time}")
+
+        ## load combo
+        if _data_type == 'all' or _data_type == 'combo':
             if not hasattr(self, 'combo_groups'):
                 self.combo_groups = []
             elif not isinstance(self.combo_groups, list):
-                raise TypeError('Wrong datatype for combo_groups attribute for cell data.')
+                raise TypeError(
+                    'Wrong datatype for combo_groups attribute for cell data.')
 
             # load existing combo files
             _raw_combo_fl = "rounds.npz"
-            _combo_files = glob.glob(os.path.join(_save_folder, "group-*", "channel-*", _raw_combo_fl))
+            _combo_files = glob.glob(os.path.join(
+                _save_folder, "group-*", "channel-*", _raw_combo_fl))
             for _combo_file in _combo_files:
                 if _verbose:
                     print("-- loading combo from file:", _combo_file)
@@ -2081,16 +2233,22 @@ class Cell_Data():
                         if not hasattr(self, 'chrom_coords'):
                             self.chrom_coords = _chrom_coords
                 _name_info = _combo_file.split(os.sep)
-                _fov_id = [int(_i.split('-')[-1]) for _i in _name_info if "fov" in _i][0]
-                _cell_id = [int(_i.split('-')[-1]) for _i in _name_info if "cell" in _i][0]
-                _group_id = [int(_i.split('-')[-1]) for _i in _name_info if "group" in _i][0]
-                _color = [_i.split('-')[-1] for _i in _name_info if "channel" in _i][0]
+                _fov_id = [int(_i.split('-')[-1])
+                           for _i in _name_info if "fov" in _i][0]
+                _cell_id = [int(_i.split('-')[-1])
+                            for _i in _name_info if "cell" in _i][0]
+                _group_id = [int(_i.split('-')[-1])
+                             for _i in _name_info if "group" in _i][0]
+                _color = [_i.split('-')[-1]
+                          for _i in _name_info if "channel" in _i][0]
                 # check duplication
-                _check_duplicate = [(_g.fov_id==_fov_id) and (_g.cell_id==_cell_id) and (_g.group_id==_group_id) and (_g.color==_color) for _g in self.combo_groups]
-                if sum(_check_duplicate) > 0: #duplicate found:
+                _check_duplicate = [(_g.fov_id == _fov_id) and (_g.cell_id == _cell_id) and (
+                    _g.group_id == _group_id) and (_g.color == _color) for _g in self.combo_groups]
+                if sum(_check_duplicate) > 0:  # duplicate found:
                     if not _overwrite:
                         if _verbose:
-                            print("---", _combo_file.split(_save_folder)[-1], "already exists in combo_groups, skip")
+                            print("---", _combo_file.split(_save_folder)
+                                  [-1], "already exists in combo_groups, skip")
                         continue
                     else:
                         self.combo_groups.pop(_check_duplicate.index(True))
@@ -2103,50 +2261,9 @@ class Cell_Data():
                                             _fov_id, _cell_id, _color, _group_id)
                 # append
                 self.combo_groups.append(_group)
-
-        if _type == 'all' or _type == 'unique':
-            _unique_fl = 'unique_rounds.npz'
-            _unique_savefile = _save_folder + os.sep + _unique_fl
-            _start_time = time.time()
-            if not os.path.exists(_unique_savefile):
-                print(f"- savefile {_unique_savefile} not exists, exit.")
-                return False
-            if _verbose:
-                print("- Loading unique from file:", _unique_savefile)
-            with np.load(_unique_savefile) as handle:
-                _unique_ims = list(handle['observation'])
-                _unique_ids = list(handle['ids'])
-                _unique_channels = list(handle['channels'])
-            # save
-            # case1, directly load all
-            if not hasattr(self, 'unique_ids') or not hasattr(self, 'unique_ims') or not hasattr(self, 'unique_channels')\
-                or len(self.unique_ims)!=len(self.unique_ids) or len(self.unique_ids)!=len(self.unique_channels):
-                self.unique_ids = _unique_ids
-                self.unique_ims = _unique_ims
-                self.unique_channels = _unique_channels
-                if _verbose:
-                    print(f"-- loaded unique images with ids:{_unique_ids}")
-            # case 2: only load required ones
-            else:  
-                for _ct, (_uim, _uid, _channel) in enumerate(zip(_unique_ims, _unique_ids, _unique_channels)):
-                    if int(_uid) not in self.unique_ids:
-                        if _verbose:
-                            print(f"{_uid},", end=' ')
-                            if _ct%10 == -1:
-                                print("")
-                        self.unique_ids.append(_uid)
-                        self.unique_ims.append(_uim)
-                        self.unique_channels.append(_channel)
-                    elif int(_uid) in self.unique_ids and _overwrite:
-                        if _verbose:
-                            print(f"overwriting image with unique_id: {_uid}")
-                        self.unique_ims[self.unique_ids.index(int(_uid))] = _uim
-                if _verbose:
-                    print("]")
-                    print(f"-- time spent in loading unique images:{time.time()-_start_time}")
-
-        if _type == 'all' or _type == 'decoded':
-            if _type == 'decoded' and not _decoded_flag:
+        ## load decoded
+        if _data_type == 'all' or _data_type == 'decoded':
+            if _data_type == 'decoded' and not _decoded_flag:
                 raise ValueError("Kwd _decoded_flag not given, exit!")
             elif not _decoded_flag:
                 print("Kwd _decoded_flag not given, skip this step.")
@@ -2208,12 +2325,55 @@ class Cell_Data():
                 self.decoded_ids = [_id for _id in sorted(_decoded_ids)]
                 if _temp_flag:
                     delattr(self, 'combo_groups')
+        ## load distance_maps
+        if _data_type == 'all' or _data_type == 'distance_map':
+            _start_time = time.time()
+            # get save_file:
+            _save_filename = os.path.join(self.save_folder, 'distance_maps.npz')
+            if not os.path.exists(_save_filename):
+                if _verbose:
+                    print(f"--- distmap_savefile:{_save_filename} not exist, exit!")
+                return None
+            else:
+                # get loading attr
+                if _distmap_data is not None:
+                    if not isinstance(_distmap_data, str):
+                        raise ValueError("_distmap_data should be a string!")
+                if _distmap_pick is not None:
+                    if not isinstance(_distmap_pick, str):
+                        raise ValueError("_distmap_pick should be a string!")
+                if _distmap_data is None or _distmap_pick is None:
+                    _load_attr = 'distance_map'
+                    if _verbose:
+                        print(f"-- loading all {_load_attr} from saved-file")
+                else:
+                    _load_attr = _distmap_pick + '_' + _distmap_data + '_' + 'distance_map'
+                    if _verbose:
+                        print(f"-- loading {_load_attr} from saved-file")
+                        return None
+                with np.load(_save_filename) as handle:
+                    if _load_attr in handle.keys():
+                        _distmap = handle[_load_attr]
+                        # append to cell_data
+                        setattr(self, _load_attr, _distmap)
+                        return _distmap 
+                    elif _distmap_data is None or _distmap_pick is None:
+                        _all_maps = []
+                        for _distmap_attr in handle.iterkeys():
+                            if _load_attr in _distmap_attr:
+                                setattr(self, _distmap_attr, handle[_distmap_attr])
+                                all_maps.append(handle[_distmap_attr])
+                        return _all_maps
+                    else:
+                        print(f"--- {_load_attr} doesn't exist in saved file, exit!")
+                        return None
+            
 
     # Generate pooled image representing chromosomes
     def _generate_chromosome_image(self, _source='unique', _max_count=90, _verbose=False):
         """Generate chromosome from existing combo / unique images"""
         _source = _source.lower()
-        if _source != 'combo' and _source != 'unique':
+        if _source != 'combo' and _source != 'unique' and _source != 'rna-unique':
             raise ValueError('wrong source key given, should be combo or unique. ')
         if _source == 'combo':
             if not hasattr(self, 'combo_groups'):
@@ -2232,16 +2392,21 @@ class Cell_Data():
                     break
             _chrom_im = _chrom_im / _image_count
 
-        elif _source == 'unique':
-            if not hasattr(self, 'unique_ims') or not hasattr(self, 'unique_ids'):
+        elif _source == 'unique' or _source == 'rna-unique':
+            # generate attribute names
+            _im_attr = _source + '_' + 'ims'
+            _id_attr = _source + '_' + 'ids'
+            # generate save_filename:
+            _save_filename = os.path.join(self.save_folder, _source+'_'+'rounds.npz')
+            if not hasattr(self, _im_attr) or not hasattr(self, _id_attr):
                 _temp_flag = True # this means the unique images are temporarily loaded
-                print(f'-- cell:{self.cell_id} in fov:{self.fov_id} doesnot have unique images, trying to load now.')
-                #self._load_from_file('unique', _verbose=False)
+                print(f'-- cell:{self.cell_id} in fov:{self.fov_id} doesnot have {_im_attr}, trying to load now.')
+                self._load_from_file(_source, _verbose=False)
             else:
                 _temp_flag = False
             # sum up existing Images
-            _picking_freq = int(np.ceil(len(self.unique_ims)/_max_count))
-            _selected_ims = self.unique_ims[::_picking_freq]
+            _picking_freq = int(np.ceil(len(getattr(self, _im_attr))/_max_count))
+            _selected_ims = np.array(getattr(self, _im_attr))[::_picking_freq]
             _chrom_im = np.mean(np.stack(_selected_ims), axis=0)
 
         # final correction
@@ -2251,9 +2416,10 @@ class Cell_Data():
         if _temp_flag: # if temp loaded, release
             if _source == 'combo':
                 delattr(self, 'combo_groups')
-            elif _source == 'unique':
-                delattr(self, 'unique_ims')
+            elif _source == 'unique' or _source == 'rna-unique':
+                delattr(self, _im_attr)
         return _chrom_im
+
     # Identify chromosome(generated by _generate_chromosome_image)
     def _identify_chromosomes(self, _gaussian_size=2, _cap_percentile=1, _seed_dim=3,
                               _th_percentile=99.5, _min_obj_size=125, _verbose=True):
@@ -2341,8 +2507,8 @@ class Cell_Data():
                 self._save_to_file('combo', _overwrite=_force)
         return _chrom_coords
 
-
-    def _calculate_background(self, _type='unique', _function_type='median', 
+    # calculate background levels for images
+    def _calculate_background(self, _data_type='unique', _function_type='median', 
                               _num_per_channel=20, _verbose=False):
         """Function to get background levels for channels having signal"""
         ## first check Inputs
@@ -2352,9 +2518,9 @@ class Cell_Data():
                             }
         _type_marker_dic = {'unique':'u', 
                             'combo':'c'}
-        _type = _type.lower()
-        if _type not in _allowed_type_dic or _type not in _type_marker_dic:
-            raise KeyError(f"Wrong input key for _type:{_type}")
+        _data_type = _data_type.lower()
+        if _data_type not in _allowed_type_dic or _data_type not in _type_marker_dic:
+            raise KeyError(f"Wrong input key for _data_type:{_data_type}")
         # function_type
         _allowed_function_types = ['median', 'mean']
         _function_type = _function_type.lower()
@@ -2367,16 +2533,16 @@ class Cell_Data():
         _color_indices = {_c:[] for _c in self.channels}
         for _hyb_fd, _info_lst in self.color_dic.items():
             for _info, _c in zip(_info_lst, list(_color_indices.keys())[:len(_info_lst)]):
-                if _type_marker_dic[_type] in _info:
-                    _uid = int(_info.split(_type_marker_dic[_type])[1])
-                    _id_lst_name = _allowed_type_dic[_type].replace('ims', 'ids')
+                if _type_marker_dic[_data_type] in _info:
+                    _uid = int(_info.split(_type_marker_dic[_data_type])[1])
+                    _id_lst_name = _allowed_type_dic[_data_type].replace('ims', 'ids')
                     if _uid in getattr(self, _id_lst_name) and len(_color_indices[_c]) < _num_per_channel:
                         _color_indices[_c].append(getattr(self, _id_lst_name).index(_uid))
         # calculate background
         if _verbose:
             print(f"-- calculating background for {[_c for _c,_l in _color_indices.items() if len(_l)>0]}")
         _background_dic = {}
-        _ims = np.array(getattr(self, _allowed_type_dic[_type]))
+        _ims = np.array(getattr(self, _allowed_type_dic[_data_type]))
         for _c, _ind_lst in _color_indices.items():
             if len(_ind_lst) == 0:
                 continue
@@ -2391,20 +2557,29 @@ class Cell_Data():
                 _background_dic[_c] = np.median(_backgrounds)
         return _background_dic
 
-
-    def _multi_fitting_for_chromosome(self, _type='unique', _decoded_flag='diff', 
+    # multi-gaussian fitting to pick spots
+    def _multi_fitting_for_chromosome(self, _data_type='unique', _decoded_flag='diff', 
                        _normalization=True,  _use_chrom_coords=True, _num_threads=12,
                        _gfilt_size=0.75, _background_gfilt_size=10, _max_filt_size=3,
                        _seed_th_per=50, _max_seed_count=10, _min_seed_count=3,
                        _width_zxy=None, _fit_radius=5, _fit_window=40, 
                        _expect_weight=1000, _min_height=100, _max_iter=10, _th_to_end=1e-6,
-                       _check_fitting=True, _save=True, _verbose=True):
+                       _check_fitting=True, _save=True, _overwrite=False, _verbose=True):
         """Function for multi-fitting for chromosomes in cell_data"""
         # first check Inputs
-        _allowed_types = ['unique', 'decoded']
-        _type = _type.lower()
-        if _type not in _allowed_types:
-            raise KeyError(f"Wrong input key for _type:{_type}")
+        _allowed_types = ['unique', 'decoded', 'rna-unique']
+        _data_type = _data_type.lower()
+        if _data_type not in _allowed_types:
+            raise KeyError(f"Wrong input key for _data_type:{_data_type}")
+        # generate attribute names
+        _im_attr = _data_type + '_' + 'ims'
+        _id_attr = _data_type + '_' + 'ids'
+        _channel_attr = _data_type + '_' + 'channels'
+        # generate save_filename:
+        _save_filename = os.path.join(self.save_folder, _data_type+'_'+'rounds.npz')
+        # generate save_attr
+        _spot_attr = _data_type + '_' + 'spots'
+        # check other inputs
         if _width_zxy is None:
             _width_zxy = self.sigma_zxy
         if hasattr(self, 'num_threads'):
@@ -2415,19 +2590,19 @@ class Cell_Data():
                 if not hasattr(self, 'chrom_coords'):
                     raise AttributeError("No chrom-coords info found in cell-data and saved cell_info.")
         if _verbose:
-            print(f"+ Start multi-fitting for {_type} images")
+            print(f"- Start multi-fitting for {_data_type} images")
         # check specific attributes
-        if _type == 'unique':
+        if _data_type == 'unique' or _data_type == 'rna-unique':
             # check attributes
-            if not hasattr(self, 'unique_ims') or not hasattr(self, 'unique_ids'):
+            if not hasattr(self, _im_attr) or not hasattr(self, _id_attr):
                 _temp_flag = True # this means the unique images are temporarily loaded
-                print("++ no unique image info loaded to this cell, try loading:")
-                self._load_from_file('unique', _overwrite=False, _verbose=_verbose)
+                print(f"-- no {_im_attr} info loaded to this cell, try loading:")
+                self._load_from_file(_data_type, _overwrite=False, _verbose=_verbose)
             else:
                 _temp_flag = False # not temporarily loaded
-            _ims = self.unique_ims
-            _ids = self.unique_ids
-        elif _type == 'decoded':
+                _ims = getattr(self, _im_attr)
+                _ids = getattr(self, _id_attr)
+        elif _data_type == 'decoded':
             # check attributes
             if not hasattr(self, 'decoded_ims') or not hasattr(self, 'decoded_ids'):
                 _temp_flag = True  # this means the unique images are temporarily loaded
@@ -2435,62 +2610,82 @@ class Cell_Data():
                 self._load_from_file('decoded', _decoded_flag=_decoded_flag, _overwrite=False, _verbose=_verbose)
             else:
                 _temp_flag = False  # not temporarily loaded
-            _ims = self.decoded_ims
-            _ids = self.decoded_ids
+                _ims = self.decoded_ims
+                _ids = self.decoded_ids
 
-        ## Do the multi-fitting
-        if _type == 'unique':
-            _seeding_args = (_max_seed_count, _fit_window, _gfilt_size, _background_gfilt_size, _max_filt_size, _seed_th_per, 300, True, 10, _min_seed_count, 0, False)
-            #_fitting_args = (_width_zxy, _fit_radius, 100, 500, _expect_weight, _th_to_end, _max_iter, 0.25, _min_height, False, _verbose)
-            _fitting_args = (_fit_radius, 1, 2.5, _max_iter, 0.1, _width_zxy, _expect_weight)
-        elif _type == 'decoded':
-            _seeding_args = (_max_seed_count, _fit_window, _gfilt_size, _background_gfilt_size, _max_filt_size, _seed_th_per, 300, True, 10, _min_seed_count, 0, False)
-            #_fitting_args = (_width_zxy, _fit_radius, 0.1, 0.5, _expect_weight/1000, _th_to_end, _max_iter, 0.25, 0.1, False, _verbose)
-            _fitting_args = (_fit_radius, 1, 2.5, _max_iter, 0.1, _width_zxy, _expect_weight/1000)
-        # merge arguments
-        if _use_chrom_coords:
-            _args = [(_im, _id, self.chrom_coords, _seeding_args, _fitting_args, 
-                    _check_fitting, _normalization, _verbose) for _im, _id in zip(_ims, _ids)]
+        # first check wether requires do it denovo
+        if hasattr(self, _spot_attr) and not _overwrite:
+            if len(getattr(self, _spot_attr)) == len(_ims):
+                if _verbose:
+                    print(f"-- {_spot_attr} already exist for fov:{self.fov_id}, cell:{self.cell_id}.")
+                return getattr(self, _spot_attr)
         else:
-            _args = [(_im, _id, [None], _seeding_args, _fitting_args, 
-                      _check_fitting, _normalization, _verbose) for _im, _id in zip(_ims, _ids)]
-        # multi-processing for multi-Fitting
-        if _verbose:
-            print(f"++ start fitting {_type} for fov:{self.fov_id}, cell:{self.cell_id} with {_num_threads} threads")
-        _start_time = time.time()
-        _fitting_pool = mp.Pool(_num_threads)
-        _spots = _fitting_pool.starmap(_fit_single_image, _args, chunksize=1)
-        _fitting_pool.close()
-        _fitting_pool.join()
-        _fitting_pool.terminate()
-        # release
-        _ims, _ids = None, None
-        if _temp_flag:
-            if _type == 'unique':
-                delattr(self, 'unique_ims')
-            elif _type == 'decoded':
-                delattr(self, 'decoded_ims')
-        if _verbose:
-            print(f"++ total time in fitting {_type}: {time.time()-_start_time}")
-        ## return and save
-        if _type == 'unique':
-            self.unique_spots = _spots
-            if _save:
-                self._save_to_file('cell_info',_save_dic={'unique_spots':self.unique_spots})
-            return self.unique_spots
-        elif _type == 'decoded':
-            self.decoded_spots = _spots
-            if _save:
-                self._save_to_file('cell_info',_save_dic={'decoded_id':self.decoded_ids, 'decoded_spots':self.decoded_spots})
-            return self.decoded_spots
+            ## Do the multi-fitting
+            if _data_type == 'unique' or _data_type  == 'rna-unique':
+                _seeding_args = (_max_seed_count, _fit_window, _gfilt_size, _background_gfilt_size, _max_filt_size, _seed_th_per, 300, True, 10, _min_seed_count, 0, False)
+                #_fitting_args = (_width_zxy, _fit_radius, 100, 500, _expect_weight, _th_to_end, _max_iter, 0.25, _min_height, False, _verbose)
+                _fitting_args = (_fit_radius, 1, 2.5, _max_iter, 0.1, _width_zxy, _expect_weight)
+            elif _data_type == 'decoded':
+                _seeding_args = (_max_seed_count, _fit_window, _gfilt_size, _background_gfilt_size, _max_filt_size, _seed_th_per, 300, True, 10, _min_seed_count, 0, False)
+                #_fitting_args = (_width_zxy, _fit_radius, 0.1, 0.5, _expect_weight/1000, _th_to_end, _max_iter, 0.25, 0.1, False, _verbose)
+                _fitting_args = (_fit_radius, 1, 2.5, _max_iter, 0.1, _width_zxy, _expect_weight/1000)
+            # merge arguments
+            if _use_chrom_coords:
+                _args = [(_im, _id, self.chrom_coords, _seeding_args, _fitting_args, 
+                        _check_fitting, _normalization, _verbose) for _im, _id in zip(_ims, _ids)]
+            else:
+                _args = [(_im, _id, [None], _seeding_args, _fitting_args, 
+                        _check_fitting, _normalization, _verbose) for _im, _id in zip(_ims, _ids)]
+            # multi-processing for multi-Fitting
+            if _verbose:
+                print(f"++ start fitting {_data_type} for fov:{self.fov_id}, cell:{self.cell_id} with {_num_threads} threads")
+            _start_time = time.time()
+            _fitting_pool = mp.Pool(_num_threads)
+            _spots = _fitting_pool.starmap(_fit_single_image, _args, chunksize=1)
+            _fitting_pool.close()
+            _fitting_pool.join()
+            _fitting_pool.terminate()
+            # release
+            _ims, _ids = None, None
+            if _temp_flag:
+                if _data_type == 'unique' or _data_type  == 'rna-unique':
+                    delattr(self, _im_attr)
+                elif _data_type == 'decoded':
+                    delattr(self, 'decoded_ims')
+            if _verbose:
+                print(f"++ total time in fitting {_data_type}: {time.time()-_start_time}")
+            ## return and save
+            if _data_type == 'unique' or _data_type  == 'rna-unique':
 
-    def _dynamic_picking_spots(self, _type='unique', _use_chrom_coords=True,
+                setattr(self, _spot_attr, _spots)
+                if _save:
+                    self._save_to_file('cell_info',_save_dic={_spot_attr: getattr(self, _spot_attr)})
+            elif _data_type == 'decoded':
+                self.decoded_spots = _spots
+                if _save:
+                    self._save_to_file('cell_info',_save_dic={'decoded_id':self.decoded_ids, 'decoded_spots':self.decoded_spots})
+                return self.decoded_spots
+        return _spots
+    # pick spots
+    def _dynamic_picking_spots(self, _data_type='unique', _use_chrom_coords=True,
                                _distance_zxy=None, _w_int=1, _w_dist=2, _w_center=0, 
                                _dist_ref = None, _penalty_type='trapezoidal', _penalty_factor=5,
                                _save=True, _verbose=True):
         """Given selected spots, do picking by dynamic programming
         Input:"""
         ## check inputs
+        # first check data_type input
+        _allowed_types = ['unique', 'decoded', 'rna-unique']
+        _data_type = _data_type.lower()
+        if _data_type not in _allowed_types:
+            raise KeyError(f"Wrong input key for _data_type:{_data_type}")
+        # generate attribute names
+        _im_attr = _data_type + '_' + 'ims'
+        _id_attr = _data_type + '_' + 'ids'
+        _spot_attr = _data_type + '_' + 'spots'
+        # generate save attribute
+        _picked_attr = 'picked' + '_' + _spot_attr
+
         if _distance_zxy is None: # dimension for distance trasfromation
             _distance_zxy = self.distance_zxy
         if _dist_ref is None: # full filename for distance reference npz file
@@ -2519,26 +2714,26 @@ class Cell_Data():
                 if not hasattr(self, 'chrom_coords'):
                     raise AttributeError("No chrom-coords info found in cell-data and saved cell_info.")
             # check specific attributes and initialize
-            if _type == 'unique':
+            if _data_type == 'unique' or _data_type == 'rna-unique':
                 # check attributes
-                if not hasattr(self, 'unique_spots'):
+                if not hasattr(self, _spot_attr):
                     self._load_from_file('cell_info')
-                    if not hasattr(self, 'unique_spots'):
-                        raise AttributeError("No unique_spots info found in cell-data and saved cell_info.")
+                    if not hasattr(self, _spot_attr):
+                        raise AttributeError(f"No {_spot_attr} info found in cell-data and saved cell_info.")
                 if _verbose:
-                    print(f"+ Pick {_type} spots for by brightness in fov:{self.fov_id}, cell:{self.cell_id}")
+                    print(f"+ Pick {_data_type} spots for by brightness in fov:{self.fov_id}, cell:{self.cell_id}")
                 # spots for unique:
-                _cand_spots = self.unique_spots
-                _ids = self.unique_ids
+                _cand_spots = getattr(self, _spot_attr)
+                _ids = getattr(self, _id_attr)
                 _picked_spots = [] # initialize
-            elif _type == 'decoded':
+            elif _data_type == 'decoded':
                 # check attributes
                 if not hasattr(self, 'decoded_spots'):
                     self._load_from_file('cell_info')
                     if not hasattr(self, 'decoded_spots'):
                         raise AttributeError("No decoded_spots info found in cell-data and saved cell_info.")
                 if _verbose:
-                    print(f"+ Pick {_type} spots for by brightness in fov:{self.fov_id}, cell:{self.cell_id}")
+                    print(f"+ Pick {_data_type} spots for by brightness in fov:{self.fov_id}, cell:{self.cell_id}")
                 # spots for unique:
                 _cand_spots = self.decoded_spots
                 _ids = self.decoded_ids
@@ -2584,51 +2779,57 @@ class Cell_Data():
                 _picked_spots.append(_picked_chrom_pts)
 
             ## dump into attribute and save
-            if _type == 'unique':
-                self.picked_unique_spots = _picked_spots
+            if _data_type == 'unique' or _data_type == 'decoded':
+                setattr(self, _picked_attr, _picked_spots)
                 # save
                 if _save:
-                    self._save_to_file('cell_info', _save_dic={'picked_unique_spots':self.picked_unique_spots})
+                    self._save_to_file('cell_info', _save_dic={_picked_spots:_picked_spots})
                 # return
-                return self.picked_unique_spots
-            if _type == 'decoded':
+            if _data_type == 'decoded':
                 self.picked_decoded_spots = _picked_spots
                 # save
                 if _save:
                     self._save_to_file('cell_info', _save_dic={'picked_decoded_spots':self.picked_decoded_spots})
                 # return
-                return self.picked_decoded_spots
+            return _picked_spots
 
-    def _naive_picking_spots(self, _type='unique', _use_chrom_coords=True,
+    def _naive_picking_spots(self, _data_type='unique', _use_chrom_coords=True,
                              _save=True, _verbose=True):
         """Given selected spots, do picking by the brightness
         Input:"""
+        # generate attribute names
+        _im_attr = _data_type + '_' + 'ims'
+        _id_attr = _data_type + '_' + 'ids'
+        _spot_attr = _data_type + '_' + 'spots'
+        # generate save attribute
+        _picked_attr = 'picked' + '_' + _spot_attr
+
         if _use_chrom_coords:
             if not hasattr(self, 'chrom_coords'):
                 self._load_from_file('cell_info')
                 if not hasattr(self, 'chrom_coords'):
                     raise AttributeError("No chrom-coords info found in cell-data and saved cell_info.")
             # check specific attributes and initialize
-            if _type == 'unique':
+            if _data_type == 'unique' or _data_type == 'rna-unique':
                 # check attributes
-                if not hasattr(self, 'unique_spots'):
+                if not hasattr(self, _im_attr):
                     self._load_from_file('cell_info')
-                    if not hasattr(self, 'unique_spots'):
+                    if not hasattr(self, _im_attr):
                         raise AttributeError("No unique_spots info found in cell-data and saved cell_info.")
                 if _verbose:
-                    print(f"+ Pick {_type} spots for by brightness in fov:{self.fov_id}, cell:{self.cell_id}")
+                    print(f"+ Pick {_data_type} spots for by brightness in fov:{self.fov_id}, cell:{self.cell_id}")
                 # spots for unique:
-                _cand_spots = self.unique_spots
-                _ids = self.unique_ids
+                _cand_spots = getattr(self, _spot_attr)
+                _ids = getattr(self, _id_attr)
                 _picked_spots = [] # initialize
-            elif _type == 'decoded':
+            elif _data_type == 'decoded':
                 # check attributes
                 if not hasattr(self, 'decoded_spots'):
                     self._load_from_file('cell_info')
                     if not hasattr(self, 'decoded_spots'):
                         raise AttributeError("No decoded_spots info found in cell-data and saved cell_info.")
                 if _verbose:
-                    print(f"+ Pick {_type} spots for by brightness in fov:{self.fov_id}, cell:{self.cell_id}")
+                    print(f"+ Pick {_data_type} spots for by brightness in fov:{self.fov_id}, cell:{self.cell_id}")
                 # spots for unique:
                 _cand_spots = self.decoded_spots
                 _ids = self.decoded_ids
@@ -2652,29 +2853,19 @@ class Cell_Data():
                 _picked_spots.append(_picked_in_chrom)
 
             ## dump into attribute and save
-            if _type == 'unique':
-                self.picked_unique_spots = _picked_spots
+            if _data_type == 'unique' or _data_type == 'rna-unique':
+                setattr(self, _picked_attr, _picked_spots)
                 # save
                 if _save:
-                    self._save_to_file('cell_info', _save_dic={'picked_unique_spots':self.picked_unique_spots})
-                # return
-                return self.picked_unique_spots
-            if _type == 'decoded':
+                    self._save_to_file('cell_info', _save_dic={_picked_attr:_picked_spots})
+
+            if _data_type == 'decoded':
                 self.picked_decoded_spots = _picked_spots
                 # save
                 if _save:
                     self._save_to_file('cell_info', _save_dic={'picked_decoded_spots':self.picked_decoded_spots})
-                # return
-                return self.picked_decoded_spots
 
-    def _match_regions(self, _save=True, _save_map=True):
-        """Function to match decoded and unique regions and generate matched ids, spots, distance maps etc.
-        Inputs:
-            _save: whether save matched info to cell_info, bool (default:True)
-            _save_map: whether save matched distance map, bool (default:True)
-        """
-        if not hasattr(self, 'decoded_ids'):
-            pass
+            return _picked_spots
 
     # an integrated function to pick spots
     def _pick_spots(self, _data_type='unique', _pick_type='EM', _use_chrom_coords=True,
@@ -2714,37 +2905,44 @@ class Cell_Data():
             _pick_ind_list: list of picked indices, list if use chrom_coord, otherwise array
         """
         ## check inputs
-        _allowed_types = ['EM', 'naive', 'dynamic']
-        if _pick_type not in _allowed_types:
+        # pick type
+        _allowed_pick_types = ['EM', 'naive', 'dynamic']
+        if _pick_type not in _allowed_pick_types:
             raise ValueError(
-                f"Wrong input for {_pick_type}, should be among {_allowed_types}")
-        _allowed_data_types = {
-            'unique': 'unique_spots', 'decoded': 'decoded_spots'}
-        _allowed_id_keys = {'unique': 'unique_ids', 'decoded': 'decoded_ids'}
-        if _data_type not in list(_allowed_data_types.keys()):
+                f"Wrong input for {_pick_type}, should be among {_allowed_pick_types}")
+        # data type
+        _allowed_data_types = ['unique', 'rna-unique', 'decoded']
+        _data_type = _data_type.lower()
+        if _data_type not in _allowed_data_types:
             raise ValueError(
-                f"Wrong input for {_data_type}, should be among {list(_allowed_data_types.keys())}")
+                f"Wrong input for {_data_type}, should be among {_allowed_data_types}")
+        # generate attribute names
+        _im_attr = _data_type + '_' + 'ims'
+        _id_attr = _data_type + '_' + 'ids'
+        _spot_attr = _data_type + '_' + 'spots'
+        # generate save attribute
+        _picked_attr = str(_pick_type) + '_'+ 'picked' + '_' + _spot_attr
+
+        # distance_zxy
+        if hasattr(self, 'distance_zxy'):
+            _distance_zxy = getattr(self, 'distance_zxy')
         # get cand_spots
         if _verbose:
             print(
                 f"- Start {_pick_type} picking {_data_type} spots, fov:{self.fov_id}, cell:{self.cell_id}.")
-        _all_spots = getattr(self, _allowed_data_types[_data_type])
-        _ids = getattr(self, _allowed_id_keys[_data_type])
-        # target attr
-        _target_attr = str(_pick_type) + '_' + 'picked_' + _allowed_data_types[_data_type]
+        _all_spots = getattr(self, _spot_attr)
+        _ids = getattr(self, _id_attr)
         # if not overwrite:
         if not _overwrite:
-            if not hasattr(self, _target_attr):
+            if not hasattr(self, _picked_attr):
                 self._load_from_file('cell_info')
-            if hasattr(self, _target_attr):
-                _picked_spot_list = getattr(self, _target_attr)
+            if hasattr(self, _picked_attr):
+                _picked_spot_list = getattr(self, _picked_attr)
                 # return if 
                 if _verbose:
-                    print(
-                        f"-- not overwriting {_target_attr} for fov:{self.fov_id}, cell:{self.cell_id}")
+                    print(f"-- not overwriting {_picked_attr} for fov:{self.fov_id}, cell:{self.cell_id}")
                 if not _return_indices:
                     return _picked_spot_list
-
         # check chrom_coords
         if _use_chrom_coords and not hasattr(self, 'chrom_coords'):
             self._load_from_file('cell_info')
@@ -2767,12 +2965,10 @@ class Cell_Data():
                                         for _spot_lst in _all_spots])
         else:
             _cand_spot_list = [_all_spots]
-        # distance_zxy
-        if hasattr(self, 'distance_zxy'):
-            _distance_zxy = getattr(self, 'distance_zxy')
+
         ## Initialize
         _picked_spot_list, _picked_ind_list = [], []
-
+        # judge whether use chrom_coords
         if not _use_chrom_coords:
             _chrom_coords = [None]
         else:
@@ -2812,10 +3008,6 @@ class Cell_Data():
                                            save_path=self.save_folder, save_filename='chr_'+str(_i),
                                            return_indices=True, return_scores=True,
                                            return_other_scores=True, verbose=_verbose)
-                # Check
-                if _check_spots:
-                    pass
-                    # this function has not been supported yet
             # append
             _picked_spot_list.append(_picked_spots)
             _picked_ind_list.append(_picked_inds)
@@ -2827,11 +3019,11 @@ class Cell_Data():
 
         # add to attribute
         if _save_to_attr:
-            setattr(self, _target_attr, _picked_spot_list)
+            setattr(self, _picked_attr, _picked_spot_list)
 
         # save to info
         if _save_to_info:
-            self._save_to_file('cell_info', _save_dic={_target_attr: _picked_spot_list}, _verbose=_verbose)
+            self._save_to_file('cell_info', _save_dic={_picked_attr: _picked_spot_list}, _verbose=_verbose)
 
         # return
         if _return_indices:
@@ -2849,11 +3041,11 @@ class Cell_Data():
         # use chrom_coords?
         _use_chrom_coords = True
         if not hasattr(self, 'chrom_coords'):
-            self._load_from_file('cell_info')
+            self._load_from_file('dist')
             if not hasattr(self, 'chrom_coords'):
                 _use_chrom_coords = False
         ## check specific attributes and initialize
-        _allowed_data_types = ['unique', 'decoded']
+        _allowed_data_types = ['unique', 'decoded', 'rna-unique']
         if _data_type not in _allowed_data_types:
             raise ValueError(f"Wrong input for _data_type:{_data_type}, should be among {_allowed_data_types}")
         # extract attribute names
@@ -2864,7 +3056,7 @@ class Cell_Data():
         _save_attr = str(_pick_type) + '_' + str(_data_type) + '_' + 'distance_map'
         # check loading of necessary
         if not hasattr(self, _key_attr):
-            self._load_from_file('cell_info')
+            self._load_from_file('distance_map', _distmap_data=_data_type, _distmap_pick=_pick_type)
             if not hasattr(self, _key_attr):
                 raise AttributeError(f"No {_key_attr} info found in cell-data and saved cell_info.")
         _picked_spots = getattr(self, _key_attr)
@@ -2914,11 +3106,159 @@ class Cell_Data():
         # append into attribute and save
         setattr(self, _save_attr, _distmaps)
         if _save_info:
-            self._save_to_file('cell_info', _save_dic={_save_attr: _distmaps}, _verbose=_verbose)
+            self._save_to_file('distance_map', _save_dic={_save_attr: _distmaps}, _verbose=_verbose)
 
         # return
         return _distmaps
 
+    # merge a RNA cell_data to this DNA cell_data
+    def _merging_RNA_to_DNA(self, source_cell_data, _attr_feature='rna-',
+                            _load_in_ram=True, _save_to_file=True, 
+                            _overwrite=False, _verbose=True):
+        """Function to match decoded and unique regions and generate matched ids, spots, distance maps etc.
+        Inputs:
+            source_cell_data: Input RNA cell_data with descent objects
+        """
+        ## check inputs
+        if _verbose:
+            _start_time = time.time()
+            print(
+                f"-- start merging cell_data for fov:{self.fov_id}, cell:{self.cell_id} ")
+        # load cell_info for source_cell_data
+        source_cell_data._load_from_file('cell_info', _verbose=_verbose)
+        # extract all attributes that are not function
+        _all_attrs = [_attr for _attr in dir(source_cell_data) if not _attr.startswith('_')]
+        # modify attributes by given _attr_feature
+        for _i, _attr in enumerate(_all_attrs):
+            if _attr_feature not in _attr:
+                _all_attrs[_i] = _attr_feature + _attr
+        # append!
+        _updated_dic = {}
+        for _i, _attr in enumerate(_all_attrs):
+            if not hasattr(self, _attr) or _overwrite:
+                if _load_in_ram:
+                    setattr(self, _attr, getattr(source_cell_data, _attr))
+                _updated_dic[_attr] = getattr(source_cell_data, _attr)
+        # save
+        if _save_to_file:
+            self._save_to_file('cell_info', _save_dic=_updated_dic, _verbose=_verbose)
+            if _verbose:
+                print(f"--- new attributes appended to cell_data:{_updated_dic.keys()}")        
+            
+
+    # transfer data_type for a cell_data object
+    def _transfer_data_type(self, _data_type='unique', _target_type='rna-unique',
+                            _load_in_ram=False, _save_to_file=True, _new_savefolder=None, 
+                            _verbose=True):
+        """Function to transfer a specific data_type into new one
+        ----------------------------------------------------------------------------------------------
+        Attributes to be transferred:
+        (* represents data_type, ~ represents)
+        *_images
+        *_ids
+        *_channels
+        *_spots
+        ~_picked_*_spots
+        ~_*_distance_map
+        ----------------------------------------------------------------------------------------------
+        Inputs:
+            _data_type: original data_type, string (default: 'unique')
+            _target_type: target data_type, string (default: 'rna-unique')
+            _load_in_ram: whether load new_cell_data into RAM, bool (default: False)
+            _save_to_file: whether save transferred cell_data to file, bool (default: True)
+            _new_savefolder: specify new save folder, bool (default: 'analysis_folder/transferred')
+            
+            """
+        ## check inputs
+        _start_time = time.time()
+        if _verbose:
+            print(f"-- start transfering fov:{self.fov_id}, cell:{self.cell_id} from {_data_type} to {_target_type}")
+        # check data_type and _target_type
+        _allowed_types = ['unique', 'decoded', 'rna-unique']
+        _data_type = _data_type.lower()
+        if _data_type not in _allowed_types:
+            raise KeyError(f"Wrong input key for _data_type:{_data_type}")
+        _target_type = _target_type.lower()
+        if _target_type not in _allowed_types:
+            raise KeyError(f"Wrong input key for _target_type:{_target_type}")
+        
+        ## prepare attributes
+        if _verbose:
+            print("-- prepare attributes:")
+        # load existing datasets
+        self._load_from_file('cell_info',  _verbose=_verbose)
+        self._load_from_file(_data_type,  _verbose=_verbose)
+        self._load_from_file('distance_map', _distmap_data=None, 
+                             _distmap_pick=None, _verbose=_verbose)
+        
+        # generate attribute names
+        _im_attr = _data_type + '_' + 'ims'
+        _id_attr = _data_type + '_' + 'ids'
+        _channel_attr = _data_type + '_' + 'channels'
+        _spot_attr = _data_type + '_' + 'spots'
+        # get attrs for picked spots
+        _picked_attrs = [_attr for _attr in dir(self) if not _attr.startswith('_')\
+                                                        and 'picked' in _attr \
+                                                        and _spot_attr in _attr ]
+        # get attrs for distance maps
+        _distmap_attrs = [_attr for _attr in dir(self) if not _attr.startswith('_') \
+                                                        and 'distance_map' in _attr \
+                                                        and _data_type in _attr.split('_') ]
+        # summarize changed attributes
+        _changed_attrs = [_im_attr, _id_attr, _channel_attr, _spot_attr]
+        _changed_attrs += _picked_attrs
+        _changed_attrs += _distmap_attrs
+        if _verbose:
+            print(f"--- attributes to be converted to new datatype: {_changed_attrs}")
+        # unchanged attributes
+        _kept_attrs = [_attr for _attr in dir(self) if not _attr.startswith('_') and _attr not in _changed_attrs]
+        if _verbose:
+            print(f"--- attributes remain unchanged: {_kept_attrs}")
+        # generate save_filename:
+        _save_filename = os.path.join(self.save_folder, _data_type+'_'+'rounds.npz')        
+
+        ## create a new cell_data object with shared attributes
+        if _verbose:
+            print("-- creating new Cell_Data ojbect.")
+        _init_params = {'data_folder':self.data_folder,
+                        'fov_id': self.fov_id,
+                        'cell_id': self.cell_id}
+        _new_cell_data = Cell_Data(parameters=_init_params)
+        # transfer all kept attributes
+        for _attr in _kept_attrs:
+            setattr(_new_cell_data, _attr, getattr(self, _attr))
+
+        ## convert all related attributes
+        for _attr in _changed_attrs:
+            _new_attr = _attr.replace(_data_type, _target_type)
+            setattr(_new_cell_data, _new_attr, getattr(self, _attr))
+        # convert new save_folder:
+        if _new_savefolder is None:
+            _save_folder = os.path.join(os.path.dirname(self.save_folder.split('fov')[0]),
+                                        f'transferred_{_target_type}',
+                                        f'fov-{self.fov_id}',
+                                        f'cell-{self.cell_id}')
+        else:
+            _save_folder = os.path.join(_new_savefolder,
+                                        f'fov-{self.fov_id}',
+                                        f'cell-{self.cell_id}')
+        if not os.path.exists(_save_folder):
+            os.makedirs(_save_folder)
+            if _verbose:
+                print(f"--- creating save_folder:{_save_folder}")
+        setattr(_new_cell_data, 'save_folder', _save_folder)
+        # save all
+        if _save_to_file:
+            _new_cell_data._save_to_file("cell_info", _verbose=_verbose)
+            _new_cell_data._save_to_file(_target_type, _verbose=_verbose)
+            _new_cell_data._save_to_file("distance_map", _verbose=_verbose)
+        if _verbose:
+            print(f"--- time spent in transfering cell_data: {time.time()-_start_time}")
+        # return 
+        if _load_in_ram:
+            return _new_cell_data
+        
+    # old method to call AB compartments
     def _call_AB_compartments(self, _data_type='unique', _force=False, _norm_matrix='normalization_matrix.npy', 
                             _min_allowed_dist=50, _gaussian_size=2, _boundary_window_size=3, 
                             _make_plot=True, _save_coef_plot=False, _save_compartment_plot=False, _verbose=True):

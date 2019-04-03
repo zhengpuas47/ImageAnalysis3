@@ -144,15 +144,13 @@ def Load_Color_Usage(master_folder, color_filename='Color_Usage', color_format='
     return _color_usage, _dapi
 
 ## Load file Region_Positions in dataset folder
-
-
-def Load_Region_Positions(analysis_folder, color_filename='Region_Positions', color_format='csv',
+def Load_Region_Positions(analysis_folder, filename='Region_Positions', table_format='csv',
                           verbose=True):
     '''Function to load standard Color_Usage file:
     Inputs:
         analysis_folder: analysis directory of this dataset, path(string);
-        color_filename: filename and possible sub-path for color file, string;
-        color_format: format of color file, csv or txt
+        filename: filename and possible sub-path for color file, string;
+        table_format: format of color file, csv or txt
     Outputs:
         color_usage: dictionary of color usage, folder_name -> list of region ID
         dapi: whether dapi is used, bool
@@ -161,8 +159,8 @@ def Load_Region_Positions(analysis_folder, color_filename='Region_Positions', co
     _genomic_positions = {}
 
     # process with csv format
-    if color_format == 'csv':
-        _full_name = analysis_folder+os.sep+color_filename+"."+'csv'
+    if table_format == 'csv':
+        _full_name = analysis_folder+os.sep+filename+"."+'csv'
         if verbose:
             print("- Importing csv file:", _full_name)
         import csv
@@ -182,8 +180,8 @@ def Load_Region_Positions(analysis_folder, color_filename='Region_Positions', co
                                 _dic[_d] = int(_v)
                     _genomic_positions[_hyb] = _dic
     # process with txt format (\t splitted)
-    elif color_format == 'txt':
-        _full_name = analysis_folder+os.sep+color_filename+"."+'txt'
+    elif table_format == 'txt':
+        _full_name = analysis_folder+os.sep+filename+"."+'txt'
         if verbose:
             print("- Importing txt file:", _full_name)
         with open(_full_name, 'r') as _handle:
@@ -206,14 +204,14 @@ def Load_Region_Positions(analysis_folder, color_filename='Region_Positions', co
         print(f"-- {len(_genomic_positions)} genomic regions loaded!")
     return _genomic_positions
 
-
-def Load_ChIP_Data(analysis_folder, gene_name, postfix="ChIP-Seq_chr21", color_format='csv',
+# load chip-seq peak info
+def Load_ChIP_Data(analysis_folder, gene_name, postfix="ChIP-Seq_chr21", table_format='csv',
                    verbose=True):
     '''Function to load standard Color_Usage file:
     Inputs:
         analysis_folder: analysis directory of this dataset, path(string);
-        color_filename: filename and possible sub-path for color file, string;
-        color_format: format of color file, csv or txt
+        filename: filename and possible sub-path for color file, string;
+        table_format: format of color file, csv or txt
     Outputs:
         color_usage: dictionary of color usage, folder_name -> list of region ID
         dapi: whether dapi is used, bool
@@ -222,7 +220,7 @@ def Load_ChIP_Data(analysis_folder, gene_name, postfix="ChIP-Seq_chr21", color_f
     _chip_peaks = []
 
     # process with csv format
-    if color_format == 'csv':
+    if table_format == 'csv':
         _full_name = os.path.join(
             analysis_folder, str(gene_name)+'_'+postfix+".csv")
         if verbose:
@@ -245,7 +243,7 @@ def Load_ChIP_Data(analysis_folder, gene_name, postfix="ChIP-Seq_chr21", color_f
                             _dic[_k] = float(_v)
                     _chip_peaks.append(_dic)
     # process with txt format (\t splitted)
-    elif color_format == 'txt':
+    elif table_format == 'txt':
         _full_name = os.path.join(analysis_folder, str(gene_name)+'_'+postfix+".txt")
         if verbose:
             print("- Importing txt file:", _full_name)
@@ -270,6 +268,76 @@ def Load_ChIP_Data(analysis_folder, gene_name, postfix="ChIP-Seq_chr21", color_f
         print(f"-- {len(_chip_peaks)} {gene_name} ChIP-Seq peaks loaded!")
     return _chip_peaks
 
+# load RNA information
+def Load_RNA_Info(analysis_folder, filename='RNA_Info', table_format='csv',
+                  verbose=True):
+    '''Function to load standard RNA_Info:
+    ------------------------------------------------------------------------------
+    table_format:
+    RNA_id \t gene_name \t chr \t strand \t start \t end \t midpoint \n
+    r13 \t CYP4F29P \t chr21 \t - \t 13848364 \t 13843133 \t 13845748.5 \n
+    ------------------------------------------------------------------------------
+    Inputs:
+        analysis_folder: analysis directory of this dataset, path(string);
+        filename: filename and possible sub-path for color file, string;
+        table_format: table_format of color file, csv or txt
+        verbose: say something!, bool (default:True)
+    Outputs:
+        _rna_info: dictionary of RNAs labelled in experiment, 
+            rna_id -> dict of other formation
+        '''
+    # initialize as default
+    _rna_info = {}
+
+    # process with csv table_format
+    if table_format == 'csv':
+        _full_name = analysis_folder+os.sep+filename+"."+'csv'
+        if verbose:
+            print("- Importing csv file:", _full_name)
+        import csv
+        with open(_full_name, 'r') as _handle:
+            _reader = csv.reader(_handle)
+            _header = next(_reader)
+            if verbose:
+                print("- header:", _header)
+            for _content in _reader:
+                while len(_content) > 0 and _content[-1] == '':
+                    _content = _content[:-1]
+                if len(_content) > 1:
+                    _hyb = int(_content.pop(0))
+                    _dic = {_h: _c for _h, _c in zip(_header[1:], _content)}
+                    for _d, _v in _dic.items():
+                            if _d in ['start', 'end']:
+                                _dic[_d] = int(_v)
+                            if _d == 'midpoint':
+                                _dic[_d] = float(_v)
+                    _rna_info[_hyb] = _dic
+    # process with txt table_format (\t splitted)
+    elif table_format == 'txt':
+        _full_name = analysis_folder+os.sep+filename+"."+'txt'
+        if verbose:
+            print("- Importing txt file:", _full_name)
+        with open(_full_name, 'r') as _handle:
+            _line = _handle.readline().rstrip()
+            _header = _line.split('\t')
+            if verbose:
+                print("-- header:", _header)
+            for _line in _handle.readlines():
+                _content = _line.rstrip().split('\t')
+                while _content[-1] == '':
+                    _content = _content[:-1]
+                if len(_content) > 1:
+                    _hyb = int(_content.pop(0))
+                    _dic = {_h: _c for _h, _c in zip(_header[1:], _content)}
+                    for _d, _v in _dic.items():
+                            if _d in ['start', 'end']:
+                                _dic[_d] = int(_v)
+                            if _d == 'midpoint':
+                                _dic[_d] = float(_v)
+                    _rna_info[_hyb] = _dic
+    if verbose:
+        print(f"-- {len(_rna_info)} RNA information loaded!")
+    return _rna_info
 
 # function to match results from Load_Region_Positions and Load_ChIP_Data
 def match_peak_to_region(region_dic, peak_list, return_list=True):
@@ -278,7 +346,7 @@ def match_peak_to_region(region_dic, peak_list, return_list=True):
     _region_records = {_k:0 for _k in region_dic.keys()}
     for _peak in peak_list:
         for _rid, _region in region_dic.items():
-            if _peak['midpoint'] >= _region['start'] and _peak['midpoint'] <= _region['end']:
+            if _peak['midpoint'] >= _region['start'] and _peak['midpoint'] <= _region['end'] and _peak['chr'] == _region['chr']:
                 _region_records[_rid] += _peak['fold']
                 break
     if not return_list:
@@ -291,6 +359,18 @@ def match_peak_to_region(region_dic, peak_list, return_list=True):
             _ry[np.where(_rid == _rx)[0]] = _signal
         
         return _rx, _ry
+
+# function to match result from Load_Region_Positions to Load_RNA_Info 
+def match_RNA_to_DNA(rna_dic, region_dic):
+    """Function to match RNA to DNA region and append new information to RNA_dic"""
+    # initialize a dict
+    _updated_dic = {_k:_v for _k,_v in rna_dic.items()}
+    for _k, _rdic in _updated_dic.items():
+        for _rid, _region in region_dic.items():
+            if _rdic['midpoint'] >= _region['start'] and _rdic['midpoint'] <= _region['end'] \
+                    and _rdic['chr'] == _region['chr']:
+                _updated_dic[_k]['DNA_id'] = _rid
+    return _updated_dic 
 
 
 # function for finding bead_channel given color_usage profile
