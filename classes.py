@@ -107,12 +107,13 @@ def _pick_spot_in_batch(_cell, _pick_type='EM', _data_type='unique', _use_chrom_
 
 def _load_cell_in_batch(_cell, _data_type='all', _save_folder=None,
                         _decoded_flag=None, _distmap_data='unique', _distmap_pick='EM',
-                        _load_attrs=[], _overwrite=False, _verbose=True):
+                        _load_attrs=[], _exclude_attrs=[], _overwrite=False, _verbose=True):
     """Function to allow batch loading"""                   
     _cell._load_from_file(_data_type=_data_type, _save_folder=_save_folder, 
                           _decoded_flag=_decoded_flag, 
                           _distmap_data=_distmap_data, _distmap_pick=_distmap_data,  
-                          _load_attrs=_load_attrs, _overwrite=_overwrite, _verbose=_verbose)
+                          _load_attrs=_load_attrs, _exclude_attrs=_exclude_attrs,
+                          _overwrite=_overwrite, _verbose=_verbose)
 
 def _save_cell_in_batch(_cell, _data_type='cell_info', _save_dic={}, _save_folder=None, 
                       _unsaved_attrs=None, _clear_old_attrs=False, 
@@ -670,7 +671,8 @@ class Cell_List():
     def _create_cell(self, _parameter, _load_info=True, _color_filename='Color_Usage',
                      _load_segmentation=True, _load_drift=True, _drift_size=500, _drift_ref=0, 
                      _drift_postfix='_sequential_current_cor.pkl', _dynamic=True, 
-                     _load_cell=True, _save=False, _append_cell_list=False, _verbose=True):
+                     _load_cell=True, _exclude_attrs=[],
+                     _save=False, _append_cell_list=False, _verbose=True):
         """Function to create one cell_data object"""
         if _verbose:
             print(f"+ creating cell for fov:{_parameter['fov_id']}, cell:{_parameter['cell_id']}")
@@ -687,7 +689,8 @@ class Cell_List():
                                _dynamic=_dynamic, _force=False, _verbose=_verbose)
         # load cell_info
         if _load_cell and os.path.exists(os.path.join(_cell.save_folder, 'cell_info.pkl')):
-            _cell._load_from_file('cell_info', _overwrite=False, _verbose=_verbose)
+            _cell._load_from_file('cell_info', _exclude_attrs=_exclude_attrs,
+                                  _overwrite=False, _verbose=_verbose)
         if _save:
             _cell._save_to_file('cell_info')
         # whether directly store
@@ -696,7 +699,8 @@ class Cell_List():
         return _cell
 
     def _create_cells_fov(self, _fov_ids, _num_threads=None, _sequential_mode=False, _plot_segmentation=True, 
-                          _load_exist_info=True, _color_filename='Color_Usage', _load_annotated_only=True,
+                          _load_exist_info=True, _exclude_attrs=[],
+                          _color_filename='Color_Usage', _load_annotated_only=True,
                           _drift_size=500, _drift_ref=0, _drift_postfix='_current_cor.pkl', _coord_sel=None,
                           _dynamic=True, _save=False, _force_drift=False, _stringent=True, _verbose=True):
         """Create Cele_data objects for one field of view"""
@@ -798,7 +802,8 @@ class Cell_List():
                     _p['drift'] = _drift
             _args += [(_p, True, _color_filename, True, 
                        _direct_load_drift, _drift_size, _drift_ref, 
-                       _drift_postfix, _dynamic, True, False, 
+                       _drift_postfix, _dynamic, _load_exist_info, 
+                       _exclude_attrs, _save, 
                        False, _verbose) for _p in _params]
             del(_fov_segmentation_label, _params, _cell_ids)
         
@@ -2119,7 +2124,7 @@ class Cell_Data():
     def _load_from_file(self, _data_type='all', _save_folder=None, 
                         _decoded_flag=None, 
                         _distmap_data='unique', _distmap_pick='EM',  
-                        _load_attrs=[],
+                        _load_attrs=[], _exclude_attrs=[],
                         _overwrite=False, _verbose=True):
         """ Function to load cell_data from existing npz and pickle files
         Inputs:
@@ -2149,10 +2154,10 @@ class Cell_Data():
                 for _key, _value in _info_dic.items():
                     if not hasattr(self, _key) or _overwrite:
                         # if (load_attrs) specified:
-                        if len(_load_attrs) > 0 and _key in _load_attrs:
+                        if len(_load_attrs) > 0 and _key in _load_attrs and _key not in _exclude_attrs:
                             setattr(self, _key, _value)
                         # no load_attr specified
-                        elif len(_load_attrs) == 0:
+                        elif len(_load_attrs) == 0 and _key not in _exclude_attrs:
                             setattr(self, _key, _value)
             else:
                 print(f"No cell-info file found for fov:{self.fov_id}, cell:{self.cell_id}, skip!")
