@@ -125,6 +125,7 @@ def _save_cell_in_batch(_cell, _data_type='cell_info', _save_dic={}, _save_folde
 
 
 
+
 class Cell_List():
     """
     Class Cell_List:
@@ -894,21 +895,36 @@ class Cell_List():
             pass 
 
     # load processed cell info/unique/decoded/merfish from files
-    def _load_cells_from_files(self, _data_type='unique', _decoded_flag=None, 
-                               _distmap_pick=None, _distmap_data=None,  _overwrite_cells=False, _verbose=True):
+    def _load_cells_from_files(self, _data_type='cell_info', _num_threads=None, _save_folder=None,
+                               _decoded_flag=None, _distmap_data='unique', _distmap_pick='EM',
+                               _load_attrs=[], _exclude_attrs=[], _overwrite=False, _verbose=True):
         """Function to load cells from existing files"""
+        if _num_threads is None:
+            _num_threads = getattr(self, 'num_threads')
         if _verbose:
-            print("+ Load cells from existing files.")
+            print(f"+ Load {_data_type} for cells from existing files.")
         if not hasattr(self, 'cells') or len(self.cells) == 0:
-            raise ValueError('No cell information provided, should create cells first!')
+            raise ValueError(
+                'No cell information provided, should create cells first!')
         # check fov_id input
+        _loading_args = []
+        # prepare args
         for _cell in self.cells:
-            if _verbose:
-                print(f"++ loading info for fov:{_cell.fov_id}, cell:{_cell.cell_id}")
-            # call loading function for each cell
-            _cell._load_from_file(_data_type=_data_type, _save_folder=None, _load_attrs=[], _decoded_flag=_decoded_flag,
-                                  _distmap_pick=_distmap_pick, _distmap_data=_distmap_data,
-                                  _overwrite=_overwrite_cells, _verbose=_verbose)
+            _loading_args.append(_cell, _data_type, _save_folder,
+                                 _decoded_flag, _distmap_data, _distmap_pick,
+                                 _load_attrs, _exclude_attrs, _overwrite, _verbose)
+        if _verbose:
+            print(
+                f"++ {len(_loading_args)} of {_data_type} loading jobs planned.")
+        # load info by multi-processing!
+        with mp.Pool(_num_threads) as _loading_pool:
+            # Multi-proessing!
+            _loading_pool.starmap(_load_cell_in_batch,
+                                  _loading_args, chunksize=1)
+            # close multiprocessing
+            _loading_pool.close()
+            _loading_pool.join()
+            _loading_pool.terminate()
 
     # generate chromosome coordinates
     def _get_chromosomes_for_cells(self, _source='unique', _max_count= 90,
