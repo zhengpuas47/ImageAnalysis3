@@ -2593,7 +2593,7 @@ def translate_chromosome_coordinates(source_cell_data, target_cell_data, rotatio
 # find nearby seeds for given center references, used in bead-drift
 def find_matched_seeds(im, ref_centers, search_distance=3, 
                        gfilt_size=0.75, background_gfilt_size=10, filt_size=3, 
-                       dynamic=False, th_seed_percentile=95, th_seed=300, 
+                       dynamic=False, th_seed_percentile=95, th_seed=200, 
                        keep_unique=False, verbose=True):
     """Find nearby seeds for on given image for given ref_centers
     Inputs:

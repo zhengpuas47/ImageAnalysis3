@@ -177,6 +177,14 @@ def align_single_image(_filename, _selected_crops, _ref_filename=None, _ref_ims=
                                                             search_distance=_match_distance, 
                                                             keep_unique=_match_unique,
                                                             verbose=_verbose)
+        if len(_matched_tar_seeds) < len(_ref_center) * 0.2:
+            _matched_tar_seeds, _find_pair = visual_tools.find_matched_seeds(_tar_im,
+                                                                            _ref_center-_rough_drift,
+                                                                            dynamic=False,
+                                                                            th_seed_percentile=_ref_seed_per,
+                                                                            search_distance=_match_distance,
+                                                                            keep_unique=_match_unique,
+                                                                            verbose=_verbose)
         #print(len(_matched_tar_seeds), _rough_drift, _print_name)
         _matched_ref_center = _ref_center[_find_pair]
         if len(_matched_ref_center) == 0:
