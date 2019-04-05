@@ -111,7 +111,7 @@ def _load_cell_in_batch(_cell, _data_type='all', _save_folder=None,
     """Function to allow batch loading"""                   
     _cell._load_from_file(_data_type=_data_type, _save_folder=_save_folder, 
                           _decoded_flag=_decoded_flag, 
-                          _distmap_data=_distmap_data, _distmap_pick=_distmap_data,  
+                          _distmap_data=_distmap_data, _distmap_pick=_distmap_pick,  
                           _load_attrs=_load_attrs, _exclude_attrs=_exclude_attrs,
                           _overwrite=_overwrite, _verbose=_verbose)
 
