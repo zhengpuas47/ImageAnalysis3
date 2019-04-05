@@ -910,9 +910,9 @@ class Cell_List():
         _loading_args = []
         # prepare args
         for _cell in self.cells:
-            _loading_args.append(_cell, _data_type, _save_folder,
+            _loading_args.append((_cell, _data_type, _save_folder,
                                  _decoded_flag, _distmap_data, _distmap_pick,
-                                 _load_attrs, _exclude_attrs, _overwrite, _verbose)
+                                 _load_attrs, _exclude_attrs, _overwrite, _verbose))
         if _verbose:
             print(
                 f"++ {len(_loading_args)} of {_data_type} loading jobs planned.")
@@ -3132,22 +3132,22 @@ class Cell_Data():
         return _distmaps
 
     # merge a RNA cell_data to this DNA cell_data
-    def _merging_RNA_to_DNA(self, source_cell_data, _attr_feature='rna-',
+    def _merge_RNA_to_DNA(self, _source_cell_data, _attr_feature='rna-',
                             _load_in_ram=True, _save_to_file=True, 
                             _overwrite=False, _verbose=True):
         """Function to match decoded and unique regions and generate matched ids, spots, distance maps etc.
         Inputs:
-            source_cell_data: Input RNA cell_data with descent objects
+            _source_cell_data: Input RNA cell_data with descent objects
         """
         ## check inputs
         if _verbose:
             _start_time = time.time()
             print(
                 f"-- start merging cell_data for fov:{self.fov_id}, cell:{self.cell_id} ")
-        # load cell_info for source_cell_data
-        source_cell_data._load_from_file('cell_info', _verbose=_verbose)
+        # load cell_info for _source_cell_data
+        _source_cell_data._load_from_file('cell_info', _verbose=_verbose)
         # extract all attributes that are not function
-        _all_attrs = [_attr for _attr in dir(source_cell_data) if not _attr.startswith('_')]
+        _all_attrs = [_attr for _attr in dir(_source_cell_data) if not _attr.startswith('_')]
         # modify attributes by given _attr_feature
         for _i, _attr in enumerate(_all_attrs):
             if _attr_feature not in _attr:
@@ -3157,8 +3157,8 @@ class Cell_Data():
         for _i, _attr in enumerate(_all_attrs):
             if not hasattr(self, _attr) or _overwrite:
                 if _load_in_ram:
-                    setattr(self, _attr, getattr(source_cell_data, _attr))
-                _updated_dic[_attr] = getattr(source_cell_data, _attr)
+                    setattr(self, _attr, getattr(_source_cell_data, _attr))
+                _updated_dic[_attr] = getattr(_source_cell_data, _attr)
         # save
         if _save_to_file:
             self._save_to_file('cell_info', _save_dic=_updated_dic, _verbose=_verbose)
