@@ -114,6 +114,7 @@ def _load_cell_in_batch(_cell, _data_type='all', _save_folder=None,
                           _distmap_data=_distmap_data, _distmap_pick=_distmap_pick,  
                           _load_attrs=_load_attrs, _exclude_attrs=_exclude_attrs,
                           _overwrite=_overwrite, _verbose=_verbose)
+    return _cell
 
 def _save_cell_in_batch(_cell, _data_type='cell_info', _save_dic={}, _save_folder=None, 
                       _unsaved_attrs=None, _clear_old_attrs=False, 
@@ -919,12 +920,14 @@ class Cell_List():
         # load info by multi-processing!
         with mp.Pool(_num_threads) as _loading_pool:
             # Multi-proessing!
-            _loading_pool.starmap(_load_cell_in_batch,
-                                  _loading_args, chunksize=1)
+            _updated_cells = _loading_pool.starmap(_load_cell_in_batch,
+                                                   _loading_args, chunksize=1)
             # close multiprocessing
             _loading_pool.close()
             _loading_pool.join()
             _loading_pool.terminate()
+        # update
+        self.cells = _updated_cells
 
     # generate chromosome coordinates
     def _get_chromosomes_for_cells(self, _source='unique', _max_count= 90,
@@ -2364,25 +2367,25 @@ class Cell_Data():
                         raise ValueError("_distmap_pick should be a string!")
                 if _distmap_data is None or _distmap_pick is None:
                     _load_attr = 'distance_map'
-                    if _verbose:
-                        print(f"-- loading all {_load_attr} from saved-file")
                 else:
                     _load_attr = _distmap_pick + '_' + _distmap_data + '_' + 'distance_map'
-                    if _verbose:
-                        print(f"-- loading {_load_attr} from saved-file")
-                        return None
+                # open npz and load
                 with np.load(_save_filename) as handle:
                     if _load_attr in handle.keys():
+                        if _verbose:
+                            print(f"-- loading {_load_attr} from saved-file")
                         _distmap = handle[_load_attr]
                         # append to cell_data
                         setattr(self, _load_attr, _distmap)
                         return _distmap 
                     elif _distmap_data is None or _distmap_pick is None:
+                        if _verbose:
+                            print(f"-- loading all {_load_attr} from saved-file")                        
                         _all_maps = []
                         for _distmap_attr in handle.iterkeys():
                             if _load_attr in _distmap_attr:
                                 setattr(self, _distmap_attr, handle[_distmap_attr])
-                                all_maps.append(handle[_distmap_attr])
+                                _all_maps.append(handle[_distmap_attr])
                         return _all_maps
                     else:
                         print(f"--- {_load_attr} doesn't exist in saved file, exit!")
