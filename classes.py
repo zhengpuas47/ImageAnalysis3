@@ -960,15 +960,25 @@ class Cell_List():
                       'dec_text':{},
                       } # initialize _coord_dic for picking
         for _i, _cell in enumerate(self.cells):
+            # first try to load chrom_im if not exist right now
+            if not hasattr(_cell, 'chrom_im') and not _overwrite:
+                _cell._load_from_file('cell_info', _load_attrs=['chrom_im'], _verbose=_verbose)
+            # directly use chrom_im in cell_data
             if hasattr(_cell, 'chrom_im') and not _overwrite:
                 _cim = _cell.chrom_im
+            # else create a new chrom_im
             else:
                 _cim = _cell._generate_chromosome_image(_source=_source, _max_count=_max_count, _verbose=_verbose)
                 _cell.chrom_im = _cim
             _chrom_ims.append(_cim)
             _chrom_dims.append(np.array(np.shape(_cim)))
+            if not hasattr(_cell, 'chrom_coords') and not _overwrite:
+                 _cell._load_from_file('cell_info', _load_attrs=['chrom_coords'], 
+                                       _verbose=_verbose)
+            # directly use chrom_coords in cell_data
             if hasattr(_cell, 'chrom_coords') and not _overwrite:
                 _chrom_coords = _cell.chrom_coords
+            # else try to generate automatically
             else:
                 _chrom_coords = _cell._identify_chromosomes(_gaussian_size=_gaussian_size, _cap_percentile=_cap_percentile,
                                                             _seed_dim=_seed_dim, _th_percentile=_th_percentile,
@@ -2380,12 +2390,15 @@ class Cell_Data():
                         return _distmap 
                     elif _distmap_data is None or _distmap_pick is None:
                         if _verbose:
-                            print(f"-- loading all {_load_attr} from saved-file")                        
+                            print(f"-- loading all {_load_attr} from saved-file")
+                        # initialize a list to store saved distmaps                        
                         _all_maps = []
                         for _distmap_attr in handle.iterkeys():
+                            # load to ram if specified
                             if _load_attr in _distmap_attr:
                                 setattr(self, _distmap_attr, handle[_distmap_attr])
-                                _all_maps.append(handle[_distmap_attr])
+                            # append to all_maps
+                            _all_maps.append(handle[_distmap_attr])
                         return _all_maps
                     else:
                         print(f"--- {_load_attr} doesn't exist in saved file, exit!")
