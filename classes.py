@@ -961,7 +961,6 @@ class Cell_List():
             _saving_pool.join()
             _saving_pool.terminate()
 
-
     # generate chromosome coordinates
     def _get_chromosomes_for_cells(self, _source='unique', _max_count= 90,
                                    _gaussian_size=2, _cap_percentile=1, _seed_dim=3,

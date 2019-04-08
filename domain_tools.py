@@ -383,7 +383,7 @@ def subcompartment_calling(spots, distance_zxy=_distance_zxy, dom_sz=5, gfilt_si
             if save_name == '':
                 _result_save_name = 'subcompartment-calling.png'
             else:
-                _result_save_name += '_subcompartment-calling.png'
+                _result_save_name = save_name + '_subcompartment-calling.png'
             _full_result_filename = os.path.join(
                 save_folder, _result_save_name)
             if verbose:
