@@ -124,7 +124,18 @@ def _save_cell_in_batch(_cell, _data_type='cell_info', _save_dic={}, _save_folde
                         _unsaved_attrs=_unsaved_attrs, _clear_old_attrs=_clear_old_attrs, 
                         _overwrite=_overwrite, _verbose=_verbose)
 
-
+# batch merge cells
+def _merge_RNA_to_DNA_in_batch(_cell, _source_cell_data, _merge_type='cell_info',
+                               _attr_feature='rna-',
+                               _load_in_ram=True, _save_to_file=True, 
+                               _overwrite=False, _verbose=True):
+    """Function to allow batch cell_data merging"""
+    _cell._merge_RNA_to_DNA(_source_cell_data=_source_cell_data, 
+                            _merge_type=_merge_type,
+                            _attr_feature=_attr_feature,
+                            _load_in_ram=_load_in_ram, _save_to_file=_save_to_file, 
+                            _overwrite=_overwrite, _verbose=_verbose)
+    return _cell
 
 
 class Cell_List():
@@ -1458,6 +1469,87 @@ class Cell_List():
         else:
             return _averaged_map, _region_failure
 
+    # merge RNA list to DNA list
+    def _merge_RNA_to_DNA(self, _source_cell_list, _num_threads=None,
+                          _match_dic=None, 
+                          _merge_type='cell_info', _attr_feature='rna-',
+                          _load_in_ram=True, _save_to_file=True, 
+                          _overwrite=False, _verbose=True):
+        """Batch merge RNA to DNA in two cell_lists 
+        ---------------------------------------------------------------------------------
+        Inputs:
+        
+        
+        Outouts:"""
+        ## check inputs
+        if _verbose:
+            _start_time = time.time()
+            print(f"+ Start merging RNA {_merge_type} into cell list with cells:{len(self.cells)}")
+        if _num_threads is None:
+            _num_threads = self.num_threads
+        # merge type
+        _allowed_merge_types = ['cell_info','unique','distance_map']
+        _merge_type = _merge_type.lower()
+        if _merge_type not in _allowed_merge_types:
+            raise ValueError(f"Wrong input _merge_type:{_merge_type}, should be among {_allowed_merge_types}")
+        
+        # generate 1-1 match_dic
+        if _match_dic is None:
+            # default is match exactly with fov_id and cell_id
+            _match_dic = {(_cell.fov_id, _cell.cell_id): (_cell.fov_id, _cell.cell_id) for _cell in _source_cell_list.cells}
+        elif not isinstance(_match_dic, dict):
+            raise TypeError(f"_match_dic should be a dict rather than {type(_match_dic)}!")
+        else:
+            for _k,_v in _match_dic.items():
+                if len(_k) != 2 or len(_v) != 2:
+                    raise ValueError(f"Wrong input pair for _match_dic: {_k}:{_v}")
+                
+        # collect args
+        _merging_args = []
+        # now pair cell_data according to _match_dic
+        for _cell in _source_cell_list.cells:
+            # key for source cell_data
+            _cell_key = (_cell.fov_id, _cell.cell_id)
+            if _cell_key in _match_dic:
+                # query key for target cell_data
+                _target_cell_key = _match_dic[_cell_key]
+                # matched_cells 
+                _matched_cells =[_tc for _tc in self.cells if _tc.fov_id==_target_cell_key[0] and _tc.cell_id==_target_cell_key[1]]
+                if len(_matched_cells) == 1:
+                    _matched_cell = _matched_cells[0]
+                    # append arg
+                    _arg = (_matched_cell, _cell, _merge_type, _attr_feature,
+                            _load_in_ram, _save_to_file, _overwrite, _verbose)
+                    _merging_args.append(_arg)
+        if _verbose:
+            print(f"++ {len(_merging_args)} cells are going to merge with RNA info!")
+        # copy cells that are not in _match_dic
+        _not_merged_cells = [_cell for _cell in self.cells 
+                             if (_cell.fov_id, _cell.cell_id) not in list(_match_dic.values())]
+        if _verbose:
+            print(f"++ {len(_not_merged_cells)} cells are skipped for merging.")
+        # merge by multi-processing!
+        with mp.Pool(_num_threads) as _merging_pool:
+            if _verbose:
+                print(f"++ start multiprocessing merging RNA to DNA.")
+            # Multi-proessing!
+            _updated_cells = _merging_pool.starmap(_merge_RNA_to_DNA_in_batch,
+                                                   _merging_args, chunksize=1)
+            # close multiprocessing
+            _merging_pool.close()
+            _merging_pool.join()
+            _merging_pool.terminate()
+        
+        # update
+        if _load_in_ram:
+            if _verbose:
+                print(f"++ update cell_datas into cell_list")
+            self.cells = sorted(_updated_cells + _not_merged_cells, key=lambda c:[c.fov_id, c.cell_id])
+
+        if _verbose:
+            print(f"++ total time for merging RNA to DNA: {time.time()-_start_time}")
+
+
 class Cell_Data():
     """
     Class Cell_data:
@@ -2010,7 +2102,7 @@ class Cell_Data():
         if _unsaved_attrs is None:
             _unsaved_attrs = ['unique_ims', 'combo_groups','bead_ims', 'splitted_ims', 'decoded_ims']
         # create save_folder if needed
-        if _save_folder == None:
+        if _save_folder is None:
             _save_folder = self.save_folder
         if not os.path.exists(_save_folder):
             if _verbose:
@@ -2066,7 +2158,7 @@ class Cell_Data():
             _id_attr = _data_type + '_' + 'ids'
             _channel_attr = _data_type + '_' + 'channels'
             # generate save_filename:
-            _save_filename = os.path.join(self.save_folder, _data_type+'_'+'rounds.npz')
+            _save_filename = os.path.join(_save_folder, _data_type+'_'+'rounds.npz')
             _start_time = time.time()
             # check images
             if _im_attr in _save_dic:
@@ -2148,7 +2240,7 @@ class Cell_Data():
         if _data_type == 'distance_map':
             _start_time = time.time()
             # get save_file:
-            _save_filename = os.path.join(self.save_folder, 'distance_maps.npz')
+            _save_filename = os.path.join(_save_folder, 'distance_maps.npz')
             _loaded_dic = {}
             # load saved distmaps if necessary
             if os.path.isfile(_save_filename) and not _clear_old_attrs:
@@ -2203,7 +2295,7 @@ class Cell_Data():
             raise ValueError(f"Wrong _data_type kwd ({_data_type}) given!")
         if not _save_folder and not hasattr(self, 'save_folder'):
             raise ValueError('Save folder info not given!')
-        elif not _save_folder:
+        elif _save_folder is None:
             _save_folder = self.save_folder
 
         if _data_type == 'all' or _data_type == 'cell_info':
@@ -2229,7 +2321,7 @@ class Cell_Data():
             _id_attr = _data_type + '_' + 'ids'
             _channel_attr = _data_type + '_' + 'channels'
             # generate save_filename:
-            _save_filename = os.path.join(self.save_folder, _data_type+'_'+'rounds.npz')
+            _save_filename = os.path.join(_save_folder, _data_type+'_'+'rounds.npz')
             _start_time = time.time()
             if not os.path.exists(_save_filename):
                 print(f"- savefile {_save_filename} not exists, exit.")
@@ -2393,7 +2485,7 @@ class Cell_Data():
         if _data_type == 'all' or _data_type == 'distance_map':
             _start_time = time.time()
             # get save_file:
-            _save_filename = os.path.join(self.save_folder, 'distance_maps.npz')
+            _save_filename = os.path.join(_save_folder, 'distance_maps.npz')
             if not os.path.exists(_save_filename):
                 if _verbose:
                     print(f"--- distmap_savefile:{_save_filename} not exist, exit!")
@@ -2667,8 +2759,9 @@ class Cell_Data():
                 self._load_from_file(_data_type, _overwrite=False, _verbose=_verbose)
             else:
                 _temp_flag = False # not temporarily loaded
-                _ims = getattr(self, _im_attr)
-                _ids = getattr(self, _id_attr)
+            # in both cases set ims and ids
+            _ims = getattr(self, _im_attr)
+            _ids = getattr(self, _id_attr)
         elif _data_type == 'decoded':
             # check attributes
             if not hasattr(self, 'decoded_ims') or not hasattr(self, 'decoded_ids'):
@@ -2677,8 +2770,8 @@ class Cell_Data():
                 self._load_from_file('decoded', _decoded_flag=_decoded_flag, _overwrite=False, _verbose=_verbose)
             else:
                 _temp_flag = False  # not temporarily loaded
-                _ims = self.decoded_ims
-                _ids = self.decoded_ids
+            _ims = self.decoded_ims
+            _ids = self.decoded_ids
 
         # first check wether requires do it denovo
         if hasattr(self, _spot_attr) and not _overwrite:
@@ -2726,11 +2819,13 @@ class Cell_Data():
 
                 setattr(self, _spot_attr, _spots)
                 if _save:
-                    self._save_to_file('cell_info',_save_dic={_spot_attr: getattr(self, _spot_attr)})
+                    self._save_to_file('cell_info',_save_dic={_spot_attr: getattr(self, _spot_attr)},
+                                       _verbose=_verbose)
             elif _data_type == 'decoded':
                 self.decoded_spots = _spots
                 if _save:
-                    self._save_to_file('cell_info',_save_dic={'decoded_id':self.decoded_ids, 'decoded_spots':self.decoded_spots})
+                    self._save_to_file('cell_info',_save_dic={'decoded_id':self.decoded_ids, 'decoded_spots':self.decoded_spots},
+                                       _verbose=_verbose)
                 return self.decoded_spots
         return _spots
     # pick spots
@@ -3179,9 +3274,10 @@ class Cell_Data():
         return _distmaps
 
     # merge a RNA cell_data to this DNA cell_data
-    def _merge_RNA_to_DNA(self, _source_cell_data, _attr_feature='rna-',
-                            _load_in_ram=True, _save_to_file=True, 
-                            _overwrite=False, _verbose=True):
+    def _merge_RNA_to_DNA(self, _source_cell_data, _merge_type='cell_info',
+                          _attr_feature='rna-',
+                          _load_in_ram=True, _save_to_file=True, 
+                          _overwrite=False, _verbose=True):
         """Function to match decoded and unique regions and generate matched ids, spots, distance maps etc.
         Inputs:
             _source_cell_data: Input RNA cell_data with descent objects
@@ -3190,28 +3286,47 @@ class Cell_Data():
         if _verbose:
             _start_time = time.time()
             print(
-                f"-- start merging cell_data for fov:{self.fov_id}, cell:{self.cell_id} ")
-        # load cell_info for _source_cell_data
-        _source_cell_data._load_from_file('cell_info', _verbose=_verbose)
-        # extract all attributes that are not function
-        _all_attrs = [_attr for _attr in dir(_source_cell_data) if not _attr.startswith('_')]
-        # modify attributes by given _attr_feature
-        for _i, _attr in enumerate(_all_attrs):
-            if _attr_feature not in _attr:
-                _all_attrs[_i] = _attr_feature + _attr
-        # append!
-        _updated_dic = {}
-        for _i, _attr in enumerate(_all_attrs):
-            if not hasattr(self, _attr) or _overwrite:
-                if _load_in_ram:
-                    setattr(self, _attr, getattr(_source_cell_data, _attr))
-                _updated_dic[_attr] = getattr(_source_cell_data, _attr)
-        # save
-        if _save_to_file:
-            self._save_to_file('cell_info', _save_dic=_updated_dic, _verbose=_verbose)
-            if _verbose:
-                print(f"--- new attributes appended to cell_data:{_updated_dic.keys()}")        
-            
+                f"-- start merging {_merge_type} in cell_data for fov:{self.fov_id}, cell:{self.cell_id} ")
+        # merge type
+        _allowed_merge_types = ['cell_info','unique','distance_map']
+        _merge_type = _merge_type.lower()
+        if _merge_type not in _allowed_merge_types:
+            raise ValueError(f"Wrong input _merge_type:{_merge_type}, should be among {_allowed_merge_types}")
+        
+        ## merge infos in cell_info, which is the most useful option
+        if _merge_type == 'cell_info':
+            # load cell_info for _source_cell_data
+            _source_cell_data._load_from_file('cell_info', _verbose=_verbose)
+            # extract all attributes that are not function
+            _all_attrs = [_attr for _attr in dir(_source_cell_data) if not _attr.startswith('_')]
+            # modify attributes by given _attr_feature
+            _new_attrs = []
+            for _i, _attr in enumerate(_all_attrs):
+                if _attr_feature not in _attr:
+                    _new_attrs.append(_attr_feature + _attr)
+                else:
+                    _new_attrs.append(_attr)
+            # append!
+            _updated_dic = {}
+            for _i, (_attr, _new_attr) in enumerate(zip(_all_attrs, _new_attrs)):
+                if not hasattr(self, _new_attr) or _overwrite:
+                    if _load_in_ram:
+                        setattr(self, _new_attr, getattr(_source_cell_data, _attr))
+                    _updated_dic[_new_attr] = getattr(_source_cell_data, _attr)
+            # save
+            if _save_to_file:
+                self._save_to_file('cell_info', _save_dic=_updated_dic, _verbose=_verbose)
+                if _verbose:
+                    print(f"--- new attributes appended to cell_data:{_updated_dic.keys()}")        
+        ## merge unique images            
+        elif _merge_type == 'unique':
+            pass
+        ## merge distance maps (although presumbly there's no distance map for RNA?)
+        elif _merge_type == 'distance_map':
+            pass 
+
+        if _verbose:
+            print(f"--- time spent in merging RNA to DNA: {time.time()-_start_time}")       
 
     # transfer data_type for a cell_data object
     def _transfer_data_type(self, _data_type='unique', _target_type='rna-unique',
