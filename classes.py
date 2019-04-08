@@ -929,6 +929,39 @@ class Cell_List():
         # update
         self.cells = _updated_cells
 
+    # load processed cell info/unique/decoded/merfish from files
+    def _save_cells_to_files(self, _data_type='cell_info', _num_threads=None, _save_folder=None,
+                             _save_dic={}, _unsaved_attrs=None, _clear_old_attrs=False,
+                             _overwrite=False, _verbose=True):
+        """Function to load cells from existing files"""
+        if _num_threads is None:
+            _num_threads = getattr(self, 'num_threads')
+        if _verbose:
+            print(f"+ Save {_data_type} for cells from existing files.")
+        if not hasattr(self, 'cells') or len(self.cells) == 0:
+            raise ValueError(
+                'No cell information provided, should create cells first!')
+        # check fov_id input
+        _saving_args = []
+        # prepare args
+        for _cell in self.cells:
+            _saving_args.append((_cell, _data_type, _save_dic, _save_folder,
+                                 _unsaved_attrs, _clear_old_attrs, 
+                                 _overwrite, _verbose))
+        if _verbose:
+            print(
+                f"++ {len(_saving_args)} of {_data_type} loading jobs planned.")
+        # load info by multi-processing!
+        with mp.Pool(_num_threads) as _saving_pool:
+            # Multi-proessing!
+            _updated_cells = _saving_pool.starmap(_save_cell_in_batch,
+                                                   _saving_args, chunksize=1)
+            # close multiprocessing
+            _saving_pool.close()
+            _saving_pool.join()
+            _saving_pool.terminate()
+
+
     # generate chromosome coordinates
     def _get_chromosomes_for_cells(self, _source='unique', _max_count= 90,
                                    _gaussian_size=2, _cap_percentile=1, _seed_dim=3,
@@ -1275,7 +1308,6 @@ class Cell_List():
                     if _attr[0] != '_' and 'distance_map' in _attr:
                         delattr(_cell, _attr)
             self.cells = _updated_cells
-
 
     # Calculate population median / contact map
     def _calculate_population_map(self, _data_type='unique', _pick_type='EM', 
