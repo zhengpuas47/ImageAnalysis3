@@ -4,7 +4,7 @@ import pickle as pickle
 import multiprocessing as mp
 import psutil
 
-from . import get_img_info, corrections, visual_tools, alignment_tools, analysis
+from . import get_img_info, corrections, visual_tools, alignment_tools, analysis, domain_tools
 from . import _correction_folder,_temp_folder,_distance_zxy,_sigma_zxy,_image_size, _allowed_colors
 from .External import Fitting_v3
 from scipy import ndimage, stats
@@ -3295,9 +3295,9 @@ class Cell_Data():
             return _new_cell_data
         
     # old method to call AB compartments
-    def _call_AB_compartments(self, _data_type='unique', _force=False, _norm_matrix='normalization_matrix.npy', 
-                            _min_allowed_dist=50, _gaussian_size=2, _boundary_window_size=3, 
-                            _make_plot=True, _save_coef_plot=False, _save_compartment_plot=False, _verbose=True):
+    def _PCA_call_AB_compartments(self, _data_type='unique', _force=False, _norm_matrix='normalization_matrix.npy', 
+                                  _min_allowed_dist=50, _gaussian_size=2, _boundary_window_size=3, 
+                                  _make_plot=True, _save_coef_plot=False, _save_compartment_plot=False, _verbose=True):
         """Function to call AB compartment for given type of distance-map
         Inputs:
             _data_type: type of distance map given, unique / decoded
@@ -3387,6 +3387,62 @@ class Cell_Data():
                                                     'compartment_boundary_scores': self.compartment_boundary_scores})
         
         return getattr(self, 'compartment_boundaries'), getattr(self, 'compartment_boundary_scores')
+
+    def _call_sub_compartments(self, _data_type='unique', _pick_type='EM', _distance_zxy=None,
+                               _domain_size=5, _gfilt_size=1, _domain_dist_metric='ks',
+                               _domain_cluster_metric='average', _corr_th=0.64, _plot_result_image=True,
+                               _fig_dpi=200, _fig_dim=10, _fig_font_size=18,
+                               _save_result_fig=False, _save_folder=None, _save_name='',
+                               _save_to_info=True, _overwrite=False, _verbose=True):
+        """Function to call sub-compartment based on function:
+            domain_tools.subcompartment_calling
+        ---------------------------------------------------------------------------------------
+        """
+        ## check inputs:
+        if _distance_zxy is None:
+            _distance_zxy = self.distance_zxy
+        # input attr
+        _spot_attr = str(_data_type) + '_' + 'spots'
+        _picked_attr = str(_pick_type) + '_'+ 'picked' + '_' + _spot_attr
+        if not hasattr(self, _picked_attr):
+            self._load_from_file('cell_info', _load_attrs=[_picked_attr])
+            if not hasattr(self, _picked_attr):
+                print(f"No {_picked_attr} found in fov:{self.fov_id}, cell:{self.cell_id}")
+                return None
+        # output attr
+        _out_attr = 'sub-compartment' + '_' + 'starts'
+        self._load_from_file('cell_info', _load_attrs=[_out_attr])
+        if hasattr(self, _out_attr) and not _overwrite:
+            if _verbose:
+                print(f"-- directly load {_out_attr}, skip!")
+        else:
+            if _verbose:
+                print(f"-- start generating sub-compartment starts")
+            # initialize
+            _sc_starts = []
+            _hierarchy_trees = []
+            for _cid, _spots in enumerate(getattr(self, _picked_attr)):
+                _fig_savename = f'fov-{self.fov_id}_cell-{self.cell_id}_chr-{_cid}'
+                _s, _h = domain_tools.subcompartment_calling(
+                            _spots, distance_zxy=_distance_zxy,
+                            dom_sz=_domain_size, gfilt_size=_gfilt_size,
+                            domain_dist_metric=_domain_dist_metric,
+                            domain_cluster_metric=_domain_cluster_metric,
+                            corr_th=_corr_th, plot_steps=False, plot_results=True,
+                            fig_dpi=_fig_dpi, fig_dim=_fig_dim, fig_font_size=_fig_font_size,
+                            save_result_figs=_save_result_fig, save_folder=self.save_folder,
+                            save_name=_fig_savename, verbose=_verbose,
+                        )
+                _sc_starts.append(_s)
+                _hierarchy_trees.append(_h)
+            # save attribute
+            setattr(self, _out_attr, _sc_starts)
+            # save
+            if _save_to_info:
+                self._save_to_file('cell_info', _save_dic={_out_attr:_sc_starts}, 
+                                   _verbose=_verbose)
+        
+        return getattr(self, _out_attr)
         
 
 class Encoding_Group():
