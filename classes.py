@@ -137,6 +137,24 @@ def _merge_RNA_to_DNA_in_batch(_cell, _source_cell_data, _merge_type='cell_info'
                             _overwrite=_overwrite, _verbose=_verbose)
     return _cell
 
+# batch call sub_compartments
+def _call_sub_compartments_in_batch(_cell, _data_type='unique', _pick_type='EM', _distance_zxy=None,
+                               _domain_size=5, _gfilt_size=1, _domain_dist_metric='ks',
+                               _domain_cluster_metric='average', _corr_th=0.64, _plot_result_image=True,
+                               _fig_dpi=200, _fig_dim=10, _fig_font_size=18,
+                               _save_result_fig=False, _save_folder=None, _save_name='',
+                               _save_to_info=True, _overwrite=False, _verbose=True):
+    """Function to allow batch calling sub-compartments"""
+    _cell._call_sub_compartments(_data_type=_data_type, _pick_type=_pick_type, 
+                                 _distance_zxy=_distance_zxy, _domain_size=_domain_size, 
+                                 _gfilt_size=_gfilt_size, _domain_dist_metric=_domain_dist_metric,
+                                 _domain_cluster_metric=_domain_cluster_metric, 
+                                 _corr_th=_corr_th, _plot_result_image=_plot_result_image,
+                                 _fig_dpi=_fig_dpi, _fig_dim=_fig_dim, _fig_font_size=_fig_font_size,
+                                 _save_result_fig=_save_result_fig, _save_folder=_save_folder, 
+                                 _save_name=_save_name, _save_to_info=_save_to_info, 
+                                 _overwrite=_overwrite, _verbose=_verbose)
+    return _cell
 
 class Cell_List():
     """
@@ -3317,7 +3335,7 @@ class Cell_Data():
             if _save_to_file:
                 self._save_to_file('cell_info', _save_dic=_updated_dic, _verbose=_verbose)
                 if _verbose:
-                    print(f"--- new attributes appended to cell_data:{_updated_dic.keys()}")        
+                    print(f"--- {len(list(_updated_dic.keys()))} new attributes appended to cell_data")        
         ## merge unique images            
         elif _merge_type == 'unique':
             pass
