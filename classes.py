@@ -1254,22 +1254,22 @@ class Cell_List():
                 print(f"++ picking spots for cell:{_cell.cell_id} by {_pick_type} method:")
             # pick spots
             if _pick_type == 'dynamic':
-                _cell._dynamic_picking_spots(_type=_data_type, _use_chrom_coords=_use_chrom_coords,
+                _cell._dynamic_picking_spots(_data_type=_data_type, _use_chrom_coords=_use_chrom_coords,
                                              _distance_zxy=_distance_zxy, _w_int=1, _w_dist=_w_dist,
                                              _dist_ref=_dist_ref, _penalty_type=_penalty_type, _penalty_factor=_penalty_factor,
                                              _save=_save, _verbose=_verbose)
             elif _pick_type == 'naive':
-                _cell._naive_picking_spots(_type=_data_type, _use_chrom_coords=_use_chrom_coords,
+                _cell._naive_picking_spots(_data_type=_data_type, _use_chrom_coords=_use_chrom_coords,
                                            _save=_save, _verbose=_verbose)
             # make map:
             if _gen_distmap:
                 if _verbose:
                     print(f"+++ generating distance map for cell:{_cell.cell_id}")
-                _cell._generate_distance_map(_type=_data_type, _distance_zxy=_distance_zxy, _save_info=_save,
+                _cell._generate_distance_map(_data_type=_data_type, _distance_zxy=_distance_zxy, _save_info=_save,
                                              _save_plot=_save_plot, _limits=_plot_limits, _verbose=_verbose)
 
     # new version for batch pick spots
-    def _pick_spots_for_cells(self, _data_type='unique', _pick_type='EM',decoded_flag='diff',
+    def _pick_spots_for_cells(self, _data_type='unique', _pick_type='EM', decoded_flag='diff',
                               _num_threads=12, _use_chrom_coords=True, 
                               _distance_zxy=_distance_zxy, _local_size=5, _intensity_th=1,
                               _w_ccdist=1, _w_lcdist=0.1, _w_int=1, _w_nbdist=3,
@@ -1566,6 +1566,122 @@ class Cell_List():
 
         if _verbose:
             print(f"++ total time for merging RNA to DNA: {time.time()-_start_time}")
+
+    # get inteinsity statistics
+    def _get_intensity_stats(self, _data_type='unique', _pick_type='EM', 
+                             _type_marker_dic=None, _num_ref_species=5, 
+                             _gaussian_fitting_th=1.25,
+                             _save=True, _filename='spot_intensity', 
+                             _make_plot=False, _overwrite=False, _verbose=True):
+        """Get intensity statistics for given datatype"""
+        ## check inputs
+        if _verbose:
+            print(f"+ Get intensity information for {_data_type} given {len(self.cells)} cells")
+        # first check data_type input
+        _allowed_types = ['unique', 'decoded', 'rna-unique']
+        _data_type = _data_type.lower()
+        if _data_type not in _allowed_types:
+            raise KeyError(f"Wrong input key for _data_type:{_data_type}")
+        # color_dic
+        if 'rna-' in _data_type:
+            _use_RNA = True
+        self.cells[0]._load_from_file('cell_info')
+        if _use_RNA and hasattr(self.cells[0], 'rna-' + 'color_dic'):
+            _color_dic = getattr(self.cells[0], 'rna-'+'color_dic')
+        else:
+            _color_dic = getattr(self.cells[0], 'color_dic')
+        if _type_marker_dic is None:
+            _type_marker_dic = {'rna-unique':'r',
+                                'unique':'u', 
+                                'combo':'c'}
+        elif not isinstance(_type_marker_dic, dict):
+            raise TypeError(f"Wrong input type for _type_marker_dic, should be a dict, but {type(_type_marker_dic)} is given.")
+
+        # check saved file
+        _save_filename = os.path.join(self.save_folder,
+                                      str(_data_type)+'_'+_filename+'.pkl')
+        if os.path.isfile(_save_filename):
+            if _verbose:
+                print(f"++ directly load {_data_type} intensity from file:\n   {_save_filename}")
+            _id_gaussian = pickle.load(open(_save_filename, 'rb'))
+            return _id_gaussian
+        else:
+            if _verbose:
+                print(f"++ start acquiring {_data_type} intensities for different regions.")
+            # generate attribute name
+            _id_attr = _data_type + '_' + 'ids'
+            _channel_attr = _data_type + '_' + 'channels'
+            _spot_attr = _data_type + '_' + 'spots'
+
+            # load from cell_info to get these attributes
+            for _cell in self.cells:
+                if not hasattr(_cell, _id_attr) or not hasattr(_cell, _channel_attr) or not hasattr(_cell, _spot_attr):
+                    _cell._load_from_file('cell_info', _load_attrs=[_id_attr,_channel_attr,_spot_attr],
+                                        _verbose=_verbose)
+
+            _color_indices = {_c:[] for _c in self.channels}
+            for _hyb_fd, _info_lst in self.color_dic.items():
+                for _info, _c in zip(_info_lst, list(_color_indices.keys())[:len(_info_lst)]):
+                    if _type_marker_dic[_data_type] in _info:
+                        _uid = int(_info.split(_type_marker_dic[_data_type])[1])
+
+                        if _uid in getattr(self.cells[0], _id_attr):
+                            _color_indices[_c].append(getattr(self.cells[0], _id_attr).index(_uid))
+
+            
+            # record intensities
+            _intensities = {_i:[] for _i in getattr(self.cells[0],_id_attr)}
+
+            for _cell in self.cells:
+                if hasattr(_cell, _id_attr) and hasattr(_cell, _spot_attr):
+                    for _id, _spot_list in zip(getattr(_cell, _id_attr), getattr(_cell, _spot_attr)):
+                        if isinstance(_spot_list, list):
+                            for _spots in _spot_list:
+                                _intensities[_id].append(_spots[:,0])
+                        elif len(np.array(_spot_list)) == 2:
+                            _intensities[_id].append(np.array(_spot_list)[:,0])
+            # merge
+            _intensities = {_k:np.concatenate(_v) for _k,_v in _intensities.items()}
+
+            # pick 5 weakest regions/genes as channel representative
+            # fit channel specfic feature gaussian
+            _color_gaussians = {}
+            for _color, _inds in _color_indices.items():
+                if len(_inds) >= _num_ref_species:
+                    _color_medians = []
+                    for _i in _inds:
+                        _color_medians.append(np.nanmedian(_intensities[getattr(self.cells[0],_id_attr)[_i]]))
+                    _color_medians = np.array(_color_medians)
+                    _order = np.argsort(_color_medians)
+                    # select 5 genes with lowest median
+                    _selected_inds = np.array(_inds, dtype=np.int)[_order[:_num_ref_species]]
+                    _sel_ints = np.concatenate([_intensities[getattr(self.cells[0],_id_attr)[_j]] for _j in _selected_inds])
+                    # do gaussian fitting for background peak
+                    _mean, _std = stats.norm.fit(_sel_ints[_sel_ints<_gaussian_fitting_th])
+                    if _make_plot:
+                        plt.figure()
+                        plt.title(f"channel:{_color}, mean={_mean:.3f}, std={_std:.3f}")
+                        plt.hist(_sel_ints, 60, range=(0,2))
+                        plt.show()
+                    # append to color_gaussian
+                    _color_gaussians[_color] = {'mean':copy.copy(_mean), 'std':copy.copy(_std)} 
+                    
+            # summarize results
+            _id_gaussian = {}
+            for _id, _ch in zip(getattr(self.cells[0], _id_attr),getattr(self.cells[0], _channel_attr)):
+                _temp_dic = {'intensity': _intensities[_id],
+                            'params': [ _color_gaussians[str(_ch)]['mean'], _color_gaussians[str(_ch)]['std'] ]
+                            }
+                _id_gaussian[_id] = _temp_dic
+            # save
+            if _save:
+                if _verbose:
+                    print(f"++ save {_data_type} intensity info into file:{_save_filename}")
+                pickle.dump(_id_gaussian, open(_save_filename, 'wb'))
+
+
+            return _id_gaussian
+
 
 
 class Cell_Data():
@@ -2693,7 +2809,8 @@ class Cell_Data():
         _allowed_type_dic = {'unique':'unique_ims', 
                             'combo':'combo_groups',
                             }
-        _type_marker_dic = {'unique':'u', 
+        _type_marker_dic = {'rna-unique':'r',
+                            'unique':'u', 
                             'combo':'c'}
         _data_type = _data_type.lower()
         if _data_type not in _allowed_type_dic or _data_type not in _type_marker_dic:
@@ -3607,7 +3724,9 @@ class Cell_Data():
                                    _verbose=_verbose)
         
         return getattr(self, _out_attr)
-        
+
+
+
 
 class Encoding_Group():
     """defined class for each group of encoded images"""
