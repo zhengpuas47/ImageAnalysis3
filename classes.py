@@ -14,7 +14,6 @@ from skimage.segmentation import random_walker
 
 import matplotlib
 import matplotlib.pyplot as plt
-from matplotlib.cm import seismic_r
 
 
 def killtree(pid, including_parent=False, verbose=False):
@@ -310,12 +309,19 @@ class Cell_List():
         return _color_dic
 
     ## load RNA
-    def _load_rna_info(self, _filename='RNA_Info', _table_format='csv'):
+    def _load_rna_info(self, _filename='RNA_Info', _table_format='csv', 
+                       _match_to_genomic_region=True, _verbose=True):
         """Load RNA information"""
         _rna_dic = get_img_info.Load_RNA_Info(self.analysis_folder, filename=_filename,
-                                              table_format=_table_format)
+                                              table_format=_table_format, verbose=_verbose)
+        if _match_to_genomic_region:
+            _region_dic = self._load_genomic_regions(_verbose=_verbose)
+            _rna_dic = get_img_info.match_RNA_to_DNA(_rna_dic, _region_dic)
+        # set to attribute
         setattr(self, 'rna-info_dic', _rna_dic)
+
         return _rna_dic
+
     ## load genomic regions
     def _load_genomic_regions(self, _filename='Region_Positions', _table_format='csv', _verbose=True):
         """Function to load Genomic Positions etc."""
@@ -1189,7 +1195,7 @@ class Cell_List():
                                 _use_chrom_coords=True, _seed_th_per=50, _max_filt_size=3,
                                 _max_seed_count=6, _min_seed_count=3, _fit_window=40,
                                 _expect_weight=1000, _min_height=100, _max_iter=10, _th_to_end=1e-6,
-                                _save=True, _verbose=True):
+                                _save=True, _overwrite=False, _verbose=True):
         """Function to allow multi-fitting in cell_list"""
         ## Check attributes
         for _cell_id, _cell in enumerate(self.cells):
@@ -1213,7 +1219,7 @@ class Cell_List():
                                                 _width_zxy=self.sigma_zxy, _fit_radius=5,
                                                 _fit_window=_fit_window, _expect_weight=_expect_weight, 
                                                 _min_height=_min_height, _max_iter=_max_iter,
-                                                _save=_save, _verbose=_verbose)
+                                                _save=_save, _overwrite=_overwrite, _verbose=_verbose)
             if _clear_image_for_cell:
                 if _verbose:
                     print(f"++ clear images for {_data_type} in fov:{_cell.fov_id}, cell:{_cell.cell_id}")
@@ -1338,10 +1344,10 @@ class Cell_List():
             self.cells = _updated_cells
 
     # Calculate population median / contact map
-    def _calculate_population_map(self, _data_type='unique', _pick_type='EM', 
-                                  _max_loss_prob=0.2,_stat_type='median',
-                                  _contact_th=200,_make_plot=True, _save_plot=True, 
-                                  _save_name='distance_map',_cmap='seismic', _fig_dpi=300, 
+    def _calculate_population_map(self, _data_type='unique', _pick_type='EM', _stat_type='median',
+                                  _max_loss_prob=0.2, _pick_flag=None, _contact_th=200,
+                                  _make_plot=True, _save_plot=True, _save_name='distance_map',
+                                  _cmap='seismic', _fig_dpi=300, 
                                   _fig_size=4, _gfilt_size=0.75, _plot_limits=[0,2000],
                                   _release_ram=False, _return_all_maps=False, _verbose=True):
         """Calculate 'averaged' map for all cells in this list
@@ -1359,6 +1365,11 @@ class Cell_List():
             raise ValueError(f"Wrong _stat_type({_stat_type}) kwd is given!")
         if _cmap not in ['seismic', 'Reds']:
             raise ValueError(f"Wrong imnut _cmap:{_cmap}, exit!")
+        # check _pick_flag
+        if _pick_flag is not None:
+            if len(_pick_flag) != len(self.cells):
+                raise ValueError(f"_pick_flag should have exactly same length as cells!")
+        
         # get distmap attr
         if _pick_type != '':
             _distmap_attr = str(_pick_type) + '_' + str(_data_type) + '_' + 'distance_map'
@@ -1366,18 +1377,23 @@ class Cell_List():
             _distmap_attr = str(_data_type) + '_' + 'distance_map'    
         # detect distmap shape
         _distmap_shape=[]
-        for _cell in self.cells:
+        for _cell_id, _cell in enumerate(self.cells):
             if hasattr(_cell, _distmap_attr):
+                # loop through distmaps to get shape
                 for _distmap in getattr(_cell, _distmap_attr):
                     if np.shape(_distmap)[0] not in _distmap_shape:
                         _distmap_shape.append(np.shape(_distmap)[0])
             else:
                 # try to load distmap
                 _cell._load_from_file('distance_map', _distmap_data=_data_type, _distmap_pick=_pick_type, _verbose=False)
+                # then do the same: loop through distmaps to get shape
                 if hasattr(_cell, _distmap_attr):
                     for _distmap in getattr(_cell, _distmap_attr):
                         if np.shape(_distmap)[0] not in _distmap_shape:
                             _distmap_shape.append(np.shape(_distmap)[0])
+            # check if _pick_flag is fully given
+            if _pick_flag is not None and len(_pick_flag[_cell_id]) < len(getattr(_cell, _distmap_attr)):
+                raise IndexError(f"Wrong _pick_flag for cell-num:{_cell_id}, not enough flags are given")
 
         if len(_distmap_shape) == 0:
             print("No distant map loaded, return.")
@@ -1387,18 +1403,25 @@ class Cell_List():
 
         _cand_distmaps = []
         ## check and collect distance maps
-        for _cell in self.cells:
+        for _cell_id, _cell in enumerate(self.cells):
             if not hasattr(_cell, _distmap_attr):
                 if _verbose:
                     print(f"+++ fov:{_cell.fov_id}, cell:{_cell.cell_id} doesn't have {_distmap_attr}, skip!")
             else:
                 for _chrom_id, _distmap in enumerate(getattr(_cell, _distmap_attr)):
                     # calculate failed entries
-                    _failure_rate = np.sum(np.isnan(_distmap)) / np.size(_distmap)
-                    if _failure_rate > _max_loss_prob:
+                    _chr_failure_rate = np.sum(np.isnan(_distmap)) / np.size(_distmap)
+                    # screen out by flag
+                    if _pick_flag is not None and np.max(_pick_flag[_cell_id][_chrom_id]) < 1:
+                        if _verbose:
+                            print(
+                                f"+++ filtered out by pick_flag, fov:{_cell.fov_id}, cell:{_cell.cell_id}, chrom:{_chrom_id}")
+                    # screen out by failure rate
+                    elif _chr_failure_rate > _max_loss_prob:
                         if _verbose:
                             print(f"+++ filtered out by loss probability, fov:{_cell.fov_id}, cell:{_cell.cell_id}, chrom:{_chrom_id}")
                         continue
+                    # screen out by shape
                     elif np.shape(_distmap)[0] != max(_distmap_shape):
                         if _verbose:
                             print(f"+++ filtered out by dist-map shape, fov:{_cell.fov_id}, cell:{_cell.cell_id}, chrom:{_chrom_id}")
@@ -1409,7 +1432,7 @@ class Cell_List():
         ## calculate averaged map
         # acquire total map
         _total_map = np.array(_cand_distmaps, dtype=np.float)
-        _region_failure = np.sum(np.sum(np.isnan(_total_map),axis=1) >= \
+        _region_failure_rate = np.sum(np.sum(np.isnan(_total_map),axis=1) >= \
                                  _total_map.shape[2]-1, axis=0) / len(_total_map)
         # calculate averaged map
         if _stat_type == 'median':
@@ -1447,7 +1470,7 @@ class Cell_List():
                     _used_fovs.append(_cell.fov_id)
             _used_fovs = sorted(_used_fovs)
             plt.figure(figsize=(1.25*_fig_size, _fig_size), dpi=_fig_dpi)
-            plt.title(f"{_stat_type} map, num of chrom:{len(_cand_distmaps)}")
+            plt.title(f"{_stat_type} {_save_name}, N={len(_cand_distmaps)}")
             plt.imshow(_averaged_map, interpolation='nearest', cmap=_cmap,
                        vmin=min(_plot_limits), vmax=max(_plot_limits))
             if _stat_type == 'contact':
@@ -1464,6 +1487,7 @@ class Cell_List():
                     _filename = os.path.join(self.map_folder, f"{_stat_type}_{_save_name}_fov{min(_used_fovs)}-{max(_used_fovs)}_{_cmap}.png")
                 else:
                     _filename = os.path.join(self.map_folder, f"{_stat_type}_{_save_name}_fov{_used_fovs}_{_cmap}.png")
+
                 # add gaussian info if given
                 if _gfilt_size:
                     _filename = _filename.replace('.png', f'_g{_gfilt_size}.png')
@@ -1483,9 +1507,9 @@ class Cell_List():
         _save_attr = 'population_' + str(_pick_type)
         # return
         if _return_all_maps:
-            return _averaged_map, _total_map, _region_failure
+            return _averaged_map, _total_map, _region_failure_rate
         else:
-            return _averaged_map, _region_failure
+            return _averaged_map, _region_failure_rate
 
     # merge RNA list to DNA list
     def _merge_RNA_to_DNA(self, _source_cell_list, _num_threads=None,
@@ -1570,7 +1594,7 @@ class Cell_List():
     # get inteinsity statistics
     def _get_intensity_stats(self, _data_type='unique', _pick_type='EM', 
                              _type_marker_dic=None, _num_ref_species=5, 
-                             _gaussian_fitting_th=1.25,
+                             _gaussian_fitting_th=2,
                              _save=True, _filename='spot_intensity', 
                              _make_plot=False, _overwrite=False, _verbose=True):
         """Get intensity statistics for given datatype"""
@@ -1585,6 +1609,8 @@ class Cell_List():
         # color_dic
         if 'rna-' in _data_type:
             _use_RNA = True
+        else:
+            _use_RNA = False 
         self.cells[0]._load_from_file('cell_info')
         if _use_RNA and hasattr(self.cells[0], 'rna-' + 'color_dic'):
             _color_dic = getattr(self.cells[0], 'rna-'+'color_dic')
@@ -1600,7 +1626,7 @@ class Cell_List():
         # check saved file
         _save_filename = os.path.join(self.save_folder,
                                       str(_data_type)+'_'+_filename+'.pkl')
-        if os.path.isfile(_save_filename):
+        if os.path.isfile(_save_filename) and not _overwrite:
             if _verbose:
                 print(f"++ directly load {_data_type} intensity from file:\n   {_save_filename}")
             _id_gaussian = pickle.load(open(_save_filename, 'rb'))
@@ -1647,14 +1673,14 @@ class Cell_List():
             # fit channel specfic feature gaussian
             _color_gaussians = {}
             for _color, _inds in _color_indices.items():
-                if len(_inds) >= _num_ref_species:
+                if len(_inds) > 0:
                     _color_medians = []
                     for _i in _inds:
                         _color_medians.append(np.nanmedian(_intensities[getattr(self.cells[0],_id_attr)[_i]]))
                     _color_medians = np.array(_color_medians)
                     _order = np.argsort(_color_medians)
                     # select 5 genes with lowest median
-                    _selected_inds = np.array(_inds, dtype=np.int)[_order[:_num_ref_species]]
+                    _selected_inds = np.array(_inds, dtype=np.int)[_order[:min(len(_inds),_num_ref_species)]]
                     _sel_ints = np.concatenate([_intensities[getattr(self.cells[0],_id_attr)[_j]] for _j in _selected_inds])
                     # do gaussian fitting for background peak
                     _mean, _std = stats.norm.fit(_sel_ints[_sel_ints<_gaussian_fitting_th])
@@ -1679,9 +1705,217 @@ class Cell_List():
                     print(f"++ save {_data_type} intensity info into file:{_save_filename}")
                 pickle.dump(_id_gaussian, open(_save_filename, 'wb'))
 
-
             return _id_gaussian
 
+    # generate a p_val flag matching cell_list.cells
+    def _p_value_filter(self, _data_type='unique', _pick_type='EM', _use_chrom_coords=True,
+                        _ref_dist='gaussian', _ref_dist_params=None,
+                        _pval_th=[1e-6,0.01], _verbose=True):
+        """Function to filter acquired spots and filter by p-value specified"""
+        ## check inputs
+        if _verbose:
+            print(f"+ calculate p-value for {_ref_dist} of {_data_type} given {len(self.cells)} cells")
+        # first check data_type input
+        _allowed_types = ['unique', 'decoded', 'rna-unique']
+        _data_type = _data_type.lower()
+        if _data_type not in _allowed_types:
+            raise KeyError(f"Wrong input key for _data_type:{_data_type}")
+            
+        # generate attribute name
+        _id_attr = _data_type + '_' + 'ids'
+        _channel_attr = _data_type + '_' + 'channels'
+        _spot_attr = _data_type + '_' + 'spots'
+        
+        # check ref_dist_params
+        if _ref_dist_params is None:
+            if _verbose:
+                print(f"++ acquire param_dic from _get_intensity_stats:")
+            _param_dic = self._get_intensity_stats(_data_type=_data_type, _pick_type=_pick_type,
+                                                   _save=False, _make_plot=False, 
+                                                   _overwrite=False, _verbose=_verbose)
+        elif isinstance(_ref_dist_params, list) or isinstance(_ref_dist_params, list):
+            if _verbose:
+                print(f"++ generate ref_distribution parameter dict by {_ref_dist_params}")
+            self.cells[0]._load_from_file('cell_info', _load_attrs=[_id_attr], _verbose=_verbose)
+            _param_dic = {_id:{'params':_ref_dist_params} for _id in getattr(self.cells[0], _id_attr)}
+        elif isinstance(_ref_dist_params, dict):
+            _param_dic = _ref_dist_params
+        else:
+            raise TypeError("Wrong input type for _ref_dist_params")  
+        _pval_flags_by_id = {_id:[] for _id in getattr(self.cells[0], _id_attr)}
+        _pval_flags_by_cell = []
+        # loop through cells 
+        for _cell_id, _cell in enumerate(self.cells):
+            if _verbose and _cell_id % 100 == 0:
+                print(f"+++ {_cell_id} has been processed.")
+            if not hasattr(_cell, _id_attr) or not hasattr(_cell, _spot_attr) or not hasattr(_cell, 'chrom_coords'):
+                _cell._load_from_file('cell_info', _load_attrs=[_id_attr,_channel_attr,_spot_attr, 'chrom_coords'],
+                                      _verbose=_verbose)
+            if _use_chrom_coords:
+                if hasattr(_cell, _id_attr) and hasattr(_cell, _spot_attr) and hasattr(_cell, 'chrom_coords'):
+                    # initialize
+                    _cell_pval_dics = [{} for _i in range( max(len(getattr(_cell, _spot_attr)[0]), len(getattr(_cell, 'chrom_coords'))) )]
+                   
+                    for _id, _spot_lst in zip(getattr(_cell, _id_attr), getattr(_cell, _spot_attr)):
+                        
+                        if isinstance(_spot_lst, list):
+                            _cell_id_pval = [[]for _cc in _spot_lst]
+                            for _i, _spots in enumerate(_spot_lst):
+                                _ints = _spots[:,0]
+                                _flags = np.zeros(len(_ints), dtype=np.int)
+                                if _ref_dist == 'gaussian':
+                                    _z = (_ints - _param_dic[_id]['params'][0]) / _param_dic[_id]['params'][1]
+                                    _p_vals = stats.norm.sf(_z) #one-sided 
+                                    # save to flags
+                                    # for values significantly larger than distribution
+                                    _flags[_p_vals < np.min(_pval_th)] = 1
+                                    # for values that are not significantly larger than distribution
+                                    _flags[_p_vals >= np.max(_pval_th)] = -1 
+                                    
+                                    # the rest are set to 0 as default
+                                _cell_id_pval[_i].append(np.unique(_flags))
+                                _cell_pval_dics[_i][_id] = np.unique(_flags)
+                        else:
+                            _cell_id_pval = [[]
+                                             for _cc in getattr(_cell, 'chrom_coords')]
+                            # _spot_list is not list, directly append false flags
+                            for _i in range(len(getattr(_cell, 'chrom_coords'))):
+                                _cell_id_pval[_i].append(np.array([-1],dtype=np.int))
+                                _cell_pval_dics[_i][_id] = np.array([-1],dtype=np.int)
+                        # append cell_id_pval to _pval_flags_by_id
+                        _pval_flags_by_id[_id].append(_cell_id_pval)
+                else:
+                    print(f"-- no {_id_attr} or {_spot_attr} or chrom_coords are found in fov:{_cell.fov_id}, cell:{_cell.cell_id}, skip")
+                # append _cell_pval to _pval_flags_by_cell
+                for _j, _dic in enumerate(_cell_pval_dics):
+                    if len(_dic) < len(getattr(_cell, _id_attr)):
+                        _cell_pval_dics[_j] = {}
+                _pval_flags_by_cell.append(_cell_pval_dics)
+            
+        return _pval_flags_by_id, _pval_flags_by_cell
+    
+    # draw (gene) dependent maps
+    def _generate_dependent_maps(self, _flags, _gene_id=None, _name_by_rna=True,
+                                 _data_type='unique', _pick_type='EM', _stat_type='median',
+                                 _max_loss_prob=0.2, _make_plot=True, _save_plot=True,
+                                 _cmap='seismic', _fig_dpi=300, _save_name='distance_map',
+                                 _fig_size=4, _gfilt_size=0.75, _plot_limits=[0, 2000],
+                                 _verbose=True):
+        """Generate dependent distance-maps for given flags
+        Inputs:
+        Outputs:
+        """
+        ## check inputs
+        if _name_by_rna:
+            self._load_rna_info(_verbose=_verbose)
+            if _gene_id is not None and _gene_id in getattr(self, 'rna-info_dic'):
+                _save_name += '_' + \
+                    getattr(self, 'rna-info_dic')[_gene_id]['gene_name']
+                if 'DNA_id' in getattr(self, 'rna-info_dic')[_gene_id]:
+                    _save_name += f"_r{getattr(self, 'rna-info_dic')[_gene_id]['DNA_id']}"
+        # types
+        if _data_type not in ['unique', 'decoded']:
+            raise ValueError(
+                f"Wrong _data_type kwd given, should be unique or decoded, {_data_type} is given!")
+        _allowed_pick_types = ['EM', 'dynamic', 'naive']
+        if _pick_type not in _allowed_pick_types:
+            raise ValueError(
+                f"Wrong _pick_type kwd given ({_pick_type}), should be among {_allowed_pick_types}.")
+        if _stat_type not in ['median', 'mean', 'contact']:
+            raise ValueError(f"Wrong _stat_type({_stat_type}) kwd is given!")
+        # check _flags
+        if _flags is not None:
+            if len(_flags) != len(self.cells):
+                raise ValueError(
+                    f"_flags should have exactly same length as cells!")
+
+        ## start filtering flags
+        _on_flags = []
+        _off_flags = []
+        _on_count, _off_count = 0, 0
+        for _flg_lst, _cell in zip(_flags, self.cells):
+            _on_flg_per_cell, _off_flg_per_cell = [], []
+            for _chr_flg in _flg_lst:
+                if isinstance(_chr_flg, dict) and len(list(_chr_flg.keys())) > 0 :
+                    if _gene_id is None or _gene_id not in _chr_flg:
+                        print(_cell.fov_id, _cell.cell_id)
+                        raise ValueError(
+                            f"If you give flags which combines all genes, a gene_id is required.")
+                    else:
+                        _on_flg_per_cell.append(np.max(_chr_flg[_gene_id]) > 0)
+                        _off_flg_per_cell.append(np.max(_chr_flg[_gene_id]) < 0)
+                        if (np.max(_chr_flg[_gene_id]) > 0).all():
+                            _on_count += 1
+                        if (np.max(_chr_flg[_gene_id]) < 0).all():
+                            _off_count += 1
+                elif isinstance(_chr_flg, np.ndarray) or isinstance(_chr_flg, list):
+                    _on_flg_per_cell.append(np.max(_chr_flg) > 0)
+                    _off_flg_per_cell.append(np.max(_chr_flg) < 0)
+                    if (np.max(_chr_flg) > 0).all():
+                        _on_count += 1
+                    if (np.max(_chr_flg) < 0).all():
+                        _off_count += 1
+                else:
+                    # append false for both
+                    _on_flg_per_cell.append(np.array([0], dtype=np.bool))
+                    _off_flg_per_cell.append(np.array([0], dtype=np.bool))
+            _on_flags.append(_on_flg_per_cell)
+            _off_flags.append(_off_flg_per_cell)
+
+        if _verbose:
+            print(f"++ on chromosomes N={_on_count}, off chromosomes N={_off_count}")
+            print(f"++ start generating on and off maps")
+        ## draw on and off maps
+        _on_map, _on_failure_rate = self._calculate_population_map(_data_type=_data_type,
+                                                                    _pick_type=_pick_type, _stat_type=_stat_type,
+                                                                    _max_loss_prob=_max_loss_prob, _pick_flag=_on_flags, _contact_th=200,
+                                                                    _make_plot=_make_plot, _save_plot=_save_plot, _save_name=_save_name+'_on',
+                                                                    _cmap=_cmap, _fig_dpi=_fig_dpi,
+                                                                    _fig_size=_fig_size, _gfilt_size=_gfilt_size, _plot_limits=_plot_limits,
+                                                                    _release_ram=False, _return_all_maps=False, _verbose=_verbose)
+        _off_map, _off_failure_rate = self._calculate_population_map(_data_type=_data_type,
+                                                                        _pick_type=_pick_type, _stat_type=_stat_type,
+                                                                        _max_loss_prob=_max_loss_prob, _pick_flag=_off_flags, _contact_th=200,
+                                                                        _make_plot=_make_plot, _save_plot=_save_plot, _save_name=_save_name+'_off',
+                                                                        _cmap=_cmap, _fig_dpi=_fig_dpi,
+                                                                        _fig_size=_fig_size, _gfilt_size=_gfilt_size, _plot_limits=_plot_limits,
+                                                                        _release_ram=False, _return_all_maps=False, _verbose=_verbose)
+        ## get ratio map
+        _ratio_map = _on_map / _off_map
+        # generate_ratio map
+        if _make_plot:
+            if _verbose:
+                print(f"++ generating ratio map for {_save_name}")
+            _used_fovs = []
+            for _cell in self.cells:
+                if _cell.fov_id not in _used_fovs:
+                    _used_fovs.append(_cell.fov_id)
+            _used_fovs = sorted(_used_fovs)
+            # plot 
+            plt.figure(figsize=(1.25*_fig_size, _fig_size), dpi=_fig_dpi)
+            plt.title(f"{_stat_type} {_save_name} on-off ratio")
+            if _stat_type != 'contact':
+                _cmap += '_r'
+            plt.imshow(_ratio_map, interpolation='nearest', cmap=_cmap, vmin=0.8, vmax=1.2)
+            plt.colorbar(ticks=np.arange(0.8, 1.3, 0.1), label=f'{_stat_type} ratio')
+
+            if _save_plot:
+                if _verbose:
+                    print(f"++ saving {_stat_type} distance map.")
+                if len(_used_fovs) > 10:
+                    _ratio_filename = os.path.join(self.map_folder, f"{_stat_type}_{_save_name}_ratio_fov{min(_used_fovs)}-{max(_used_fovs)}_{_cmap}.png")
+                else:
+                    _ratio_filename = os.path.join(self.map_folder, f"{_stat_type}_{_save_name}_ratio_fov{_used_fovs}_{_cmap}.png")
+                # add gaussian info if given
+                if _gfilt_size:
+                    _ratio_filename = _ratio_filename.replace('.png', f'_g{_gfilt_size}.png')
+                if not os.path.exists(self.map_folder):
+                    os.makedirs(self.map_folder)
+                plt.savefig(_ratio_filename, transparent=True)
+            if __name__=='__main__':
+                plt.show()
+
+        return _on_map, _off_map, _ratio_map
 
 
 class Cell_Data():

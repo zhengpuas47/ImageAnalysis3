@@ -2063,7 +2063,10 @@ def EM_pick_spots(chrom_cand_spots, unique_ids, _chrom_coord=None,
         _th_sel = scoreatpercentile(_sel_scores, check_percentile)
         _th_other = scoreatpercentile(_other_scores, 100-check_percentile)
         _th_weight = check_th * (w_ccdist + w_lcdist + w_int + 1)
-        _final_check_th = max(_th_sel, _th_other, _th_weight)
+        if check_percentile > 0 and check_percentile < 100:
+            _final_check_th = max(_th_sel, _th_other, _th_weight)
+        else:
+            _final_check_th = _th_weight
         if verbose:
             print(f"-- applying stringency cehck for spots, theshold={_final_check_th}")
         # remove bad spots
