@@ -2160,3 +2160,7 @@ def EM_pick_spots(chrom_cand_spots, unique_ids, _chrom_coord=None,
             _return_args += (_other_scores,)
         # return!
         return _return_args
+
+
+def test_fun(a, b='1,', c='2,'):
+    print(a, b, c)

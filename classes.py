@@ -11,7 +11,7 @@ from scipy import ndimage, stats
 from scipy.spatial.distance import pdist,cdist,squareform
 from skimage import morphology
 from skimage.segmentation import random_walker
-
+from functools import partial
 import matplotlib
 import matplotlib.pyplot as plt
 
@@ -966,7 +966,7 @@ class Cell_List():
 
     # load processed cell info/unique/decoded/merfish from files
     def _save_cells_to_files(self, _data_type='cell_info', _num_threads=None, _save_folder=None,
-                             _save_dic={}, _unsaved_attrs=None, _clear_old_attrs=False,
+                             _save_list=[], _unsaved_attrs=None, _clear_old_attrs=False,
                              _overwrite=False, _verbose=True):
         """Function to load cells from existing files"""
         if _num_threads is None:
@@ -980,12 +980,15 @@ class Cell_List():
         _saving_args = []
         # prepare args
         for _cell in self.cells:
+            # generate a temp save_dic
+            _save_dic = {_k: getattr(_cell, _k) for _k in _save_list if hasattr(_cell, _k)}
+            # append save_arg
             _saving_args.append((_cell, _data_type, _save_dic, _save_folder,
                                  _unsaved_attrs, _clear_old_attrs, 
                                  _overwrite, _verbose))
         if _verbose:
             print(
-                f"++ {len(_saving_args)} of {_data_type} loading jobs planned.")
+                f"++ {len(_saving_args)} of {_data_type} loading jobs submitted to {_num_threads} threads.")
         # load info by multi-processing!
         with mp.Pool(_num_threads) as _saving_pool:
             # Multi-proessing!
@@ -1916,6 +1919,147 @@ class Cell_List():
                 plt.show()
 
         return _on_map, _off_map, _ratio_map
+
+    # run domain calling in batch
+    def _batch_domain_calling(self, _data_type='unique', _pick_type='EM', _method='iterative', _num_threads=None,
+                            _normalization=True, _distance_zxy=_distance_zxy, _domain_size=5, _gfilt_size=0.5,
+                            _split_level=1, _num_iter=5, _dist_metric='ks', _cluster_metric='ward',
+                            _corr_th=0.6, _dist_th=0.2, _plot_results=False, _dpi=100, _dim=10, _fontsize=18,
+                            _save_result_figure=False, save_folder=None, _method_add_to_attr=True,
+                            _save_info=True, _overwrite=False, _verbose=True):
+        """Function to call domains in batch"""
+        ## check inputs
+        if _verbose:
+            print(f"+ Start {_method} calling {_data_type} domains in batch")
+        # check specific attributes and initialize
+        _allowed_data_types = ['unique', 'decoded', 'rna-unique']
+        if _data_type not in _allowed_data_types:
+            raise ValueError(
+                f"Wrong input for _data_type:{_data_type}, should be among {_allowed_data_types}")
+        # extract attribute name for picked spots
+        _allowed_pick_types = ['EM', 'dynamic', 'naive', '']
+        if _pick_type not in _allowed_pick_types:
+            raise ValueError(
+                f"Wrong input for _pick_type:{_pick_type}, should be among {_allowed_pick_types}")
+        if _pick_type != '':
+            _key_attr = str(_pick_type) + '_picked_' + str(_data_type) + '_spots'
+        else:
+            _key_attr = 'picked_' + str(_data_type) + '_spots'
+        # check method
+        _method = str(_method).lower()
+        _allowed_methods = ['iterative', 'basic', 'local']
+        if _method not in _allowed_methods:
+            raise ValueError(
+                f"Wrong input for _method:{_method}, should be among {_allowed_methods}")
+
+        # extract result attribute and check if exists
+        _result_attr = 'domain_starts'
+        if _method_add_to_attr:
+            _result_attr = _method + '_' + _result_attr
+
+        # num_threads
+        if _num_threads is None:
+            _num_threads = getattr(self, 'num_threads')
+        # normalization
+        if _normalization:
+            # temporarily directly load
+            _normalization_file = os.path.join(
+                self.analysis_folder, 'normalization_matrix.npy')
+            if os.path.isfile(_normalization_file):
+                _norm_mat = np.load(_normalization_file)
+            else:
+                _norm_mat = False
+
+        ## loop through cells and acquire spots
+        _domain_args = []
+        _domain_indices = []
+        for _cell in self.cells:
+            # try to laod first
+            if not hasattr(_cell, _result_attr) or not hasattr(_cell, _key_attr):
+                _cell._load_from_file('cell_info', _load_attrs=[
+                                    _result_attr, _key_attr], _verbose=False)
+            if not hasattr(_cell, _key_attr):
+                if _verbose:
+                    print(
+                        f"+++ skip fov:{_cell.fov_id}, cell:{_cell.cell_id} without {_key_attr}!")
+                continue
+            # if attribute exists and not overwrite, exit
+            elif hasattr(_cell, _result_attr) and \
+                    len(getattr(_cell, _result_attr)) == len(getattr(_cell, _key_attr)) \
+                    and not _overwrite:
+                if _verbose:
+                    print(
+                        f"+++ skip fov:{_cell.fov_id}, cell:{_cell.cell_id} having {_result_attr}")
+            else:
+                for _chrom_id, _spots in enumerate(getattr(_cell, _key_attr)):
+                    # append args
+                    _domain_indices.append(
+                        [_cell.fov_id, _cell.cell_id, _chrom_id])
+                    _domain_args.append((_spots, _cell.save_folder))
+
+        ## start multi-processing
+        # get partially filled function
+        if _method == 'iterative':
+            _domain_func = partial(domain_tools.iterative_domain_calling,
+                                distance_zxy=_distance_zxy, dom_sz=_domain_size,
+                                gfilt_size=_gfilt_size, split_level=_split_level,
+                                num_iter=_num_iter, normalization_matrix=_norm_mat,
+                                domain_dist_metric=_dist_metric,
+                                domain_cluster_metric=_cluster_metric,
+                                corr_th=_corr_th, dist_th=_dist_th, plot_results=_plot_results,
+                                fig_dpi=_dpi, fig_dim=_dim, fig_font_size=_fontsize,
+                                save_result_figs=_save_result_figure, verbose=_verbose)
+        elif _method == 'basic':
+            _domain_func = partial(domain_tools.basic_domain_calling,
+                                distance_zxy=_distance_zxy, dom_sz=_domain_size,
+                                gfilt_size=_gfilt_size, normalization_matrix=_norm_mat,
+                                domain_dist_metric=_dist_metric,
+                                domain_cluster_metric=_cluster_metric,
+                                corr_th=_corr_th, dist_th=_dist_th, plot_results=_plot_results,
+                                fig_dpi=_dpi, fig_dim=_dim, fig_font_size=_fontsize,
+                                save_result_figs=_save_result_figure, verbose=_verbose)
+        elif _method == 'local':
+            pass
+
+        with mp.Pool(_num_threads) as _domain_pool:
+            if _verbose:
+                print(f"++ start multi-processing {_method} calling domains")
+                print(
+                    f"+++ {len(_domain_args)} jobs submitted to {_num_threads} threads ")
+
+            _domain_starts = _domain_pool.starmap(
+                _domain_func, _domain_args, chunksize=1)
+            # close multiprocessing
+            _domain_pool.close()
+            _domain_pool.join()
+            _domain_pool.terminate()
+        # clear
+        if __name__ == '__main__':
+            killchild()
+
+        ## save attr
+        if _verbose:
+            print(f"++ save attribute to cells.")
+        for _ind, _starts in zip(_domain_indices, _domain_starts):
+            _target_cell = [_cell for _cell in self.cells
+                            if _cell.fov_id == _ind[0] and _cell.cell_id == _ind[1]][0]
+            if not hasattr(_target_cell, _result_attr):
+                setattr(_target_cell, _result_attr, [])
+            if len(getattr(_target_cell, _result_attr)) < _ind[2]+1:
+                # create slots
+                for _cid in range(len(getattr(_target_cell, _result_attr)), _ind[2]+1):
+                    getattr(_target_cell, _result_attr).append([])
+            getattr(_target_cell, _result_attr)[_ind[2]] = _starts
+
+        # append empty list and save to cell_info
+        for _cell in self.cells:
+            if not hasattr(_cell, _result_attr):
+                setattr(_cell, _result_attr, [])
+        if _save_info and len(_domain_args) > 0:
+            # save if any new info generated
+            self._save_cells_to_files("cell_info", _save_list=[
+                                    _result_attr], _verbose=_verbose)
+        return _domain_starts
 
 
 class Cell_Data():
@@ -3903,61 +4047,6 @@ class Cell_Data():
         
         return getattr(self, 'compartment_boundaries'), getattr(self, 'compartment_boundary_scores')
 
-    def _call_sub_compartments(self, _data_type='unique', _pick_type='EM', _distance_zxy=None,
-                               _domain_size=5, _gfilt_size=1, _domain_dist_metric='ks',
-                               _domain_cluster_metric='average', _corr_th=0.64, _plot_result_image=True,
-                               _fig_dpi=200, _fig_dim=10, _fig_font_size=18,
-                               _save_result_fig=False, _save_folder=None, _save_name='',
-                               _save_to_info=True, _overwrite=False, _verbose=True):
-        """Function to call sub-compartment based on function:
-            domain_tools.subcompartment_calling
-        ---------------------------------------------------------------------------------------
-        """
-        ## check inputs:
-        if _distance_zxy is None:
-            _distance_zxy = self.distance_zxy
-        # input attr
-        _spot_attr = str(_data_type) + '_' + 'spots'
-        _picked_attr = str(_pick_type) + '_'+ 'picked' + '_' + _spot_attr
-        if not hasattr(self, _picked_attr):
-            self._load_from_file('cell_info', _load_attrs=[_picked_attr])
-            if not hasattr(self, _picked_attr):
-                print(f"No {_picked_attr} found in fov:{self.fov_id}, cell:{self.cell_id}")
-                return None
-        # output attr
-        _out_attr = 'sub-compartment' + '_' + 'starts'
-        self._load_from_file('cell_info', _load_attrs=[_out_attr])
-        if hasattr(self, _out_attr) and not _overwrite:
-            if _verbose:
-                print(f"-- directly load {_out_attr}, skip!")
-        else:
-            if _verbose:
-                print(f"-- start generating sub-compartment starts")
-            # initialize
-            _sc_starts = []
-            _hierarchy_trees = []
-            for _cid, _spots in enumerate(getattr(self, _picked_attr)):
-                _fig_savename = f'fov-{self.fov_id}_cell-{self.cell_id}_chr-{_cid}'
-                _s, _h = domain_tools.subcompartment_calling(
-                            _spots, distance_zxy=_distance_zxy,
-                            dom_sz=_domain_size, gfilt_size=_gfilt_size,
-                            domain_dist_metric=_domain_dist_metric,
-                            domain_cluster_metric=_domain_cluster_metric,
-                            corr_th=_corr_th, plot_steps=False, plot_results=True,
-                            fig_dpi=_fig_dpi, fig_dim=_fig_dim, fig_font_size=_fig_font_size,
-                            save_result_figs=_save_result_fig, save_folder=self.save_folder,
-                            save_name=_fig_savename, verbose=_verbose,
-                        )
-                _sc_starts.append(_s)
-                _hierarchy_trees.append(_h)
-            # save attribute
-            setattr(self, _out_attr, _sc_starts)
-            # save
-            if _save_to_info:
-                self._save_to_file('cell_info', _save_dic={_out_attr:_sc_starts}, 
-                                   _verbose=_verbose)
-        
-        return getattr(self, _out_attr)
 
 
 

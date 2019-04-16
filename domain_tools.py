@@ -21,114 +21,6 @@ from scipy.spatial.distance import cdist, pdist, squareform
 from scipy.cluster.hierarchy import linkage, dendrogram
 
 
-def compare_domains_2(_distmap, _domain_starts, _i1, _i2, gaussian_p_th=0.05, p_th=0.01, ks_th=0.3, make_plot=False, verbose=False):
-
-    _size = len(_distmap)
-
-    _s1 = _domain_starts[_i1]
-    if _i1 <= len(_domain_starts) - 2:
-        _e1 = _domain_starts[_i1+1]
-    else:
-        _e1 = _size
-
-    _s2 = _domain_starts[_i2]
-    if _i2 <= len(_domain_starts) - 2:
-        _e2 = _domain_starts[_i2+1]
-    else:
-        _e2 = _size
-
-    _b1 = np.ravel(np.triu(_distmap[_s1:_e1, _s1:_e1], 1))
-    _b2 = np.ravel(np.triu(_distmap[_s2:_e2, _s2:_e2], 1))
-
-    _intra_dist = np.concatenate([_b1, _b2])
-    _intra_dist = _intra_dist[np.isnan(_intra_dist) == False]
-    _intra_dist = _intra_dist[_intra_dist > 200]
-    _inter_dist = np.ravel(_distmap[_s1:_e1, _s2:_e2])
-    _inter_dist = _inter_dist[np.isnan(_inter_dist) == False]
-
-    # first test whether two distributions are gaussian
-    if normaltest(_intra_dist)[1] < gaussian_p_th and normaltest(_inter_dist)[1] < gaussian_p_th:
-        # now considered as testing normal means
-        _tt, _p = ttest_ind(_intra_dist, _inter_dist, equal_var=False)
-        _use_gaussian = True
-
-    else:
-        # not normal: do KS test
-        _ks, _p = ks_2samp(_intra_dist, _inter_dist)
-        _use_gaussian = False
-
-    # make plot
-    if make_plot:
-        plt.figure()
-        plt.title(f"Gaussian={_use_gaussian}, p={np.round(_p, 4)}")
-        plt.hist(_intra_dist, density=True, alpha=0.5, label='intra')
-        plt.hist(_inter_dist, density=True, alpha=0.5, label='inter')
-        plt.legend()
-        if __name__ == '__main__':
-            plt.show()
-        print(ks_2samp(_inter_dist, _intra_dist), _p, _use_gaussian)
-    if _use_gaussian:
-        return _p, _p < p_th
-    else:
-        return _p, (_p < p_th and _ks > ks_th)
-
-
-def _fuse_domains_2(distmap, domain_starts, gaussian_p_th=0.05, p_th=0.01, ks_th=0.3, make_plot=False, verbose=False):
-    _distmap = distmap.copy()
-    _starts = list(domain_starts)
-    while len(_starts) > 1:
-        _i = 1
-        _merge = 0
-        while _i < len(_starts)-1:
-            _p_left, _split_left = compare_domains_2(_distmap, _starts, _i, _i-1,
-                                                     gaussian_p_th=gaussian_p_th,
-                                                     p_th=p_th, ks_th=ks_th, make_plot=make_plot)
-            _p_right, _split_right = compare_domains_2(_distmap, _starts, _i, _i+1,
-                                                       gaussian_p_th=gaussian_p_th,
-                                                       p_th=p_th, ks_th=ks_th, make_plot=make_plot)
-            if not _split_left and _split_right:
-                _starts.pop(_i)
-                _merge += 1
-            elif _split_left and not _split_right:
-                _starts.pop(_i+1)
-                _merge += 1
-            elif not _split_left and not _split_right:
-                if _p_left > _p_right:
-                    _starts.pop(_i)
-                    _merge += 1
-                elif _p_right > _p_left:
-                    _starts.pop(_i+1)
-                    _merge += 1
-            _i += 1
-
-        if _merge == 0:
-            break
-    return _starts
-
-
-def domain_calling(distmap, gfilt_size=3, dom_sz=4, p_th=0.001, gaussian_p_th=0.05, ks_th=0.3, make_plot=False):
-
-    _kernel = Gaussian2DKernel(gfilt_size)
-    _distmap = distmap.copy()
-    # apply gaussian filter
-    if gfilt_size > 0:
-        for _i in range(len(_distmap)-1):
-            _distmap[_i, _i] = np.nan
-        _distmap = convolve(distmap, _kernel)
-    # calculate candidate domain boundary
-    _candidate_boundaries = _get_candidate_boundary(
-        _distmap, dom_sz=dom_sz, make_plot=make_plot)
-    # fuse candidate domains
-    _final_starts = _fuse_domains_2(_distmap, _candidate_boundaries, p_th=p_th,
-                                    gaussian_p_th=gaussian_p_th, ks_th=ks_th, make_plot=False)
-    _boundaries = _final_starts + [len(distmap)]
-
-    if make_plot:
-        _fig = plot_boundaries(distance_map=_distmap, boundaries=_boundaries)
-
-    return _boundaries
-
-
 def _get_candidate_boundary(_distmap, dom_sz=4, make_plot=False):
     
     _size = len(_distmap)
@@ -401,13 +293,13 @@ def merge_domains(_zxy, cand_bd_starts, norm_mat=None, corr_th=0.64, dist_th=0.2
     return cand_bd_starts
 
 
-def basic_domain_calling(spots, distance_zxy=_distance_zxy, dom_sz=5, gfilt_size=0.5,
+def basic_domain_calling(spots, save_folder=None,
+                         distance_zxy=_distance_zxy, dom_sz=5, gfilt_size=0.5,
                          normalization_matrix=r'Z:\References\normalization_matrix.npy',
                          domain_dist_metric='ks', domain_cluster_metric='ward',
                          corr_th=0.64, dist_th=0.2, plot_steps=False, plot_results=True,
                          fig_dpi=100,  fig_dim=10, fig_font_size=18,
-                         save_result_figs=False, save_folder=None, save_name='',
-                         verbose=True):
+                         save_result_figs=False, save_name='', verbose=True):
     """Function to call 'sub-compartments' by thresholding correlation matrices.
     --------------------------------------------------------------------------------
     The idea for subcompartment calling:
@@ -545,14 +437,14 @@ def basic_domain_calling(spots, distance_zxy=_distance_zxy, dom_sz=5, gfilt_size
     return cand_bd_starts
 
 
-def iterative_domain_calling(spots, distance_zxy=_distance_zxy, dom_sz=5, gfilt_size=0.5,
+def iterative_domain_calling(spots, save_folder=None,
+                             distance_zxy=_distance_zxy, dom_sz=5, gfilt_size=0.5,
                              split_level=1, num_iter=5, corr_th_scaling=1., dist_th_scaling=1.,
                              normalization_matrix=r'Z:\References\normalization_matrix.npy',
                              domain_dist_metric='ks', domain_cluster_metric='ward',
                              corr_th=0.6, dist_th=0.2, plot_steps=False, plot_results=True,
                              fig_dpi=100,  fig_dim=10, fig_font_size=18,
-                             save_result_figs=False, save_folder=None, save_name='',
-                             verbose=True):
+                             save_result_figs=False, save_name='', verbose=True):
     """Function to call 'sub-compartments' by thresholding correlation matrices.
     --------------------------------------------------------------------------------
     The idea for subcompartment calling:
@@ -597,6 +489,7 @@ def iterative_domain_calling(spots, distance_zxy=_distance_zxy, dom_sz=5, gfilt_
         norm_mat = np.load(normalization_matrix)
         _normalization = True
     elif isinstance(normalization_matrix, np.ndarray):
+        _normalization = True
         norm_mat = normalization_matrix.copy()
     else:
         _normalization = False
@@ -739,6 +632,8 @@ def iterative_domain_calling(spots, distance_zxy=_distance_zxy, dom_sz=5, gfilt_
                 _result_save_name = save_name + '_iterative_domain_calling.png'
             _full_result_filename = os.path.join(
                 save_folder, _result_save_name)
+            if os.path.isfile(_full_result_filename):
+                _full_result_filename.replace('.png', '_.png')
             if verbose:
                 print(
                     f"--- save result image into file:{_full_result_filename}")
@@ -750,3 +645,13 @@ def iterative_domain_calling(spots, distance_zxy=_distance_zxy, dom_sz=5, gfilt_
             f"-- total time for iterative domain calling: {time.time()-_start_time}")
 
     return cand_bd_starts
+
+
+def local_domain_calling(spots, save_folder=None,
+                         distance_zxy=_distance_zxy, dom_sz=5, gfilt_size=0.5,
+                         cutoff_max=0.5, plot_results=True,
+                         fig_dpi=100,  fig_dim=10, fig_font_size=18,
+                         save_result_figs=False, save_name='', verbose=True):
+    """Wrapper for local domain calling """
+     
+    DomainTools.standard_domain_calling_new(zxy)
