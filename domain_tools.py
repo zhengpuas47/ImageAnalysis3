@@ -230,7 +230,7 @@ def radius_of_gyration(segment):
     segment = np.linalg.norm(segment - np.nanmean(segment, axis=0), axis=1)
 
 
-def domain_distances(zxy1, zxy2, _measure='median',
+def domain_distances(zxy1, zxy2, _measure='median', dist_th=1, 
                      _normalization_mat=None, _dom1_bds=None, _dom2_bds=None):
     """Function to measure domain distances between two zxy arrays
     use KS-statistic as a distance:
@@ -260,18 +260,27 @@ def domain_distances(zxy1, zxy2, _measure='median',
         # not normalize? directly concatenate
         _intra_dist = np.concatenate(_intra_dist)
 
+    _kept_inter = _inter_dist[np.isnan(_inter_dist) == False]
+    _kept_intra = _intra_dist[np.isnan(_intra_dist) == False]
+    if len(_kept_inter) == 0 or len(_kept_intra) == 0:
+        return min(dist_th*2, 1)
+
     if _measure == 'median':
-        return np.abs(np.nanmedian(_inter_dist) - np.nanmedian(_intra_dist)) / np.abs(np.nanmedian(_inter_dist) + np.nanmedian(_intra_dist))
+        m_inter, m_intra = np.nanmedian(_inter_dist), np.nanmedian(_intra_dist)
+        v_inter, v_intra = np.nanmedian(
+            (_inter_dist-m_inter)**2), np.nanmedian((_intra_dist-m_intra)**2)
+        return (m_inter-m_intra)/np.sqrt(v_inter+v_intra)
     if _measure == 'mean':
-        return np.abs(np.nanmean(_inter_dist) - np.nanmean(_intra_dist)) / np.abs(np.nanmean(_inter_dist) + np.nanmean(_intra_dist))
+        m_inter, m_intra = np.nanmean(_inter_dist), np.nanmean(_intra_dist)
+        v_inter, v_intra = np.nanvar(_inter_dist), np.nanvar(_intra_dist)
+        return (m_inter-m_intra)/np.sqrt(v_inter+v_intra)
     if _measure == 'ks':
         if 'ks_2samp' not in locals():
             from scipy.stats import ks_2samp
-        return ks_2samp(_inter_dist[np.isnan(_inter_dist)==False], 
-                        _intra_dist[np.isnan(_intra_dist)==False])[0]
+        return ks_2samp(_kept_inter, _kept_intra)[0]
 
 
-def domain_pdists(dom_zxys, metric='ks', normalization_mat=None, domain_starts=None):
+def domain_pdists(dom_zxys, metric='distance', normalization_mat=None, domain_starts=None):
     """Calculate domain pair-wise distances, return a vector as the same order as
     scipy.spatial.distance.pdist """
     # first check whether do normalzation
@@ -363,7 +372,10 @@ def merge_domains(_zxy, cand_bd_starts, norm_mat=None, corr_th=0.64, dist_th=0.2
         else:
             _corr_inds = np.where(np.diag(_coef_mat, 1) >= -1)[0]+1
         _dist_inds =np.where(np.diag(squareform(_dm_pdists), 1) <= dist_th)[0]+1
-        _merge_inds = [int(_cid) for _cid in _corr_inds if _cid in _dist_inds]
+        if len(_dist_inds) > 0 and len(_corr_inds) > 0:
+            _merge_inds = [int(_cid) for _cid in _corr_inds if _cid in _dist_inds]
+        else:
+            _merge_inds = []
         # if there are any domain to be merged:
         if len(_merge_inds) > 0:
             # find the index with minimum distance bewteen neighboring domains
@@ -461,7 +473,7 @@ def basic_domain_calling(spots, distance_zxy=_distance_zxy, dom_sz=5, gfilt_size
                                    domain_dist_metric=domain_dist_metric,
                                    plot_steps=plot_steps, verbose=verbose)
 
-    # finish up and make plot
+    ## 3. finish up and make plot
     if plot_results and len(cand_bd_starts) > 1:
         _dm_pdists = domain_pdists(extract_sequences(_zxy, cand_bd_starts),
                                    metric=domain_dist_metric,

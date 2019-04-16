@@ -290,6 +290,7 @@ def interpolate_chr(_chr,gaussian=0):
             _new_chr[:,i]=interp1dnan(_new_chr[:,i])
         else:
             _new_chr[:,i]=nan_gaussian_filter(_new_chr[:,i],gaussian)
+            _new_chr[:, i] = interp1dnan(_new_chr[:, i])
     return _new_chr
 def Radius_of_Gyration_Segmentation(chromosome,interpolate=True,gaussian=0):
     """get segmentation info from radius of gyration information
