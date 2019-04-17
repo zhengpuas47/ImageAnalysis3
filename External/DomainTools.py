@@ -284,14 +284,22 @@ def best_combine_step(_chr, _groups):
     return _new_groups
 def interpolate_chr(_chr,gaussian=0):
     """linear interpolate chromosome coordinates"""
-    _new_chr = np.array(_chr)
-    for i in range(_new_chr.shape[-1]):
-        if gaussian==0:
-            _new_chr[:,i]=interp1dnan(_new_chr[:,i])
-        else:
-            _new_chr[:,i]=nan_gaussian_filter(_new_chr[:,i],gaussian)
-            _new_chr[:, i] = interp1dnan(_new_chr[:, i])
-    return _new_chr
+    _chr = np.array(_chr).copy()
+    for i in range(_chr.shape[-1]):
+        if gaussian > 0:
+            _chr[:, i] = nan_gaussian_filter(_chr[:, i], gaussian)
+    # interpolate
+    from scipy.interpolate import interp1d
+    not_nan_inds = np.where(np.isnan(_chr).sum(1) == 0)[0]
+    if len(not_nan_inds) == 0:
+        return _chr
+    else:
+        f = interp1d(np.arange(len(_chr))[not_nan_inds], _chr[not_nan_inds], 
+                    kind='linear', axis=0, bounds_error=False, 
+                    fill_value='extrapolate')
+        _interpolated_chr = f(np.arange(len(_chr)))
+        return _interpolated_chr
+
 def Radius_of_Gyration_Segmentation(chromosome,interpolate=True,gaussian=0):
     """get segmentation info from radius of gyration information
     (Adpoted from Tan et al., 2018, Science)
