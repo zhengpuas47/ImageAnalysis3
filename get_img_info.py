@@ -627,3 +627,86 @@ def get_num_frame(dax_filename, frame_per_color=_image_size[0], buffer_frame=10,
     _im_shape = [_num_frame, _dx, _dy]
 
     return _im_shape, _num_color
+
+
+def shuffle_channel_order(im_after, channels_before, channels_after, zlims):
+    ## convert and check input
+    _ch_before = [str(_ch) for _ch in channels_before]
+    _ch_after = [str(_ch) for _ch in channels_after]
+    for _ch in _ch_after:
+        if _ch not in _ch_before:
+            raise ValueError(
+                f"All channels in ch_after should be in ch_before, but {_ch} is found!")
+    # get original order
+    minz, maxz = np.sort(zlims)[:2]
+    zstep = len(channels_before)
+    _start_layers = minz + \
+        np.array([(_z+1-minz) % zstep for _z in np.arange(zstep)], dtype=np.int)
+    for _i, _s in enumerate(_start_layers):
+        if _s == minz:
+            _start_layers[_i] += zstep
+    _index_after = [_ch_before.index(_ch) for _ch in _ch_after]
+    _start_layers_after = _start_layers[np.array(_index_after)]
+    _channel_order_after = np.argsort(_start_layers_after)
+    for _i, _od in enumerate(_channel_order_after):
+        if _od == 0:
+            _channel_order_after[_i] += len(channels_after)
+    _layer_order = list(np.arange(minz+1))
+    while(max(_layer_order) < maxz):
+        _layer_order += list(_channel_order_after+max(_layer_order))
+    _layer_order += list(np.arange(max(_layer_order)+1, len(im_after)))
+
+    im_sorted = im_after[np.array(_layer_order)]
+    return im_sorted
+
+
+def Save_Dax(im, filename, dtype=np.uint16, overwrite=False,
+             save_info_file=False, source_dax_filename=None, save_other_files=False):
+    """Function to save an np.ndarray image file into dax
+    im: input image, np.ndarray
+    
+    """
+    _im = np.array(im, dtype=dtype)
+    if '.dax' not in filename:
+        filename += '.dax'
+    if os.path.isfile(filename) and not overwrite:
+        print(f"-- file:{filename} already exists, not overwrite dax so skip.")
+        return False
+    else:
+        # save dax
+        _im.tofile(filename)
+        if save_info_file:
+            if source_dax_filename is None:
+                raise ValueError(
+                    f"If save_info_file is specified, source dax filename should be specified")
+            else:
+                # load old_info
+                _old_info_file = source_dax_filename.replace('.dax', '.inf')
+                with open(_old_info_file, 'r') as _info_hd:
+                    _infos = _info_hd.readlines()
+                # modify number-of-frames
+                for _i, _line in enumerate(_infos):
+                    if "number of frames" in _line:
+                        _infos[_i] = f"{_line.split('=')[0]}= {int(_im.shape[0])}\n"
+                    if "frame dimensions" in _line:
+                        _infos[_i] = f"{_line.split('=')[0]}= {int(_im.shape[1])} x {int(_im.shape[2])}\n"
+                    if "frame size" in _line:
+                        _infos[_i] = f"{_line.split('=')[0]}= {int(_im.shape[1])*int(_im.shape[2])}\n"
+                # save to new file
+                _new_info_file = filename.replace('.dax', '.inf')
+                with open(_new_info_file, 'w') as _out_info_hd:
+                    _out_info_hd.writelines(_infos)
+        if save_other_files:
+            if source_dax_filename is None:
+                raise ValueError(
+                    f"If save_info_file is specified, source dax filename should be specified")
+            related_file_list = glob.glob(
+                source_dax_filename.replace('.dax', '*'))
+            related_file_list = [
+                _fl for _fl in related_file_list if '.dax' not in _fl and '.inf' not in _fl]
+            from shutil import copyfile
+            for _fl in related_file_list:
+                _new_fl = filename.replace('.dax', '.'+_fl.split('.')[-1])
+                copyfile(_fl, _new_fl)
+        return True
+

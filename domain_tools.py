@@ -653,5 +653,20 @@ def local_domain_calling(spots, save_folder=None,
                          fig_dpi=100,  fig_dim=10, fig_font_size=18,
                          save_result_figs=False, save_name='', verbose=True):
     """Wrapper for local domain calling """
-     
-    DomainTools.standard_domain_calling_new(zxy)
+    from .External.DomainTools import standard_domain_calling_new
+    ## 0. prepare coordinates
+    if verbose:
+        print(f"- start local domain calling")
+        _start_time = time.time()
+    _zxy = np.array(spots)[:, 1:4] * distance_zxy[np.newaxis, :]
+    # smooth
+    if gfilt_size is not None and gfilt_size > 0:
+        if verbose:
+            print(f"--- gaussian interpolate chromosome, sigma={gfilt_size}")
+        _zxy = DomainTools.interpolate_chr(_zxy, gaussian=gfilt_size)
+    # call bogdan's function
+    cand_bd_starts =  standard_domain_calling_new(_zxy, gaussian=0., 
+                                                  dom_sz=dom_sz, 
+                                                  cutoff_max=cutoff_max)
+
+    return cand_bd_starts

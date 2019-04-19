@@ -2019,7 +2019,12 @@ class Cell_List():
                                 fig_dpi=_dpi, fig_dim=_dim, fig_font_size=_fontsize,
                                 save_result_figs=_save_result_figure, verbose=_verbose)
         elif _method == 'local':
-            pass
+            _domain_func = partial(domain_tools.local_domain_calling,
+                                   distance_zxy=_distance_zxy, dom_sz=_domain_size, 
+                                   gfilt_size=_gfilt_size,
+                                   cutoff_max=_dist_th, plot_results=_plot_results,
+                                   fig_dpi=_dpi, fig_dim=_dim, fig_font_size=_fontsize,
+                                   save_result_figs=_save_result_figure, verbose=_verbose)
 
         with mp.Pool(_num_threads) as _domain_pool:
             if _verbose:

@@ -1,4 +1,4 @@
-import sys,os,re, time
+import sys,os,re,time,glob
 import numpy as np
 import pickle as pickle
 import matplotlib.pylab as plt
@@ -2051,14 +2051,14 @@ def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0,
     _start_layer = minz
 
     if fl.split('.')[-1] == 'dax' and zstep > 1:
-        _lims = [minz + (_z+1+minz) % zstep for _z in zs]
+        _lims = [minz + (_z + 1 - minz) % zstep for _z in zs]
         _new_lims = []
         for _i, _l in enumerate(_lims):
             if _l - minz == 0:
                 _lims[_i] += zstep
         _start_layer = min(_lims)
     else:
-        _start_layer = minz + min([(_z+1+minz) % zstep for _z in zs])
+        _start_layer = minz + min([(_z + 1 - minz) % zstep for _z in zs])
     # get data
     _data_cts = [0 for _z in zs]
     _res = [(_z+1) % zstep for _z in zs]
@@ -2090,6 +2090,109 @@ def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0,
     else:
         return _ims
 
+def slice_image_remove_channel(fl, sizes, zstep, remove_zstarts, 
+                               zlims=None, xlims=None, ylims=None, 
+                               npy_start=128, image_dtype=np.uint16, 
+                               verbose=False):
+    """
+    Slice image in a memory-efficient manner.
+    Inputs:
+        fl: filename of a binary np.uint16 image or matrix. 
+            Notice: .dax is binary file stored from data.tofile("temp.dax"), is a header-less nd-array. 
+            However '.npy' file has some header in the beginning, which is ususally 128 Bytes, string(path)
+        sizes: size of raw image in z-x-y order, array-like struct of 3 example:[30,2048,2048]
+        zstep: number of steps to take one z-stack image, positive int 
+        remove_zstarts: channel id(s), non-negative int or list of nn-int 
+        zlims: limits in z axis (axis0), array-like struct of 2
+        xlims: limits in x axis (axis1), array-like struct of 2
+        ylims: limits in y axis (axis2), array-like struct of 2
+        npy_start: starting bytes for npy format, int (default: 64)
+    Output:
+        data: cropped 3D image
+    Usage:
+        fl = 'Z:\\20181022-IMR90_whole-chr21-unique\\H0R0\\Conv_zscan_00.dax'
+        im = slice_image(fl, [170, 2048, 2048],[10, 160], [100, 300], [1028, 2048],5,4)
+    """
+    if isinstance(remove_zstarts, int):
+        zs = [remove_zstarts]
+    elif isinstance(remove_zstarts, list):
+        _zs, _inds = np.unique(remove_zstarts, return_index=True)
+        zs = list(np.array(remove_zstarts)[np.sort(_inds)])
+    else:
+        raise TypeError(
+            f"Wrong input type for remove_zstarts, should be int or list of int, {type(remove_zstarts)} is given!")
+    for _z in zs:
+        if _z >= zstep or _z < 0:
+            raise Warning(
+                f"Wrong z-start input:{_z}, should be non-negeative integer < {zstep}")
+    if zstep <= 0:
+        raise ValueError(
+            f"Wrong z-step input:{zstep}, should be positive integer.")
+    # image dimension
+    sz, sx, sy = sizes[:3]
+    # set default limits to be size of image
+    if zlims is None:
+        zlims = [0, sz]
+    if xlims is None:
+        xlims = [0, sx]
+    if ylims is None:
+        ylims = [0, sy]
+    # acquire min-max indices
+    minz, maxz = np.sort(zlims)[:2]
+    minx, maxx = np.sort(xlims)[:2]
+    miny, maxy = np.sort(ylims)[:2]
+    # acquire dimension
+    dz = int((maxz-minz)/zstep)
+    dx = int(maxx-minx)
+    dy = int(maxy-miny)
+    # acquire element size
+    element_size = np.dtype(image_dtype).itemsize
+
+    if dx <= 0 or dy <= 0 or dz <= 0:
+        print("-- slicing result is empty.")
+        return np.array([])
+    # initialize
+    _kept_layers = []
+    # file handle
+    f = open(fl, "rb")
+    # starting point
+    if fl.split('.')[-1] == 'npy':
+        if verbose:
+            print(f"- slicing .npy file, start with {npy_start}")
+        pt_pos = np.int(npy_start / element_size)
+    else:
+        pt_pos = 0
+    # initialize pointers
+    pt_pos += minx*sy + miny
+
+    # start layer
+    _start_layer = minz + 1
+
+    # get data
+    _res = [(_z+1) % zstep for _z in zs]
+    for iz in range(sz):
+        # if this layer to be removed, skip
+        if iz >= _start_layer and iz <= maxz and iz % zstep in _res:
+            # skip the whole layer
+            pt_pos += sx * sy
+        # else, keep
+        else:
+            _data_layer = np.zeros([dx, dy], dtype=image_dtype)
+            for ix in range(dx):
+                # record dy data
+                f.seek(pt_pos * element_size, 0)
+                _data_layer[ix, :] = np.fromfile(
+                    f, dtype=image_dtype, count=dy)
+                # skip to next line
+                pt_pos += sy
+            _kept_layers.append(_data_layer)
+            # skip to next layer
+            pt_pos += (sx-dx) * sy
+            
+    # close and return
+    f.close()
+    
+    return np.array(_kept_layers, dtype=image_dtype)
 
 def slice_2d_image(fl, im_shape, xlims, ylims, npy_start=128, image_dtype=np.uint16, verbose=False):
     """Function to slice 2d image directly by avoiding loading in RAM
@@ -2674,3 +2777,94 @@ def select_sparse_centers(centers, distance_th=9, distance_norm=np.inf):
     
     return np.array(_sel_centers)
 
+# remove a channel in dax file and resave
+def Remove_Dax_Channel(source_filename, target_filename, source_channels,
+                       keep_channels=_allowed_colors, image_dtype=np.uint16,
+                       num_buffer_frames=10, single_im_size=_image_size,
+                       save_dax=True, save_info=True, save_other=True,
+                       return_image=True, overwrite=False, verbose=False):
+    """Function to remove some channels from a Dax file and re-save
+    Inputs:
+        source_filename: input dax filename
+        target_filename: output dax filename
+        source_channels: input dax file-channels
+        keep_channels: kept channels in output dax file, which will be converted to subset of source_channels
+        image_dtype: datatype for image, datatype from numpy (default: np.uint16)
+        num_buffer_frames: number of frames that are at beginning and end of z-scan, int (default: 10)
+        single_im_size: 3d image shape for image in one channel, array-like of 3 (default: [30,2048,2048])
+        save_dax: whether save .dax file to target_filename, bool (default: True)
+        save_info: whether save .inf file together with .dax, bool (default: True)
+        save_other: whether save other files together with .dax, bool (default: True)
+        return_image: whether return image, bool (default: True)
+        overwrite: whether overwrite existing dax files, bool (default: False)
+        verbose: say something! bool (default: True)
+    """
+    ## convert and check input
+    # filenames
+    if '.dax' not in source_filename or not os.path.isfile(source_filename):
+        raise ValueError(
+            f"Wrong input source_filename, no correct .dax file exists!")
+    # channels
+    _ch_before = [str(_ch) for _ch in source_channels]
+    _ch_after = [str(_ch) for _ch in keep_channels if _ch in _ch_before]
+    if verbose:
+        print(f"-- start remove channel from:{source_filename}, \n \
+            original channels:{len(_ch_before)}, kept channels:{len(_ch_after)}")
+    # get ch-ids to be removed
+    _remove_cids = [_i for _i, _ch in enumerate(
+        _ch_before) if _ch not in _ch_after]
+    # get image ids
+    _im_shape, _num_channels = get_img_info.get_num_frame(source_filename, single_im_size[0],
+                                                          buffer_frame=num_buffer_frames,
+                                                          verbose=verbose)
+    if _num_channels != len(source_channels):
+        raise ValueError(
+            f"Number of channels from info file:{_num_channels} doesn't match given source_channels:{source_channels}, exit!")
+    _kept_im = slice_image_remove_channel(source_filename, _im_shape, _num_channels,
+                                        remove_zstarts=_remove_cids,
+                                        zlims=[num_buffer_frames, _im_shape[0]-num_buffer_frames],
+                                        image_dtype=image_dtype, verbose=verbose)
+    # shuffle frame order
+    _sorted_im = get_img_info.shuffle_channel_order(_kept_im, _ch_before, _ch_after,
+                                                    zlims=[num_buffer_frames, _kept_im.shape[0]-num_buffer_frames])
+    if save_dax:
+        if verbose:
+            print(f"--- saving spliced images to file:{target_filename}")
+        _save_flag = get_img_info.Save_Dax(_sorted_im, target_filename,
+                                           source_dax_filename=source_filename,
+                                           overwrite=overwrite, save_info_file=save_info,
+                                           save_other_files=save_other)
+    else:
+        _save_flag = False
+    if return_image:
+        return _sorted_im, _save_flag
+    else:
+        return _save_flag
+
+def Batch_Remove_Dax_Channel(source_folder, target_folder, source_channels,
+                             num_threads=12, keep_channels=_allowed_colors, image_dtype=np.uint16,
+                             num_buffer_frames=10, single_im_size=_image_size,
+                             save_dax=True, save_info=True, save_other=True,
+                             overwrite=False, verbose=False):
+    """Batch to remove some channels from a Dax file and re-save, please refer to Remove_Dax_Channel"""
+    source_dax_files = glob.glob(os.path.join(source_folder, "*.dax"))
+    target_dax_files = [_sfl.replace(source_folder, target_folder) for _sfl in source_dax_files]
+    _args = [(_sfl, _tfl, source_channels, keep_channels, 
+              image_dtype, num_buffer_frames, single_im_size,
+              save_dax, save_info, save_other, False, overwrite, 
+              verbose) for _sfl, _tfl in zip(source_dax_files, target_dax_files)]
+    if verbose:
+        print(f"- Start batch convert dax from {source_folder} to {target_folder}")
+    with mp.Pool(num_threads) as _pool:
+        if verbose:
+            print(f"-- {len(_args)} images processing by {num_threads} threads.")
+        _flags = _pool.starmap(Remove_Dax_Channel, _args)
+        _pool.close()
+        _pool.join()
+        _pool.terminate()
+    
+    if verbose:
+        print(f"-- {np.sum(_flags)} / {len(_args)} iamges been saved.")
+    
+    return _flags
+    
