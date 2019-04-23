@@ -652,7 +652,7 @@ def local_domain_calling(spots, save_folder=None,
                          cutoff_max=0.5, plot_results=True,
                          fig_dpi=100,  fig_dim=10, fig_font_size=18,
                          save_result_figs=False, save_name='', verbose=True):
-    """Wrapper for local domain calling """
+    """Wrapper for local domain calling in bogdan's code"""
     from .External.DomainTools import standard_domain_calling_new
     ## 0. prepare coordinates
     if verbose:

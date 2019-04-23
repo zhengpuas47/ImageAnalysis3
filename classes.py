@@ -1713,7 +1713,7 @@ class Cell_List():
     # generate a p_val flag matching cell_list.cells
     def _p_value_filter(self, _data_type='unique', _pick_type='EM', _use_chrom_coords=True,
                         _ref_dist='gaussian', _ref_dist_params=None,
-                        _pval_th=[1e-6,0.01], _verbose=True):
+                        _pval_th=[1e-6,0.01], _save_info=True, _verbose=True):
         """Function to filter acquired spots and filter by p-value specified"""
         ## check inputs
         if _verbose:
@@ -1728,7 +1728,7 @@ class Cell_List():
         _id_attr = _data_type + '_' + 'ids'
         _channel_attr = _data_type + '_' + 'channels'
         _spot_attr = _data_type + '_' + 'spots'
-        
+        _result_attr = _data_type + '_' + 'pval_flags'
         # check ref_dist_params
         if _ref_dist_params is None:
             if _verbose:
@@ -1789,12 +1789,18 @@ class Cell_List():
                         _pval_flags_by_id[_id].append(_cell_id_pval)
                 else:
                     print(f"-- no {_id_attr} or {_spot_attr} or chrom_coords are found in fov:{_cell.fov_id}, cell:{_cell.cell_id}, skip")
-                # append _cell_pval to _pval_flags_by_cell
+                # clear bad _cell_pval_dics
                 for _j, _dic in enumerate(_cell_pval_dics):
                     if len(_dic) < len(getattr(_cell, _id_attr)):
                         _cell_pval_dics[_j] = {}
+                # append _cell_pval to _pval_flags_by_cell
                 _pval_flags_by_cell.append(_cell_pval_dics)
-            
+                # save attributes
+                setattr(_cell, _result_attr, _cell_pval_dics) # this is an empty list if no chrom_coords and spots in this cell
+        # save if necessary
+        if _save_info:
+            self._save_cells_to_files('cell_info', _save_list=[_result_attr], _verbose=_verbose)
+
         return _pval_flags_by_id, _pval_flags_by_cell
     
     # draw (gene) dependent maps
