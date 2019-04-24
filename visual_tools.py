@@ -2041,11 +2041,11 @@ def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0,
     if fl.split('.')[-1] == 'npy':
         if verbose:
             print(f"- slicing .npy file, start with {npy_start}")
-        pt_pos = np.int(npy_start / element_size)
+        pt_pos = int(npy_start / element_size)
     else:
         pt_pos = 0
     # initialize pointers
-    pt_pos += minx*sy + miny
+    pt_pos += int(minx*sy + miny)
 
     # start layer
     _start_layer = minz
@@ -2075,14 +2075,14 @@ def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0,
                 _data_layer[ix, :] = np.fromfile(
                     f, dtype=image_dtype, count=dy)
                 # skip to next line
-                pt_pos += sy
+                pt_pos += int(sy)
             _ims[_data_index][_data_cts[_data_index], :, :] = _data_layer
             _data_cts[_data_index] += 1
             # skip to next layer
-            pt_pos += (sx-dx) * sy
+            pt_pos += int((sx-dx) * sy)
         else:
             # skip the whole layer
-            pt_pos += sx * sy
+            pt_pos += int(sx * sy)
     # close and return
     f.close()
     if isinstance(zstart, int):
