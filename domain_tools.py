@@ -341,13 +341,19 @@ def basic_domain_calling(spots, save_folder=None,
     elif isinstance(normalization_matrix, np.ndarray):
         norm_mat = normalization_matrix.copy()
     else:
+        norm_mat = None
         _normalization = False
 
     ## 0. prepare coordinates
     if verbose:
         print(f"-- start basic domain calling")
         _start_time = time.time()
-    _zxy = np.array(spots)[:, 1:4] * distance_zxy[np.newaxis, :]
+    # get zxy
+    _spots = np.array(spots)
+    if _spots.shape[1] == 3:
+        _zxy = _spots
+    else:
+        _zxy = np.array(_spots)[:, 1:4] * distance_zxy[np.newaxis, :]
     # smooth
     if gfilt_size is not None and gfilt_size > 0:
         if verbose:
@@ -492,6 +498,7 @@ def iterative_domain_calling(spots, save_folder=None,
         _normalization = True
         norm_mat = normalization_matrix.copy()
     else:
+        norm_mat = None 
         _normalization = False
     if corr_th_scaling <= 0:
         raise ValueError(
@@ -503,7 +510,12 @@ def iterative_domain_calling(spots, save_folder=None,
     if verbose:
         print(f"- start iterative domain calling")
         _start_time = time.time()
-    _zxy = np.array(spots)[:, 1:4] * distance_zxy[np.newaxis, :]
+    # get zxy
+    _spots = np.array(spots)
+    if _spots.shape[1] == 3:
+        _zxy = _spots
+    else:
+        _zxy = np.array(_spots)[:, 1:4] * distance_zxy[np.newaxis, :]
     # smooth
     if gfilt_size is not None and gfilt_size > 0:
         if verbose:
@@ -658,7 +670,11 @@ def local_domain_calling(spots, save_folder=None,
     if verbose:
         print(f"- start local domain calling")
         _start_time = time.time()
-    _zxy = np.array(spots)[:, 1:4] * distance_zxy[np.newaxis, :]
+    _spots = np.array(spots)
+    if _spots.shape[1] == 3:
+        _zxy = _spots
+    else:
+        _zxy = np.array(_spots)[:, 1:4] * distance_zxy[np.newaxis, :]
     # smooth
     if gfilt_size is not None and gfilt_size > 0:
         if verbose:

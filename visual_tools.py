@@ -2018,11 +2018,11 @@ def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0,
         raise ValueError(
             f"Wrong z-step input:{zstep}, should be positive integer.")
     # image dimension
-    sz, sx, sy = sizes[:3]
+    sz, sx, sy = np.array(sizes, dtype=np.int)[:3]
     # acquire min-max indices
-    minz, maxz = np.sort(zlims)[:2]
-    minx, maxx = np.sort(xlims)[:2]
-    miny, maxy = np.sort(ylims)[:2]
+    minz, maxz = np.sort(np.array(zlims, dtype=np.int))[:2]
+    minx, maxx = np.sort(np.array(xlims, dtype=np.int))[:2]
+    miny, maxy = np.sort(np.array(ylims, dtype=np.int))[:2]
     # acquire dimension
     dz = int((maxz-minz)/zstep)
     dx = int(maxx-minx)
@@ -2392,6 +2392,7 @@ def crop_multi_channel_image(filename, channels, crop_limits=None, num_buffer_fr
     _full_im_shape, _num_color = get_img_info.get_num_frame(filename,
                                                             frame_per_color=single_im_size[0],
                                                             buffer_frame=num_buffer_frames)
+    print(_full_im_shape, _num_color)
     _zlims = [num_buffer_frames+_drift_limits[0, 0]*_num_color,
               num_buffer_frames+_drift_limits[0, 1]*_num_color]
     # slice image
