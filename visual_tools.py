@@ -1077,8 +1077,9 @@ def DAPI_segmentation(ims, names,
 
     # illumination correction
     if illumination_correction:
-        _ims = [corrections.Illumination_correction(_im, illumination_correction_channel, correction_folder=correction_folder,
-                                                verbose=verbose) for _im in _ims]
+        _ims = [corrections.Illumination_correction(_im, illumination_correction_channel, 
+                                                    correction_folder=correction_folder,
+                                                    verbose=verbose) for _im in _ims]
 
     # rescale image to 0-1 gray scale
     _limits = [stats.scoreatpercentile(_im, (cap_percentile, 100.-cap_percentile)).astype(np.float) for _im in _ims]

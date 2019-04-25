@@ -320,7 +320,7 @@ def Illumination_correction(im, correction_channel, crop_limits=None, all_channe
                 f"Test image is not of full image size:{single_im_size}, while crop_limits are not given, exit!")
         else:
             # change crop_limits into full image size
-            crop_limits = np.stack([np.zeros(3), im_shape]).T
+            crop_limits = np.stack([np.zeros(3), im_shape]).T.astype(np.int)
     elif len(crop_limits) <= 1 or len(crop_limits) > 3:
         raise ValueError("crop_limits should have 2 or 3 elements")
     elif len(crop_limits) == 2:
@@ -337,7 +337,7 @@ def Illumination_correction(im, correction_channel, crop_limits=None, all_channe
     if not (im_shape[-2:]-single_im_size[-2:]).any():
         cim = im[crop_limits[0, 0]:crop_limits[0, 1],
                  crop_limits[1, 0]:crop_limits[1, 1],
-                 crop_limits[2, 0]:crop_limits[2, 1], ]
+                 crop_limits[2, 0]:crop_limits[2, 1] ]
     elif not (im_shape-crop_shape).any():
         cim = im
     else:
