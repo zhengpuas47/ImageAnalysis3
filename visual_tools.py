@@ -1516,7 +1516,7 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405, num_threads=
                 np.save(_fl, _lb)
         else:
             for _fl, _lb in zip(save_filenames, _seg_labels):
-                pickle.dump(_lb, open(_fl, 'wb'))
+                 mp(_lb, open(_fl, 'wb'))
     if return_images:
         return _seg_labels, _ims
     else:
@@ -2160,11 +2160,11 @@ def slice_image_remove_channel(fl, sizes, zstep, remove_zstarts,
     if fl.split('.')[-1] == 'npy':
         if verbose:
             print(f"- slicing .npy file, start with {npy_start}")
-        pt_pos = np.int(npy_start / element_size)
+        pt_pos = int(npy_start / element_size)
     else:
         pt_pos = 0
     # initialize pointers
-    pt_pos += minx*sy + miny
+    pt_pos += int(minx*sy + miny)
 
     # start layer
     _start_layer = minz + 1
@@ -2175,7 +2175,7 @@ def slice_image_remove_channel(fl, sizes, zstep, remove_zstarts,
         # if this layer to be removed, skip
         if iz >= _start_layer and iz <= maxz and iz % zstep in _res:
             # skip the whole layer
-            pt_pos += sx * sy
+            pt_pos += int(sx * sy)
         # else, keep
         else:
             _data_layer = np.zeros([dx, dy], dtype=image_dtype)
@@ -2185,10 +2185,10 @@ def slice_image_remove_channel(fl, sizes, zstep, remove_zstarts,
                 _data_layer[ix, :] = np.fromfile(
                     f, dtype=image_dtype, count=dy)
                 # skip to next line
-                pt_pos += sy
+                pt_pos += int(sy)
             _kept_layers.append(_data_layer)
             # skip to next layer
-            pt_pos += (sx-dx) * sy
+            pt_pos += int((sx-dx) * sy)
             
     # close and return
     f.close()
@@ -2393,7 +2393,6 @@ def crop_multi_channel_image(filename, channels, crop_limits=None, num_buffer_fr
     _full_im_shape, _num_color = get_img_info.get_num_frame(filename,
                                                             frame_per_color=single_im_size[0],
                                                             buffer_frame=num_buffer_frames)
-    print(_full_im_shape, _num_color)
     _zlims = [num_buffer_frames+_drift_limits[0, 0]*_num_color,
               num_buffer_frames+_drift_limits[0, 1]*_num_color]
     # slice image

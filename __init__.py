@@ -27,6 +27,8 @@ from . import get_img_info
 from . import corrections
 # Defined class
 from . import classes
+# functions for post analysis, including compartment, epigenomics
+from . import postanalysis
 
 
 ## import exteral functions
