@@ -577,7 +577,7 @@ def split_channels_by_image(ims, names, num_channel=4, buffer_frames=10, DAPI=Fa
 # match harry's result with raw data_
 def decode_match_raw(raw_data_folder, raw_feature, decode_data_folder, decode_feature, fovs, e_type):
     # initialize
-    _match_dic = {};
+    _match_dic = {}
     # get raw data file list
     _raw_list = glob.glob(raw_data_folder+os.sep+'*'+raw_feature)
     _raw_list = [_raw for _raw in _raw_list if str(e_type) in _raw]

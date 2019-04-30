@@ -29,8 +29,6 @@ from . import corrections
 from . import classes
 # functions for post analysis, including compartment, epigenomics
 from . import postanalysis
-
-
 ## import exteral functions
 from .External import Fitting_v3
 from .External import DomainTools

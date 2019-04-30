@@ -2859,7 +2859,7 @@ def Batch_Remove_Dax_Channel(source_folder, target_folder, source_channels,
     with mp.Pool(num_threads) as _pool:
         if verbose:
             print(f"-- {len(_args)} images processing by {num_threads} threads.")
-        _flags = _pool.starmap(Remove_Dax_Channel, _args)
+        _flags = _pool.starmap(Remove_Dax_Channel, _args, chunksize=1)
         _pool.close()
         _pool.join()
         _pool.terminate()
