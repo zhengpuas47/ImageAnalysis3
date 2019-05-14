@@ -282,6 +282,7 @@ def best_combine_step(_chr, _groups):
     _new_groups[_combined_id] = _combined_groups[_combined_id]
     _new_groups.pop(_combined_id+1)
     return _new_groups
+    
 def interpolate_chr(_chr,gaussian=0):
     """linear interpolate chromosome coordinates"""
     _chr = np.array(_chr).copy()

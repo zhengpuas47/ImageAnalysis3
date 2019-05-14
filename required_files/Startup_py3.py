@@ -10,6 +10,7 @@ from IPython.display import clear_output
 import multiprocessing
 import psutil
 import cv2
+import seaborn as sns
 # reload
 from importlib import reload
 # add Document to path

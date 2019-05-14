@@ -4,7 +4,7 @@ import pickle as pickle
 import multiprocessing as mp
 import psutil
 from scipy import ndimage, stats
-from scipy.cluster.hierarchy import linkage, dendrogram
+from scipy.cluster.hierarchy import linkage, dendrogram, to_tree, is_valid_linkage
 from scipy.spatial.distance import pdist, cdist, squareform
 from functools import partial
 import matplotlib.pyplot as plt
@@ -226,3 +226,200 @@ def Bootstrap_regions_in_domain(chrom_zxy_list, region_index, domain_indices,
     if verbose:
         print(f"--- time spent in boostrap: {time.time()-_start_time}")
     return _region_probs
+
+# calculate region genomic_scaling
+def region_genomic_scaling(coordinates, inds, 
+                           genomic_distance_matrix=r'Z:/References/genomic_positions.npy',
+                           gaussian=0, make_plot=True, verbose=True):
+    """Calculate scaling with given coordinates and inds"""
+    ## check inputs
+    coordinates = np.array(coordinates).copy()
+    if verbose:
+        print(f"-- start calculate region scaling to genomic distance with", end=' ')
+    if len(np.shape(coordinates)) != 2:
+        raise ValueError(
+            f"Wrong input shape for coordinates, should be 2d but {len(np.shape(coordinates))} is given")
+    elif np.shape(coordinates)[0] == np.shape(coordinates)[1]:
+        if verbose:
+            print(f"distance map")
+        if gaussian > 0:
+            from astropy.convolution import Gaussian2DKernel, convolve
+            _kernel = _kernel = Gaussian2DKernel(x_stddev=gaussian)
+            coordinates = convolve(coordinates, _kernel)
+        _mat = coordinates
+    elif np.shape(coordinates)[1] == 3:
+        if verbose:
+            print(f"3d coordinates")
+        if gaussian > 0:
+            from domain_tools import interpolate_chr
+            coordinates = interpolate_chr(coordinates, gaussian=gaussian)
+        _mat = squareform(pdist(coordinates))
+    else:
+        raise ValueError(
+            f"Input coordinates should be distance-matrix or 3d-coordinates!")
+
+    # load genomic_distance_matrix
+    if isinstance(genomic_distance_matrix, str) and os.path.isfile(genomic_distance_matrix):
+        genomic_distance_matrix = np.load(genomic_distance_matrix)
+    elif isinstance(genomic_distance_matrix, np.ndarray) and np.shape(_mat)[0] == np.shape(genomic_distance_matrix)[0]:
+        pass
+    else:
+        raise ValueError(f"Wrong input of genomic_distance_matrix, it should be \
+                         either 2d matrix having same size as coordinates, or path to file")
+    # inds
+    inds = np.array(inds, dtype=np.int)
+
+    # splice used indices
+    _sel_mat = _mat[inds][:, inds]
+    _sel_genomic = genomic_distance_matrix[inds][:, inds]
+    _transform = np.triu_indices(len(_sel_mat), 1)
+    _sel_mat = _sel_mat[_transform]
+    _sel_genomic = _sel_genomic[_transform]
+    _keep = (np.isnan(_sel_mat) == False) * (np.isnan(_sel_genomic) == False)
+    _sel_mat, _sel_genomic = _sel_mat[_keep], _sel_genomic[_keep]
+    if verbose:
+        print(f"--- number of indices to regress: {len(_sel_mat)}")
+    # linear regression
+    lr = stats.linregress(np.log(_sel_genomic), np.log(_sel_mat))
+    # plot
+    if make_plot:
+        plt.figure()
+        plt.plot(_sel_genomic, _sel_mat, '.', alpha=0.3)
+        plt.xscale('log')
+        plt.yscale('log')
+        plt.show()
+    return lr.slope, lr.intercept, lr.rvalue
+
+
+def assign_domain_cluster_to_compartments(coordinates, domain_starts, compartment_dict,
+                                          domain_linkage=None, linkage_method='complete',
+                                          distance_metric='median', normalization=None,
+                                          min_cluster_size_ratio=0.1, min_cluster_dist_ratio=0.08,
+                                          verbose=True):
+    """Function to assign domain clusters to given compartments in compartment_dict
+    Idea: 1. find normalized overlap ratio between domain_cluster and reference_compartment, 
+          2. assign bestmatch for each cluster
+    ------------------------------------------------------------------------------------------
+    Inputs:
+        coordinates: distance map or zxy coordinates for a chromosome, np.ndarray (or like)
+        domain_starts: indices of domain start regions in this chromosome, np.ndarray(1d)
+        compartment_dict: dictionary for compartment annotation, dict
+            Note: this comaprtment_dict has to be exclusive
+        domain_linkage: linkage matrix generated from scipy.cluster.hierarchy.linkage, np.ndarray
+            (linkage result, default:None, generate from scratch)
+        linkage_method: method for linkage if domain_linkage is not given, str (default: 'complete')
+        distance_metric: metric for domain distance calculation, str (default: 'median')
+        min_cluster_size_ratio: minimal size of cluster ratio to chromosome size, float (default: 0.1)
+        min_cluster_dist_ratio: minimal distance of cluster ratio to number of domains, float (default: 0.05)
+        make_plot: whether make plot, bool (default: True)
+        verbose: whether say something!, bool (default: True)
+    Output:
+        _assigned_dict: assigned compartment label -> region id list dictionary, dict
+    """
+    ## check inputs
+    # coordinate
+    coordinates = np.array(coordinates)
+    if verbose:
+        print(f"-- start sliding-window domain calling with", end=' ')
+    if len(np.shape(coordinates)) != 2:
+        raise ValueError(
+            f"Wrong input shape for coordinates, should be 2d but {len(np.shape(coordinates))} is given")
+    elif np.shape(coordinates)[0] == np.shape(coordinates)[1]:
+        if verbose:
+            print(f"distance map")
+        _mat = coordinates
+    elif np.shape(coordinates)[1] == 3:
+        if verbose:
+            print(f"3d coordinates")
+        _mat = squareform(pdist(coordinates))
+    else:
+        raise ValueError(
+            f"Input coordinates should be distance-matrix or 3d-coordinates!")
+    # domain_starts
+    domain_starts = np.array(domain_starts, dtype=np.int)
+    for _s in domain_starts:
+        if _s < 0 or _s > _mat.shape[0]:
+            raise ValueError(
+                f"Wrong input domain_starts: {_s}, should be index of coordinates")
+    domain_ends = np.zeros(np.shape(domain_starts))
+    domain_ends[:-1] = domain_starts[1:]
+    domain_ends[-1] = _mat.shape[0]
+    # compartment_dict
+    _ref_inds = []
+    for _k, _v in compartment_dict.items():
+        _ref_inds += list(_v)
+    _uids, _ucounts = np.unique(_ref_inds, return_counts=True)
+    if (_ucounts > 1).any():
+        raise ValueError(
+            f"There are non unique ids used in reference:{compartment_dict}")
+    elif (_uids > _mat.shape[0]).any():
+        raise ValueError(
+            f"Wrong ind given in compartment_dict:{compartment_dict}, should be index of coordinates")
+    # domain_linkage
+    if domain_linkage is not None and not is_valid_linkage(domain_linkage):
+        raise ValueError(
+            f"domain_liknage should be a linkage type array from scipy.cluster.hierarchy.linkage")
+    elif domain_linkage is None:
+        _dom_pdists = domain_tools.domain_pdists(coordinates, domain_starts,
+                                                 metric=distance_metric, 
+                                                 normalization_mat=normalization)
+        _cov_mat = np.corrcoef(squareform(_dom_pdists))
+        domain_linkage = linkage(_cov_mat, method=linkage_method)
+
+    ## 1. acquire exclusive clusters
+    # get all subnodes
+    _rootnode, _nodelist = to_tree(domain_linkage, rd=True)
+    # get selection threshold
+    _dist_th = len(domain_starts) * min_cluster_dist_ratio
+    if verbose:
+        print(f"--- threshold for cluster distance={_dist_th}")
+    # init kept clusters
+    _kept_clusters = []
+    for _node in _nodelist:
+        _kept_leafs = []
+        for _n in _kept_clusters:
+            _kept_leafs += list(_n.pre_order(lambda x: x.id))
+        _left_flag, _right_flag = True, True
+        if not _node.is_leaf() and _node.dist > _dist_th:
+            for _r in _node.left.pre_order(lambda x: x.id):
+                if _r in _kept_leafs:
+                    _left_flag = False
+                    continue
+            for _r in _node.right.pre_order(lambda x: x.id):
+                if _r in _kept_leafs:
+                    _right_flag = False
+                    continue
+            # otherwise, keep
+            if _left_flag:
+                _kept_clusters.append(_node.left)
+            if _right_flag:
+                _kept_clusters.append(_node.right)
+    # convert domain ID to region_id
+    _reg_id_list = []
+    for _n in _kept_clusters:
+        _dom_ids = np.array(_n.pre_order(lambda x: x.id), dtype=np.int)
+        _reg_ids = [np.arange(domain_starts[_d], domain_ends[_d]).astype(
+            np.int) for _d in _dom_ids]
+        _reg_id_list.append(np.concatenate(_reg_ids))
+    ## 2. with selected clusters, calculate its overlap with compartments
+    # init
+    _decision_dict = {_k: np.zeros(len(_reg_id_list))
+                      for _k in compartment_dict.keys()}
+    for _ckey, _cinds in compartment_dict.items():
+        for _j, _rids in enumerate(_reg_id_list):
+            _decision_dict[_ckey][_j] = len(np.intersect1d(
+                _rids, _cinds)) / len(_rids) / len(_cinds)
+    if verbose:
+        print("--- decision_dict:", _decision_dict)
+
+    ## summarize to a dict
+    _assigned_dict = {_k: [] for _k in compartment_dict.keys()}
+    _keys = list(compartment_dict.keys())
+    for _j, _rids in enumerate(_reg_id_list):
+        _match_ind = np.argmax([_v[_j] for _k, _v in _decision_dict.items()])
+        _assigned_dict[_keys[_match_ind]] += list(_rids)
+
+    for _k in _assigned_dict.keys():
+        _assigned_dict[_k] = np.sort(_assigned_dict[_k]).astype(np.int)
+
+    return _assigned_dict

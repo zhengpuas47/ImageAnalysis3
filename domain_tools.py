@@ -18,7 +18,55 @@ from scipy.signal import find_peaks, fftconvolve
 
 from scipy.stats import normaltest, ks_2samp, ttest_ind
 from scipy.spatial.distance import cdist, pdist, squareform
-from scipy.cluster.hierarchy import linkage, dendrogram
+from scipy.cluster.hierarchy import linkage, dendrogram, to_tree, is_valid_linkage
+
+
+def nan_gaussian_filter(mat, sigma, keep_nan=False):
+    from scipy.ndimage import gaussian_filter
+    U = np.array(mat)
+    Unan = np.isnan(U)
+    V = U.copy()
+    V[U != U] = 0
+    VV = gaussian_filter(V, sigma=sigma)
+
+    W = 0*U.copy()+1
+    W[U != U] = 0
+    WW = gaussian_filter(W, sigma=sigma)
+
+    Z = VV/WW
+    if keep_nan:
+        Z[Unan] = np.nan
+    return Z
+
+
+def interp1dnan(A):
+    A_ = np.array(A)
+    ok = np.isnan(A) == False
+    xp = ok.nonzero()[0]
+    fp = A[ok]
+    x = np.isnan(A).nonzero()[0]
+    A_[np.isnan(A)] = np.interp(x, xp, fp)
+    return A_
+
+def interpolate_chr(_chr, gaussian=0):
+    """linear interpolate chromosome coordinates"""
+    _chr = np.array(_chr).copy()
+    for i in range(_chr.shape[-1]):
+        if gaussian > 0:
+            _chr[:, i] = nan_gaussian_filter(_chr[:, i], gaussian)
+    # interpolate
+    from scipy.interpolate import interp1d
+    not_nan_inds = np.where(np.isnan(_chr).sum(1) == 0)[0]
+    if len(not_nan_inds) == 0:
+        return _chr
+    else:
+        f = interp1d(np.arange(len(_chr))[not_nan_inds], _chr[not_nan_inds],
+                     kind='linear', axis=0, bounds_error=False,
+                     fill_value='extrapolate')
+        _interpolated_chr = f(np.arange(len(_chr)))
+        return _interpolated_chr
+
+
 
 
 def _get_candidate_boundary(_distmap, dom_sz=4, make_plot=False):
@@ -122,16 +170,41 @@ def radius_of_gyration(segment):
     segment = np.linalg.norm(segment - np.nanmean(segment, axis=0), axis=1)
 
 
-def domain_distances(zxy1, zxy2, _measure='median', dist_th=1, 
-                     _normalization_mat=None, _dom1_bds=None, _dom2_bds=None):
+def domain_distance(coordinates, _dom1_bds, _dom2_bds,
+                    _measure='median', _normalization_mat=None ):
     """Function to measure domain distances between two zxy arrays
     use KS-statistic as a distance:
         citation: https://arxiv.org/abs/1711.00761"""
-    _intra_dist = [pdist(zxy1), pdist(zxy2)]
-    _inter_dist = np.ravel(cdist(zxy1, zxy2))
+    ## check inputs
+    if not isinstance(coordinates, np.ndarray):
+        coordinates = np.array(coordinates)
     _measure = str(_measure).lower()
     _dom1_bds = [int(_b) for _b in _dom1_bds]
     _dom2_bds = [int(_b) for _b in _dom2_bds]
+
+    # based on coordinates given, get intra/inter distances
+    if len(np.shape(coordinates)) != 2:
+        raise ValueError(f"Wrong input shape for coordinates, should be 2d but {len(np.shape(coordinates))} is given")
+    elif np.shape(coordinates)[0] == np.shape(coordinates)[1]:
+        _mat = coordinates
+        _intra1 = _mat[_dom1_bds[0]:_dom1_bds[1], _dom1_bds[0]:_dom1_bds[1]]
+        _intra2 = _mat[_dom2_bds[0]:_dom2_bds[1], _dom2_bds[0]:_dom2_bds[1]]
+        _intra1 = _intra1[np.triu_indices(len(_intra1),1)]
+        _intra2 = _intra2[np.triu_indices(len(_intra2), 1)]
+
+        _intra_dist = [_intra1, _intra2]
+        _inter_dist = np.ravel(_mat[_dom1_bds[0]:_dom1_bds[1], _dom2_bds[0]:_dom2_bds[1]])
+
+    elif np.shape(coordinates)[1] == 3:
+        # extract sequence
+        zxy1 = coordinates[_dom1_bds[0]:_dom1_bds[1]]
+        zxy2 = coordinates[_dom2_bds[0]:_dom2_bds[1]]
+        # get distances
+        _intra_dist = [pdist(zxy1), pdist(zxy2)]
+        _inter_dist = np.ravel(cdist(zxy1, zxy2))
+    else:
+        raise ValueError(f"Input coordinates should be distance-matrix or 3d-coordinates!")
+
     # normalization
     if _normalization_mat is not None:
         # check other inputs
@@ -154,8 +227,9 @@ def domain_distances(zxy1, zxy2, _measure='median', dist_th=1,
 
     _kept_inter = _inter_dist[np.isnan(_inter_dist) == False]
     _kept_intra = _intra_dist[np.isnan(_intra_dist) == False]
+
     if len(_kept_inter) == 0 or len(_kept_intra) == 0:
-        return min(dist_th*2, 1)
+        return np.nan
 
     if _measure == 'median':
         m_inter, m_intra = np.nanmedian(_inter_dist), np.nanmedian(_intra_dist)
@@ -169,35 +243,49 @@ def domain_distances(zxy1, zxy2, _measure='median', dist_th=1,
     if _measure == 'ks':
         if 'ks_2samp' not in locals():
             from scipy.stats import ks_2samp
-        return ks_2samp(_kept_inter, _kept_intra)[0]
+        _f = int((np.nanmedian(_inter_dist) - np.nanmedian(_intra_dist)) > 0)
+        return _f * ks_2samp(_kept_inter, _kept_intra)[0]
 
-
-def domain_pdists(dom_zxys, metric='distance', normalization_mat=None, domain_starts=None):
+# function to call domain pairwise distance as scipy.spatial.distance.pdist
+def domain_pdists(coordinates, domain_starts, metric='median', normalization_mat=None):
     """Calculate domain pair-wise distances, return a vector as the same order as
-    scipy.spatial.distance.pdist """
+    scipy.spatial.distance.pdist 
+    Inputs:
+        coordinates:
+        """
+    ## check inputs
+    coordinates = np.array(coordinates).copy()
+    if len(np.shape(coordinates)) != 2:
+        raise ValueError(
+            f"Wrong input shape for coordinates, should be 2d but {len(np.shape(coordinates))} is given")
+    elif np.shape(coordinates)[0] == np.shape(coordinates)[1]:
+        _mat = coordinates
+    elif np.shape(coordinates)[1] == 3:
+        _mat = squareform(pdist(coordinates))
+    else:
+        raise ValueError(
+            f"Input coordinates should be distance-matrix or 3d-coordinates!")
+
+    domain_starts = np.array(domain_starts, dtype=np.int)
+    domain_ends = np.zeros(np.shape(domain_starts))
+    domain_ends[:-1] = domain_starts[1:]
+    domain_ends[-1] = len(coordinates)
+
     # first check whether do normalzation
     if normalization_mat is not None:
-        # check other inputs
-        if domain_starts is None:
-            raise TypeError(
-                f"_domain_starts should be given while normalization specified!")
-        elif len(domain_starts) != len(dom_zxys):
+        if normalization_mat.shape[0] != _mat.shape[0] or normalization_mat.shape[1] != _mat.shape[1]:
             raise ValueError(
-                f"number of domain zxys:{len(dom_zxys)} and number of domain_starts:{len(domain_starts)} doesn't match!")
-        else:
-            domain_ends = np.concatenate(
-                [domain_starts[1:], np.array([len(normalization_mat)])])
-    else:
-        domain_starts = np.zeros(len(dom_zxys))
-        domain_ends = np.zeros(len(dom_zxys))
+                f"Wrong shape of normalization:{normalization_mat.shape}, should be equal to {_mat.shape}")
+
     dom_pdists = []
-    for _i in range(len(dom_zxys)):
-        for _j in range(_i+1, len(dom_zxys)):
-            dom_pdists.append(domain_distances(dom_zxys[_i], dom_zxys[_j], _measure=metric,
-                                               _normalization_mat=normalization_mat,
-                                               _dom1_bds=[
-                                                   domain_starts[_i], domain_ends[_i]],
-                                               _dom2_bds=[domain_starts[_j], domain_ends[_j]]))
+    for _i in range(len(domain_starts)):
+        for _j in range(_i+1, len(domain_starts)):
+            dom_pdists.append(domain_distance(coordinates,
+                                              [domain_starts[_i], domain_ends[_i]],
+                                              [domain_starts[_j], domain_ends[_j]],
+                                              _measure=metric,
+                                              _normalization_mat=normalization_mat))
+
     dom_pdists = np.array(dom_pdists)
     dom_pdists[dom_pdists < 0] = 0  # remove minus distances, just in case
 
@@ -231,22 +319,30 @@ def call_candidate_boundaries(_zxy, _dom_sz, _method='local'):
     return filtered_bd_starts
 
 
-def merge_domains(_zxy, cand_bd_starts, norm_mat=None, corr_th=0.64, dist_th=0.2,
+def merge_domains(coordinates, cand_bd_starts, norm_mat=None, 
+                  corr_th=0.64, dist_th=0.2,
                   domain_dist_metric='ks', plot_steps=False, verbose=True):
     """Function to merge domains given zxy coordinates and candidate_boundaries"""
     cand_bd_starts = np.array(cand_bd_starts, dtype=np.int)
     _merge_inds = np.array([-1])
     if verbose:
         print(
-            f"--- start iterate to merge domains, num of candidates:{len(cand_bd_starts)}")
+            f"-- start iterate to merge domains, num of candidates:{len(cand_bd_starts)}")
     # start iteration:
     while len(_merge_inds) > 0 and len(cand_bd_starts) > 1:
         # calculate domain pairwise-distances
-        _dm_pdists = domain_pdists(extract_sequences(_zxy, cand_bd_starts),
+        _dm_pdists = domain_pdists(coordinates, cand_bd_starts,
                                    metric=domain_dist_metric, 
-                                   normalization_mat=norm_mat,
-                                   domain_starts=cand_bd_starts)
-        _coef_mat = np.corrcoef(squareform(_dm_pdists))
+                                   normalization_mat=norm_mat)
+        _dm_dist_mat = squareform(_dm_pdists)
+        # remove domain candidates that are purely nans
+        _keep_inds = np.isnan(_dm_dist_mat).sum(1) < len(_dm_dist_mat)-1
+        if np.sum(_keep_inds) != len(cand_bd_starts) and verbose:
+            print(f"---** remove {len(cand_bd_starts)-np.sum(_keep_inds)} domains because of NaNs")
+        _dm_dist_mat = _dm_dist_mat[_keep_inds][:,_keep_inds]
+        cand_bd_starts = cand_bd_starts[_keep_inds]
+        # calculate correlation coefficient matrix
+        _coef_mat = np.corrcoef(_dm_dist_mat)
         if plot_steps:
             plt.figure()
             plt.imshow(squareform(_dm_pdists), cmap='seismic_r')
@@ -263,7 +359,7 @@ def merge_domains(_zxy, cand_bd_starts, norm_mat=None, corr_th=0.64, dist_th=0.2
             _corr_inds = np.where(np.diag(_coef_mat, 1) > corr_th)[0]+1
         else:
             _corr_inds = np.where(np.diag(_coef_mat, 1) >= -1)[0]+1
-        _dist_inds =np.where(np.diag(squareform(_dm_pdists), 1) <= dist_th)[0]+1
+        _dist_inds = np.where(np.diag(_dm_dist_mat, 1) <= dist_th)[0]+1
         if len(_dist_inds) > 0 and len(_corr_inds) > 0:
             _merge_inds = [int(_cid) for _cid in _corr_inds if _cid in _dist_inds]
         else:
@@ -272,7 +368,7 @@ def merge_domains(_zxy, cand_bd_starts, norm_mat=None, corr_th=0.64, dist_th=0.2
         if len(_merge_inds) > 0:
             # find the index with minimum distance bewteen neighboring domains
             # first merge neighbors with high corr and low dist
-            _merge_dists = (1-np.diag(squareform(_dm_pdists), 1)) / (1-dist_th) + \
+            _merge_dists = (1-np.diag(_dm_dist_mat, 1)) / (1-dist_th) + \
                 np.diag(_coef_mat,1) / corr_th 
             # filter
             _merge_dists = _merge_dists[np.array(_merge_inds, dtype=np.int)-1]
@@ -286,7 +382,7 @@ def merge_domains(_zxy, cand_bd_starts, norm_mat=None, corr_th=0.64, dist_th=0.2
             print(f"--- only 1 domain left, skip plotting.")
     elif verbose:
         print(
-            f"--- final neighbor domain dists:{np.diag(squareform(_dm_pdists),1)}")
+            f"--- final neighbor domain dists:{np.diag(_dm_dist_mat,1)}")
         print(f"--- final neighbor domain corr:{np.diag(_coef_mat,1)}")
         print(f"--- num of domain kept:{len(cand_bd_starts)}")
 
@@ -366,17 +462,16 @@ def basic_domain_calling(spots, save_folder=None,
     cand_bd_starts = call_candidate_boundaries(_zxy, dom_sz, 'local')
 
     ## 2. get zxy sequences
-    cand_bd_starts = merge_domains(_zxy=_zxy, cand_bd_starts=cand_bd_starts,
+    cand_bd_starts = merge_domains(_zxy, cand_bd_starts=cand_bd_starts,
                                    norm_mat=norm_mat, corr_th=corr_th, dist_th=dist_th,
                                    domain_dist_metric=domain_dist_metric,
                                    plot_steps=plot_steps, verbose=verbose)
 
     ## 3. finish up and make plot
     if plot_results and len(cand_bd_starts) > 1:
-        _dm_pdists = domain_pdists(extract_sequences(_zxy, cand_bd_starts),
+        _dm_pdists = domain_pdists(_zxy, cand_bd_starts,
                                    metric=domain_dist_metric,
-                                   normalization_mat=norm_mat,
-                                   domain_starts=cand_bd_starts)
+                                   normalization_mat=norm_mat)
         _coef_mat = np.corrcoef(squareform(_dm_pdists))
         if verbose:
             print(
@@ -588,10 +683,9 @@ def iterative_domain_calling(spots, save_folder=None,
 
     ## 3. plot results
     if plot_results and len(cand_bd_starts) > 1:
-        _dm_pdists = domain_pdists(extract_sequences(_zxy, cand_bd_starts),
+        _dm_pdists = domain_pdists(_zxy, cand_bd_starts,
                                    metric=domain_dist_metric,
-                                   normalization_mat=norm_mat,
-                                   domain_starts=cand_bd_starts)
+                                   normalization_mat=norm_mat)
         _coef_mat = np.corrcoef(squareform(_dm_pdists))
         if verbose:
             print(
@@ -686,3 +780,141 @@ def local_domain_calling(spots, save_folder=None,
                                                   cutoff_max=cutoff_max)
 
     return cand_bd_starts
+
+# Calculate distance given distance_matrix, window_size and metric type
+def _sliding_window_dist(_mat, _wd, _dist_metric='median'):
+    """Function to calculate sliding-window distance across one distance-map of chromosome"""
+    dists = []
+    for _i in range(len(_mat)):
+        if _i - _wd < 0 or _i + _wd > len(_mat):
+            dists.append(0)
+        else:
+            _crop_mat = _mat[_i-_wd:_i+_wd, _i-_wd:_i+_wd]
+            _intra1 = np.triu(_crop_mat[:_wd, :_wd], 1)
+            _intra1 = _intra1[np.isnan(_intra1)==False]
+            _intra2 = np.triu(_crop_mat[_wd:, _wd:], 1)
+            _intra2 = _intra2[np.isnan(_intra2)==False]
+            _intra_dist = np.concatenate([_intra1[_intra1 > 0],
+                                          _intra2[_intra2 > 0]])
+            _inter_dist = _crop_mat[_wd:, :_wd]
+            _inter_dist = _inter_dist[np.isnan(_inter_dist) == False]
+            if len(_intra_dist) == 0 or len(_inter_dist) == 0:
+                # return zero distance if one dist list is empty
+                dists.append(0)
+            # add dist info
+            if _dist_metric == 'ks':
+                if 'ks_2samp' not in locals():
+                    from scipy.stats import ks_2samp
+                _f = int((np.median(_inter_dist) - np.median(_intra_dist)) > 0)
+                dists.append(_f * ks_2samp(_intra_dist, _inter_dist)[0])
+            elif _dist_metric == 'median':
+                m_inter, m_intra = np.median(_inter_dist), np.median(_intra_dist)
+                v_inter, v_intra = np.median((_inter_dist-m_inter)**2),\
+                                   np.median((_intra_dist-m_intra)**2)
+                dists.append((m_inter-m_intra)/np.sqrt(v_inter+v_intra))
+            elif _dist_metric == 'mean':
+                m_inter, m_intra = np.mean(_inter_dist), np.mean(_intra_dist)
+                v_inter, v_intra = np.var(_inter_dist), np.var(_intra_dist)
+                dists.append((m_inter-m_intra)/np.sqrt(v_inter+v_intra))
+
+    return np.array(dists)
+
+
+def Domain_Calling_Sliding_Window(coordinates, window_size=5, distance_metric='median',
+                                  gaussian=0, normalization=r'Z:\References\normalization_matrix.npy',
+                                  min_domain_size=4, min_prominence=0.25, reproduce_ratio=0.6,
+                                  verbose=False):
+    """Function to call domain candidates by sliding window across chromosome
+    Inputs:
+        coordnates: n-by-3 coordinates for a chromosome, or n-by-n distance matrix, np.ndarray
+        window_size: size of sliding window for each half, the exact windows will be 1x to 2x of size, int
+        distance_metric: type in distance metric in each sliding window, 
+        gaussian: size of gaussian filter applied to coordinates, float (default: 0, no gaussian)
+        normalization: normalization matrix / path to normalization matrix, np.ndarray or str
+        min_domain_size: minimal domain size allowed in calling, int (default: 4)
+        min_prominence: minimum prominence of peaks in distances called by sliding window, float (default: 0.25)
+        reproduce_ratio: ratio of peaks found near the candidates across different window size, float (default: 0.6)
+        verbose: say something!, bool (default: False)
+    Outputs
+    """
+    ## check inputs
+    coordinates = np.array(coordinates).copy()
+    if verbose:
+        print(f"-- start sliding-window domain calling with", end=' ')
+    if len(np.shape(coordinates)) != 2:
+        raise ValueError(
+            f"Wrong input shape for coordinates, should be 2d but {len(np.shape(coordinates))} is given")
+    elif np.shape(coordinates)[0] == np.shape(coordinates)[1]:
+        if verbose:
+            print(f"distance map")
+        if gaussian > 0:
+            from astropy.convolution import Gaussian2DKernel, convolve
+            _kernel = _kernel = Gaussian2DKernel(x_stddev=gaussian)
+            coordinates = convolve(coordinates, _kernel)
+        _mat = coordinates
+    elif np.shape(coordinates)[1] == 3:
+        if verbose:
+            print(f"3d coordinates")
+        if gaussian > 0:
+            coordinates = interpolate_chr(coordinates, gaussian=gaussian)
+        _mat = squareform(pdist(coordinates))
+    else:
+        raise ValueError(
+            f"Input coordinates should be distance-matrix or 3d-coordinates!")
+    window_size = int(window_size)
+
+    # load normalization if specified
+    if isinstance(normalization, str) and os.path.isfile(normalization):
+        normalization = np.load(normalization)
+    elif isinstance(normalization, np.ndarray) and np.shape(_mat)[0] == np.shape(normalization)[0]:
+        pass
+    else:
+        normalization = None
+    # do normalization if satisfied
+    if normalization is not None:
+        if verbose:
+            print(f"--- applying normalization")
+        _mat = _mat / normalization
+    ## Start slide window to generate a vector for distance
+    dist_list = []
+    if verbose:
+        print(
+            f"--- calcualte distances with sliding window from {window_size} to {2*window_size-1}")
+    # loop through real window_size between 1x to 2x of window_size
+    for _wd in np.arange(window_size, 2*window_size):
+        dist_list.append(_sliding_window_dist(_mat, _wd, distance_metric))
+
+    ## call peaks
+    if verbose:
+        print(
+            f"--- call peaks with minimum domain size={min_domain_size}, prominence={min_prominence}")
+    peak_list = [scipy.signal.find_peaks(_dists, distance=min_domain_size,
+                                         prominence=(min_prominence, None))[0] for _dists in dist_list]
+
+    ## summarize peaks
+    if verbose:
+        print(
+            f"--- summarize domains with {reproduce_ratio} reproducing rate.")
+    cand_peaks = peak_list[0]
+    _peak_coords = np.ones([len(peak_list), len(cand_peaks)]) * np.nan
+    _peak_coords[0] = peak_list[0]
+    _r = int(np.ceil(min_domain_size/2))
+    for _i, _peaks in enumerate(peak_list[1:]):
+        for _j, _p in enumerate(cand_peaks):
+            _matched_index = np.where((_peaks >= _p-_r) * (_peaks <= _p+_r))[0]
+            if len(_matched_index) > 0:
+                # record whether have corresponding peaks in other window-size cases
+                _peak_coords[_i+1, _j] = _peaks[_matched_index[0]]
+
+    # only select peaks which showed up in more than reproduce_ratio*number_of_window cases
+    _keep_flag = np.sum((np.isnan(_peak_coords) == False).astype(
+        np.int), axis=0) >= reproduce_ratio*len(peak_list)
+    # summarize selected peaks by mean of all summarized peaks
+    sel_peaks = np.round(np.nanmean(_peak_coords, axis=0)
+                         ).astype(np.int)[_keep_flag]
+    # concatenate a zero
+    domain_starts = np.concatenate([np.array([0]), sel_peaks])
+    if verbose:
+        print(f"--- domain called by sliding-window: {len(domain_starts)}")
+
+    return domain_starts
