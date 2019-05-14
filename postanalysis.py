@@ -290,12 +290,12 @@ def region_genomic_scaling(coordinates, inds,
         plt.show()
     return lr.slope, lr.intercept, lr.rvalue
 
-
+# Assign single-cell domain clusters into reference compartments
 def assign_domain_cluster_to_compartments(coordinates, domain_starts, compartment_dict,
                                           domain_linkage=None, linkage_method='complete',
                                           distance_metric='median', normalization=None,
                                           min_cluster_size_ratio=0.1, min_cluster_dist_ratio=0.08,
-                                          verbose=True):
+                                          assign_method='binary', verbose=True):
     """Function to assign domain clusters to given compartments in compartment_dict
     Idea: 1. find normalized overlap ratio between domain_cluster and reference_compartment, 
           2. assign bestmatch for each cluster
@@ -311,7 +311,7 @@ def assign_domain_cluster_to_compartments(coordinates, domain_starts, compartmen
         distance_metric: metric for domain distance calculation, str (default: 'median')
         min_cluster_size_ratio: minimal size of cluster ratio to chromosome size, float (default: 0.1)
         min_cluster_dist_ratio: minimal distance of cluster ratio to number of domains, float (default: 0.05)
-        make_plot: whether make plot, bool (default: True)
+        assign_method: method for assigning compartments, str {'binary'|'continuous'}
         verbose: whether say something!, bool (default: True)
     Output:
         _assigned_dict: assigned compartment label -> region id list dictionary, dict
@@ -320,7 +320,7 @@ def assign_domain_cluster_to_compartments(coordinates, domain_starts, compartmen
     # coordinate
     coordinates = np.array(coordinates)
     if verbose:
-        print(f"-- start sliding-window domain calling with", end=' ')
+        print(f"-- assign domain-clusters to compartments with", end=' ')
     if len(np.shape(coordinates)) != 2:
         raise ValueError(
             f"Wrong input shape for coordinates, should be 2d but {len(np.shape(coordinates))} is given")
@@ -365,7 +365,11 @@ def assign_domain_cluster_to_compartments(coordinates, domain_starts, compartmen
                                                  normalization_mat=normalization)
         _cov_mat = np.corrcoef(squareform(_dom_pdists))
         domain_linkage = linkage(_cov_mat, method=linkage_method)
-
+    # assign_method
+    _allowed_assign_method = ['binary', 'continuous']
+    assign_method = str(assign_method).lower()
+    if assign_method not in _allowed_assign_method:
+        raise ValueError(f"Wrong input assign_method:{assign_method}, should be within {_allowed_assign_method}")
     ## 1. acquire exclusive clusters
     # get all subnodes
     _rootnode, _nodelist = to_tree(domain_linkage, rd=True)
@@ -413,13 +417,18 @@ def assign_domain_cluster_to_compartments(coordinates, domain_starts, compartmen
         print("--- decision_dict:", _decision_dict)
 
     ## summarize to a dict
-    _assigned_dict = {_k: [] for _k in compartment_dict.keys()}
+    _assigned_dict = {_k: np.zeros(_mat.shape[0]) for _k in compartment_dict.keys()}
     _keys = list(compartment_dict.keys())
-    for _j, _rids in enumerate(_reg_id_list):
-        _match_ind = np.argmax([_v[_j] for _k, _v in _decision_dict.items()])
-        _assigned_dict[_keys[_match_ind]] += list(_rids)
-
-    for _k in _assigned_dict.keys():
-        _assigned_dict[_k] = np.sort(_assigned_dict[_k]).astype(np.int)
+    if assign_method == 'binary':
+        for _j, _rids in enumerate(_reg_id_list):
+            _match_ind = np.argmax([_v[_j] for _k, _v in _decision_dict.items()])
+            _assigned_dict[_keys[_match_ind]][_rids] = 1
+    elif assign_method == 'continuous':
+        _norm_mat = np.stack([_v for _k,_v in _decision_dict.items()])
+        _norm_mat = _norm_mat / np.sum(_norm_mat, 0)
+        _norm_mat[np.isnan(_norm_mat)] = 0
+        for _j, _rids in enumerate(_reg_id_list):
+            for _i,_k in enumerate(_keys):
+                _assigned_dict[_k][_rids] = _norm_mat[_i,_j]
 
     return _assigned_dict

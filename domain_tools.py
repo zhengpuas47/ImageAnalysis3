@@ -229,7 +229,7 @@ def domain_distance(coordinates, _dom1_bds, _dom2_bds,
     _kept_intra = _intra_dist[np.isnan(_intra_dist) == False]
 
     if len(_kept_inter) == 0 or len(_kept_intra) == 0:
-        return np.nan
+        return 0
 
     if _measure == 'median':
         m_inter, m_intra = np.nanmedian(_inter_dist), np.nanmedian(_intra_dist)
@@ -816,13 +816,17 @@ def _sliding_window_dist(_mat, _wd, _dist_metric='median'):
                 m_inter, m_intra = np.mean(_inter_dist), np.mean(_intra_dist)
                 v_inter, v_intra = np.var(_inter_dist), np.var(_intra_dist)
                 dists.append((m_inter-m_intra)/np.sqrt(v_inter+v_intra))
+    dists = np.array(dists)
+    dists[dists<0] = 0
 
-    return np.array(dists)
+    return dists
 
 
 def Domain_Calling_Sliding_Window(coordinates, window_size=5, distance_metric='median',
                                   gaussian=0, normalization=r'Z:\References\normalization_matrix.npy',
                                   min_domain_size=4, min_prominence=0.25, reproduce_ratio=0.6,
+                                  merge_candidates=True, corr_th=0.6, dist_th=0.2,
+                                  merge_strength_th=1., return_strength=False,
                                   verbose=False):
     """Function to call domain candidates by sliding window across chromosome
     Inputs:
@@ -834,8 +838,15 @@ def Domain_Calling_Sliding_Window(coordinates, window_size=5, distance_metric='m
         min_domain_size: minimal domain size allowed in calling, int (default: 4)
         min_prominence: minimum prominence of peaks in distances called by sliding window, float (default: 0.25)
         reproduce_ratio: ratio of peaks found near the candidates across different window size, float (default: 0.6)
+        merge_candidates: wheather merge candidate domains, bool (default:True)
+        corr_th: min corrcoef threshold to merge domains, float (default: 0.6)
+        dist_th: max distance threshold to merge domains, float (defaul: 0.2)
+        merge_strength_th: min strength to not merge at all, float (default: 1.)     
+        return_strength: return boundary strength generated sliding_window, bool (default: False)
         verbose: say something!, bool (default: False)
-    Outputs
+    Outputs:
+        kept_domains: domain starts region-indices, np.ndarray
+        kept_strengths (optional): kept domain boundary strength, np.ndarray
     """
     ## check inputs
     coordinates = np.array(coordinates).copy()
@@ -914,7 +925,137 @@ def Domain_Calling_Sliding_Window(coordinates, window_size=5, distance_metric='m
                          ).astype(np.int)[_keep_flag]
     # concatenate a zero
     domain_starts = np.concatenate([np.array([0]), sel_peaks])
+    # calculate strength
+    _strengths = np.nanmean([_dists[domain_starts]
+                             for _dists in dist_list], axis=0)
     if verbose:
         print(f"--- domain called by sliding-window: {len(domain_starts)}")
 
-    return domain_starts
+    if merge_candidates:
+        merged_starts = merge_domains(coordinates, domain_starts, 
+                                      norm_mat=normalization, corr_th=corr_th,
+                                      dist_th=dist_th, domain_dist_metric=distance_metric,
+                                      plot_steps=False, verbose=False)    
+    kept_domains = np.array([_d for _i,_d in enumerate(domain_starts)  
+                             if _d in merged_starts or _strengths[_i] > merge_strength_th])
+    if verbose:
+        print(f"--- domain after merging: {len(kept_domains)}")
+    # return_strength
+    if return_strength:
+        kept_strengths = np.array([_s for _i, _s in enumerate(_strengths)
+                                    if domain_starts[_i] in merged_starts or _s > merge_strength_th])
+        return kept_domains.astype(np.int), kept_strengths
+    else:
+        return kept_domains.astype(np.int)
+
+
+def Batch_Domain_Calling_Sliding_Window(coordinate_list, window_size=5, distance_metric='median',
+                                        num_threads=12, gaussian=0,
+                                        normalization=r'Z:\References\normalization_matrix.npy',
+                                        min_domain_size=4, min_prominence=0.25, reproduce_ratio=0.6,
+                                        merge_candidates=True, corr_th=0.8, dist_th=0.2,
+                                        merge_strength_th=1., return_strength=False,
+                                        verbose=False):
+    """Function to call domain candidates by sliding window across chromosome
+    Inputs:
+        coordinate_list: list of coordinates:
+            n-by-3 coordinates for a chromosome, or n-by-n distance matrix, np.ndarray
+        window_size: size of sliding window for each half, the exact windows will be 1x to 2x of size, int
+        distance_metric: type in distance metric in each sliding window, 
+        num_threads: number of threads to multiprocess domain calling, int (default: 12)
+        gaussian: size of gaussian filter applied to coordinates, float (default: 0, no gaussian)
+        normalization: normalization matrix / path to normalization matrix, np.ndarray or str
+        min_domain_size: minimal domain size allowed in calling, int (default: 4)
+        min_prominence: minimum prominence of peaks in distances called by sliding window, float (default: 0.25)
+        reproduce_ratio: ratio of peaks found near the candidates across different window size, float (default: 0.6)
+        merge_candidates: wheather merge candidate domains, bool (default:True)
+        corr_th: min corrcoef threshold to merge domains, float (default: 0.6)
+        dist_th: max distance threshold to merge domains, float (defaul: 0.2)
+        merge_strength_th: min strength to not merge at all, float (default: 1.)     
+        return_strength: return boundary strength generated sliding_window, bool (default: False)
+        verbose: say something!, bool (default: False)
+    Outputs:
+        domain_start_list: list of domain start indices:
+            domain starts region-indices, np.ndarray
+        strength_list: list of strengths:
+            (optional): kept domain boundary strength, np.ndarray
+    """
+    ## inputs
+    if verbose:
+        _start_time = time.time()
+        print(f"- Start batch domain calling with sliding window.")
+    # check coordinate_list
+    if isinstance(coordinate_list, list) and len(np.shape(coordinate_list[0]))==2:
+        pass
+    elif isinstance(coordinate_list, np.ndarray) and len(np.shape(coordinate_list)) == 3:
+        pass
+    else:
+        raise ValueError(f"Input coordinate_list should be a list of 2darray or 3dim merged coordinates")
+    # load normalization if specified
+    if isinstance(normalization, str) and os.path.isfile(normalization):
+        normalization = np.load(normalization)
+    elif isinstance(normalization, np.ndarray) and len(coordinate_list[0]) == np.shape(normalization)[0]:
+        pass
+    else:
+        normalization = None
+    # num_threads
+    num_threads = int(num_threads)
+    ## init
+    domain_args = []
+    # loop through coordinates
+    for coordinates in coordinate_list:
+        domain_args.append((coordinates, window_size, distance_metric,
+                            gaussian, normalization,
+                            min_domain_size, min_prominence, reproduce_ratio,
+                            merge_candidates, corr_th, dist_th,
+                            merge_strength_th, True, verbose))
+    # multi-processing
+    if verbose:
+        print(
+            f"-- multiprocessing of {len(domain_args)} domain calling with {num_threads} threads")
+    with mp.Pool(num_threads) as domain_pool:
+        results = domain_pool.starmap(
+            Domain_Calling_Sliding_Window, domain_args)
+        domain_pool.close()
+        domain_pool.join()
+        domain_pool.terminate()
+    domain_start_list = [_r[0] for _r in results]
+
+    if verbose:
+        print(f"-- time spent in domain-calling:{time.time()-_start_time}")
+
+    if return_strength:
+        strength_list = [_r[1] for _r in results]
+        return domain_start_list, strength_list
+    else:
+        return domain_start_list
+
+
+
+## Plotting function
+def plot_boundary_probability(region_ids, domain_start_list, figure_kwargs={}, plot_kwargs={},
+                              xlabel="region_ids", ylabel="probability", fontsize=16,
+                              save=False, save_folder='.', save_name=''):
+    """Wrapper function to plot boundary probability given domain_start list"""
+    if 'plt' not in locals():
+        import matplotlib.pyplot as plt
+    # summarize
+    _x = np.array(region_ids, dtype=np.int)
+    _y = np.zeros(np.shape(_x), dtype=np.float)
+    for _dm_starts in domain_start_list:
+        for _d in _dm_starts:
+            if _d > 0 and _d in _x:
+                _y[np.where(_x == _d)[0]] += 1
+    _y = _y / len(domain_start_list)
+    _fig, _ax = plt.subplots(figsize=(15, 5), dpi=200, **figure_kwargs)
+    _ax.plot(_x, _y, label=ylabel, **plot_kwargs)
+    _ax.set_xlim([0, len(_x)])
+    _ax.set_xlabel(xlabel, fontsize=fontsize)
+    _ax.set_ylabel(ylabel, fontsize=fontsize)
+    plt.legend()
+    if save:
+        _filename = 'boundary_prob.png'
+        if save_name != '':
+            _filename = save_name + '_' + _filename
+        plt.savefig(os.path.join(save_folder, _filename))
+    return _ax
