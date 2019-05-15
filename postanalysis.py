@@ -364,7 +364,14 @@ def assign_domain_cluster_to_compartments(coordinates, domain_starts, compartmen
                                                  metric=distance_metric, 
                                                  normalization_mat=normalization)
         _cov_mat = np.corrcoef(squareform(_dom_pdists))
-        domain_linkage = linkage(_cov_mat, method=linkage_method)
+        try:
+            domain_linkage = linkage(_cov_mat, method=linkage_method)
+        except ValueError:
+            print(f"failed to build linkage, exit.")
+            if return_boundary:
+                return None, None
+            else:
+                return None
     # assign_method
     _allowed_assign_method = ['binary', 'continuous']
     assign_method = str(assign_method).lower()
