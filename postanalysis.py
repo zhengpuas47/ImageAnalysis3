@@ -295,7 +295,7 @@ def assign_domain_cluster_to_compartments(coordinates, domain_starts, compartmen
                                           domain_linkage=None, linkage_method='complete',
                                           distance_metric='median', normalization=None,
                                           min_cluster_size_ratio=0.1, min_cluster_dist_ratio=0.08,
-                                          assign_method='binary', verbose=True):
+                                          assign_method='binary', return_boundary=True, verbose=True):
     """Function to assign domain clusters to given compartments in compartment_dict
     Idea: 1. find normalized overlap ratio between domain_cluster and reference_compartment, 
           2. assign bestmatch for each cluster
@@ -399,12 +399,17 @@ def assign_domain_cluster_to_compartments(coordinates, domain_starts, compartmen
             if _right_flag:
                 _kept_clusters.append(_node.right)
     # convert domain ID to region_id
+    _cluster_bd_list = [] # save cluster boundary region ids
     _reg_id_list = []
     for _n in _kept_clusters:
         _dom_ids = np.array(_n.pre_order(lambda x: x.id), dtype=np.int)
         _reg_ids = [np.arange(domain_starts[_d], domain_ends[_d]).astype(
             np.int) for _d in _dom_ids]
         _reg_id_list.append(np.concatenate(_reg_ids))
+        _cluster_bd_list += [_r for _r in np.concatenate(_reg_ids) 
+                             if _r-1 not in np.concatenate(_reg_ids) and _r > 0]
+    # summarize boundaries
+    _cluster_bds = np.unique(_cluster_bd_list).astype(np.int)
     ## 2. with selected clusters, calculate its overlap with compartments
     # init
     _decision_dict = {_k: np.zeros(len(_reg_id_list))
@@ -430,8 +435,11 @@ def assign_domain_cluster_to_compartments(coordinates, domain_starts, compartmen
         for _j, _rids in enumerate(_reg_id_list):
             for _i,_k in enumerate(_keys):
                 _assigned_dict[_k][_rids] = _norm_mat[_i,_j]
-
-    return _assigned_dict
+    # return
+    if return_boundary:
+        return _assigned_dict, _cluster_bds
+    else:
+        return _assigned_dict
 
 
 def Batch_Assign_Domain_Clusters_To_Compartments(coordinate_list, domain_start_list, compartment_dict,
@@ -439,7 +447,7 @@ def Batch_Assign_Domain_Clusters_To_Compartments(coordinate_list, domain_start_l
                                                  linkage_method='complete', distance_metric='median',
                                                  normalization=r'Z:\References\normalization_matrix.npy',
                                                  min_cluster_size_ratio=0.1, min_cluster_dist_ratio=0.08,
-                                                 assign_method='binary', verbose=True):
+                                                 assign_method='binary', return_boundary=True, verbose=True):
     """Function to batch assign domain clusters into annotated compartments
     Inputs:
         coordinate_list: list of coordinates:
@@ -456,6 +464,7 @@ def Batch_Assign_Domain_Clusters_To_Compartments(coordinate_list, domain_start_l
         min_cluster_size_ratio: minimal size of cluster ratio to chromosome size, float (default: 0.1)
         min_cluster_dist_ratio: minimal distance of cluster ratio to number of domains, float (default: 0.05)
         assign_method: method for assigning compartments, str {'binary'|'continuous'}
+        return_boundary: whether return domain-cluster boundaries, bool (default: True)
         verbose: whether say something!, bool (default: True)
     Output:
         _assigned_list: list of assigned dict,
@@ -513,21 +522,26 @@ def Batch_Assign_Domain_Clusters_To_Compartments(coordinate_list, domain_start_l
         _assign_args.append((_coordinates, _starts, compartment_dict,
                              _linkage, linkage_method, distance_metric, normalization,
                              min_cluster_size_ratio, min_cluster_dist_ratio,
-                             assign_method, verbose))
+                             assign_method, True, verbose))
 
     # multi-processing
     if verbose:
         print(
             f"-- multiprocessing of {len(_assign_args)} domain_cluster assignment with {num_threads} threads")
     with mp.Pool(num_threads) as _assign_pool:
-        _assigned_list = _assign_pool.starmap(
-            assign_domain_cluster_to_compartments, _assign_args)
+        _results = _assign_pool.starmap(assign_domain_cluster_to_compartments, _assign_args)
         _assign_pool.close()
         _assign_pool.join()
         _assign_pool.terminate()
+    # get results
+    _assigned_list = [_r[0] for _r in _results]
 
     if verbose:
         print(
             f"-- time spent in domain_cluster assignment:{time.time()-_start_time}")
-
-    return _assigned_list
+    # return
+    if return_boundary:
+        _boundary_list = [_r[1] for _r in _results]
+        return _assigned_list, _boundary_list
+    else:
+        return _assigned_list

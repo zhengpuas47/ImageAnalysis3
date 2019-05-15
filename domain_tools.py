@@ -1057,5 +1057,5 @@ def plot_boundary_probability(region_ids, domain_start_list, figure_kwargs={}, p
         _filename = 'boundary_prob.png'
         if save_name != '':
             _filename = save_name + '_' + _filename
-        plt.savefig(os.path.join(save_folder, _filename))
+        plt.savefig(os.path.join(save_folder, _filename), transparent=True)
     return _ax
