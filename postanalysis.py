@@ -432,3 +432,102 @@ def assign_domain_cluster_to_compartments(coordinates, domain_starts, compartmen
                 _assigned_dict[_k][_rids] = _norm_mat[_i,_j]
 
     return _assigned_dict
+
+
+def Batch_Assign_Domain_Clusters_To_Compartments(coordinate_list, domain_start_list, compartment_dict,
+                                                 num_threads=12, linkage_list=None,
+                                                 linkage_method='complete', distance_metric='median',
+                                                 normalization=r'Z:\References\normalization_matrix.npy',
+                                                 min_cluster_size_ratio=0.1, min_cluster_dist_ratio=0.08,
+                                                 assign_method='binary', verbose=True):
+    """Function to batch assign domain clusters into annotated compartments
+    Inputs:
+        coordinate_list: list of coordinates:
+            n-by-3 coordinates for a chromosome, or n-by-n distance matrix, np.ndarray
+        domain_start_list: list of domain start indices:
+            domain starts region-indices, np.ndarray
+        compartment_dict: dictionary for compartment annotation, dict
+            Note: this comaprtment_dict has to be exclusive
+        num_threads: number of threads to multiprocess domain calling, int (default: 12)
+        linkage_list: list of linkage matrix generated from scipy.cluster.hierarchy.linkage, np.ndarray
+            linkage result, default:None, generate from scratch
+        linkage_method: method for linkage if domain_linkage is not given, str (default: 'complete')
+        distance_metric: metric for domain distance calculation, str (default: 'median')
+        min_cluster_size_ratio: minimal size of cluster ratio to chromosome size, float (default: 0.1)
+        min_cluster_dist_ratio: minimal distance of cluster ratio to number of domains, float (default: 0.05)
+        assign_method: method for assigning compartments, str {'binary'|'continuous'}
+        verbose: whether say something!, bool (default: True)
+    Output:
+        _assigned_list: list of assigned dict,
+            compartment_label -> 1d-array of size similar to coordinate, with compartment score at each position
+    """
+    ## check inputs
+    if verbose:
+        _start_time = time.time()
+        print(
+            f"- Start batch assign domain clusters into {len(compartment_dict)} compartments.")
+    # check coordinate_list
+    if isinstance(coordinate_list, list) and len(np.shape(coordinate_list[0])) == 2:
+        pass
+    elif isinstance(coordinate_list, np.ndarray) and len(np.shape(coordinate_list)) == 3:
+        pass
+    else:
+        raise ValueError(
+            f"Input coordinate_list should be a list of 2darray or 3dim merged coordinates")
+    # check other input length
+    if len(domain_start_list) != len(coordinate_list):
+        raise ValueError(
+            f"length of domain_start_list:{len(domain_start_list)} doesn't match coordinate_list!")
+    # check other input length
+    if linkage_list is not None:
+        if len(linkage_list) != len(coordinate_list):
+            raise ValueError(
+                f"length of linkage_list:{len(linkage_list)} doesn't match coordinate_list!")
+    # compartment_dict
+    _ref_inds = []
+    for _k, _v in compartment_dict.items():
+        _ref_inds += list(_v)
+    _uids, _ucounts = np.unique(_ref_inds, return_counts=True)
+    if (_ucounts > 1).any():
+        raise ValueError(
+            f"There are non unique ids used in reference:{compartment_dict}")
+    elif (_uids > len(coordinate_list[0])).any():
+        raise ValueError(
+            f"Wrong ind given in compartment_dict:{compartment_dict}, should be index of coordinates")
+    # load normalization if specified
+    if isinstance(normalization, str) and os.path.isfile(normalization):
+        normalization = np.load(normalization)
+    elif isinstance(normalization, np.ndarray) and len(coordinate_list[0]) == np.shape(normalization)[0]:
+        pass
+    else:
+        normalization = None
+
+    # get args
+    _assign_args = []
+    for _i, _coordinates in enumerate(coordinate_list):
+        _starts = domain_start_list[_i]
+        if linkage_list is None:
+            _linkage = None
+        else:
+            _linkage = linkage_list[_i]
+        _assign_args.append((_coordinates, _starts, compartment_dict,
+                             _linkage, linkage_method, distance_metric, normalization,
+                             min_cluster_size_ratio, min_cluster_dist_ratio,
+                             assign_method, verbose))
+
+    # multi-processing
+    if verbose:
+        print(
+            f"-- multiprocessing of {len(_assign_args)} domain_cluster assignment with {num_threads} threads")
+    with mp.Pool(num_threads) as _assign_pool:
+        _assigned_list = _assign_pool.starmap(
+            assign_domain_cluster_to_compartments, _assign_args)
+        _assign_pool.close()
+        _assign_pool.join()
+        _assign_pool.terminate()
+
+    if verbose:
+        print(
+            f"-- time spent in domain_cluster assignment:{time.time()-_start_time}")
+
+    return _assigned_list
