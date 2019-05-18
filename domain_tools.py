@@ -171,14 +171,15 @@ def radius_of_gyration(segment):
 
 
 def domain_distance(coordinates, _dom1_bds, _dom2_bds,
-                    _measure='median', _normalization_mat=None ):
+                    _metric='median', _normalization_mat=None,
+                    _allow_minus_distance=True):
     """Function to measure domain distances between two zxy arrays
     use KS-statistic as a distance:
         citation: https://arxiv.org/abs/1711.00761"""
     ## check inputs
     if not isinstance(coordinates, np.ndarray):
         coordinates = np.array(coordinates)
-    _measure = str(_measure).lower()
+    _metric = str(_metric).lower()
     _dom1_bds = [int(_b) for _b in _dom1_bds]
     _dom2_bds = [int(_b) for _b in _dom2_bds]
 
@@ -231,23 +232,33 @@ def domain_distance(coordinates, _dom1_bds, _dom2_bds,
     if len(_kept_inter) == 0 or len(_kept_intra) == 0:
         return 0
 
-    if _measure == 'median':
+    if _metric == 'median':
         m_inter, m_intra = np.nanmedian(_inter_dist), np.nanmedian(_intra_dist)
         v_inter, v_intra = np.nanmedian(
             (_inter_dist-m_inter)**2), np.nanmedian((_intra_dist-m_intra)**2)
-        return (m_inter-m_intra)/np.sqrt(v_inter+v_intra)
-    if _measure == 'mean':
+        _final_dist = (m_inter-m_intra)/np.sqrt(v_inter+v_intra)
+    elif _metric == 'mean':
         m_inter, m_intra = np.nanmean(_inter_dist), np.nanmean(_intra_dist)
         v_inter, v_intra = np.nanvar(_inter_dist), np.nanvar(_intra_dist)
-        return (m_inter-m_intra)/np.sqrt(v_inter+v_intra)
-    if _measure == 'ks':
+        _final_dist = (m_inter-m_intra)/np.sqrt(v_inter+v_intra)
+    elif _metric == 'ks':
         if 'ks_2samp' not in locals():
             from scipy.stats import ks_2samp
-        _f = int((np.nanmedian(_inter_dist) - np.nanmedian(_intra_dist)) > 0)
-        return _f * ks_2samp(_kept_inter, _kept_intra)[0]
+        _f = np.sign(np.nanmedian(_inter_dist) - np.nanmedian(_intra_dist)) 
+        _final_dist =  _f * ks_2samp(_kept_inter, _kept_intra)[0]
+    else:
+        raise ValueError(f"Wrong input _metric type")
+    
+    if _allow_minus_distance:
+        return _final_dist
+    else:
+        return max(_final_dist, 0)
+    
+
 
 # function to call domain pairwise distance as scipy.spatial.distance.pdist
-def domain_pdists(coordinates, domain_starts, metric='median', normalization_mat=None):
+def domain_pdists(coordinates, domain_starts, metric='median', 
+                  normalization_mat=None, allow_minus_dist=True):
     """Calculate domain pair-wise distances, return a vector as the same order as
     scipy.spatial.distance.pdist 
     Inputs:
@@ -283,11 +294,11 @@ def domain_pdists(coordinates, domain_starts, metric='median', normalization_mat
             dom_pdists.append(domain_distance(coordinates,
                                               [domain_starts[_i], domain_ends[_i]],
                                               [domain_starts[_j], domain_ends[_j]],
-                                              _measure=metric,
-                                              _normalization_mat=normalization_mat))
+                                              _metric=metric,
+                                              _normalization_mat=normalization_mat,
+                                              _allow_minus_distance=allow_minus_dist))
 
     dom_pdists = np.array(dom_pdists)
-    dom_pdists[dom_pdists < 0] = 0  # remove minus distances, just in case
 
     return dom_pdists
 
@@ -454,7 +465,7 @@ def basic_domain_calling(spots, save_folder=None,
     if gfilt_size is not None and gfilt_size > 0:
         if verbose:
             print(f"--- gaussian interpolate chromosome, sigma={gfilt_size}")
-        _zxy = DomainTools.interpolate_chr(_zxy, gaussian=gfilt_size)
+        _zxy = interpolate_chr(_zxy, gaussian=gfilt_size)
 
     ## 1. call candidate domains
     if verbose:
@@ -471,7 +482,8 @@ def basic_domain_calling(spots, save_folder=None,
     if plot_results and len(cand_bd_starts) > 1:
         _dm_pdists = domain_pdists(_zxy, cand_bd_starts,
                                    metric=domain_dist_metric,
-                                   normalization_mat=norm_mat)
+                                   normalization_mat=norm_mat,
+                                   allow_minus_dist=False)
         _coef_mat = np.corrcoef(squareform(_dm_pdists))
         if verbose:
             print(
@@ -615,7 +627,7 @@ def iterative_domain_calling(spots, save_folder=None,
     if gfilt_size is not None and gfilt_size > 0:
         if verbose:
             print(f"--- gaussian interpolate chromosome, sigma={gfilt_size}")
-        _zxy = DomainTools.interpolate_chr(_zxy, gaussian=gfilt_size)
+        _zxy = interpolate_chr(_zxy, gaussian=gfilt_size)
 
     ## 1. do one round of basic domain calling
     cand_bd_starts = basic_domain_calling(spots=spots, distance_zxy=_distance_zxy,
@@ -685,7 +697,8 @@ def iterative_domain_calling(spots, save_folder=None,
     if plot_results and len(cand_bd_starts) > 1:
         _dm_pdists = domain_pdists(_zxy, cand_bd_starts,
                                    metric=domain_dist_metric,
-                                   normalization_mat=norm_mat)
+                                   normalization_mat=norm_mat,
+                                   allow_minus_dist=False)
         _coef_mat = np.corrcoef(squareform(_dm_pdists))
         if verbose:
             print(
@@ -773,7 +786,7 @@ def local_domain_calling(spots, save_folder=None,
     if gfilt_size is not None and gfilt_size > 0:
         if verbose:
             print(f"--- gaussian interpolate chromosome, sigma={gfilt_size}")
-        _zxy = DomainTools.interpolate_chr(_zxy, gaussian=gfilt_size)
+        _zxy = interpolate_chr(_zxy, gaussian=gfilt_size)
     # call bogdan's function
     cand_bd_starts =  standard_domain_calling_new(_zxy, gaussian=0., 
                                                   dom_sz=dom_sz, 
@@ -784,10 +797,10 @@ def local_domain_calling(spots, save_folder=None,
 # Calculate distance given distance_matrix, window_size and metric type
 def _sliding_window_dist(_mat, _wd, _dist_metric='median'):
     """Function to calculate sliding-window distance across one distance-map of chromosome"""
-    dists = []
+    dists = np.zeros(len(_mat))
     for _i in range(len(_mat)):
         if _i - _wd < 0 or _i + _wd > len(_mat):
-            dists.append(0)
+            dists[_i] = 0
         else:
             _crop_mat = _mat[_i-_wd:_i+_wd, _i-_wd:_i+_wd]
             _intra1 = np.triu(_crop_mat[:_wd, :_wd], 1)
@@ -800,23 +813,26 @@ def _sliding_window_dist(_mat, _wd, _dist_metric='median'):
             _inter_dist = _inter_dist[np.isnan(_inter_dist) == False]
             if len(_intra_dist) == 0 or len(_inter_dist) == 0:
                 # return zero distance if one dist list is empty
-                dists.append(0)
+                dists[_i] = 0
+                continue
             # add dist info
             if _dist_metric == 'ks':
                 if 'ks_2samp' not in locals():
                     from scipy.stats import ks_2samp
                 _f = int((np.median(_inter_dist) - np.median(_intra_dist)) > 0)
-                dists.append(_f * ks_2samp(_intra_dist, _inter_dist)[0])
+                dists[_i] = _f * ks_2samp(_intra_dist, _inter_dist)[0]
             elif _dist_metric == 'median':
                 m_inter, m_intra = np.median(_inter_dist), np.median(_intra_dist)
                 v_inter, v_intra = np.median((_inter_dist-m_inter)**2),\
                                    np.median((_intra_dist-m_intra)**2)
-                dists.append((m_inter-m_intra)/np.sqrt(v_inter+v_intra))
+                dists[_i] = (m_inter-m_intra) / np.sqrt(v_inter+v_intra)
             elif _dist_metric == 'mean':
                 m_inter, m_intra = np.mean(_inter_dist), np.mean(_intra_dist)
                 v_inter, v_intra = np.var(_inter_dist), np.var(_intra_dist)
-                dists.append((m_inter-m_intra)/np.sqrt(v_inter+v_intra))
-    dists = np.array(dists)
+                dists[_i] = (m_inter-m_intra) / np.sqrt(v_inter+v_intra)
+            else:
+                raise ValueError(f"Wrong input _dist_metric")
+
     dists[dists<0] = 0
 
     return dists
@@ -936,10 +952,14 @@ def Domain_Calling_Sliding_Window(coordinates, window_size=5, distance_metric='m
                                       norm_mat=normalization, corr_th=corr_th,
                                       dist_th=dist_th, domain_dist_metric=distance_metric,
                                       plot_steps=False, verbose=False)    
-    kept_domains = np.array([_d for _i,_d in enumerate(domain_starts)  
-                             if _d in merged_starts or _strengths[_i] > merge_strength_th])
-    if verbose:
-        print(f"--- domain after merging: {len(kept_domains)}")
+        kept_domains = np.array([_d for _i,_d in enumerate(domain_starts)  
+                                if _d in merged_starts or _strengths[_i] > merge_strength_th])
+        if verbose:
+            print(f"--- domain after merging: {len(kept_domains)}")
+    else:
+        kept_domains = domain_starts
+        merged_starts = domain_starts
+
     # return_strength
     if return_strength:
         kept_strengths = np.array([_s for _i, _s in enumerate(_strengths)
