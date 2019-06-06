@@ -141,7 +141,7 @@ def plot_boundaries(distance_map, boundaries, input_ax=None, plot_limits=[0, 150
     ax.set_ylim([distance_map.shape[1], 0])
 
     if save:
-        if save_folder is not None and input_ax is None:
+        if save_folder is not None:
             if not os.path.exists(save_folder):
                 os.makedirs(save_folder)
             if save_name == '':
@@ -910,7 +910,10 @@ def Domain_Calling_Sliding_Window(coordinates, window_size=5, distance_metric='m
     # loop through real window_size between 1x to 2x of window_size
     for _wd in np.arange(window_size, 2*window_size):
         dist_list.append(_sliding_window_dist(_mat, _wd, distance_metric))
-
+    #plt.figure(figsize=(15,5))
+    #for dist in dist_list:
+    #    plt.plot(np.arange(len(dist)),dist,alpha=0.5)
+    #plt.show()
     ## call peaks
     if verbose:
         print(

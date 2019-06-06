@@ -7,16 +7,19 @@ from scipy import ndimage, stats
 from scipy.cluster.hierarchy import linkage, dendrogram, to_tree, is_valid_linkage
 from scipy.spatial.distance import pdist, cdist, squareform
 from functools import partial
+from scipy.ndimage.filters import maximum_filter
 import matplotlib.pyplot as plt
 
 from . import *
+from . import _distance_zxy
 from .External import Fitting_v3, DomainTools
 
 # default init to make it a package
 def __init__():
     pass
 
-def Calculate_BED_to_Region(data_filename, region_dic, data_format='tagAlign', stat_type='count', 
+def Calculate_BED_to_Region(data_filename, region_dic, data_format='tagAlign', 
+                            stat_type='count', normalize_by_total=False,
                             overwrite=False, save=False, save_folder=None, verbose=True):
     """Function to formulate a BED-like format data alignment result into statistics in given regions
     -------------------------------------------------------------------------------------------------
@@ -46,7 +49,7 @@ def Calculate_BED_to_Region(data_filename, region_dic, data_format='tagAlign', s
     if not isinstance(region_dic, dict):
         raise TypeError(f"Wrong input type for region_dic, should be dict, but {type(region_dic)} is given!")
     # data_format:
-    _allowed_formats = ['bed', 'tagalign']
+    _allowed_formats = ['bed', 'tagalign', 'wig']
     if not isinstance(data_format, str):
         raise TypeError(f"Wrong input type for data_format, should be str, but {type(data_format)} is given.")
     elif data_format.lower() not in _allowed_formats:
@@ -59,7 +62,7 @@ def Calculate_BED_to_Region(data_filename, region_dic, data_format='tagAlign', s
         raise ValueError(f"data_format:{stat_type} should be among {_allowed_stats}")
     
     # sort region dic
-    _region_info = sorted(region_dic.items())
+    _region_info = sorted(list(region_dic.items()), key=lambda v:int(v[1]['start']))
     
     # not overwrite?
     _save_filename = data_filename.replace(data_format, f'_{stat_type}_region.pkl')
@@ -72,22 +75,40 @@ def Calculate_BED_to_Region(data_filename, region_dic, data_format='tagAlign', s
     else:
         if verbose:
             print(f"-- Calculate {os.path.basename(data_filename)} for {len(_region_info)} regions!")
-        _region_stat = {_k:0 for _k in region_dic}
+        _region_stat = {_info[0]:0 for _info in _region_info}
 
     # load info
     _content = []
     _reg_index = 0
+    if normalize_by_total:
+        total_stat = 0.
     # loop through lines and add to stat
     if verbose:
         print(f"--- start iterate through data file.")
     with open(data_filename, 'r') as _handle:
         for line in _handle:
             _c = line.strip().split()
-            if data_format.lower() == 'tagalign':
+            if data_format.lower() == 'tagalign' or data_format.lower() == 'bed':
                 _chr = _c[0]
                 _start = int(_c[1])
                 _end = int(_c[2])
                 _mid = int((_start+_end)/2)
+                _count = 1
+            elif data_format.lower() == 'wig':
+                if '#' in line:
+                    continue
+                _chr = _c[0]
+                _start = int(_c[1])
+                _end = int(_c[2])
+                _count = int(_c[3])
+                _mid = int((_start+_end)/2)
+            # save info to total_stat
+            if normalize_by_total:
+                if stat_type == 'sum':
+                    total_stat += float(np.abs(min(_end, _region_info[_reg_index][1]['end']-1) - \
+                        max(_start, _region_info[_reg_index][1]['start']))) * _count * 1e-10
+                elif stat_type == 'count':
+                    total_stat += _count * 1e-10
             # go to next region if:
             if _chr != _region_info[_reg_index][1]['chr']:
                 continue
@@ -95,18 +116,25 @@ def Calculate_BED_to_Region(data_filename, region_dic, data_format='tagAlign', s
                 continue
             if _mid > _region_info[_reg_index][1]['end'] and _chr == _region_info[_reg_index][1]['chr']:
                 _reg_index += 1
-                continue
-            elif _mid >= _region_info[_reg_index][1]['start'] \
+            # really calculate stats here                
+            if _mid >= _region_info[_reg_index][1]['start'] \
                 and _mid < _region_info[_reg_index][1]['end'] \
                 and _chr == _region_info[_reg_index][1]['chr']:
                 if stat_type == 'sum':
                     _region_stat[_region_info[_reg_index][0]] += \
-                        min(_end, _region_info[_reg_index][1]['end']-1) - \
-                        max(_start, _region_info[_reg_index][1]['start'])
+                        float(np.abs(min(_end, _region_info[_reg_index][1]['end']-1) - \
+                        max(_start, _region_info[_reg_index][1]['start']))) * _count * 1e-10
                 elif stat_type == 'count':
-                    _region_stat[_region_info[_reg_index][0]] += 1
-            #_content.append(line.strip().split())
-    
+                    _region_stat[_region_info[_reg_index][0]] += _count * 1e-10
+    # sort back regions
+    _region_stat = {_k:_v for _k,_v in sorted(_region_stat.items())}
+    # normalize if applied
+    if normalize_by_total:
+        if verbose:
+            print(f"--- total count of this dataset: {total_stat * 1e10}")
+        _region_stat = {_k: float(_v) / float(total_stat) for _k, _v in _region_stat.items()}    
+    else:
+        _region_stat = {_k: float(_v) *1e10 for _k, _v in _region_stat.items()}
     if save:
         if verbose:
             print(f"--- save result into file: {_save_filename}")
@@ -406,17 +434,13 @@ def assign_domain_cluster_to_compartments(coordinates, domain_starts, compartmen
             if _right_flag:
                 _kept_clusters.append(_node.right)
     # convert domain ID to region_id
-    _cluster_bd_list = [] # save cluster boundary region ids
     _reg_id_list = []
     for _n in _kept_clusters:
         _dom_ids = np.array(_n.pre_order(lambda x: x.id), dtype=np.int)
         _reg_ids = [np.arange(domain_starts[_d], domain_ends[_d]).astype(
             np.int) for _d in _dom_ids]
         _reg_id_list.append(np.concatenate(_reg_ids))
-        _cluster_bd_list += [_r for _r in np.concatenate(_reg_ids) 
-                             if _r-1 not in np.concatenate(_reg_ids) and _r > 0]
-    # summarize boundaries
-    _cluster_bds = np.unique(_cluster_bd_list).astype(np.int)
+
     ## 2. with selected clusters, calculate its overlap with compartments
     # init
     _decision_dict = {_k: np.zeros(len(_reg_id_list))
@@ -427,6 +451,8 @@ def assign_domain_cluster_to_compartments(coordinates, domain_starts, compartmen
                 _rids, _cinds)) / len(_rids) / len(_cinds)
     if verbose:
         print("--- decision_dict:", _decision_dict)
+
+
 
     ## summarize to a dict
     _assigned_dict = {_k: np.zeros(_mat.shape[0]) for _k in compartment_dict.keys()}
@@ -444,6 +470,13 @@ def assign_domain_cluster_to_compartments(coordinates, domain_starts, compartmen
                 _assigned_dict[_k][_rids] = _norm_mat[_i,_j]
     # return
     if return_boundary:
+        # calculate compartment boundaries
+        _boundary_dict = {_k:[] for _k in compartment_dict.keys()}
+        for _k, _v in _assigned_dict.items():
+            _bds = np.where((_v[1:]-_v[:-1])>0)[0]+1
+            _boundary_dict[_k] = _bds
+        _cluster_bds = np.concatenate(list(_boundary_dict.values()))
+        _cluster_bds = np.unique(_cluster_bds)
         return _assigned_dict, _cluster_bds
     else:
         return _assigned_dict
@@ -552,3 +585,60 @@ def Batch_Assign_Domain_Clusters_To_Compartments(coordinate_list, domain_start_l
         return _assigned_list, _boundary_list
     else:
         return _assigned_list
+
+
+# density map
+
+
+
+
+def score_from_density(density_dict, cutoff_per=50):
+    A_im = density_dict['A']
+    B_im = density_dict['B']
+    A_mask = A_im > stats.scoreatpercentile(A_im[A_im > 0],cutoff_per)
+    B_mask = B_im > stats.scoreatpercentile(B_im[B_im > 0],cutoff_per)
+    score = np.sqrt((1- np.sum(A_mask*B_mask) / np.sum(A_mask))*(1- np.sum(A_mask*B_mask) / np.sum(B_mask)))
+    #print(np.sum(A_mask), np.sum(B_mask), np.sum(A_mask*B_mask))
+    #score = np.sum(A_mask*B_mask) / np.sqrt(np.sum(A_mask)) / np.sqrt(np.sum(B_mask))
+    #plt.figure()
+    #plt.imshow(A_mask.sum(2),cmap=myReds)
+    #plt.imshow(B_mask.sum(2),cmap=myBlues,alpha=0.5)
+    return score
+
+def hessian(x):
+    """
+    Calculate the hessian matrix with finite differences
+    Parameters:
+       - x : ndarray
+    Returns:
+       an array of shape (x.dim, x.ndim) + x.shape
+       where the array[i, j, ...] corresponds to the second derivative x_ij
+    """
+    x_grad = np.gradient(x, edge_order=2) 
+    hessian = np.empty((x.ndim, x.ndim) + x.shape, dtype=x.dtype) 
+    for k, grad_k in enumerate(x_grad):
+        # iterate over dimensions
+        # apply gradient again to every component of the first derivative.
+        tmp_grad = np.gradient(grad_k, edge_order=2) 
+        for l, grad_kl in enumerate(tmp_grad):
+            hessian[k, l, :, :] = grad_kl
+    return hessian
+
+
+def local_maximum_in_density(den_dict, seeding_window=10, intensity_ratio=0.25):
+    """Calculate local maxima """
+    A_density, B_density = den_dict['A'], den_dict['B']
+
+    A_z,A_x,A_y = np.where(maximum_filter(A_density,seeding_window) == A_density)
+    A_int = A_density[A_z,A_x,A_y]
+    A_hessian = hessian(A_density)[:,:, A_z, A_x, A_y]
+    A_eigs = [np.linalg.eigvals(A_hessian[:,:,_i]) for _i in range(len(A_x))]
+    A_coords = np.array([[_z,_x,_y] for _z,_x,_y,_e,_int in zip(A_z,A_x,A_y,A_eigs,A_int) \
+                            if (_e<0).all() and _int > intensity_ratio*np.max(A_int)], dtype=np.int)
+    B_z,B_x,B_y = np.where(maximum_filter(B_density,seeding_window) == B_density)
+    B_int = B_density[B_z,B_x,B_y]
+    B_hessian = hessian(B_density)[:,:, B_z, B_x, B_y]
+    B_eigs = [np.linalg.eigvals(B_hessian[:,:,_i]) for _i in range(len(B_x))]
+    B_coords = np.array([[_z,_x,_y] for _z,_x,_y,_e,_int in zip(B_z,B_x,B_y,B_eigs,B_int) \
+                          if (_e<0).all() and _int > intensity_ratio*np.max(B_int)], dtype=np.int)
+    return A_coords, B_coords

@@ -66,15 +66,25 @@ def insulation(i,j,k,mat,func = np.nanmedian,return_dists=False):
 from scipy.ndimage.filters import maximum_filter,minimum_filter,median_filter,gaussian_filter
 from scipy.spatial.distance import cdist,pdist,squareform
 from scipy.optimize import leastsq
-def get_ind_loc_max(ratio,cutoff_max=1.,valley=3):
+def get_ind_loc_max(dists,cutoff_max=1.,valley=3, remove_edge=True, make_plot=False):
     """get local maximum within valley size bigger than cut-off"""
-    local_max_good_ = []
-    for id_ in range(len(ratio)):
-        l = np.max([0,id_-valley])
-        r = np.min([len(ratio),id_+valley])
-        if ratio[id_]==np.nanmax(ratio[l:r]) and ratio[id_]>cutoff_max:
-            local_max_good_.append(id_)
-    return np.array(local_max_good_)
+    _local_max_inds = []
+    for _id in range(len(dists)):
+        l = np.max([0,_id-valley])
+        r = np.min([len(dists),_id+valley])
+        if dists[_id]==np.nanmax(dists[l:r]) and dists[_id]>cutoff_max:
+            if remove_edge:
+                if _id != 0 and _id !=len(dists)-1:
+                    _local_max_inds.append(_id)
+            else:
+                _local_max_inds.append(_id)
+    if make_plot:
+        plt.figure()
+        plt.plot(np.arange(len(dists)), dists)
+        plt.plot(_local_max_inds, np.array(dists)[_local_max_inds], 'ro')
+        plt.show()
+    return np.array(_local_max_inds, dtype=np.int)
+
 def get_boundaries_old(im,su=5,sl=5,valley=5,cutoff_max=1.,plt_val=False):
     """Bintu et al 2018 candidate boundary calling"""
     im_=np.array(im)
@@ -219,7 +229,8 @@ def standard_domain_calling_old(zxy,gaussian=None,su=7,sl=4,valley=4,dom_sz=5,cu
     return dom_starts
     
 
-def standard_domain_calling_new(zxy, gaussian=None, dom_sz=5, cutoff_max=1.):
+def standard_domain_calling_new(zxy, gaussian=None, dom_sz=5, 
+                                cutoff_max=1., remove_edge=True):
     zxy_ = np.array(zxy)
     if gaussian is not None:
         zxy_ = interpolate_chr(zxy_,gaussian=gaussian)
@@ -231,10 +242,11 @@ def standard_domain_calling_new(zxy, gaussian=None, dom_sz=5, cutoff_max=1.):
             cm2 = np.nanmean(zxy_[i:i+dom_sz], axis=0)
             dist = np.linalg.norm(cm1-cm2)
             dists.append(dist)
-        else:
-            dists.append(0)
+        #else:
+        #    dists.append(0)
     
-    bds_candidates = get_ind_loc_max(dists,cutoff_max=0,valley=dom_sz)
+    bds_candidates = get_ind_loc_max(dists,cutoff_max=0,
+                                     valley=dom_sz, remove_edge=remove_edge) + dom_sz
     
     mat = squareform(pdist(zxy))
     
@@ -243,6 +255,9 @@ def standard_domain_calling_new(zxy, gaussian=None, dom_sz=5, cutoff_max=1.):
         mat, dom_starts, tag='median', cut_off=cutoff_max)
     
     return dom_starts
+
+
+
 def nan_gaussian_filter(mat,sigma,keep_nan=False):
     from scipy.ndimage import gaussian_filter
     U=np.array(mat)

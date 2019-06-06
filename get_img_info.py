@@ -361,13 +361,14 @@ def match_peak_to_region(region_dic, peak_list, return_list=True):
         return _rx, _ry
 
 # function to match result from Load_Region_Positions to Load_RNA_Info 
-def match_RNA_to_DNA(rna_dic, region_dic):
+def match_RNA_to_DNA(rna_dic, region_dic, max_size_th=100000):
     """Function to match RNA to DNA region and append new information to RNA_dic"""
     # initialize a dict
     _updated_dic = {_k:_v for _k,_v in rna_dic.items()}
     for _k, _rdic in _updated_dic.items():
         for _rid, _region in region_dic.items():
-            if _rdic['midpoint'] >= _region['start'] and _rdic['midpoint'] <= _region['end'] \
+            if abs(_rdic['end'] - _rdic['start']) and \
+                _rdic['start'] >= _region['start'] and _rdic['start'] <= _region['end'] \
                     and _rdic['chr'] == _region['chr']:
                 _updated_dic[_k]['DNA_id'] = _rid
     return _updated_dic 

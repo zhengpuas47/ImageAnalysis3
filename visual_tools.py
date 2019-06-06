@@ -12,11 +12,31 @@ from skimage.segmentation import random_walker
 from scipy.ndimage import gaussian_laplace
 import cv2
 import multiprocessing as mp
+from sklearn.decomposition import PCA
 
-from . import get_img_info, corrections, visual_tools, alignment_tools, analysis, classes
+from . import get_img_info, corrections, alignment_tools, analysis, classes
 from .External import Fitting_v3
 from . import _correction_folder,_temp_folder,_distance_zxy,_sigma_zxy,_image_size, _allowed_colors
 
+# generate common colors
+# generate my colors
+from matplotlib.colors import ListedColormap
+# red
+Red_colors = np.ones([256,4])
+Red_colors[:,1] = np.linspace(1,0,256)
+Red_colors[:,2] = np.linspace(1,0,256)
+myReds = ListedColormap(Red_colors)
+# blue
+Blue_colors = np.ones([256,4])
+Blue_colors[:,0] = np.linspace(1,0,256)
+Blue_colors[:,1] = np.linspace(1,0,256)
+myBlues = ListedColormap(Blue_colors)
+# green
+Green_colors = np.ones([256,4])
+Green_colors[:,0] = np.linspace(1,0,256)
+Green_colors[:,2] = np.linspace(1,0,256)
+myGreens = ListedColormap(Green_colors)
+_myCmaps = [myReds, myBlues, myGreens]
 
 
 def partition_map(list_,map_, enumerate_all=False):
@@ -69,9 +89,9 @@ def add_source(im_,pos=[0,0,0],h=200,sig=[2,2,2],size_fold=10):
     pos_max_ = in_im(pos_max)
     pos_min_ker = pos_min_-pos_min
     pos_max_ker = im_ker_sz+pos_max_-pos_max
-    slices_ker = [slice(pm,pM)for pm,pM in zip(pos_min_ker,pos_max_ker)]
-    slices_im = [slice(pm,pM)for pm,pM in zip(pos_min_,pos_max_)]
-    im[slices_im]+=im_ker[slices_ker]*h
+    slices_ker = [slice(pm,pM) for pm,pM in zip(pos_min_ker,pos_max_ker)]
+    slices_im = [slice(pm,pM) for pm,pM in zip(pos_min_,pos_max_)]
+    im[slices_im] += im_ker[slices_ker]*h
     return im
 
 def subtract_source(im,pfit):
@@ -1642,7 +1662,7 @@ def crop_cell(im, segmentation_label, drift=None, extend_dim=20, overlap_thresho
                 # crop image for pre-correction
                 _pre_im = im[_drift_limits[0,0]:_drift_limits[0,1],_drift_limits[2,0]:_drift_limits[2,1],_drift_limits[1,0]:_drift_limits[1,1]]
                 # drift correction
-                _post_im = shift(_pre_im, -drift)
+                _post_im = shift(_pre_im, - drift)
                 # re-crop
                 _limit_diffs = _limits - _drift_limits
                 for _m in range(len(_label_dim)):
@@ -2869,3 +2889,244 @@ def Batch_Remove_Dax_Channel(source_folder, target_folder, source_channels,
     
     return _flags
     
+# center and PCA transfomr spots in 3d
+def normalize_center_spots(spots, distance_zxy=_distance_zxy, center=True, 
+                           scale_variance=True,
+                           pca_align=True, scaling=1.):
+    """Function to adjust gaussian fitted spots into standardized 3d situation
+    Inputs: 
+        spots: list of spots that that generated from Fitting_V3, 2d np.ndarray or list of 1d np.ndarray
+        distance_zxy: transformation from pixel to nm, np.ndarray of 3 (default: global setting _distance_zxy)
+        center: whether center chromosome to 0, bool (default: True)
+        pca_align: whether align spots into PCA space, bool (default: True)
+        scaling: scaling factor for the chromosome, float (default: 1., which means scale as pixel)
+    Output:
+        _spots: same spots after transformation, 2d np.ndarray
+    """
+    ## check inputs
+    # spots
+    _spots = np.array(spots).copy()
+    if len(spots.shape) != 2:
+        raise ValueError(f"Input spots should be 2d-array like structure, but shape:{spots.shape} is given!")
+    #distance_zxy
+    distance_zxy = np.array(distance_zxy)[:3]
+    _adjust_scaling = distance_zxy / np.min(distance_zxy)
+    # start convert distances
+    _coords = _spots[:,1:4] * _adjust_scaling[np.newaxis,:] 
+    _stds = _spots[:,5:8] * _adjust_scaling[np.newaxis,:] 
+
+    # center
+    if center:
+        _coords = _coords - np.nanmean(_coords, axis=0)
+    # normalize total variance to 1
+    if scale_variance:
+        _total_scale = np.sqrt(np.nanvar(_coords,axis=0).sum())    
+        _coords = _coords / _total_scale * scaling
+        _stds = _stds / _total_scale * scaling
+    else:
+        _coords = _coords * scaling
+        _stds = _stds * scaling
+    # pca align
+    if pca_align:
+        if 'PCA' not in locals():
+            from sklearn.decomposition import PCA
+        # extract value and indices for valid spots
+        _clean_coords = np.array([_c for _c in _coords if not np.isnan(_c).any()])
+        _clean_inds = np.array([_i for _i,_c in enumerate(_coords) if not np.isnan(_c).any()],dtype=np.int)
+        # do PCA
+        _model = PCA(3)
+        _model.fit(_clean_coords)
+        _trans_coords = _model.fit_transform(_clean_coords)
+        _coords[_clean_inds] = _trans_coords
+        #print(_model.explained_variance_ratio_)
+    # save then back to spots
+    _spots[:,1:4] = _coords
+    _spots[:,5:8] = _stds
+    
+    return _spots
+
+# align chromosome with AB-axis
+def max_project_AB_compartment(spots, comp_dict, pca_other_2d=True):
+    """Do mass projection onto AB (first two keys) axis of chromosome 
+    by norm-centered spots
+    Inputs:
+        spots: list of spots that that generated from Fitting_V3, 2d np.ndarray or list of 1d np.ndarray
+        comp_dict: dictionary of compartment reference, dict of compartment_name -> region_ids        
+        pca_other_2d: whether do PCA transformation for other two dimensions, bool (default: True)
+    Output:
+        _spots: same spots after transformation, 2d np.ndarray   
+        """
+    ## check inputs
+    # spots
+    _spots = np.array(spots).copy()
+    if len(spots.shape) != 2:
+        raise ValueError(f"Input spots should be 2d-array like structure, but shape:{spots.shape} is given!")
+    # comp_dict
+    if not isinstance(comp_dict, dict):
+        raise TypeError(f"Wrong input type of comp_dict, should be dict but {type(comp_dict)} is given")
+    
+    # extract indices for first two keys in comp_dict
+    _ind1 = np.array(list(comp_dict.values())[0], dtype=np.int)
+    _ind2 = np.array(list(comp_dict.values())[1], dtype=np.int)
+    # get original coordinates
+    _coords = _spots[:,1:4]
+    # get first axis
+    _AB_axis = np.nanmean(_coords[_ind1],axis=0) - np.nanmean(_coords[_ind2], axis=0)
+    _AB_axis = _AB_axis / np.linalg.norm(_AB_axis)
+    # get basic rotation matrix
+    _rot_mat1 = np.zeros([3,3])
+    _rot_mat1[2,2] = 1
+    _rot_mat1[0,0] = _AB_axis[0]
+    _rot_mat1[1,1] = _AB_axis[0]
+    _rot_mat1[1,0] = np.sqrt(1-_rot_mat1[1,1]**2)
+    _rot_mat1[0,1] = - _rot_mat1[1,0]
+    _rot_mat2 = np.zeros([3,3])
+    _rot_mat2[0,0] = 1
+    _rot_mat2[1,1] = _AB_axis[1] / _rot_mat1[1,0]
+    _rot_mat2[2,2] = _rot_mat2[1,1]
+    _rot_mat2[2,1] = np.sign(_AB_axis[1]) * np.sqrt(1-_rot_mat2[1,1]**2)
+    _rot_mat2[1,2] = - _rot_mat2[2,1]
+    # summarize rotation matrix
+    _r = _rot_mat2 @ _rot_mat1
+    # transform coordinates
+    _trans_coords = _coords @ _r
+    # if PCA the other two axis, do the following:
+    if pca_other_2d:
+        _clean_inds = np.array([_i for _i,_c in enumerate(_trans_coords) if not np.isnan(_c).any()],dtype=np.int)
+        _clean_2d_coords = _trans_coords[_clean_inds][:,1:3]
+        if 'PCA' not in locals():
+            from sklearn.decomposition import PCA
+        _model_2d = PCA(2)
+        _model_2d.fit(_clean_2d_coords)
+        _trans_coords[_clean_inds,1:3] = _model_2d.fit_transform(_clean_2d_coords)
+    # update spots and retrun
+    _spots[:, 1:4] = _trans_coords
+    
+    return _spots
+
+# convert spots to 3d cloud by replacing spots with gaussians
+def convert_spots_to_cloud(spots, comp_dict, im_radius=30, distance_zxy=_distance_zxy,
+                           scale_variance=True, pca_align=True, 
+                           max_project_AB=True, use_intensity=True,
+                           return_plot=False, ax=None, return_spots=False, 
+                           verbose=False):
+    """Convert spots (have to be centered to zero with correct scaling, 
+                      better to be max_projected if only 2 compartment specified)
+       into a 3d density map for each compartment specified in comp_dict
+    Inputs: 
+        spots
+       """
+    ## check inputs
+    from ImageAnalysis3.visual_tools import add_source
+    # spots
+    _spots = np.array(spots).copy()
+    if len(spots.shape) != 2:
+        raise ValueError(f"Input spots should be 2d-array like structure, but shape:{spots.shape} is given!")
+    # comp_dict
+    if not isinstance(comp_dict, dict):
+        print(f"Wrong input type of comp_dict, should be dict but {type(comp_dict)} is given")
+        return None
+    if scale_variance:
+        # assume there are very few points 3-sigma away
+        _default_scaling = im_radius / 4
+    else:
+        _default_scaling = 1.
+    _norm_spots = normalize_center_spots(_spots, distance_zxy=distance_zxy, 
+                                         center=True, pca_align=pca_align, 
+                                         scale_variance=scale_variance,
+                                         scaling=_default_scaling)
+    if max_project_AB:
+        _norm_spots = max_project_AB_compartment(_norm_spots, comp_dict, pca_other_2d=True)
+    
+    # create density map dict
+    _density_dict = {_k:np.zeros([im_radius*2]*3) for _k in comp_dict.keys()}
+    for _k, _v in comp_dict.items():
+        for _spot in _norm_spots[np.array(_v, dtype=np.int)]:
+            if not np.isnan(_spot).any():
+                if not use_intensity: #(default)
+                    _density_dict[_k] = add_source(_density_dict[_k], pos=im_radius+_spot[1:4],
+                                                   h=1, sig=_spot[5:8], 
+                                                   size_fold=im_radius)
+                else:
+                    _density_dict[_k] = add_source(_density_dict[_k], pos=im_radius+_spot[1:4],
+                                                   h=_spot[0], sig=_spot[5:8], 
+                                                   size_fold=im_radius)
+        # normalize density
+        if use_intensity:
+            _density_dict[_k] = _density_dict[_k] / np.sum(_density_dict[_k])
+
+    if return_plot:
+        if ax is None:
+            _fig = plt.figure(figsize=(8,6),dpi=200)
+            ax = _fig.add_subplot(111)
+        # estimate limits
+        _vmax = min(stats.scoreatpercentile(list(_density_dict.values())[0].sum(2), 98),
+                    stats.scoreatpercentile(list(_density_dict.values())[1].sum(2), 98) )
+
+        # make density plot
+        for _i, (_k,_v) in enumerate(list(_density_dict.items())[:2]):
+            _im = ax.imshow(_v.sum(2).T, cmap=_myCmaps[_i],
+                            vmin=0, vmax=_vmax, label=_k, alpha=1-0.5*(_i),
+                            interpolation='nearest')
+            _cb = plt.colorbar(_im, ax=ax, shrink=0.85)
+
+        #_im2 = ax.imshow(_density_dict['B'].mean(0), cmap=myBlues,alpha=0.5, vmin=0, vmax=_vmax)
+        #_cb2 = plt.colorbar(_im2, ax=ax, shrink=0.85)
+        ax.set_xticks(np.arange(0, 2*im_radius+1, 10))
+        ax.set_xticklabels(np.arange(-im_radius, im_radius+1,10))
+        ax.set_yticks(np.arange(0, 2*im_radius+1, 10))
+        ax.set_yticklabels(np.arange(-im_radius, im_radius+1,10))
+        if max_project_AB:
+            ax.set_xlabel(f"Max projected AB axis")
+        elif pca_align:
+            ax.set_xlabel("PC1")
+        else:
+            ax.set_xlabel(f"X")
+        if max_project_AB:
+            ax.set_ylabel(f"PC1 orthogonal to max projection")
+        elif pca_align:
+            ax.set_ylabel("PC2")
+        else:
+            ax.set_ylabel(f"Y")        
+    
+    # return
+    if return_spots and return_plot:
+        return _density_dict, _norm_spots, ax
+    elif return_spots and not return_plot:
+        return _density_dict, _norm_spots
+    elif not return_spots and return_plot:
+        return _density_dict, ax
+    else:
+        return _density_dict
+
+
+# batch convert spots to clouds
+def Batch_Convert_Spots_to_Cloud(spot_list, comp_dict, im_radius=30, num_threads=12, 
+                                 distance_zxy=_distance_zxy, verbose=True):
+    """Function to batch convert spot list to cloud dict list"""
+    _start_time = time.time()
+    _convert_args = []
+    if isinstance(comp_dict, list):
+        if len(comp_dict) != len(spot_list):
+            raise IndexError(f"Wrong length of comp_dict list, should of same size of spot_list")
+    elif isinstance(comp_dict, dict):
+        # convert to list of dicts
+        comp_dict = [comp_dict for _spots in spot_list]
+    else:
+        raise TypeError(f"Wrong input type of comp_dict, should be dict / list of dict")
+    for _spots, _cdict in zip(spot_list, comp_dict):
+        _convert_args.append(
+            (_spots, _cdict, im_radius, distance_zxy)
+        )
+    with mp.Pool(num_threads) as _convert_pool:
+        if verbose:
+            print(f"-- {len(_convert_args)} chromosomes processing by {num_threads} threads.")
+        _density_dict_list = _convert_pool.starmap(convert_spots_to_cloud, _convert_args)
+        _convert_pool.close()
+        _convert_pool.join()
+        _convert_pool.terminate()
+    
+    if verbose:
+        print(f"--- time spent in converting to cloud: {time.time()-_start_time}")
+    
+    return _density_dict_list
