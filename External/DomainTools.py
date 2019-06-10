@@ -8,7 +8,7 @@ import numpy as np
 import pickle as pickle
 
 import matplotlib.pyplot as plt
-
+from .. import domain_tools
 
 ## Plotting tools
 def fig_no_axis(**kwargs):
@@ -162,15 +162,60 @@ def get_boundaries_old(im,su=5,sl=5,valley=5,cutoff_max=1.,plt_val=False):
         cbar = fig.colorbar(cax)
         plt.show()
     return local_max_good,max_ratio[local_max_good]
-def fuse_doms(mat,dom_starts,tag='median',cut_off=1):
-    dom_starts = list(dom_starts)
+def fuse_doms(mat,dom_starts,tag='median',cut_off=1, hard_cutoff=2, 
+              use_local=True, min_dom_sz=5):
+    from ..domain_tools import domain_neighboring_dists, domain_neighboring_stats
+
+    dom_starts = np.array(dom_starts, dtype=np.int)
+    dom_ends = np.zeros(np.shape(dom_starts))
+    dom_ends[:-1] = dom_starts[1:]
+    dom_ends[-1] = len(mat)
+    # calculate initial seps
+    #init_seps = np.array(calc_seps(mat,dom_starts,func=tag,plt_val=False))
+    init_seps = domain_neighboring_dists(mat, dom_starts, metric=tag, 
+                                         use_local=False, min_dom_sz=min_dom_sz)
+    old_seps = np.copy(init_seps)
+    # use initial seps to determine changable boundaries
+    changeable_labels = (init_seps <= hard_cutoff)
+    dom_size_check = (dom_ends-dom_starts) <= min_dom_sz
+    dom_size_check = dom_size_check[1:] + dom_size_check[:-1]
+    changeable_labels += dom_size_check
+                        
+    # now iterate until no seps can be modified
     while len(dom_starts)>1:
-        seps = calc_seps(mat,dom_starts,func=tag,plt_val=False)
-        imin = np.argmin(seps)
-        if seps[imin]<cut_off:
-            dom_starts.pop(imin+1)
-            seps = list(seps)
-            seps.pop(imin)
+        #seps = calc_seps(mat,dom_starts,func=tag,plt_val=False)
+        seps = domain_neighboring_dists(mat, dom_starts, metric=tag, 
+                                        use_local=use_local, min_dom_sz=min_dom_sz)
+        # this step gives seps some buffer zone
+        seps = (seps +  old_seps) / 2
+        
+        #print(seps)
+        #print(calc_seps(mat,dom_starts,func=tag,plt_val=False))
+        #print(changeable_labels)
+        
+        # keep very good seps in this iteration
+        #changeable_labels *= (seps <= hard_cutoff ) 
+        # changeable seps
+        ch_seps = np.array(seps)[changeable_labels]
+        if len(ch_seps) == 0:
+            break
+        #imin = np.argmin(seps)
+        if np.min(ch_seps) < cut_off:
+            # remove the boundary with highest pvalue
+            sep_stats, sep_pvals = domain_neighboring_stats(mat, dom_starts, method='ttest', 
+                                        use_local=use_local, min_dom_sz=min_dom_sz,
+                                        return_pval=True)
+            #remove_inds = np.where(sep_stats==np.min(sep_stats))[0]
+            remove_inds = np.where(sep_pvals==np.max(sep_pvals))[0]
+            # delete elements in dom_starts
+            if 0 in dom_starts:
+                dom_starts = np.delete(dom_starts, remove_inds+1)
+            else:
+                dom_starts = np.delete(dom_starts, remove_inds)
+            # delete elements in changeable_labels
+            changeable_labels = np.delete(changeable_labels, remove_inds)
+            # delete old seps
+            old_seps = np.delete(seps, remove_inds)
         else:
             break
     return dom_starts,seps
@@ -223,36 +268,38 @@ def standard_domain_calling_old(zxy,gaussian=None,su=7,sl=4,valley=4,dom_sz=5,cu
     bds_candidates,scores = get_boundaries_old(mat,su=su,sl=sl,valley=valley,
                                        cutoff_max=cutoff_max,plt_val=False)
 
-    dom_starts= [0]+[dm for dm in bds_candidates if dm>dom_sz and dm<len(zxy_)-dom_sz]
+    dom_starts= [0]+[dm for dm in bds_candidates 
+                     if dm>int(dom_sz/2) and dm<len(zxy_)-int(dom_sz/2)]
     dom_starts,seps = fuse_doms(mat,dom_starts,tag='median',cut_off=1.)
     
     return dom_starts
     
 
 def standard_domain_calling_new(zxy, gaussian=None, dom_sz=5, 
-                                cutoff_max=1., remove_edge=True):
+                                cutoff_max=1., hard_cutoff=2., 
+                                use_local=True, remove_edge=True):
     zxy_ = np.array(zxy)
     if gaussian is not None:
         zxy_ = interpolate_chr(zxy_,gaussian=gaussian)
 
     dists = []
     for i in range(len(zxy_)):
-        if i >= dom_sz and i < len(zxy_)-dom_sz:
+        if i >= int(dom_sz/2) and i < len(zxy_)-int(dom_sz/2):
             cm1 = np.nanmean(zxy_[max(i-dom_sz, 0):i], axis=0)
-            cm2 = np.nanmean(zxy_[i:i+dom_sz], axis=0)
+            cm2 = np.nanmean(zxy_[i:min(i+dom_sz, len(zxy_))], axis=0)
             dist = np.linalg.norm(cm1-cm2)
             dists.append(dist)
-        #else:
-        #    dists.append(0)
     
     bds_candidates = get_ind_loc_max(dists,cutoff_max=0,
-                                     valley=dom_sz, remove_edge=remove_edge) + dom_sz
+                                     valley=dom_sz, remove_edge=remove_edge) + int(dom_sz/2)
     
     mat = squareform(pdist(zxy))
     
-    dom_starts= [0]+[dm for dm in bds_candidates if dm>dom_sz and dm<len(zxy_)-dom_sz]
-    dom_starts, seps = fuse_doms(
-        mat, dom_starts, tag='median', cut_off=cutoff_max)
+    dom_starts= [0]+[dm for dm in bds_candidates 
+                     if dm>int(dom_sz/2) and dm<len(zxy_)-int(dom_sz/2)]
+    dom_starts, seps = fuse_doms(mat, dom_starts, tag='median', 
+                                 cut_off=cutoff_max, hard_cutoff=hard_cutoff,
+                                use_local=use_local, min_dom_sz=dom_sz+3)
     
     return dom_starts
 

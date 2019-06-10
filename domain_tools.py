@@ -244,8 +244,9 @@ def domain_distance(coordinates, _dom1_bds, _dom2_bds,
     elif _metric == 'ks':
         if 'ks_2samp' not in locals():
             from scipy.stats import ks_2samp
-        _f = np.sign(np.nanmedian(_inter_dist) - np.nanmedian(_intra_dist)) 
-        _final_dist =  _f * ks_2samp(_kept_inter, _kept_intra)[0]
+        _f = np.sign(np.nanmedian(_inter_dist) - np.nanmedian(_intra_dist))
+        _dist, _pval =  ks_2samp(_kept_inter, _kept_intra)
+        _final_dist =  _f * _dist
     else:
         raise ValueError(f"Wrong input _metric type")
     
@@ -253,7 +254,104 @@ def domain_distance(coordinates, _dom1_bds, _dom2_bds,
         return _final_dist
     else:
         return max(_final_dist, 0)
-    
+
+def domain_stat(coordinates, _dom1_bds, _dom2_bds,
+                _method='ks', _normalization_mat=None,
+                _allow_minus_distance=True, 
+                _make_plot=False, _return_pval=True):
+    """Function to measure domain difference statistics
+    use KS-statistic as a distance:
+        citation: https://arxiv.org/abs/1711.00761"""
+    ## check inputs
+    if not isinstance(coordinates, np.ndarray):
+        coordinates = np.array(coordinates)
+    _method = str(_method).lower()
+    _allowed_methods = ['ks', 'ttest']
+    if _method not in _allowed_methods:
+        raise ValueError(f"Wrong input kwd _method:{_method}, should be within:{_allowed_methods}")
+    # standardize domain boundaries
+    _dom1_bds = [int(_b) for _b in _dom1_bds]
+    _dom2_bds = [int(_b) for _b in _dom2_bds]
+ 
+    # based on coordinates given, get intra/inter distances
+    if len(np.shape(coordinates)) != 2:
+        raise ValueError(f"Wrong input shape for coordinates, should be 2d but {len(np.shape(coordinates))} is given")
+    elif np.shape(coordinates)[0] == np.shape(coordinates)[1]:
+        _mat = coordinates
+        _intra1 = _mat[_dom1_bds[0]:_dom1_bds[1], _dom1_bds[0]:_dom1_bds[1]]
+        _intra2 = _mat[_dom2_bds[0]:_dom2_bds[1], _dom2_bds[0]:_dom2_bds[1]]
+        _intra1 = _intra1[np.triu_indices(len(_intra1),1)]
+        _intra2 = _intra2[np.triu_indices(len(_intra2), 1)]
+
+        _intra_dist = [_intra1, _intra2]
+        _inter_dist = np.ravel(_mat[_dom1_bds[0]:_dom1_bds[1], _dom2_bds[0]:_dom2_bds[1]])
+
+    elif np.shape(coordinates)[1] == 3:
+        # extract sequence
+        zxy1 = coordinates[_dom1_bds[0]:_dom1_bds[1]]
+        zxy2 = coordinates[_dom2_bds[0]:_dom2_bds[1]]
+        # get distances
+        _intra_dist = [pdist(zxy1), pdist(zxy2)]
+        _inter_dist = np.ravel(cdist(zxy1, zxy2))
+    else:
+        raise ValueError(f"Input coordinates should be distance-matrix or 3d-coordinates!")
+
+    # normalization
+    if _normalization_mat is not None:
+        # check other inputs
+        if _dom1_bds is None or _dom2_bds is None:
+            raise TypeError(
+                f"Domain boundaries not fully given while normalization specified, skip normalization!")
+        # normalize!
+        else:
+            _intra_dist[0] = _intra_dist[0] / squareform(
+                _normalization_mat[_dom1_bds[0]:_dom1_bds[1], _dom1_bds[0]:_dom1_bds[1]])
+            _intra_dist[1] = _intra_dist[1] / squareform(
+                _normalization_mat[_dom2_bds[0]:_dom2_bds[1], _dom2_bds[0]:_dom2_bds[1]])
+            _intra_dist = np.concatenate(_intra_dist)
+            _inter_dist = _inter_dist / \
+                np.ravel(
+                    _normalization_mat[_dom1_bds[0]:_dom1_bds[1], _dom2_bds[0]:_dom2_bds[1]])
+    else:
+        # not normalize? directly concatenate
+        _intra_dist = np.concatenate(_intra_dist)
+
+    _kept_inter = _inter_dist[np.isnan(_inter_dist) == False]
+    _kept_intra = _intra_dist[np.isnan(_intra_dist) == False]
+
+    if len(_kept_inter) == 0 or len(_kept_intra) == 0:
+        if _return_pval:
+            return 0, 1
+        else:
+            return 0
+
+    if _make_plot:
+        plt.figure()
+        plt.hist(_kept_inter, density=True, alpha=0.5, label='inter-domain')
+        plt.hist(_kept_intra, density=True, alpha=0.5, label='intra-domain')
+        plt.legend()
+        plt.show()
+
+    if _method == 'ks':
+        if 'ks_2samp' not in locals():
+            from scipy.stats import ks_2samp
+        _f = np.sign(np.nanmedian(_inter_dist) - np.nanmedian(_intra_dist))
+        _dist, _pval =  ks_2samp(_kept_inter, _kept_intra)
+        _final_dist =  _f * _dist
+
+    if _method == 'ttest':
+        if 'ttest_ind' not in locals():
+            from scipy.stats import ttest_ind
+
+        # normalization factor
+        _norm_factor = np.mean([np.nanmedian(_kept_inter), np.nanmedian(_kept_intra)])
+        _final_dist, _pval =  ttest_ind(_kept_inter/_norm_factor, _kept_intra/_norm_factor)
+
+    if _return_pval:
+        return _final_dist, _pval
+    else:
+        return _final_dist
+
 
 
 # function to call domain pairwise distance as scipy.spatial.distance.pdist
@@ -302,6 +400,122 @@ def domain_pdists(coordinates, domain_starts, metric='median',
 
     return dom_pdists
 
+def domain_neighboring_dists(coordinates, domain_starts, metric='median', 
+                             use_local=True, min_dom_sz=5, 
+                             normalization_mat=None, allow_minus_dist=True):
+    """Function to calculate neighboring domain distances for domain calling
+    Inputs:
+        coordnates: n-by-3 coordinates for a chromosome, or n-by-n distance matrix, np.ndarray
+        domain_starts: start coordinates for each domain, list/np.ndarray of ints
+        metric: distance metric between domains in func:'domain_distance', {'median'|'mean'|'ks'}
+        use_local: whether use distances only around local boundary rather than whole domain, bool (default: True)
+        min_dom_sz: minimum domain size allowed in this analysis, int (default: 5)
+        normalization_mat: normalization matrix, similar shape as coordinates, np.ndarray (default: None. no correction)
+        allow_minus_dist: whether distances can be minus, bool (default: True)
+    Outputs:
+        _neighboring_dists: distances bewteen neighboring regions, np.ndarray, shape=len(domain_starts)-1
+        """
+    ## check inputs
+    coordinates = np.array(coordinates).copy()
+    if len(np.shape(coordinates)) != 2:
+        raise ValueError(
+            f"Wrong input shape for coordinates, should be 2d but {len(np.shape(coordinates))} is given")
+    elif np.shape(coordinates)[0] != np.shape(coordinates)[1] and np.shape(coordinates)[1] != 3:
+        raise ValueError(
+            f"Input coordinates should be distance-matrix or 3d-coordinates!")
+
+    domain_starts = np.array(domain_starts, dtype=np.int)
+    domain_ends = np.zeros(np.shape(domain_starts))
+    domain_ends[:-1] = domain_starts[1:]
+    domain_ends[-1] = len(coordinates)
+    
+    # first check whether do normalzation
+    if normalization_mat is not None:
+        if normalization_mat.shape[0] != np.shape(coordinates)[0] or normalization_mat.shape[1] != normalization_mat.shape[0]:
+            raise ValueError(
+                f"Wrong shape of normalization:{normalization_mat.shape}, should be equal to {np.shape(coordinates)[0]}")
+
+    # initialize
+    _neighboring_dists = []
+    for _i in range(len(domain_starts)-1):
+        _s1, _e1 = domain_starts[_i], domain_ends[_i]
+        _s2, _e2 = domain_starts[_i+1], domain_ends[_i+1]
+        # change to local if only use local distances
+        if use_local:
+            _ns1 = max(_s1, _e1 - 2*max(_e2-_s2, min_dom_sz))
+            _ne2 = min(_e2, _s2 + 2*max(_e1-_s1, min_dom_sz))
+            _s1,_e2 = _ns1, _ne2
+        # calculate distance of this pair
+        _neighboring_dists.append(domain_distance(coordinates, 
+                                                  [_s1,_e1], [_s2,_e2], _metric=metric,
+                                                  _normalization_mat=normalization_mat,
+                                                  _allow_minus_distance=allow_minus_dist))
+
+    return np.array(_neighboring_dists)
+
+def domain_neighboring_stats(coordinates, domain_starts, method='ks', 
+                             use_local=True, min_dom_sz=5, 
+                             normalization_mat=None, allow_minus_dist=True,
+                             return_pval=True):
+    """Function to calculate neighboring domain diff-statistics for domain calling
+    Inputs:
+        coordnates: n-by-3 coordinates for a chromosome, or n-by-n distance matrix, np.ndarray
+        domain_starts: start coordinates for each domain, list/np.ndarray of ints
+        metric: distance metric between domains in func:'domain_distance', {'median'|'mean'|'ks'}
+        use_local: whether use distances only around local boundary rather than whole domain, bool (default: True)
+        min_dom_sz: minimum domain size allowed in this analysis, int (default: 5)
+        normalization_mat: normalization matrix, similar shape as coordinates, np.ndarray (default: None. no correction)
+        allow_minus_dist: whether distances can be minus, bool (default: True)
+        return_pval: whether return p-values in statistics, bool (default: True)
+    Outputs:
+        _neighboring_dists: distances bewteen neighboring regions, np.ndarray, shape=len(domain_starts)-1
+        """
+    ## check inputs
+    coordinates = np.array(coordinates).copy()
+    if len(np.shape(coordinates)) != 2:
+        raise ValueError(
+            f"Wrong input shape for coordinates, should be 2d but {len(np.shape(coordinates))} is given")
+    elif np.shape(coordinates)[0] != np.shape(coordinates)[1] and np.shape(coordinates)[1] != 3:
+        raise ValueError(
+            f"Input coordinates should be distance-matrix or 3d-coordinates!")
+
+    domain_starts = np.array(domain_starts, dtype=np.int)
+    domain_ends = np.zeros(np.shape(domain_starts))
+    domain_ends[:-1] = domain_starts[1:]
+    domain_ends[-1] = len(coordinates)
+    
+    # first check whether do normalzation
+    if normalization_mat is not None:
+        if normalization_mat.shape[0] != np.shape(coordinates)[0] or normalization_mat.shape[1] != normalization_mat.shape[0]:
+            raise ValueError(
+                f"Wrong shape of normalization:{normalization_mat.shape}, should be equal to {np.shape(coordinates)[0]}")
+
+    # initialize
+    _neighboring_stats = []
+    for _i in range(len(domain_starts)-1):
+        _s1, _e1 = domain_starts[_i], domain_ends[_i]
+        _s2, _e2 = domain_starts[_i+1], domain_ends[_i+1]
+        # change to local if only use local distances
+        if use_local:
+            _ns1 = max(_s1, _e1 - 2*max(_e2-_s2, min_dom_sz))
+            _ne2 = min(_e2, _s2 + 2*max(_e1-_s1, min_dom_sz))
+            _s1,_e2 = _ns1, _ne2
+        # calculate distance of this pair
+        _neighboring_stats.append(domain_stat(coordinates, 
+                                    [_s1,_e1], [_s2,_e2], _method=method,
+                                    _normalization_mat=normalization_mat,
+                                    _allow_minus_distance=allow_minus_dist,
+                                    _return_pval=return_pval))
+    # summarize
+    if return_pval:
+        _stats = np.array([_s[0] for _s in _neighboring_stats])
+        _pvals = np.array([_s[1] for _s in _neighboring_stats])
+        return _stats, _pvals
+    else:
+        return np.array(_neighboring_stats)
+
+
+
 def call_candidate_boundaries(_zxy, _dom_sz, _method='local'):
     """This is the function to first test call domains"""
     if _method == 'local':
@@ -331,7 +545,7 @@ def call_candidate_boundaries(_zxy, _dom_sz, _method='local'):
 
 
 def merge_domains(coordinates, cand_bd_starts, norm_mat=None, 
-                  corr_th=0.64, dist_th=0.2,
+                  corr_th=0.64, dist_th=0.2, hard_dist_th=2.,
                   domain_dist_metric='ks', plot_steps=False, verbose=True):
     """Function to merge domains given zxy coordinates and candidate_boundaries"""
     cand_bd_starts = np.array(cand_bd_starts, dtype=np.int)
@@ -768,7 +982,7 @@ def iterative_domain_calling(spots, save_folder=None,
 
 def local_domain_calling(spots, save_folder=None,
                          distance_zxy=_distance_zxy, dom_sz=5, gfilt_size=0.5,
-                         cutoff_max=0.5, plot_results=True,
+                         cutoff_max=0.5, hard_cutoff=2., plot_results=True,
                          fig_dpi=100,  fig_dim=10, fig_font_size=18,
                          save_result_figs=False, save_name='', verbose=True):
     """Wrapper for local domain calling in bogdan's code"""
@@ -790,7 +1004,8 @@ def local_domain_calling(spots, save_folder=None,
     # call bogdan's function
     cand_bd_starts =  standard_domain_calling_new(_zxy, gaussian=0., 
                                                   dom_sz=dom_sz, 
-                                                  cutoff_max=cutoff_max)
+                                                  cutoff_max=cutoff_max,
+                                                  hard_cutoff=hard_cutoff)
 
     return cand_bd_starts
 

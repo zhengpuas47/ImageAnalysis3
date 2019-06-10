@@ -1699,7 +1699,7 @@ def spot_score_in_chromosome(spots, reg_id, sel_spots, _chr_center=None,
 
 
 def distance_score_in_chromosome(dists, sel_spots=None, _nb_dists=None, 
-                                 distance_zxy=_distance_zxy, distance_th=400, 
+                                 distance_zxy=_distance_zxy, distance_th=800, 
                                  w_dist=1):
     """Function to calculate log-score for given spot in selected chr_pts from candidiate_points
     Inputs:
@@ -1808,7 +1808,7 @@ def generate_spot_score_pool(all_spots, distance_zxy=_distance_zxy,
 
 # Pick spots by dynamic-programming
 def dynamic_pick_spots(chrom_cand_spots, unique_ids, cand_spot_scores, nb_dists,
-                       w_nbdist=1, distance_zxy=_distance_zxy,
+                       w_nbdist=1, distance_zxy=_distance_zxy, distance_th=800,
                        return_indices=False, verbose=True):
     """Function to dynamic-programming pick spots
     The idea is to use dynamic progamming to pick spots to get GLOBAL maximum
@@ -1850,8 +1850,8 @@ def dynamic_pick_spots(chrom_cand_spots, unique_ids, cand_spot_scores, nb_dists,
             # real pair-wise distances
             _dists = cdist(_zxy_list[_i], _zxy_list[_i+1])
             # add distance score, which is normalized by how far exactly these two regions are
-            _measure = distance_score_in_chromosome(
-                _dists, _nb_dists=nb_dists, w_dist=w_nbdist) / (_ids[_i+1] - _ids[_i])
+            _measure = distance_score_in_chromosome(_dists, _nb_dists=nb_dists, 
+                w_dist=w_nbdist, distance_th=distance_th ) / (_ids[_i+1] - _ids[_i])
             _measure += _dy_scores[_i][:,np.newaxis]  # get previous maximum
 
             # update maximum values and pointers
@@ -1896,7 +1896,7 @@ def EM_pick_spots(chrom_cand_spots, unique_ids, _chrom_coord=None,
                   distance_zxy=_distance_zxy, local_size=5, spot_num_th=200,
                   w_ccdist=1, w_lcdist=0.1, w_int=1, w_nbdist=3,
                   check_spots=True, check_th=-3., check_percentile=1., 
-                  ignore_nan=True, make_plot=False, 
+                  distance_th=800, ignore_nan=True, make_plot=False, 
                   save_plot=False, save_path=None, save_filename='',
                   return_indices=False, return_scores=False, 
                   return_other_scores=False, verbose=True):
@@ -2019,7 +2019,9 @@ def EM_pick_spots(chrom_cand_spots, unique_ids, _chrom_coord=None,
                                                      w_int=0, ignore_nan=ignore_nan)
         # pick spots by dynamic programming
         _sel_spots, _new_indices = dynamic_pick_spots(chrom_cand_spots, unique_ids, _spot_scores, _nb_dists,
-                                                      w_nbdist=w_nbdist, distance_zxy=distance_zxy, return_indices=True, verbose=verbose)
+                                                      w_nbdist=w_nbdist, distance_zxy=distance_zxy, 
+                                                      distance_th=distance_th,
+                                                      return_indices=True, verbose=verbose)
         if verbose:
             print(f"--- M time: {np.round(time.time()-_mstart, 4)} s.")
         # make plot for initialized

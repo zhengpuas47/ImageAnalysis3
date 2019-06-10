@@ -13,6 +13,8 @@ _image_size = np.array([30,2048,2048])
 # allowed_colors
 _allowed_colors = ['750', '647', '561', '488', '405']
 
+# library design tools
+from . import library_tools
 # wrapped multi-step functions for image analysis
 from . import analysis
 # everything about gaussian fitting, imshow3d
@@ -29,6 +31,8 @@ from . import corrections
 from . import classes
 # functions for post analysis, including compartment, epigenomics
 from . import postanalysis
+# functions to generate figures
+from . import figure_tools
 ## import exteral functions
 from .External import Fitting_v3
 from .External import DomainTools
