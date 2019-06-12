@@ -247,6 +247,9 @@ def domain_distance(coordinates, _dom1_bds, _dom2_bds,
         _f = np.sign(np.nanmedian(_inter_dist) - np.nanmedian(_intra_dist))
         _dist, _pval =  ks_2samp(_kept_inter, _kept_intra)
         _final_dist =  _f * _dist
+    elif _metric == 'absolute_median':
+        m_inter, m_intra = np.nanmedian(_inter_dist), np.nanmedian(_intra_dist)
+        _final_dist = (m_inter-m_intra)
     else:
         raise ValueError(f"Wrong input _metric type")
     
@@ -980,7 +983,7 @@ def iterative_domain_calling(spots, save_folder=None,
     return cand_bd_starts
 
 
-def local_domain_calling(spots, save_folder=None,
+def local_domain_calling(spots, save_folder=None, metric='median',
                          distance_zxy=_distance_zxy, dom_sz=5, gfilt_size=0.5,
                          cutoff_max=0.5, hard_cutoff=2., plot_results=True,
                          fig_dpi=100,  fig_dim=10, fig_font_size=18,
@@ -1003,6 +1006,7 @@ def local_domain_calling(spots, save_folder=None,
         _zxy = interpolate_chr(_zxy, gaussian=gfilt_size)
     # call bogdan's function
     cand_bd_starts =  standard_domain_calling_new(_zxy, gaussian=0., 
+                                                  metric=metric,
                                                   dom_sz=dom_sz, 
                                                   cutoff_max=cutoff_max,
                                                   hard_cutoff=hard_cutoff)

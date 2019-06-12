@@ -189,7 +189,6 @@ def fuse_doms(mat,dom_starts,tag='median',cut_off=1, hard_cutoff=2,
         # this step gives seps some buffer zone
         seps = (seps +  old_seps) / 2
         
-        #print(seps)
         #print(calc_seps(mat,dom_starts,func=tag,plt_val=False))
         #print(changeable_labels)
         
@@ -206,6 +205,7 @@ def fuse_doms(mat,dom_starts,tag='median',cut_off=1, hard_cutoff=2,
                                         use_local=use_local, min_dom_sz=min_dom_sz,
                                         return_pval=True)
             #remove_inds = np.where(sep_stats==np.min(sep_stats))[0]
+
             remove_inds = np.where(sep_pvals==np.max(sep_pvals))[0]
             # delete elements in dom_starts
             if 0 in dom_starts:
@@ -215,8 +215,12 @@ def fuse_doms(mat,dom_starts,tag='median',cut_off=1, hard_cutoff=2,
             # delete elements in changeable_labels
             changeable_labels = np.delete(changeable_labels, remove_inds)
             # delete old seps
-            old_seps = np.delete(seps, remove_inds)
+            old_seps = np.delete(seps.copy(), remove_inds)
+            sep_pvals = np.delete(sep_pvals, remove_inds)
         else:
+            #print(seps)
+            #print(-np.log(sep_pvals))
+            #print(len(seps), len(sep_pvals))
             break
     return dom_starts,seps
 def calc_seps(mat,dom_starts,func = 'mean',plt_val=False):
@@ -275,7 +279,8 @@ def standard_domain_calling_old(zxy,gaussian=None,su=7,sl=4,valley=4,dom_sz=5,cu
     return dom_starts
     
 
-def standard_domain_calling_new(zxy, gaussian=None, dom_sz=5, 
+def standard_domain_calling_new(zxy, gaussian=None, 
+                                metric='median', dom_sz=5, 
                                 cutoff_max=1., hard_cutoff=2., 
                                 use_local=True, remove_edge=True):
     zxy_ = np.array(zxy)
@@ -297,7 +302,7 @@ def standard_domain_calling_new(zxy, gaussian=None, dom_sz=5,
     
     dom_starts= [0]+[dm for dm in bds_candidates 
                      if dm>int(dom_sz/2) and dm<len(zxy_)-int(dom_sz/2)]
-    dom_starts, seps = fuse_doms(mat, dom_starts, tag='median', 
+    dom_starts, seps = fuse_doms(mat, dom_starts, tag=metric, 
                                  cut_off=cutoff_max, hard_cutoff=hard_cutoff,
                                 use_local=use_local, min_dom_sz=dom_sz+3)
     
