@@ -19,7 +19,7 @@ from .External import Fitting_v3
 from . import _correction_folder,_temp_folder,_distance_zxy,_sigma_zxy,_image_size, _allowed_colors
 
 from scipy.stats import linregress
-from astropy.convolution import Gaussian2DKernel,convolve
+#from astropy.convolution import Gaussian2DKernel,convolve
 
 ## Define some global settings
 _dpi = 300 # dpi required by figure

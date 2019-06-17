@@ -13,7 +13,6 @@ from . import get_img_info, corrections, visual_tools, alignment_tools, analysis
 from .External import Fitting_v3, DomainTools
 from . import _correction_folder, _temp_folder, _distance_zxy, _sigma_zxy, _image_size, _allowed_colors
 
-from astropy.convolution import Gaussian2DKernel, convolve
 from scipy.signal import find_peaks, fftconvolve
 
 from scipy.stats import normaltest, ks_2samp, ttest_ind

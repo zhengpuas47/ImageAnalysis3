@@ -167,6 +167,7 @@ def Calculate_Bead_Drift(folders, fovs, fov_id, num_threads=12, drift_size=500, 
                                         single_im_size=single_im_size,
                                         all_channels=all_channels, num_buffer_frames=num_buffer_frames,
                                         illumination_corr=illumination_corr, verbose=verbose)
+            print(np.max(_ref_im))
             _ref_center = visual_tools.get_STD_centers(_ref_im, dynamic=True, th_seed_percentile=ref_seed_per,
                                                        sort_by_h=True, verbose=verbose)
             # limit ref points

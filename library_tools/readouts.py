@@ -1,26 +1,24 @@
-## Tools for library design
-import sys,os,re,time,glob
+import os, glob, sys,time
 import numpy as np
-import pickle as pickle
-import matplotlib.pylab as plt
-
-# from ImageAnalysis3
-from . import _correction_folder,_temp_folder,_distance_zxy,_sigma_zxy,_image_size, _allowed_colors
-
-# biopython
+import matplotlib.pyplot as plt
+# biopython imports
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.Alphabet import IUPAC
 from Bio.SeqRecord import SeqRecord
 from Bio.Blast.Applications import NcbiblastnCommandline
-from Bio.Blast import NCBIXML 
-_readout_folder = r'\\SMIRNOV\Chromatin_NAS_3\Pu\Readouts'
-_genome_folder = r'\\SMIRNOV\Chromatin_NAS_3\Pu\Genomes\hg38'
+from Bio.Blast import NCBIXML
+
+# other packages
+from . import LibraryDesigner as ld
+# shared functions
+from . import _adaptor_site_names
+from . import _primer_folder, _readout_folder, _genome_folder
 
 def __init__():
     pass
-#-------------------------------------------------------------------------------
-## Readout releated
+##---------------------------------------------------------------------------##
+# Readouts
 def Extend_Readout(input_seq, target_len=30, add_5p=True):
     '''Function to extend existing short readout to longer one by generation of random sequence
     Inputs:
@@ -447,7 +445,7 @@ def Filter_Readouts_by_RNAfold(cand_readout_file='selected_candidates_genome.fas
 
 def Save_Readouts(cand_readout_file='selected_candidates_genome_structure.fasta',
                   existing_readout_file='NDBs.fasta', readout_folder=_readout_folder,
-                  verbose=True):
+                  write_append=False, verbose=True):
     """Rename candidate readouts along with existing readouts and save
     Inputs:
     Output:"""
@@ -485,13 +483,290 @@ def Save_Readouts(cand_readout_file='selected_candidates_genome_structure.fasta'
     if verbose:
         print(f"-- saving {len(new_records)} new readouts ")
     
-    _save_filename = existing_readout_file.replace('.fasta', '_new.fasta')
-    
-    with open(_save_filename, "w") as output_handle:
-        SeqIO.write(new_records, output_handle, "fasta")
+    if write_append:
+        _save_filename = existing_readout_file
+        # save
+        with open(_save_filename, "a") as output_handle:
+            SeqIO.write(new_records, output_handle, "fasta")
+    else:
+        _save_filename = existing_readout_file.replace('.fasta', '_new.fasta')
+        # save
+        with open(_save_filename, "w") as output_handle:
+            SeqIO.write(new_records, output_handle, "fasta")
         
     return new_records
 
 
-#-------------------------------------------------------------------------------
-## FISH library related
+def Split_readouts_into_channels(readout_fasta, num_channels=3, start_ind=0,
+                                 save=True, save_name=None, save_folder=_readout_folder,
+                                 overwrite=True, verbose=True):
+    """Function to split readouts into 3 channels and save separate files
+    Inputs:
+        readout_fasta: fasta filename or list of SeqRecord for readouts, str or list
+        
+    Outputs:
+        splited_readout_list: list of num_channels containing SeqRecords for readouts.
+    """
+    # readout-fasta input
+    if isinstance(readout_fasta, str):
+        with open(readout_fasta, 'r') as _handle:
+            readout_records = []
+            for _record in SeqIO.parse(_handle, "fasta"):
+                readout_records.append(_record)
+    elif isinstance(readout_fasta, list):
+        readout_records = readout_fasta
+    # other inputs
+    num_channels = int(num_channels)
+    start_ind = int(start_ind)
+    # save name
+    if save and save_name is None and isinstance(readout_fasta, list):
+        raise ValueError(f"No save_name is given, exit!")
+    else:
+        if '.fasta' not in save_name:
+            save_name += '.fasta'
+    if not os.path.exists(save_folder):
+        os.makedirs(save_folder)
+
+    # initialize
+    if verbose:
+        print(f"- Splitting {len(readout_records)} readouts into {num_channels} channels")
+    splitted_readout_list = [[] for _i in range(num_channels)]
+    # split
+    for _i, _r in enumerate(readout_records[start_ind:]):
+        splitted_readout_list[_i % num_channels].append(_r)
+    # save
+    if save:
+        for _i, _readouts in enumerate(splitted_readout_list):
+            _save_filename = os.path.join(
+                save_folder, save_name.replace('.fasta', f'_{_i}.fasta'))
+            if not os.path.exists(_save_filename) or overwrite:
+                if verbose:
+                    print(f"-- saving {len(_readouts)} readouts into file:{_save_filename}")
+                with open(_save_filename, 'w') as _output_handle:
+                    SeqIO.write(_readouts, _output_handle, "fasta")
+
+    return splitted_readout_list
+
+##---------------------------------------------------------------------------##
+# Adaptors
+
+# convert readouts to adaptors
+def Generate_adaptors(readout_fasta, adaptor_site_fasta, rc_readout=False, rc_adaptor_site=False,
+                      kept_len=20, kept_5=False):
+    """Generate adaptors by giving readout fasta and adaptor fasta"""
+
+    if isinstance(readout_fasta, str):
+        with open(readout_fasta, 'r') as _handle:
+            readout_records = []
+            for _record in SeqIO.parse(_handle, "fasta"):
+                if rc_readout:
+                    readout_records.append(_record.reverse_complement())
+                else:
+                    readout_records.append(_record)
+    elif isinstance(readout_fasta, list):
+        readout_records = readout_fasta
+
+    if isinstance(adaptor_site_fasta, str):
+        with open(adaptor_site_fasta, 'r') as _handle:
+            site_records = []
+            for _record in SeqIO.parse(_handle, "fasta"):
+                if rc_adaptor_site:
+                    site_records.append(_record.reverse_complement())
+                else:
+                    site_records.append(_record)
+    elif isinstance(readout_fasta, list):
+        site_records = adaptor_site_fasta
+
+    adaptor_records = []
+    for _i, _readout in enumerate(readout_records):
+        if kept_5:
+            _readout_target = _readout[:kept_len]
+        else:
+            _readout_target = _readout[-kept_len:]
+
+        _adaptor = _readout_target + \
+            site_records[_i % len(site_records)][:kept_len] + \
+            site_records[_i % len(site_records)][:kept_len]
+        _adaptor.id = f"{_adaptor.id}_2x{site_records[_i % len(site_records)].id}"
+        adaptor_records.append(_adaptor)
+
+    return adaptor_records
+
+## Adaptor functions
+
+def Screen_seqs_against_fasta(record_fasta, ref_fasta, word_size=17, allowed_hits=0,
+                              exclude_names=_adaptor_site_names, check_rc=True,
+                              save=False, save_folder=None, save_name=None,
+                              overwrite=False, return_kept_flag=False, verbose=True):
+    """Function to screen sequences against a given fasta file
+    Inputs:
+        record_fasta: fasta filename or list of SeqRecord, str or list
+        ref_fasta: filename for reference fasta file to screen against, string of file path
+        word_size: word_size used for probe screening, int (default: 17)
+        allowed_hits: allowed hits for one probe in the fasta, int (default: 8)
+        exclude_names: list of names to be excluded, list (default: _adaptor_site_names)
+        check_rc: whether check reverse-complement of the probe, bool (default: True)
+        save: whether save result probe reports, bool (default: True)
+        save_folder: folder to save selected probes, string of path (default: None, which means +'_filtered')
+        overwrite: whether overwrite existing result probe reports, bool (default: False)
+        return_kept_flag: whether return flags for whether keeping the record, bool (default:False)
+        verbose: say something!, bool (default: True)
+    """
+    ## Check inputs
+    if verbose:
+        print(f"- Screen sequences against given fasta file:{ref_fasta}")
+    # load record-fasta
+    if isinstance(record_fasta, str):
+        with open(record_fasta, 'r') as _handle:
+            _records = []
+            for _record in SeqIO.parse(_handle, "fasta"):
+                _records.append(_record)
+    elif isinstance(record_fasta, list):
+        _records = record_fasta
+    if verbose:
+        print(f"-- {len(_records)} sequences loaded.")
+
+    if not os.path.isfile(ref_fasta):
+        raise IOError(f"Reference fasta:{ref_fasta} is not a file.")
+    word_size = int(word_size)
+    allowed_hits = int(allowed_hits)
+    if save_folder is None:
+        if isinstance(record_fasta, str):
+            save_folder = os.path.dirname(record_fasta)
+        else:
+            save_folder = os.path.dirname(ref_fasta)
+    if not os.path.exists(save_folder):
+        os.makedirs(save_folder)
+        if verbose:
+            print(f"-- create {save_folder} to store filter probes")
+
+    ## construct table for ref_fasta
+    if verbose:
+        print(f"-- constructing reference table for fasta file")
+    _ref_names, _ref_seqs = ld.fastaread(ref_fasta, force_upper=True)
+    # filter sequences by given reference name
+    _kept_ref_seqs = []
+    for _n, _s in zip(_ref_names, _ref_seqs):
+        if _n.split(' ')[0] in exclude_names:
+            continue
+        else:
+            _kept_ref_seqs.append(_s)
+
+    _ref_table = ld.OTmap(_kept_ref_seqs, word_size, use_kmer=True)
+
+    ## filter records
+    if check_rc:
+        _hits = [_ref_table.get(str(_r.seq), rc=True) +
+                 _ref_table.get(str(_r.seq), rc=False)
+                 for _r in _records]
+    else:
+        _hits = [_ref_table.get(str(_r.seq), rc=False) for _r in _records]
+    # filter
+    _kept_records = [_r for _r, _h in zip(
+        _records, _hits) if _h <= allowed_hits]
+    if return_kept_flag:
+        _kept_flags = [_h <= allowed_hits for _h in _hits]
+    if verbose:
+        print(
+            f"-- {len(_kept_records)} sequences kept by allowing hits:{allowed_hits}")
+    ## Save
+    if save:
+        if save_name is None and not isinstance(record_fasta, str):
+            print(f"Save name not given in either save_name kwd and record_fasta, skip.")
+        elif save_name is None:
+            save_name = os.path.basename(record_fasta)
+        if '.fasta' not in save_name:
+            save_name += '.fasta'
+        save_filename = os.path.join(save_folder, save_name)
+        with open(save_filename, 'wb') as _output_handle:
+            if verbose:
+                print(
+                    f"-- saving {len(_kept_records)} kept records in file:{save_filename}")
+            SeqIO.write(_kept_records, _output_handle, "fasta")
+
+    if return_kept_flag:
+        return _kept_records, np.array(_kept_flags, dtype=np.bool)
+    else:
+        return _kept_records
+
+
+def Check_adaptors_against_fasta(readout_fasta, adaptor_site_fasta, ref_fasta, word_size=11, allowed_hits=0,
+                                 exclude_names=_adaptor_site_names, check_rc=True,
+                                 save=False, save_folder=_readout_folder, save_name=None, save_postfix='_kept',
+                                 save_adaptors=False, overwrite=False, verbose=True):
+    """Function to check adaptors against a list of fasta files, until get satisfying matches
+    Inputs:
+    
+    Outputs:
+        _kept_readouts: list of SeqRecords of which readouts are saved
+    """
+    ## check inputs
+    if verbose:
+        print(f"- Check raedouts->adaptors against fasta")
+    # readout_Fasta
+    if not isinstance(readout_fasta, str):
+        raise TypeError(f"Wrong input type of readout_fasta:{readout_fasta}")
+    elif not os.path.isfile(readout_fasta):
+        raise IOError(
+            f"Input file readout_fasta:{readout_fasta} not exist, exit!")
+    # adaptor_site_Fasta
+    if not isinstance(adaptor_site_fasta, str):
+        raise TypeError(
+            f"Wrong input type of adaptor_site_fasta:{adaptor_site_fasta}")
+    elif not os.path.isfile(adaptor_site_fasta):
+        raise IOError(
+            f"Input file adaptor_site_fasta:{adaptor_site_fasta} not exist, exit!")
+    # ref_fasta
+    if isinstance(ref_fasta, str):
+        ref_fasta = [ref_fasta]
+    if not isinstance(ref_fasta, list):
+        raise TypeError(
+            f"ref_fasta should be either one filename or list of filenames")
+    for _fl in ref_fasta:
+        if not os.path.isfile(_fl):
+            raise IOError(f"input ref_fasta file:{_fl} not exist, exit.")
+    # save etc.
+    if save_name is None:
+        save_name = os.path.basename(readout_fasta).replace(
+            '.fasta', save_postfix+'.fasta')
+        save_filename = os.path.join(save_folder, save_name)
+    # load readouts
+    with open(readout_fasta, 'r') as _handle:
+        readouts = []
+        for _record in SeqIO.parse(_handle, "fasta"):
+            readouts.append(_record)
+        if verbose:
+            print(f"-- {len(readouts)} readout loaded")
+    # initialize adaptor selection flags
+    _adaptor_flags = []
+    while(len(_adaptor_flags) != len(readouts)):
+        # generate current adaptors
+        _adaptors = Generate_adaptors(readouts, adaptor_site_fasta)
+        # update whether keep the adaptor
+        _adaptor_flags = np.ones(len(_adaptors), dtype=np.bool)
+        for _fl in ref_fasta:
+            _, _fl_kept = Screen_seqs_against_fasta(_adaptors, _fl, word_size=word_size,
+                                                    allowed_hits=allowed_hits,
+                                                    return_kept_flag=True, verbose=False)
+            _adaptor_flags *= _fl_kept
+
+        readouts = [_r for _r, _f in zip(readouts, _adaptor_flags) if _f]
+    if verbose:
+        print(f"-- {len(readouts)} readous are kept.")
+    if save:
+        with open(save_filename, 'w') as _output_handle:
+            if verbose:
+                print(f"-- saving filtered readouts to file: {save_filename}")
+            SeqIO.write(readouts, _output_handle, "fasta")
+
+    if save_adaptors:
+        _adaptors = Generate_adaptors(readouts, adaptor_site_fasta)
+        adaptor_save_filename = save_filename.replace(
+            '.fasta', '_adaptor.fasta')
+        if verbose:
+            print(
+                f"-- saving corresponding adaptors to file: {adaptor_save_filename}")
+        with open(adaptor_save_filename, 'w') as _output_handle:
+            SeqIO.write(readouts, _output_handle, "fasta")
+
+    return readouts

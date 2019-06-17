@@ -3,15 +3,15 @@
 from Bio.SeqUtils import MeltingTemp as mt
 import pickle as pickle
 import numpy as np
-import os,subprocess,time
+import os,subprocess
 
 #import tools LibraryTools
-from LibraryTools import fastaread
-from LibraryTools import fastawrite
-from LibraryTools import constant_zero_dict
+from .LibraryTools import fastaread
+from .LibraryTools import fastawrite
+from .LibraryTools import constant_zero_dict
 
-from LibraryTools import seqrc
-from LibraryTools import OTTable
+from .LibraryTools import seqrc
+from .LibraryTools import OTTable
 
 #python functions to convert seq->number
 def seq2Int(seq):
