@@ -2002,7 +2002,7 @@ def fit_multi_gaussian(im, seeds, width_zxy = [1.5, 2, 2], fit_radius=5,
         return np.array([])
 
 # slice 3d image
-def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0,
+def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0, empty_frame=1,
                 npy_start=128, image_dtype=np.uint16, verbose=False):
     """
     Slice image in a memory-efficient manner.
@@ -2016,6 +2016,7 @@ def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0,
         ylims: limits in y axis (axis2), array-like struct of 2
         zstep: number of steps to take one z-stack image, positive int (default: 1)
         zstart: channel id(s), non-negative int or list of nn-int (default: 0)
+        empty_frame: number of empty_frames 
         npy_start: starting bytes for npy format, int (default: 64)
     Output:
         data: cropped 3D image
@@ -2072,14 +2073,14 @@ def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0,
     _start_layer = minz
 
     if fl.split('.')[-1] == 'dax' and zstep > 1:
-        _lims = [minz + (_z + 1 - minz) % zstep for _z in zs]
+        _lims = [minz + (_z + empty_frame - minz) % zstep for _z in zs]
         _new_lims = []
         for _i, _l in enumerate(_lims):
             if _l - minz == 0:
                 _lims[_i] += zstep
         _start_layer = min(_lims)
     else:
-        _start_layer = minz + min([(_z + 1 - minz) % zstep for _z in zs])
+        _start_layer = minz + min([(_z + empty_frame - minz) % zstep for _z in zs])
     # get data
     _data_cts = [0 for _z in zs]
     _res = [(_z+1) % zstep for _z in zs]
@@ -2270,7 +2271,8 @@ def slice_2d_image(fl, im_shape, xlims, ylims, npy_start=128, image_dtype=np.uin
 # function to crop one image given filename, color_channel and crop_limits
 def crop_single_image(filename, channel, crop_limits=None, num_buffer_frames=10,
                       all_channels=_allowed_colors, single_im_size=_image_size,
-                      drift=np.array([0, 0, 0]), return_limits=False, verbose=False):
+                      drift=np.array([0, 0, 0]), num_empty_frames=1,
+                      return_limits=False, verbose=False):
     """Function to crop one image given filename, color_channel and crop_limits
     Inputs:
         filename: .dax filename for given image, string of filename
@@ -2331,7 +2333,8 @@ def crop_single_image(filename, channel, crop_limits=None, num_buffer_frames=10,
               num_buffer_frames+_drift_limits[0, 1]*_num_color]
     # slice image
     _crp_im = slice_image(filename, _full_im_shape, _zlims, _drift_limits[1],
-                          _drift_limits[2], zstep=_num_color, zstart=_channel_id)
+                          _drift_limits[2], zstep=_num_color, zstart=_channel_id,
+                          empty_frame=num_empty_frames)
     # do shift if drift exists
     if drift.any():
         _crp_im = ndimage.interpolation.shift(_crp_im, -drift, mode='nearest')
