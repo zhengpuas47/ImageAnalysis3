@@ -1222,15 +1222,16 @@ def DAPI_segmentation(ims, names,
 
 # segmentation with convolution of DAPI images
 
-def DAPI_convoluted_segmentation(filenames, correction_channel=405, num_threads=12, cap_percentile=1,
-      illumination_correction=True, illumination_correction_channel=405, correction_folder=_correction_folder,
-      merge_layer_num=11, denoise_window=5, mft_size=25, glft_size=30,
-      max_conv_th=0, min_boundary_th=0.48, signal_cap_ratio=0.20,
-      max_cell_size=40000, min_cell_size=5000, min_shape_ratio=0.035,
-      max_iter=4, shrink_percent=15,
-      dialation_dim=4, random_walker_beta=0.1, remove_fov_boundary=50,
-      save=True, save_folder=None, force=False, save_npy=True, save_postfix="_segmentation",
-      make_plot=False, return_images=False, verbose=True):
+def DAPI_convoluted_segmentation(filenames, correction_channel=405, 
+                                 num_threads=12, cap_percentile=1,
+        illumination_correction=True, illumination_correction_channel=405, correction_folder=_correction_folder,
+        merge_layer_num=11, denoise_window=5, mft_size=25, glft_size=30,
+        max_conv_th=0, min_boundary_th=0.48, signal_cap_ratio=0.20,
+        max_cell_size=40000, min_cell_size=5000, min_shape_ratio=0.035,
+        max_iter=4, shrink_percent=15,
+        dialation_dim=4, random_walker_beta=0.1, remove_fov_boundary=50,
+        save=True, save_folder=None, force=False, save_npy=True, save_postfix="_segmentation",
+        make_plot=False, return_images=False, verbose=True):
     """cell segmentation for DAPI images with pooling and convolution layers
     Inputs:
         ims: list of images
@@ -2112,7 +2113,7 @@ def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0, empty_frame=1
     else:
         return _ims
 
-def slice_image_remove_channel(fl, sizes, zstep, remove_zstarts, 
+def slice_image_remove_channel(fl, sizes, zstep, remove_zstarts, empty_frame=1,
                                zlims=None, xlims=None, ylims=None, 
                                npy_start=128, image_dtype=np.uint16, 
                                verbose=False):
@@ -2188,10 +2189,10 @@ def slice_image_remove_channel(fl, sizes, zstep, remove_zstarts,
     pt_pos += int(minx*sy + miny)
 
     # start layer
-    _start_layer = minz + 1
+    _start_layer = minz + empty_frame
 
     # get data
-    _res = [(_z+1) % zstep for _z in zs]
+    _res = [(_z+empty_frame) % zstep for _z in zs]
     for iz in range(sz):
         # if this layer to be removed, skip
         if iz >= _start_layer and iz <= maxz and iz % zstep in _res:
@@ -2356,9 +2357,11 @@ def crop_single_image(filename, channel, crop_limits=None, num_buffer_frames=10,
 
 
 # function to crop multi-channel images from one dax file given filename, color_channel and crop_limits
-def crop_multi_channel_image(filename, channels, crop_limits=None, num_buffer_frames=10,
+def crop_multi_channel_image(filename, channels, crop_limits=None, 
+                             num_buffer_frames=10, num_empty_frames=1, 
                              all_channels=_allowed_colors, single_im_size=_image_size,
-                             drift=np.array([0, 0, 0]), return_limits=False, verbose=False):
+                             drift=np.array([0, 0, 0]), 
+                             return_limits=False, verbose=False):
     """Function to crop one image given filename, color_channel and crop_limits
     Inputs:
         filename: .dax filename for given image, string of filename
@@ -2420,7 +2423,8 @@ def crop_multi_channel_image(filename, channels, crop_limits=None, num_buffer_fr
               num_buffer_frames+_drift_limits[0, 1]*_num_color]
     # slice image
     _crp_ims = slice_image(filename, _full_im_shape, _zlims, _drift_limits[1],
-                           _drift_limits[2], zstep=_num_color, zstart=_channel_ids)
+                           _drift_limits[2], zstep=_num_color, zstart=_channel_ids,
+                           empty_frame=num_empty_frames)
     # do shift if drift exists
     if drift.any():
         _crp_ims = [ndimage.interpolation.shift(_im, -drift, mode='nearest') for _im in _crp_ims]
@@ -2804,7 +2808,7 @@ def select_sparse_centers(centers, distance_th=9, distance_norm=np.inf):
 # remove a channel in dax file and resave
 def Remove_Dax_Channel(source_filename, target_filename, source_channels,
                        keep_channels=_allowed_colors, image_dtype=np.uint16,
-                       num_buffer_frames=10, single_im_size=_image_size,
+                       num_buffer_frames=10, single_im_size=_image_size, num_empty_frames=1,
                        save_dax=True, save_info=True, save_other=True,
                        return_image=True, overwrite=False, verbose=False):
     """Function to remove some channels from a Dax file and re-save
@@ -2845,7 +2849,7 @@ def Remove_Dax_Channel(source_filename, target_filename, source_channels,
         raise ValueError(
             f"Number of channels from info file:{_num_channels} doesn't match given source_channels:{source_channels}, exit!")
     _kept_im = slice_image_remove_channel(source_filename, _im_shape, _num_channels,
-                                        remove_zstarts=_remove_cids,
+                                        remove_zstarts=_remove_cids, empty_frame=num_empty_frames,
                                         zlims=[num_buffer_frames, _im_shape[0]-num_buffer_frames],
                                         image_dtype=image_dtype, verbose=verbose)
     # shuffle frame order

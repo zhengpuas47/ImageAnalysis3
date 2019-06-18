@@ -97,7 +97,8 @@ def align_manual_points(pos_file_before, pos_file_after,
 # align single pair of bead images
 def align_single_image(_filename, _selected_crops, _ref_filename=None, _ref_ims=None, _ref_centers=None,
                         _bead_channel='488', _all_channels=_allowed_colors, _single_im_size=_image_size,
-                        _num_buffer_frames=10, _ref_seed_per=95, _illumination_corr=True,
+                        _num_buffer_frames=10, _num_empty_frames=1, 
+                        _ref_seed_per=95, _illumination_corr=True,
                         _correction_folder=_correction_folder, 
                         _match_distance=3, _match_unique=True,
                         _rough_drift_gb=0, _drift_cutoff=1, _verbose=False):
@@ -151,13 +152,17 @@ def align_single_image(_filename, _selected_crops, _ref_filename=None, _ref_ims=
         # load target images
         _tar_im = corrections.correct_single_image(_filename, _bead_channel, crop_limits=_crop,
                                                    single_im_size=_single_im_size,
-                                                   all_channels=_all_channels, num_buffer_frames=_num_buffer_frames,
+                                                   all_channels=_all_channels, 
+                                                   num_buffer_frames=_num_buffer_frames,
+                                                   num_empty_frames=_num_empty_frames,
                                                    illumination_corr=_illumination_corr)
         # get reference images
         if _ref_ims is None:
             _ref_im = corrections.correct_single_image(_ref_filename, _bead_channel, crop_limits=_crop,
                                                        single_im_size=_single_im_size,
-                                                       all_channels=_all_channels, num_buffer_frames=_num_buffer_frames,
+                                                       all_channels=_all_channels, 
+                                                       num_buffer_frames=_num_buffer_frames,
+                                                       num_empty_frames=_num_empty_frames,
                                                        illumination_corr=_illumination_corr)
         else:
             _ref_im = _ref_ims[_i].copy()

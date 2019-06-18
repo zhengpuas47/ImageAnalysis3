@@ -19,7 +19,8 @@ def __init__():
 def Calculate_Bead_Drift(folders, fovs, fov_id, num_threads=12, drift_size=500, ref_id=0,
                          sequential_mode=False, bead_channel='488', all_channels=_allowed_colors,
                          illumination_corr=True, correction_folder=_correction_folder,
-                         coord_sel=None, single_im_size=_image_size, num_buffer_frames=10,
+                         coord_sel=None, single_im_size=_image_size, 
+                         num_buffer_frames=10, num_empty_frames=1, 
                          match_distance=3, match_unique=True, rough_drift_gb=0,
                          max_ref_points=500, ref_seed_per=95, drift_cutoff=1,
                          save=True, save_folder=None, save_postfix='_current_cor.pkl',
@@ -164,8 +165,9 @@ def Calculate_Bead_Drift(folders, fovs, fov_id, num_threads=12, drift_size=500, 
             print("--- loading reference images and centers")
         for _crop in selected_crops:
             _ref_im = correct_single_image(_ref_filename, bead_channel, crop_limits=_crop,
-                                        single_im_size=single_im_size,
-                                        all_channels=all_channels, num_buffer_frames=num_buffer_frames,
+                                        single_im_size=single_im_size, all_channels=all_channels, 
+                                        num_buffer_frames=num_buffer_frames,
+                                        num_empty_frames=num_empty_frames,
                                         illumination_corr=illumination_corr, verbose=verbose)
             print(np.max(_ref_im))
             _ref_center = visual_tools.get_STD_centers(_ref_im, dynamic=True, th_seed_percentile=ref_seed_per,
@@ -189,7 +191,8 @@ def Calculate_Bead_Drift(folders, fovs, fov_id, num_threads=12, drift_size=500, 
                 new_keynames.append(_keyname)
                 args.append((_filename, selected_crops, None, _ref_ims, _ref_centers,
                              bead_channel, all_channels, single_im_size,
-                             num_buffer_frames, ref_seed_per * 0.99**_i, illumination_corr,
+                             num_buffer_frames, num_empty_frames,
+                             ref_seed_per * 0.99**_i, illumination_corr,
                              correction_folder, match_distance, match_unique, 
                              rough_drift_gb, drift_cutoff, verbose))
     
@@ -210,7 +213,8 @@ def Calculate_Bead_Drift(folders, fovs, fov_id, num_threads=12, drift_size=500, 
                 new_keynames.append(_keyname)
                 args.append((_filename, selected_crops, _ref_filename, None, None,
                              bead_channel, all_channels, single_im_size,
-                             num_buffer_frames, ref_seed_per, illumination_corr,
+                             num_buffer_frames, num_empty_frames,
+                             ref_seed_per, illumination_corr,
                              correction_folder, match_distance, match_unique,
                              rough_drift_gb, drift_cutoff, verbose))
 
@@ -303,7 +307,7 @@ def Illumination_correction(im, correction_channel, crop_limits=None, all_channe
     channel = str(correction_channel)
     if channel not in all_channels:
         raise ValueError(
-            f"Input channel:{channel} is not in allowed channels:{allowed_channels}")
+            f"Input channel:{channel} is not in allowed channels:{all_channels}")
     # check correction profile exists:
     ic_filename = os.path.join(correction_folder,
                                ic_profile_name+'_'+str(channel)+'_'
@@ -496,10 +500,11 @@ def Remove_Hot_Pixels(im, dtype=np.uint16, hot_pix_th=0.50, hot_th=4,
 # fast function to generate illumination profiles
 def generate_illumination_correction(color, data_folder, correction_folder, image_type='H', 
                                      all_colors=_allowed_colors,  num_of_images=50,
-                                    folder_id=0, buffer_frame=10, frame_per_color=30, target_color_ind=-1,
-                                    gaussian_sigma=40, seeding_th_per=99.5, seeding_th_base=300, seeding_crop_size=9,
-                                    remove_cap=False, cap_th_per=99.5,
-                                    force=False, save=True, save_name='illumination_correction_', make_plot=False, verbose=True):
+                                     folder_id=0, num_buffer_frames=10, num_empty_frames=1, 
+                                     frame_per_color=30, target_color_ind=-1,
+                                     gaussian_sigma=40, seeding_th_per=99.5, seeding_th_base=300, seeding_crop_size=9,
+                                     remove_cap=False, cap_th_per=99.5,
+                                     force=False, save=True, save_name='illumination_correction_', make_plot=False, verbose=True):
     """Function to generate illumination correction profile from hybridization type of image or bead type of image
     Inputs:
         color: 
@@ -542,7 +547,7 @@ def generate_illumination_correction(color, data_folder, correction_folder, imag
         _line = _line.rstrip()
         if "number of frames" in _line:
             _num_frame = int(_line.split('=')[1])
-            _num_color = (_num_frame - 2*buffer_frame) / frame_per_color
+            _num_color = (_num_frame - 2*num_buffer_frames) / frame_per_color
             if _num_color != int(_num_color):
                 raise ValueError("Wrong num_color, should be integer!")
             _num_color = int(_num_color)
@@ -573,8 +578,10 @@ def generate_illumination_correction(color, data_folder, correction_folder, imag
                 _im_filename = os.path.join(_fd, _fov)
                 if verbose:
                     print(f"-- loading {_color} from image file {_im_filename}, color_ind:{target_color_ind}")
-                _im = visual_tools.slice_image(_im_filename, [_num_frame, _dx, _dy], [buffer_frame, _num_frame-buffer_frame], [0, _dx],
-                                                [0, _dy], _num_color, target_color_ind)
+                _im = visual_tools.slice_image(_im_filename, [_num_frame, _dx, _dy], 
+                                               [num_buffer_frames, _num_frame-num_buffer_frames], [0, _dx],
+                                               [0, _dy], _num_color, target_color_ind, 
+                                               empty_frame=num_empty_frames)
                 # do corrections
                 _im = Remove_Hot_Pixels(_im, verbose=False)
                 _im = Z_Shift_Correction(_im, verbose=False)
@@ -621,6 +628,7 @@ def generate_illumination_correction(color, data_folder, correction_folder, imag
 
     return _mean_profile
 
+def _mean_xy_profle(_im_filename, _im_shape, _zlim, )
 
 def generate_chromatic_abbrevation_from_spots(corr_spots, ref_spots, corr_channel, ref_channel, 
                                             image_size=_image_size, fitting_order=2,
@@ -889,7 +897,8 @@ def load_correction_profile(channel, corr_type, correction_folder=_correction_fo
 
 # merged function to crop and correct single image
 def correct_single_image(filename, channel, crop_limits=None, seg_label=None, extend_dim=20,
-                         single_im_size=_image_size, all_channels=_allowed_colors, num_buffer_frames=10,
+                         single_im_size=_image_size, all_channels=_allowed_colors, 
+                         num_buffer_frames=10, num_empty_frames=1, 
                          drift=np.array([0, 0, 0]), correction_folder=_correction_folder, normalization=False,
                          z_shift_corr=True, hot_pixel_remove=True, illumination_corr=True, chromatic_corr=True,
                          return_limits=False, verbose=False):
@@ -956,6 +965,7 @@ def correct_single_image(filename, channel, crop_limits=None, seg_label=None, ex
                                                           all_channels=all_channels,
                                                           drift=drift, single_im_size=single_im_size,
                                                           num_buffer_frames=num_buffer_frames,
+                                                          num_empty_frames=num_empty_frames,
                                                           return_limits=True, verbose=verbose)
     ## corrections
     _corr_im = _cropped_im.copy()
@@ -1033,15 +1043,6 @@ def generate_bleedthrough_info(filename, ref_channel, bld_channel, single_im_siz
                                      illumination_corr=illumination_corr, chromatic_corr=False,
                                      return_limits=False, verbose=verbose)
 
-    #ref_im = correct_single_image(filename, ref_channel, single_im_size=single_im_size, 
-    #                              all_channels=all_channels, num_buffer_frames=num_buffer_frames,
-    #                              normalization=normalization, illumination_corr=illumination_corr, 
-    #                              chromatic_corr=False, verbose=verbose)
-    #bld_im = correct_single_image(filename, bld_channel, single_im_size=single_im_size, 
-    #                              all_channels=all_channels, num_buffer_frames=num_buffer_frames,
-    #                              normalization=normalization, illumination_corr=illumination_corr,
-    #                              chromatic_corr=False, verbose=verbose)
-
     # get candidate centers
     centers = visual_tools.get_STD_centers(ref_im, th_seed=th_seed, verbose=True)
     # pick sparse centers
@@ -1100,7 +1101,8 @@ def generate_bleedthrough_info(filename, ref_channel, bld_channel, single_im_siz
 # bleedthrough correction
 def Bleedthrough_correction(input_im, crop_limits=None, all_channels=_allowed_colors,
                             correction_channels=None, single_im_size=_image_size,
-                            num_buffer_frames=10, drift=np.array([0, 0, 0]), 
+                            num_buffer_frames=10, num_empty_frames=1,
+                            drift=np.array([0, 0, 0]), 
                             correction_folder=_correction_folder,
                             normalization=False,
                             z_shift_corr=True, hot_pixel_remove=True,
@@ -1162,9 +1164,11 @@ def Bleedthrough_correction(input_im, crop_limits=None, all_channels=_allowed_co
     # load image if necessary
     if isinstance(input_im, str):
         _ims, _dft_limits = visual_tools.crop_multi_channel_image(input_im, correction_channels, 
-                                                     crop_limits,
-                                                     num_buffer_frames, all_channels, single_im_size,
-                                                     drift, return_limits=True, verbose=verbose)
+                                                        crop_limits,
+                                                        num_buffer_frames, num_empty_frames, 
+                                                        all_channels, single_im_size,
+                                                        drift, return_limits=True, 
+                                                        verbose=verbose)
         # do zshift and hot-pixel correction
         # correct for z axis shift
         _ims = [Z_Shift_Correction(_cim, normalization=normalization,
@@ -1205,7 +1209,8 @@ def Bleedthrough_correction(input_im, crop_limits=None, all_channels=_allowed_co
 ## correct selected channels from one dax file
 def correct_one_dax(filename, sel_channels=None, crop_limits=None, seg_label=None,
                     extend_dim=20, single_im_size=_image_size, all_channels=_allowed_colors,
-                    num_buffer_frames=10, drift=np.array([0, 0, 0]),
+                    num_buffer_frames=10, num_empty_frames=1,
+                    drift=np.array([0, 0, 0]),
                     correction_folder=_correction_folder, normalization=False, 
                     bleed_corr=True, z_shift_corr=True, hot_pixel_remove=True, 
                     illumination_corr=True, chromatic_corr=True,
@@ -1271,7 +1276,9 @@ def correct_one_dax(filename, sel_channels=None, crop_limits=None, seg_label=Non
     if bleed_corr:
         _corr_ims, _dft_limits = Bleedthrough_correction(filename, _limits, all_channels=all_channels,
                                                          correction_channels=correction_channels, single_im_size=single_im_size,
-                                                         num_buffer_frames=num_buffer_frames, drift=drift,
+                                                         num_buffer_frames=num_buffer_frames, 
+                                                         num_empty_frames=num_empty_frames,
+                                                         drift=drift,
                                                          correction_folder=correction_folder,
                                                          normalization=normalization,
                                                          z_shift_corr=z_shift_corr, hot_pixel_remove=hot_pixel_remove,
@@ -1281,6 +1288,7 @@ def correct_one_dax(filename, sel_channels=None, crop_limits=None, seg_label=Non
             print(f"- loading image from {_ref_name} for channels:{correction_channels}")
         _corr_ims, _dft_limits = visual_tools.crop_multi_channel_image(filename, correction_channels, 
                                                                        _limits, num_buffer_frames, 
+                                                                       num_empty_frames,
                                                                        all_channels, single_im_size,
                                                                        drift, return_limits=True, 
                                                                        verbose=verbose)
