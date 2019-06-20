@@ -871,7 +871,8 @@ class Cell_List():
 
     # function to do cropping
     def _crop_image_for_cells(self, _data_type='unique', _load_in_ram=False, _load_annotated_only=True,
-                              _extend_dim=20, _corr_drift=True, _normalization=False,
+                              _extend_dim=20, _num_buffer_frames=10, _num_empty_frames=1,
+                              _corr_drift=True, _normalization=False,
                               _corr_bleed=True, _corr_Z_shift=True, 
                               _corr_hot_pixel=True, _corr_illumination=True, _corr_chromatic=True,
                               _save=True, _force=False, _overwrite_cell_info=False, _verbose=True):
@@ -921,7 +922,8 @@ class Cell_List():
                                            _corr_drift=_corr_drift, _normalization=_normalization, _corr_bleed=_corr_bleed,
                                            _corr_Z_shift=_corr_Z_shift, _corr_hot_pixel=_corr_hot_pixel,
                                            _corr_illumination=_corr_illumination, _corr_chromatic=_corr_chromatic,
-                                           _load_in_ram=_load_in_ram, _extend_dim=_extend_dim,_num_buffer_frames=10,
+                                           _load_in_ram=_load_in_ram, _extend_dim=_extend_dim,
+                                           _num_buffer_frames=_num_buffer_frames, _num_empty_frames=_num_empty_frames,
                                            _save=_save, _overwrite=_force, _overwrite_cell_info=_overwrite_cell_info,
                                            _verbose=_verbose)
                     else:
@@ -2319,8 +2321,9 @@ class Cell_Data():
 
     ## Load drift (better load, although de novo drift is allowed)
     def _load_drift(self, _sequential_mode=True, _load_annotated_only=True, 
-                    _size=500, _ref_id=0, _drift_postfix='_current_cor.pkl', _num_threads=12,
-                    _coord_sel=None, _force=False, _dynamic=True, 
+                    _size=500, _ref_id=0, _drift_postfix='_current_cor.pkl', 
+                    _num_threads=12, _coord_sel=None, _force=False, _dynamic=True, 
+                    _num_buffer_frames=10, _num_empty_frames=0, 
                     _stringent=True, _verbose=True):
         # num-threads
         if hasattr(self, 'num_threads'):
@@ -2367,6 +2370,8 @@ class Cell_Data():
             _drift, _failed_count = corrections.Calculate_Bead_Drift(_folders, self.fovs, self.fov_id, 
                                         num_threads=_num_threads,sequential_mode=_sequential_mode, 
                                         ref_id=_ref_id, drift_size=_size, coord_sel=_coord_sel,
+                                        num_buffer_frames=_num_buffer_frames, 
+                                        num_empty_frames=_num_empty_frames, 
                                         save_postfix=_drift_postfix,
                                         save_folder=self.drift_folder, stringent=_stringent,
                                         overwrite=_force, verbose=_verbose)
@@ -2389,7 +2394,8 @@ class Cell_Data():
                      _corr_drift=True, _normalization=False, _corr_bleed=True,
                      _corr_Z_shift=True, _corr_hot_pixel=True,
                      _corr_illumination=True, _corr_chromatic=True,
-                     _load_in_ram=False, _extend_dim=20, _num_buffer_frames=10,
+                     _load_in_ram=False, _extend_dim=20, 
+                     _num_buffer_frames=10, _num_empty_frames=1,
                      _save=True, _overwrite=False, _overwrite_cell_info=False, _verbose=True):
         "Function to crop combo/unique images "
         ## check inputs
@@ -2488,7 +2494,8 @@ class Cell_Data():
                         # add unique_arg
                         _new_arg = (_im_filename, _sel_channels, None, self.segmentation_label,
                                     _extend_dim, _single_im_size, self.channels,
-                                    _num_buffer_frames, self.drift[_ref_name],
+                                    _num_buffer_frames, _num_empty_frames,
+                                    self.drift[_ref_name],
                                     self.correction_folder, _normalization, _corr_bleed,
                                     _corr_Z_shift, _corr_hot_pixel, _corr_illumination, _corr_chromatic,
                                     False, _verbose)

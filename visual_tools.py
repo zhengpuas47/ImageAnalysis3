@@ -1223,20 +1223,26 @@ def DAPI_segmentation(ims, names,
 # segmentation with convolution of DAPI images
 
 def DAPI_convoluted_segmentation(filenames, correction_channel=405, 
-                                 num_threads=12, cap_percentile=1,
-        illumination_correction=True, illumination_correction_channel=405, correction_folder=_correction_folder,
+        num_threads=12, cap_percentile=1,
+        single_im_size=_image_size, all_channels=_allowed_colors, 
+        num_buffer_frames=10, num_empty_frames=1, 
+        illumination_correction=True, illumination_correction_channel=405, 
+        correction_folder=_correction_folder,
         merge_layer_num=11, denoise_window=5, mft_size=25, glft_size=30,
         max_conv_th=0, min_boundary_th=0.48, signal_cap_ratio=0.20,
         max_cell_size=40000, min_cell_size=5000, min_shape_ratio=0.035,
         max_iter=4, shrink_percent=15,
         dialation_dim=4, random_walker_beta=0.1, remove_fov_boundary=50,
-        save=True, save_folder=None, force=False, save_npy=True, save_postfix="_segmentation",
+        save=True, save_folder=None, force=False, 
+        save_npy=True, save_postfix="_segmentation",
         make_plot=False, return_images=False, verbose=True):
     """cell segmentation for DAPI images with pooling and convolution layers
     Inputs:
         ims: list of images
         names: list of names, same length as ims
         cap_percentile: removing top and bottom percentile in each image, float from 0-100 (default: 0.5)
+        num_buffer_frames: number of buffer frames, int
+        num_empty_frames: num of empty frames, int
         illumination_correction: whether correct illumination for each field of view, bool (default: True)
         illumination_correction_channel: which color channel to correct illumination for each field of view, int or str (default: 405)
         correction_folder: full directory that contains such correction files, string (default: )
@@ -1290,7 +1296,9 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405,
         if return_images:
             if verbose:
                 print(f"- loading {len(filenames)} images for output")
-            _load_args = [(_fl, correction_channel) for _fl in filenames]
+            _load_args = [(_fl, correction_channel, None, None, 20,
+                           single_im_size, all_channels, 
+                           num_buffer_frames,num_empty_frames) for _fl in filenames]
             _load_pool = mp.Pool(num_threads)
             _ims = _load_pool.starmap(corrections.correct_single_image, _load_args, chunksize=1)
             _load_pool.close()
@@ -1302,7 +1310,9 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405,
     else:
         if verbose:
             print(f"- loading {len(filenames)} images for segmentation")
-        _load_args = [(_fl, correction_channel) for _fl in filenames]
+        _load_args = [(_fl, correction_channel, None, None, 20,
+                       single_im_size, all_channels, 
+                       num_buffer_frames,num_empty_frames) for _fl in filenames]        
         _load_pool = mp.Pool(num_threads)
         _ims = _load_pool.starmap(corrections.correct_single_image, _load_args, chunksize=1)
         _load_pool.close()
@@ -1743,8 +1753,9 @@ def get_seed_in_distance(im, center=None, num_seeds=0, seed_radius=30,
     _im = im.copy()
     # seeding threshold
     if dynamic:
-        _th_seed = scoreatpercentile(im, th_seed_percentile) - \
-                    scoreatpercentile(im, 0.5)
+        _im_ints = _im[np.isnan(_im)==False].astype(np.float)
+        _th_seed = scoreatpercentile(_im_ints, th_seed_percentile) - \
+                    scoreatpercentile(_im_ints, 0.5)
     else:
         _th_seed = th_seed
     # start seeding 
@@ -2084,7 +2095,7 @@ def slice_image(fl, sizes, zlims, xlims, ylims, zstep=1, zstart=0, empty_frame=1
         _start_layer = minz + min([(_z + empty_frame - minz) % zstep for _z in zs])
     # get data
     _data_cts = [0 for _z in zs]
-    _res = [(_z+1) % zstep for _z in zs]
+    _res = [(_z + empty_frame) % zstep for _z in zs]
     for iz in range(sz):
         if (np.array(_data_cts) >= dz).all():
             # stop if all data image filled
@@ -3137,3 +3148,19 @@ def Batch_Convert_Spots_to_Cloud(spot_list, comp_dict, im_radius=30, num_threads
         print(f"--- time spent in converting to cloud: {time.time()-_start_time}")
     
     return _density_dict_list
+
+
+
+
+def remove_cap(im, cap_th_per=99.5, fill_nan=True):
+    """Given image and cap percentile, remove top intensity pixels."""
+    _corr_im = im.copy()
+    if cap_th_per > 0 and cap_th_per < 100:
+        if 'scoreatpercentile' not in locals():
+            from scipy.stats import scoreatpercentile
+        _cap_th = scoreatpercentile(_corr_im[np.isnan(_corr_im)==False], cap_th_per)
+        if fill_nan:
+            _corr_im[_corr_im > _cap_th] = np.nan
+        else:
+            _corr_im[_corr_im > _cap_th] = _cap_th
+    return _corr_im

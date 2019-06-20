@@ -497,138 +497,176 @@ def Remove_Hot_Pixels(im, dtype=np.uint16, hot_pix_th=0.50, hot_th=4,
     return _nim.astype(dtype)
 
 
+def _mean_xy_profle(im_filename, color, all_colors=_allowed_colors, frame_per_color=30,
+                    num_buffer_frames=10, num_empty_frames=1,
+                    hot_pixel_remove=True, z_shift_corr=True,   
+                    seeding_th_per=80., seeding_crop_size=10, 
+                    cap_intensity=True, cap_th_per=99.5, gaussian_sigma=40, return_layers=True):
+    """sub-function to calculate mean x-y profile for one specific channel
+    Inputs:
+        im_filename: image filename, str (*.dax)
+        color: targeting color, str or int ({750, 647, 561, 488, 405})
+    Outputs:
+        mean_profile: mean profile of a given image given channel
+    """
+    # get image shape
+    _im_shape, _num_colors = get_img_info.get_num_frame(im_filename, frame_per_color=frame_per_color,
+                                                        buffer_frame=num_buffer_frames, verbose=False)
+    _num_frames, _dx, _dy = _im_shape
+    # print all_colors
+    color = str(color)
+    all_colors = [str(_c) for _c in all_colors]
+    if color not in all_colors:
+        raise ValueError(f"color:{color} must be among all_colors:{all_colors}")
+    _color_id = all_colors.index(color)
+    _single_im_size = [frame_per_color, _dx, _dy]
+    _crop_limits= [[num_buffer_frames, _num_frames-num_buffer_frames], [0, _dx], [0, _dy]]
+    
+    # slice image
+    _im = correct_single_image(im_filename, color, single_im_size=_single_im_size, all_channels=all_colors,
+                               num_buffer_frames=num_buffer_frames, num_empty_frames=num_empty_frames, 
+                               z_shift_corr=z_shift_corr, hot_pixel_remove=hot_pixel_remove, 
+                               illumination_corr=False, chromatic_corr=False,
+                               return_limits=False, verbose=False)
+    _im = _im.astype(np.float)
+    # seeding
+    _seeds = visual_tools.get_seed_in_distance(_im, th_seed_percentile=seeding_th_per, dynamic=True)
+    for _sd in _seeds:
+        l_lim = np.max([np.zeros(len(_sd)), _sd - int(seeding_crop_size/2)], axis=0)
+        r_lim = np.min([np.array(_im.shape), _sd + int(seeding_crop_size/2)], axis=0)
+        _im[l_lim[0]:r_lim[0], l_lim[1]:r_lim[1], l_lim[2]:r_lim[2]] = np.nan
+    if cap_intensity:
+        _im = visual_tools.remove_cap(_im, cap_th_per=cap_th_per, fill_nan=True)
+    
+    if return_layers:
+        return _im
+    else:
+        # calculate mean profile
+        _profile = np.nanmedian(_im, axis=0)
+        from astropy.convolution import Gaussian2DKernel, convolve
+        _profile = convolve(_profile, Gaussian2DKernel(x_stddev=gaussian_sigma))
+        
+        return _profile
+
 # fast function to generate illumination profiles
-def generate_illumination_correction(color, data_folder, correction_folder, image_type='H', 
+def generate_illumination_correction(color, data_folder, correction_folder, num_threads=12,
                                      all_colors=_allowed_colors,  num_of_images=50,
-                                     folder_id=0, num_buffer_frames=10, num_empty_frames=1, 
-                                     frame_per_color=30, target_color_ind=-1,
-                                     gaussian_sigma=40, seeding_th_per=99.5, seeding_th_base=300, seeding_crop_size=9,
-                                     remove_cap=False, cap_th_per=99.5,
-                                     force=False, save=True, save_name='illumination_correction_', make_plot=False, verbose=True):
+                                     folder_prefix='H', folder_id=0, 
+                                     num_buffer_frames=10, num_empty_frames=1, 
+                                     frame_per_color=30, gaussian_sigma=40, 
+                                     seeding_th_per=90., seeding_crop_size=10,
+                                     cap_intensity=False, cap_th_per=99.5,
+                                     overwrite=False, save=True, 
+                                     save_prefix='illumination_correction_', 
+                                     make_plot=False, verbose=True):
     """Function to generate illumination correction profile from hybridization type of image or bead type of image
     Inputs:
-        color: 
+        color: color to be corrected, str or int ({750,647,561,488,405}) 
         data_folder: master folder for images, string of path
         correction_folder: folder to save correction_folder, string of path
-        image_type: type of images to generate this profile, int (default: 50)
+        num_threads: number of threads to parallelize, int (default: 12)
+        all_colors: all allowed colors in images, list of color (default: _allowed_colors)
+        num_images: number of images used to do correction, int (default: 50)
+        folder_prefix: type of folder to generate this profile, str (default: 'H', which means hyb)
+        folder_id: index of folder in the list of folder with given prefix, int (default: 0)
+        num_buffer_frames: number of buffer frames before Z-scan, int (default: 10)
+        num_empty_frames: number of empty frames before shutter turing on, int (default: 1)
+        frame_per_color: number of frames in each color, int (default: 30 for IMR90)
         gaussian_sigma: sigma of gaussian filter used to smooth image, int (default: 40)
+        seeding_th_per: percentile of seeding threshold in term of intensity, float (default: 90.)
+        seeding_crop_size: size to crop image around seeded local maxima, int (default: 10)
+        cap_intensity: whether cap_intensity intensity pixels, bool (default: False)
+        cap_th_per: percentile of capping intensity, float (default: 99.5)
+        overwrite: whether overwrite existing illumination correction profile, bool (default: False)
+        save: whether save profile, bool (default: True)
+        save_prefix: save prefix of illumination profile, str (default: 'illumination_correction_{color}')
+        make_plot: generate a 2d heatmap for this correction profile, bool (default: False)
+        verbose: say something!, bool (default: True)
     Outputs:
         ic_profile: 2d illumination correction profile 
         """
-    from scipy.stats import scoreatpercentile
-    from astropy.convolution import Gaussian2DKernel
-    from astropy.convolution import convolve
     ## check inputs
+    if verbose:
+        print(f"- Generate illumination correction profile for {color}")
     # color
     _color = str(color)
-    _allowed_colors = all_colors
-    if _color not in _allowed_colors:
-        raise ValueError(f"Wrong color input, {color} is given, color among {_allowed_colors} is expected")
-    # extract index of this color
-    if target_color_ind == -1:
-        target_color_ind = _allowed_colors.index(_color)
+    all_colors = [str(_ch) for _ch in all_colors]
+    if _color not in all_colors:
+        raise ValueError(f"Wrong color input, {color} is given, color among {all_colors} is expected")
     # image type
-    image_type = image_type[0].upper()
-    if image_type not in ['H', 'B']:
-        raise ValueError(f"Wrong input image_type, {image_type} is given, 'H' or 'B' expected!")
+    folder_prefix = folder_prefix[0].upper()
+    if folder_prefix not in ['H', 'B']:
+        raise ValueError(f"Wrong input folder_prefix, {folder_prefix} is given, 'H' or 'B' expected!")
     ## get images
-    _folders, _fovs = get_img_info.get_folders(data_folder, feature=image_type,verbose=verbose)
+    _folders, _fovs = get_img_info.get_folders(data_folder, feature=folder_prefix,verbose=verbose)
     if len(_folders)==0 or len(_fovs)==0:
-        raise IOError(f"No folders or fovs detected with given data_folder:{data_folder} and image_type:{image_type}!")
+        raise IOError(f"No folders or fovs detected with given data_folder:{data_folder} and folder_prefix:{folder_prefix}!")
     ## load image info
-    _im_filename = os.path.join(_folders[folder_id], _fovs[0])
-    _info_filename = _im_filename.replace('.dax', '.inf')
-    with open(_info_filename, 'r') as _info_hd:
-        _infos = _info_hd.readlines()
-    # get frame number and color information
-    _num_frame, _num_color = 0, 0
-    _dx, _dy = 0, 0
-    for _line in _infos:
-        _line = _line.rstrip()
-        if "number of frames" in _line:
-            _num_frame = int(_line.split('=')[1])
-            _num_color = (_num_frame - 2*num_buffer_frames) / frame_per_color
-            if _num_color != int(_num_color):
-                raise ValueError("Wrong num_color, should be integer!")
-            _num_color = int(_num_color)
-        if "frame dimensions" in _line:
-            _dx = int(_line.split('=')[1].split('x')[0])
-            _dy = int(_line.split('=')[1].split('x')[1])
-    if not _num_frame or not _num_color:
-        raise ValueError(f"No frame number info exists in {_info_filename}")
-    if not _dx or not _dy:
-        raise ValueError(f"No frame dimension info exists in {_info_filename}")    
+    _testfile = os.path.join(_folders[folder_id], _fovs[0])
+    _im_shape, _num_colors = get_img_info.get_num_frame(_testfile, frame_per_color=frame_per_color, 
+                                                        buffer_frame=num_buffer_frames,
+                                                        verbose=verbose)
+    _num_frames, _dx, _dy = _im_shape
+    if _num_colors != len(all_colors):
+        raise ValueError(f"Wrong length of all_colors, should be {_num_colors} but {len(all_colors)} colors are given.")
     # save filename    
-    save_filename = os.path.join(correction_folder, save_name+str(_color)+'_'+str(_dx)+'x'+str(_dy))
-    if os.path.isfile(save_filename+'.npy') and not force:
+    save_filename = os.path.join(correction_folder, save_prefix+str(_color)+'_'+str(_dx)+'x'+str(_dy))
+    if os.path.isfile(save_filename+'.npy') and not overwrite:
         if verbose:
-            print(f"- directly loading illumination correction profile from file:{save_filename}.npy")
-        _mean_profile = np.load(save_filename+'.npy')
+            print(f"-- directly loading illumination correction profile from file:{save_filename}.npy")
+        _ic_profile = np.load(save_filename+'.npy')
     else:
-        # initialize 
-        _picked_profiles = []
-        _fd = _folders[folder_id]
+        _ic_args = []
         for _fov in _fovs:
-            # exit if enough images loaded
-            if len(_picked_profiles) >= num_of_images:
+            # if there are enough images, break
+            if len(_ic_args) >= num_of_images:
                 break
-            # start slicing image
-            if os.path.isfile(os.path.join(_fd, _fov)):
-                ## get info
-                _im_filename = os.path.join(_fd, _fov)
-                if verbose:
-                    print(f"-- loading {_color} from image file {_im_filename}, color_ind:{target_color_ind}")
-                _im = visual_tools.slice_image(_im_filename, [_num_frame, _dx, _dy], 
-                                               [num_buffer_frames, _num_frame-num_buffer_frames], [0, _dx],
-                                               [0, _dy], _num_color, target_color_ind, 
-                                               empty_frame=num_empty_frames)
-                # do corrections
-                _im = Remove_Hot_Pixels(_im, verbose=False)
-                _im = Z_Shift_Correction(_im, verbose=False)
-                _im = np.array(_im, dtype=np.float)
-                # remove top values if necessary
-                if remove_cap:
-                    _cap_thres = scoreatpercentile(_im, cap_th_per)
-                    _im[_im > _cap_thres] = np.nan
-                # seed and exclude these blocks
-                _seed_thres = scoreatpercentile(_im, seeding_th_per) - np.median(_im)
-                _seeds = visual_tools.get_seed_points_base(_im, th_seed=_seed_thres)
-                for _sd in np.transpose(_seeds):
-                    _l_lims = np.array(_sd - int(seeding_crop_size/2), dtype=np.int)
-                    _l_lims[_l_lims<0] = 0
-                    _r_lims = [_sd+int(seeding_crop_size/2), np.array(_im.shape)]
-                    _r_lims = np.min(np.array(_r_lims, dtype=np.int), axis=0)
-                    _im[_l_lims[0]:_r_lims[0], _l_lims[1]:_r_lims[1], _l_lims[2]:_r_lims[2]] = np.nan
-                # append
-                _picked_profiles.append(_im)
+            # getting args
+            _fl = os.path.join(_folders[folder_id], _fov)
+            _ic_args.append(
+                    (_fl, color, all_colors, frame_per_color, 
+                     num_buffer_frames, num_empty_frames,
+                     True, True, seeding_th_per, seeding_crop_size, 
+                     cap_intensity, cap_th_per,
+                     gaussian_sigma, True)
+                )
+        if verbose:
+            print(f"-- {len(_ic_args)} image planned.")
+        # multi-processing!
+        with mp.Pool(num_threads) as _ic_pool:
+            if verbose:
+                print(f"-- start multi-processing with {num_threads} threads!")
+            _profile_list = _ic_pool.starmap(_mean_xy_profle, _ic_args, chunksize=1)
+            _ic_pool.close()
+            _ic_pool.join()
+            _ic_pool.terminate()
+        
         # generate averaged profile
         if verbose:
-            print("- generating averaged profile")
-        _mean_profile = np.nanmean(np.concatenate(_picked_profiles), axis=0)
-        _mean_profile[_mean_profile == 0] = np.nan
+            print("-- generating averaged profile")
+        _ic_profile = np.nanmedian(np.concatenate(_profile_list), axis=0)
+        _ic_profile[_ic_profile == 0] = np.nan # remove zeros, which means all images are np.nan
         ## gaussian filter
         if verbose:
-            print("- applying gaussian filter to averaged profile")
-        # set gaussian kernel
-        _kernel = Gaussian2DKernel(x_stddev=gaussian_sigma)
+            print("-- applying gaussian filter to averaged profile")
         # convolution, which will interpolate any NaN numbers
-        _mean_profile = convolve(_mean_profile, _kernel, boundary='extend')
-        _mean_profile = _mean_profile / np.max(_mean_profile)
+        from astropy.convolution import Gaussian2DKernel, convolve
+        _ic_profile = convolve(_ic_profile, Gaussian2DKernel(x_stddev=gaussian_sigma), boundary='extend')
+        _ic_profile = _ic_profile / np.max(_ic_profile)
         if save:
             if verbose:
                 print(f"-- saving correction profile to file:{save_filename}.npy")
             if not os.path.exists(os.path.dirname(save_filename)):
                 os.makedirs(os.path.dirname(save_filename))
-            np.save(save_filename, _mean_profile)
+            np.save(save_filename, _ic_profile)
     if make_plot:
         plt.figure()
-        plt.imshow(_mean_profile)
+        plt.imshow(_ic_profile)
         plt.colorbar()
         plt.show()
 
-    return _mean_profile
+    return _ic_profile
 
-def _mean_xy_profle(_im_filename, _im_shape, _zlim, )
 
 def generate_chromatic_abbrevation_from_spots(corr_spots, ref_spots, corr_channel, ref_channel, 
                                             image_size=_image_size, fitting_order=2,
@@ -937,7 +975,7 @@ def correct_single_image(filename, channel, crop_limits=None, seg_label=None, ex
         raise ValueError(
             f"Wrong input of filename {filename}, should be a string!")
     if not os.path.isfile(filename):
-        raise IOError("Input filename:{filename} doesn't exist, exit!")
+        raise IOError(f"Input filename:{filename} doesn't exist, exit!")
     elif '.dax' not in filename:
         raise IOError("Input filename should be .dax format!")
     # decide crop_limits
@@ -1000,8 +1038,9 @@ def correct_single_image(filename, channel, crop_limits=None, seg_label=None, ex
         return _corr_im
 
 # generate bleedthrough 
-def generate_bleedthrough_info(filename, ref_channel, bld_channel, single_im_size=_image_size, 
-                               all_channels=_allowed_colors, num_buffer_frames=10,
+def generate_bleedthrough_info(filename, ref_channel, bld_channel, 
+                               single_im_size=_image_size, all_channels=_allowed_colors, 
+                               num_buffer_frames=10, num_empty_frames=1,
                                correction_folder=_correction_folder,
                                normalization=False, illumination_corr=True, 
                                th_seed=2000, crop_window=9,
@@ -1038,6 +1077,7 @@ def generate_bleedthrough_info(filename, ref_channel, bld_channel, single_im_siz
         print(f"-- acquiring ref_im and bld_im from file:{filename}")
     ref_im, bld_im = correct_one_dax(filename, [ref_channel, bld_channel], single_im_size=single_im_size, 
                                      all_channels=all_channels, num_buffer_frames=num_buffer_frames,
+                                     num_empty_frames=num_empty_frames,
                                      normalization=normalization, bleed_corr=False, 
                                      z_shift_corr=True, hot_pixel_remove=True,
                                      illumination_corr=illumination_corr, chromatic_corr=False,
