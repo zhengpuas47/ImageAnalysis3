@@ -34,6 +34,40 @@ def _load_probes_in_folder(report_folder, pb_postfix='.pbr', save_folder=None):
 
     return pb_dict
 
+def Screen_fasta_against_fast(input_fasta, ref_fasta, word_size=17, allowed_hits=8,
+                              check_rc=True, save=True, save_folder=None,
+                              overwrite=False, return_kept_flag=False, verbose=True):
+    """Function to screen a given fasta against another reference fasta"""
+    ## Check inputs
+    if verbose:
+        print(f"- Screen fasta:{input_fasta} against given fasta file:{ref_fasta}")
+    if not os.path.isfile(input_fasta):
+        raise IOError(f"Input fasta:{input_fasta} is not a file.")
+    if not os.path.isfile(ref_fasta):
+        raise IOError(f"Reference fasta:{ref_fasta} is not a file.")
+    word_size = int(word_size)
+    allowed_hits = int(allowed_hits)
+    if save_folder is None:
+        save_folder = report_folder+'_filtered'
+    if not os.path.exists(save_folder):
+        os.makedirs(save_folder)
+        if verbose:
+            print(f"-- create {save_folder} to store filter probes")
+    
+    ## load probes
+    with open(input_fasta, 'r') as _handle:
+        _input_records = []
+        for _record in SeqIO.parse(_rd_handle, "fasta"):
+            _input_records.append(_record)
+
+    # construct table for ref_fasta
+    if verbose:
+        print(f"-- constructing reference table for fasta file")
+    _ref_names, _ref_seqs = ld.fastaread(ref_fasta, force_upper=True)
+    _ref_table = ld.OTmap(_ref_seqs, word_size, use_kmer=True)
+
+    
+
 
 def Screen_probe_against_fasta(report_folder, ref_fasta, word_size=17, allowed_hits=8,
                                check_rc=True, save=True, save_folder=None,

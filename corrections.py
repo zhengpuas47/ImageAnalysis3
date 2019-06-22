@@ -1044,7 +1044,8 @@ def generate_bleedthrough_info(filename, ref_channel, bld_channel,
                                correction_folder=_correction_folder,
                                normalization=False, illumination_corr=True, 
                                th_seed=2000, crop_window=9,
-                               remove_boundary_pts=True, rsq_th=0.81, verbose=True):
+                               remove_boundary_pts=True, rsq_th=0.81, 
+                               save_temp=True, verbose=True):
     """Generate bleedthrough coefficient
     Inputs:
         filename: full filename for image, str
@@ -1084,7 +1085,10 @@ def generate_bleedthrough_info(filename, ref_channel, bld_channel,
                                      return_limits=False, verbose=verbose)
 
     # get candidate centers
-    centers = visual_tools.get_STD_centers(ref_im, th_seed=th_seed, verbose=True)
+    centers = visual_tools.get_STD_centers(ref_im, th_seed=th_seed, 
+                                        save_name=os.path.basename(filename).replace('.dax',f'_{ref_channel}_th{th_seed}.pkl'),
+                                        save_folder=os.path.dirname(filename),
+                                        verbose=verbose)
     # pick sparse centers
     sel_centers = visual_tools.select_sparse_centers(centers, crop_window)
     
