@@ -346,6 +346,8 @@ class Cell_List():
 
     ## Pick segmentations info for all fovs 
     def _pick_cell_segmentations(self, _num_threads=None, _allow_manual=True,
+                            _single_im_size=_image_size, _all_channels=_allowed_colors, 
+                            _num_buffer_frames=10, _num_empty_frames=1, 
                             _min_shape_ratio=0.036, _signal_cap_ratio=0.2, _denoise_window=5,
                             _shrink_percent=13, _max_conv_th=0, _min_boundary_th=0.48,
                             _load_in_ram=True, _save=True, _save_npy=True, _save_postfix='_segmentation',
@@ -378,6 +380,8 @@ class Cell_List():
         # do segmentation
         _segmentation_labels, _dapi_ims = visual_tools.DAPI_convoluted_segmentation(
             _chosen_files, self.channels[self.dapi_channel_index], num_threads=_num_threads,
+            single_im_size=_single_im_size, all_channels=_all_channels, 
+            num_buffer_frames=_num_buffer_frames, num_empty_frames=_num_empty_frames, 
             min_shape_ratio=_min_shape_ratio, signal_cap_ratio=_signal_cap_ratio,
             denoise_window=_denoise_window, shrink_percent=_shrink_percent,
             max_conv_th=_max_conv_th, min_boundary_th=_min_boundary_th,
