@@ -3,7 +3,7 @@
 from Bio.SeqUtils import MeltingTemp as mt
 import pickle as pickle
 import numpy as np
-import os,subprocess
+import os,sys,subprocess
 
 #import tools LibraryTools
 from .LibraryTools import fastaread
@@ -29,6 +29,7 @@ def seq2Int_rc(seq):
 # Faster (500x) cython functions to convert seq->number. Compiled on a Windows machine. 
 # Recompile on Linux by running in a cell in a jupyter notebook in the current directory: !python C_Tools\setup.py build_ext --inplace
 # If too complicated, comment out line bellow and have patience.
+sys.path.append(os.getcwd())
 from seqint import seq2Int,seq2Int_rc
 
 import scipy.sparse as ss
