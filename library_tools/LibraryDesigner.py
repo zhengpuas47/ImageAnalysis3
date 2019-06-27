@@ -1,13 +1,13 @@
 
 #External tools
 from Bio.SeqUtils import MeltingTemp as mt
-import pickle as pickle
+import pickle
 import numpy as np
 import os,subprocess
 
 #import tools LibraryTools
-from .LibraryTools import fastaread
-from .LibraryTools import fastawrite
+from . import LibraryTools
+from .LibraryTools import fastaread, fastawrite
 from .LibraryTools import constant_zero_dict
 
 from .LibraryTools import seqrc
@@ -360,7 +360,8 @@ class pb_reports_class:
             setattr(self,key,self.params_dic[key])
 
     def load_pbr(self,filename):
-        "loads report file"
+        """loads report file"""
+        from . import LibraryTools
         dic_save = pickle.load(open(filename,'rb'))
         #internalize loaded values
         for key in list(dic_save.keys()):

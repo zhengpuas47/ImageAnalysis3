@@ -157,13 +157,14 @@ def _finding_readout_name(readout_list, readout_dict, readout_len=20,
     return _name_list
 
 def _check_readout_to_region(reg_to_readout, pb_records, readout_dict, 
-                             species_marker='gene_', verbose=True):
+                             species_marker='gene_', target_len=42,
+                             verbose=True):
     '''Generate map from readout id to region id, require a region_to_readout map and probe lists'''
     _readout_to_reg = {}
     for record in pb_records:
         reg_id = record.id.split(species_marker)[1].split('_')[0]
         # extract readouts used in this probe
-        _readout_list = _parsing_probe_sequence(record)
+        _readout_list = _parsing_probe_sequence(record, target_len=target_len)
         _name_list = _finding_readout_name(_readout_list, readout_dict)
         _names, _name_cts = np.unique(_name_list, return_counts=True)
         for _n, _nct in zip(_names, _name_cts):
