@@ -12,6 +12,10 @@ _sigma_zxy = np.array([1.35, 1.9, 1.9])
 _image_size = np.array([30,2048,2048])
 # allowed_colors
 _allowed_colors = ['750', '647', '561', '488', '405']
+# number of buffer frames and empty frames
+_num_buffer_frames = 10
+_num_empty_frames = 1
+
 
 # library design tools
 from . import library_tools

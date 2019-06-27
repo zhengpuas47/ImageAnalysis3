@@ -1605,7 +1605,7 @@ def generate_chromosome_from_dic(im_dic, merging_channel, color_dic,  bead_label
             _rough_dfts.append(_rough_dft)
             # roughly align image and save
             if merging_channel >=0 and merging_channel < len(_ims): # if merging_channel is provided properly
-                _corr_im = translate(_ims[merging_channel],-_rough_dft)
+                _corr_im = fast_translate(_ims[merging_channel],-_rough_dft)
                 _mean_im.append(_corr_im)
             else: # if merging_channel is not provided etc:
                 for _i, _label in enumerate(color_dic[_name.split(os.sep)[0]]):

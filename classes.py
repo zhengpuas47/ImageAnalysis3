@@ -5,7 +5,8 @@ import multiprocessing as mp
 import psutil
 
 from . import get_img_info, corrections, visual_tools, alignment_tools, analysis, domain_tools
-from . import _correction_folder,_temp_folder,_distance_zxy,_sigma_zxy,_image_size, _allowed_colors
+from . import _correction_folder,_temp_folder,_distance_zxy,\
+    _sigma_zxy,_image_size, _allowed_colors, _num_buffer_frames, _num_empty_frames
 from .External import Fitting_v3
 from scipy import ndimage, stats
 from scipy.spatial.distance import pdist,cdist,squareform
@@ -37,8 +38,6 @@ def _init_unique_pool(_ic_profile_dic, _cac_profile_dic, _ic_shape, _cac_shape):
     init_dic['chromatic'] = _cac_profile_dic
     init_dic['ic_shape'] = _ic_shape
     init_dic['cac_shape'] = _cac_shape
-
-
 
 def _fit_single_image(_im, _id, _chrom_coords, _seeding_args, _fitting_args, _check_fitting=True, 
                       _normalization=True, _verbose=False):
@@ -223,6 +222,11 @@ class Cell_List():
             self.num_threads = parameters['num_threads']
         else:
             self.num_threads = int(os.cpu_count() / 4) # default: use one third of cpus.
+        # other shared_parameters for imaging processing, etc
+        if "shared_parameters" in parameters:
+            self.shared_parameters = parameters['shared_parameters']
+        else:
+            self.shared_parameters = {}
 
         ## if loading all remaining attr in parameter
         if _load_all_attr:
@@ -233,6 +237,15 @@ class Cell_List():
         ## list to store Cell_data
         self.cells = []
         # distance from pixel to nm:
+        if 'distance_zxy' not in self.shared_parameters:    
+            self.shared_parameters['distance_zxy'] = _distance_zxy
+        if 'sigma_zxy' not in self.shared_parameters:
+            self.shared_parameters['sigma_zxy'] = _sigma_zxy
+        if 'num_buffer_frames' not in self.shared_parameters:
+            self.shared_parameters['num_buffer_frames'] = _num_buffer_frames
+        if 'num_empty_frames' not in self.shared_parameters:
+            self.shared_parameters['num_empty_frames'] = _num_empty_frames
+
         self.distance_zxy = _distance_zxy
         self.sigma_zxy = _sigma_zxy
 
@@ -269,6 +282,8 @@ class Cell_List():
         print(f"{len(self.annotated_folders)} folders are found according to color-usage annotation.")
         # tool for iteration
         self.index = 0
+
+
 
     # allow print info of Cell_List
     def __str__(self):
@@ -346,12 +361,10 @@ class Cell_List():
 
     ## Pick segmentations info for all fovs 
     def _pick_cell_segmentations(self, _num_threads=None, _allow_manual=True,
-                            _single_im_size=_image_size, _all_channels=_allowed_colors, 
-                            _num_buffer_frames=10, _num_empty_frames=1, 
-                            _min_shape_ratio=0.036, _signal_cap_ratio=0.2, _denoise_window=5,
-                            _shrink_percent=13, _max_conv_th=0, _min_boundary_th=0.48,
-                            _load_in_ram=True, _save=True, _save_npy=True, _save_postfix='_segmentation',
-                            _cell_coord_fl='cell_coords.pkl', _force=False, _verbose=True):
+                                 _min_shape_ratio=0.036, _signal_cap_ratio=0.2, _denoise_window=5,
+                                 _shrink_percent=13, _max_conv_th=0, _min_boundary_th=0.48,
+                                 _load_in_ram=True, _save=True, _save_npy=True, _save_postfix='_segmentation',
+                                 _cell_coord_fl='cell_coords.pkl', _overwrite=False, _verbose=True):
         ## load segmentation
         # check attributes
         if not hasattr(self, 'channels') or not hasattr(self, 'color_dic'):
@@ -380,14 +393,16 @@ class Cell_List():
         # do segmentation
         _segmentation_labels, _dapi_ims = visual_tools.DAPI_convoluted_segmentation(
             _chosen_files, self.channels[self.dapi_channel_index], num_threads=_num_threads,
-            single_im_size=_single_im_size, all_channels=_all_channels, 
-            num_buffer_frames=_num_buffer_frames, num_empty_frames=_num_empty_frames, 
+            single_im_size=self.shared_parameters['single_im_size'], 
+            all_channels=self.shared_parameters['all_channels'], 
+            num_buffer_frames=self.shared_parameters['num_buffer_frames'], 
+            num_empty_frames=self.shared_parameters['num_empty_frames'], 
             min_shape_ratio=_min_shape_ratio, signal_cap_ratio=_signal_cap_ratio,
             denoise_window=_denoise_window, shrink_percent=_shrink_percent,
             max_conv_th=_max_conv_th, min_boundary_th=_min_boundary_th,
             make_plot=False, return_images=True, 
             save=_save, save_npy=_save_npy, save_folder=self.segmentation_folder, 
-            save_postfix=_save_postfix, force=_force, verbose=_verbose)
+            save_postfix=_save_postfix, force=_overwrite, verbose=_verbose)
         ## pick(exclude) cells from previous result
         if _allow_manual:
             # generate coordinates
@@ -502,7 +517,12 @@ class Cell_List():
                 _seg_label = np.load(_seg_file)
                 if not _overwrite_segmentation:
                     # save original seg label into another file
-                    _old_seg_file = _seg_file.replace(_save_postfix+_file_type, _save_postfix+'_old')
+                    _old_seg_folder = os.path.join(os.path.dirname(_seg_file), 'old')
+                    if not os.path.exists(_old_seg_folder):
+                        os.makedirs(_old_seg_folder)
+                    _old_seg_file = os.path.join(os.path.dirname(_seg_file), 
+                                                 'old', 
+                                                 os.path.basename(_seg_file).replace(_save_postfix+_file_type, _save_postfix))
                     # notice: _file_type .npy was not added to _old_seg_file because np.save automatically adds postfix
                     np.save(_old_seg_file, _seg_label)
             else:
@@ -666,7 +686,12 @@ class Cell_List():
                     if _return_all:
                         _dapi_im = corrections.correct_single_image(os.path.join(
                             _dapi_fd, _dapi_im_name), self.channels[self.dapi_channel_index],
-                            correction_folder=self.correction_folder)
+                            correction_folder=self.correction_folder,
+                            single_im_size=self.shared_parameters['single_im_size'], 
+                            all_channels=self.shared_parameters['all_channels'], 
+                            num_buffer_frames=self.shared_parameters['num_buffer_frames'], 
+                            num_empty_frames=self.shared_parameters['num_empty_frames'], 
+                            )
                 else:
                     _new_label, _dapi_im = pickle.load(open(_new_fl, 'rb'))
                 _new_labels.append(_new_label)

@@ -667,11 +667,163 @@ def generate_illumination_correction(color, data_folder, correction_folder, num_
 
     return _ic_profile
 
+# generate bleedthrough 
+def generate_chromatic_abbrevation_info(ca_filename, ref_filename, ca_channel, ref_channel='647',
+                                        single_im_size=_image_size, all_channels=_allowed_colors, 
+                                        bead_channel='488', bead_drift_size=500,
+                                        num_buffer_frames=10, num_empty_frames=1,
+                                        correction_folder=_correction_folder,
+                                        normalization=False, illumination_corr=True, 
+                                        th_seed=500, crop_window=9,
+                                        remove_boundary_pts=True, rsq_th=0.81, 
+                                        save_temp=True, verbose=True):
+    """Generate chromatic_abbrevation coefficient
+    Inputs:
+        ca_filename: full filename for image having chromatic abbrevation, str of filepath
+        ref_filename: full filename for reference image, str of filepath
+        ca_channel: channel to calculate chromatic abbrevation, int or str (example: 750)
+        ref_channel: channel for reference, int or str (default: 647)
+        single_im_size: image size for single channel, array of 3 (default:[30,2048,2048])
+        all_channels: all allowed channel list, list of channels (default:[750,647,561,488,405])
+        num_buffer_frame: number of frames that is not used in zscan, int (default: 10)
+        correction_folder: folder for correction profiles, str(default: _correction_folder)
+        normalization" whether do normalization for images, bool (default:False)
+        illumination_corr: whether do illumination correction, bool (default: Ture)
+        th_seed: seeding threshold for getting candidate centers, int (default: 3000)
+        crop_window: window size for cropping, int (default: 9)
+        remove_boundary_pts: whether remove points that too close to boundary, bool (default: True)
+        rsq_th: threshold for rsquare from linear regression between bldthrough and ref image, float (default: 0.81)
+        verbose: say something!, bool (default: True)
+    Outputs:
+        picked_list: list of dictionary containing all info for bleedthrough correction"""
+    from sklearn.linear_model import LinearRegression
+    from .alignment_tools import fast_align_centers
+    ## generate ref-image and bleed-through-image
+    ref_channel = str(ref_channel)
+    ca_channel = str(ca_channel)
+    all_channels = [str(ch) for ch in all_channels]
+    if ref_channel not in all_channels:
+        raise ValueError(f"ref_channel:{ref_channel} should be in all_channels:{all_channels}")
+    if ca_channel not in all_channels:
+        raise ValueError(f"ca_channel:{ca_channel} should be in all_channels:{all_channels}")
+    # local parameter, cropping radius
+    _radius = int((crop_window-1)/2)
+    if _radius < 1:
+        raise ValueError(f"Crop radius should be at least 1!")
+        
+    if verbose:
+        print(f"-- loading reference image: {ref_filename}, channel:{ref_channel}")
+    ref_im = correct_single_image(ref_filename, ref_channel, single_im_size=single_im_size,
+                                  all_channels=all_channels, num_buffer_frames=num_buffer_frames,
+                                  num_empty_frames=num_empty_frames,
+                                  normalization=normalization, correction_folder=correction_folder,
+                                  z_shift_corr=True, hot_pixel_remove=True,
+                                  illumination_corr=illumination_corr, chromatic_corr=False,
+                                  return_limits=False, verbose=verbose)
+    if verbose:
+        print(f"-- loading chromatic target image: {ca_filename}, channel:{ca_channel}")
+    ca_im = correct_single_image(ca_filename, ca_channel, single_im_size=single_im_size,
+                                 all_channels=all_channels, num_buffer_frames=num_buffer_frames,
+                                 num_empty_frames=num_empty_frames,
+                                 normalization=normalization, correction_folder=correction_folder,
+                                 z_shift_corr=True, hot_pixel_remove=True,
+                                 illumination_corr=illumination_corr, chromatic_corr=False,
+                                 return_limits=False, verbose=verbose)
+    # fit centers for both images
+    print(ref_filename, ca_filename)
+    # fit centers for ref centers
+    ref_centers = visual_tools.get_STD_centers(ref_im, th_seed=th_seed, 
+                                               save_name=os.path.basename(ref_filename).replace('.dax',f'_{ref_channel}_th{th_seed}.pkl'),
+                                               save_folder=os.path.dirname(ref_filename),
+                                               verbose=verbose)
+    ref_centers = visual_tools.select_sparse_centers(ref_centers, _radius) # pick sparse centers
+    # fit centers for chromatic abbreviated centers
+    ca_centers = visual_tools.get_STD_centers(ca_im, th_seed=th_seed, 
+                                              save_name=os.path.basename(ca_filename).replace('.dax',f'_{ca_channel}_th{th_seed}.pkl'),
+                                              save_folder=os.path.dirname(ca_filename),
+                                              verbose=verbose)
+    ca_centers = visual_tools.select_sparse_centers(ca_centers, _radius)
+    # align images
+    aligned_ca_centers, aligned_ref_centers = fast_align_centers(ca_centers, ref_centers, 
+                                                                 cutoff=_radius, keep_unique=True)    
+    ## crop images
+    cropped_cas, cropped_refs = [], []
+
+    # loop through all centers
+    for ct in aligned_ca_centers:
+        if len(ct) != 3:
+            raise ValueError(f"Wrong input dimension of centers, only expect [z,x,y] coordinates in center:{ct}")
+        crop_l = np.array([np.zeros(3), np.round(ct-_radius)], dtype=np.int).max(0)
+        crop_r = np.array([np.array(np.shape(ca_im)), 
+                           np.round(ct-_radius)+crop_window], dtype=np.int).min(0)
+        cropped_cas.append(ca_im[crop_l[0]:crop_r[0], crop_l[1]:crop_r[1], crop_l[2]:crop_r[2]])
+    for ct in aligned_ref_centers:
+        if len(ct) != 3:
+            raise ValueError(f"Wrong input dimension of centers, only expect [z,x,y] coordinates in center:{ct}")
+        crop_l = np.array([np.zeros(3), np.round(ct-_radius)], dtype=np.int).max(0)
+        crop_r = np.array([np.array(np.shape(ref_im)), 
+                           np.round(ct-_radius)+crop_window], dtype=np.int).min(0)
+        cropped_refs.append(ref_im[crop_l[0]:crop_r[0], crop_l[1]:crop_r[1], crop_l[2]:crop_r[2]])
+        
+        
+    # remove centers that too close to boundary
+    aligned_ca_centers = list(aligned_ca_centers)
+    aligned_ref_centers = list(aligned_ref_centers)
+
+    _keep_flags = np.ones(len(cropped_cas),dtype=np.bool)
+
+    for _i, (_cim, _rim, _cct, _rct) in enumerate(zip(cropped_cas, cropped_refs, aligned_ca_centers, aligned_ref_centers)):
+        if remove_boundary_pts:
+            if not (np.array(_rim.shape)==crop_window).all() \
+                and not (np.array(_cim.shape)==crop_window).all():
+                # pop points at boundary
+                _keep_flags[_i] = False
+        elif np.size(_cim) != np.size(_rim):
+            _keep_flags[_i] = False
+    
+    # pop points at boundaries
+    cropped_refs = [_rim for _rim, _flg in zip(cropped_refs, _keep_flags) if _flg]
+    cropped_cas = [_cim for _cim, _flg in zip(cropped_cas, _keep_flags) if _flg]
+    aligned_ca_centers = [_cct for _cct, _flg in zip(aligned_ca_centers, _keep_flags) if _flg]
+    aligned_ref_centers = [_rct for _rct, _flg in zip(aligned_ref_centers, _keep_flags) if _flg]
+            
+    # check cropped image shape    
+    cropped_shape = np.array([np.array(_cim.shape) for _cim in cropped_refs]).max(0)
+    if (cropped_shape > crop_window).any():
+        raise ValueError(f"Wrong dimension for cropped images:{cropped_shape}, should be of crop_window={crop_window} size")
+
+    if verbose:
+        print(f"-- {len(aligned_ca_centers)} internal centers are kept")
+
+    ## final picked list
+    picked_list = []
+    for _i, (_cim, _rim, _cct, _rct) in enumerate(zip(cropped_cas, cropped_refs, aligned_ca_centers, aligned_ref_centers)):
+        
+        _x = np.ravel(_rim)[:,np.newaxis]
+        _y = np.ravel(_cim)
+        if len(_x) != len(_y):
+            continue
+        _reg = LinearRegression().fit(_x,_y)
+        if _reg.score(_x,_y) > rsq_th:
+            _pair_dic = {'ref_zxy': _rct,
+                         'ca_zxy': _cct,
+                         'ref_im': _rim,
+                         'ca_im': _cim,
+                         'rsquare': _reg.score(_x,_y),
+                         'slope': _reg.coef_,
+                         'intercept': _reg.intercept_,
+                         'ca_file':ca_filename,
+                         'ref_file':ref_filename}
+            picked_list.append(_pair_dic)
+    if verbose:
+        print(f"-- {len(picked_list)} pairs kept by rsquare > {rsq_th}")
+
+    return picked_list
 
 def generate_chromatic_abbrevation_from_spots(corr_spots, ref_spots, corr_channel, ref_channel, 
-                                            image_size=_image_size, fitting_order=2,
-                                            correction_folder=_correction_folder, make_plot=False, 
-                                            save=True, save_name='chromatic_correction_',force=False, verbose=True):
+                                              image_size=_image_size, fitting_order=2,
+                                              correction_folder=_correction_folder, make_plot=False, 
+                                              save=True, save_name='chromatic_correction_',force=False, verbose=True):
     """Code to generate chromatic abbrevation from fitted and matched spots"""
     ## check inputs
     if len(corr_spots) != len(ref_spots):
@@ -782,6 +934,80 @@ def generate_chromatic_abbrevation_from_spots(corr_spots, ref_spots, corr_channe
         return _corr_coords    
     
     return _cac_profiles, _cac_func
+
+def Generate_chromatic_abbrevation(target_folder, ref_folder, target_channel, ref_channel='647', 
+                                   num_threads=12, start_fov=0, num_image=40,
+                                   single_im_size=_image_size, all_channels=_allowed_colors, 
+                                   num_buffer_frames=10, num_empty_frames=1,
+                                   correction_folder=_correction_folder,
+                                   normalization=False, illumination_corr=True, 
+                                   th_seed=500, crop_window=9,
+                                   remove_boundary_pts=True, rsq_th=0.81, fitting_order=2,
+                                   save_temp=True, make_plot=True, save=True, save_name='chromatic_correction_',
+                                   overwrite=False, verbose=True):
+    """Function to generate chromatic abbrevation correction profile
+    Inputs:
+
+        target_channel: channel to calculate chromatic abbrevation, int or str (example: 750)
+        ref_channel: channel for reference, int or str (default: 647)
+        num_threads: number of threads to generate chromatic abbrevation info, int (default: 12)
+        single_im_size: image size for single channel, array of 3 (default:[30,2048,2048])
+        all_channels: all allowed channel list, list of channels (default:[750,647,561,488,405])
+        num_buffer_frame: number of frames that is not used in zscan, int (default: 10)
+        correction_folder: folder for correction profiles, str(default: _correction_folder)
+        normalization" whether do normalization for images, bool (default:False)
+        illumination_corr: whether do illumination correction, bool (default: Ture)
+        th_seed: seeding threshold for getting candidate centers, int (default: 3000)
+        crop_window: window size for cropping, int (default: 9)
+        remove_boundary_pts: whether remove points that too close to boundary, bool (default: True)
+        rsq_th: threshold for rsquare from linear regression between bldthrough and ref image, float (default: 0.81)
+        verbose: say something!, bool (default: True)
+    Outputs:
+        
+    """
+    ## check inputs
+
+    if verbose:
+        print(f"- Start generating chromatic abbrevation correction from {target_channel} to {ref_channel}")
+    _target_fovs = [os.path.basename(_fl) for _fl in glob.glob(os.path.join(target_folder, '*.dax'))]
+    _ref_fovs = [os.path.basename(_fl) for _fl in glob.glob(os.path.join(ref_folder, '*.dax'))]
+    _fovs = [_fov for _fov in sorted(_target_fovs) if _fov in _ref_fovs]
+    if start_fov + num_image > len(_fovs):
+        raise ValueError(f"Not enough fovs provided to start with {start_fov} and have {num_image} images")
+    start_fov = int(start_fov)
+    num_image = int(num_image)
+    # init args
+    _ca_args = []
+    for _i, _fov in enumerate(_fovs[start_fov:start_fov+num_image]):
+        _ca_file = os.path.join(target_folder, _fov)
+        _ref_file = os.path.join(ref_folder, _fov)
+        _ca_args.append((
+            _ca_file, _ref_file, target_channel, ref_channel, single_im_size, all_channels,
+            num_buffer_frames, num_empty_frames, correction_folder, normalization, 
+            illumination_corr, th_seed, crop_window, remove_boundary_pts, rsq_th, 
+            save_temp, verbose))
+    
+    # multi-processing
+    with mp.Pool(num_threads) as _ca_pool:
+        if verbose:
+            print(f"-- generating chromatic info for {len(_ca_args)} images in {num_threads} threads.")
+        align_results = _ca_pool.starmap(generate_chromatic_abbrevation_info, _ca_args)
+        _ca_pool.close()
+        _ca_pool.join()
+        _ca_pool.terminate()
+    
+    align_list = []
+    for _paired_list in align_results:
+        align_list += _paired_list
+    
+    ca_centers = [_pair['ca_zxy'] for _pair in align_list]
+    ref_centers = [_pair['ref_zxy'] for _pair in align_list]
+    
+    return generate_chromatic_abbrevation_from_spots(ca_centers, ref_centers, target_channel, ref_channel,
+                                                     image_size=single_im_size, fitting_order=fitting_order,
+                                                     correction_folder=correction_folder, make_plot=make_plot,
+                                                     save=save, save_name=save_name, force=overwrite, verbose=verbose)
+
 
 def fast_chromatic_abbrevation_correction(im, correction_channel, target_channel='647', single_im_size=_image_size,
                                           crop_limits=None, all_channels=_allowed_colors,
@@ -1038,7 +1264,7 @@ def correct_single_image(filename, channel, crop_limits=None, seg_label=None, ex
         return _corr_im
 
 # generate bleedthrough 
-def generate_bleedthrough_info(filename, ref_channel, bld_channel, 
+def _generate_bleedthrough_info_per_image(filename, ref_channel, bld_channel, 
                                single_im_size=_image_size, all_channels=_allowed_colors, 
                                num_buffer_frames=10, num_empty_frames=1,
                                correction_folder=_correction_folder,
@@ -1142,6 +1368,259 @@ def generate_bleedthrough_info(filename, ref_channel, bld_channel,
 
     return picked_list
 
+def generate_bleedthrough_correction_channel(data_folder, target_channel, ref_channel,
+                                             num_threads=12, min_spot_num=100, 
+                                             start_fov=0, num_image=40,
+                                             single_im_size=_image_size, all_channels=_allowed_colors, 
+                                             num_buffer_frames=10, num_empty_frames=1,
+                                             correction_folder=_correction_folder,
+                                             normalization=False, illumination_corr=True, 
+                                             th_seed=500, crop_window=9,
+                                             remove_boundary_pts=True, rsq_th=0.81, 
+                                             fitting_order=2, 
+                                             save_temp=True, save_profile=True,
+                                             save_name='bleedthrough_correction_',
+                                             save_folder=None, make_plot=True,
+                                             overwrite=False, verbose=True):
+    """
+    """
+    ## check inputs
+    if verbose:
+        print(f"-- Start generating bleedthrough correction from {ref_channel} to {target_channel}")
+    _fovs = sorted([os.path.basename(_fl) for _fl in glob.glob(os.path.join(data_folder, '*.dax'))])
+    start_fov = int(start_fov)
+    num_image = int(num_image)
+    if start_fov + num_image > len(_fovs):
+        raise ValueError(f"Not enough fovs provided to start with {start_fov} and have {num_image} images")
+    # check save
+    if save_folder is None:
+        save_folder = correction_folder
+    _save_basename = save_name+str(ref_channel)+'_'+str(target_channel)
+    _save_filename = os.path.join(save_folder, _save_basename +'.pkl')
+    if normalization:
+        _save_filename = _save_filename.replace('.pkl','_normalized.pkl')
+    # if info exists, load
+    if os.path.isfile(_save_filename) and not overwrite:
+        if verbose:
+            print(f"file:{_save_filename} already exists, direct load from file!")
+        _spot_lst = pickle.load(open(_save_filename, 'rb'))
+    # otherwise start loading
+    else:
+        # init args
+        _bc_args = []
+        if verbose:
+            print(f"--- looping through folder:{data_folder} to collect information.")
+        for _i, _fov in enumerate(_fovs[start_fov: start_fov+num_image]):
+            _bc_file = os.path.join(data_folder, _fov)
+            _bc_args.append(
+                (_bc_file, ref_channel, target_channel, single_im_size, all_channels, 
+                num_buffer_frames, num_empty_frames, correction_folder, normalization, 
+                illumination_corr, th_seed, crop_window, remove_boundary_pts, rsq_th, 
+                save_temp, verbose)
+            )
+        # multi-processing
+        with mp.Pool(num_threads) as _bc_pool:
+            if verbose:
+                print(f"--- generating bleedthrough info for {len(_bc_args)} images in {num_threads} threads.")
+            align_results = _bc_pool.starmap(_generate_bleedthrough_info_per_image, 
+                                             _bc_args, chunksize=1)
+            _bc_pool.close()
+            _bc_pool.join()
+            _bc_pool.terminate()
+        classes.killchild()  
+        # summarize results  
+        _spot_lst = []
+        for _lst in align_results:
+            _spot_lst += _lst
+        # save
+        if save_temp:
+            if not os.path.exists(save_folder):
+                os.makedirs(save_folder)
+            if verbose:
+                print(f"--- saving to file: {_save_filename}")
+            pickle.dump(_spot_lst, open(_save_filename, 'wb'))
+    
+    if verbose:
+        print(f"--- {len(_spot_lst)} spots are found as bleedthrough pairs")
+    if len(_spot_lst) < min_spot_num:
+        print(f"-- Too few spots ({len(_spot_lst)}) are found for interpolation, exit!")
+        # return zero matrices
+        return np.zeros(single_im_size[1:3]), np.zeros(single_im_size[1:3])
+
+    ## extract information
+    _zxys = np.array([_d['zxy'] for _d in _spot_lst])
+    _slopes = np.array([_d['slope'] for _d in _spot_lst])
+    _intercepts = np.array([_d['intercept'] for _d in _spot_lst])
+
+    ## extract information
+    _zxys = np.array([_d['zxy'] for _d in _spot_lst])
+    _slopes = np.array([_d['slope'] for _d in _spot_lst])
+    _intercepts = np.array([_d['intercept'] for _d in _spot_lst])
+    
+    ## interpolate to get profile
+    # check savefiles
+    _slope_savename = os.path.join(save_folder, _save_basename+'_slope')
+    _intercept_savename = os.path.join(save_folder, _save_basename+'_intercept')
+    if normalization:
+        _slope_savename += '_normalized'
+        _intercept_savename += '_normalized'
+    if os.path.isfile(_slope_savename) and os.path.isfile(_intercept_savename) and not overwrite:
+        if verbose:
+            print(f"-- directly load profiles from files: {_slope_savename},\n {_intercept_savename}")
+        _slope_profile = np.load(_slope_savename+'.npy')
+        _intercept_profile = np.load(_intercept_savename+'.npy')
+    else:
+        if verbose:
+            print(f"-- apply polynomial interpolation to get profiles")
+        # get data for interpolation
+        _x = _zxys[:,1]
+        _y = _zxys[:,2]
+        _data = [] # variables in polyfit
+        for _order in range(fitting_order+1): # loop through different orders
+            for _p in range(_order+1):
+                _data.append(_x**_p * _y**(_order-_p))
+        _data = np.array(_data).transpose()
+        # fitting
+        if verbose:
+            print(f"-- poly-fitting bleedthrough profile with order:{fitting_order}")
+        # polyfit for slope
+        _C_slope,_,_,_ = scipy.linalg.lstsq(_data, _slopes)    # coefficients and residues
+        _rsq_slope =  1 - np.var(_data.dot(_C_slope) - _slopes)/np.var(_slopes)
+        if verbose:
+            print(f"--- fitted rsquare for slope:{_rsq_slope}")
+        # polyfit for intercepts
+        _C_intercept,_,_,_ = scipy.linalg.lstsq(_data, _intercepts)    # coefficients and residues
+        _rsq_intercept =  1 - np.var(_data.dot(_C_intercept) - _intercepts)/np.var(_intercepts)
+        if verbose:
+            print(f"--- fitted rsquare for intercepts:{_rsq_intercept}")
+
+        ## generate correction function
+        def _get_shift(coords, _C, fitting_order=fitting_order):
+            # traslate into 2d
+            if len(coords.shape) == 1:
+                coords = coords[np.newaxis,:]
+            _cx = coords[:,1]
+            _cy = coords[:,2]
+            _corr_data = []
+            for _order in range(fitting_order+1):
+                for _p in range(_order+1):
+                    _corr_data.append(_cx**_p * _cy**(_order-_p))
+            _shift = np.dot(np.array(_corr_data).transpose(), _C)
+            return _shift
+
+        ## generate correction_profile
+        if verbose:
+            print("-- generating polynomial interpolated profiles!")
+        # initialize meshgrid
+        _xc_t, _yc_t = np.meshgrid(np.arange(single_im_size[1]), np.arange(single_im_size[2])) 
+        _xc, _yc = _xc_t.transpose(), _yc_t.transpose()
+        # transpose to the shape compatible with function
+        _grid_coords = np.array([np.zeros(np.size(_xc)), _xc.reshape(-1), _yc.reshape(-1)]).transpose() 
+        # calculate shift and trasform back
+        _slope_profile = np.reshape(_get_shift(_grid_coords, _C_slope, fitting_order), np.shape(_xc))
+        _intercept_profile = np.reshape(_get_shift(_grid_coords, _C_intercept, fitting_order), np.shape(_xc))
+        # save profile 
+        if save_profile:
+            if not os.path.exists(save_folder):
+                if verbose:
+                    print(f"-- create save folder:{save_folder}")
+                os.makedirs(save_folder)
+            if verbose:
+                print(f"--- saving slope profile to:{_slope_savename}.npy, \
+                        intercept_profile to:{_intercept_savename}.npy")
+            np.save(_slope_savename, _slope_profile)
+            np.save(_intercept_savename, _intercept_profile)
+        
+    if make_plot:
+        plt.figure()
+        plt.imshow(_slope_profile)
+        plt.colorbar()
+        plt.title(f"-- Slope profile, {ref_channel} to {target_channel}")
+        plt.show()
+        plt.figure()
+        plt.imshow(_intercept_profile)
+        plt.colorbar()
+        plt.title(f"-- Intercept profile, {ref_channel} to {target_channel}")
+        plt.show()
+
+    return _slope_profile, _intercept_profile
+
+
+def Generate_bleedthrough_correction(folder_list, channel_list, 
+                                     num_threads=12, min_spot_num=300, 
+                                     start_fov=0, num_image=40,
+                                     single_im_size=_image_size, all_channels=_allowed_colors, 
+                                     num_buffer_frames=10, num_empty_frames=1,
+                                     correction_folder=_correction_folder,
+                                     normalization=False, illumination_corr=True, 
+                                     th_seed=500, crop_window=9,
+                                     remove_boundary_pts=True, rsq_th=0.81, 
+                                     fitting_order=2, 
+                                     save_temp=True, save_profile=True,
+                                     save_name='bleedthrough_correction_',
+                                     save_folder=None, make_plot=True,
+                                     overwrite=False, verbose=True):
+    """Master function to generate bleedthrough correction
+    Inputs:
+        folder_list: list of folder containing color_swap information, one channel labeling per folder, list
+        channel_list: list of channels having label; corresponding to folder_list, list
+        num_threads: number of threads to generate profile
+        """
+    if len(folder_list) != len(channel_list):
+        raise ValueError(f"Wrong length of folder_list:{len(folder_list)} compared with channel_list:{len(channel_list)}")
+    # check length
+    channel_list = [str(ch) for ch in channel_list]
+    for _ch in channel_list:
+        if _ch not in all_channels:
+            raise ValueError(f"Wrong input for channel:{channel_list}, should be among {all_channels}")
+    num_threads = int(num_threads)
+    # check save_folder
+    if save_folder is None:
+        save_folder = correction_folder
+    # profile name
+    _profile_basename = save_name + 'matrix_' + '_'.join(sorted(channel_list, key=lambda v:-int(v)))
+    _profile_filename = os.path.join(save_folder, _profile_basename+'.npy')
+    if os.path.isfile(_profile_filename):
+        if verbose:
+            print(f"-- directly load from file:{_profile_filename}")
+        reshaped_profile = np.load(_profile_filename)
+    else:
+        # initialize bld_corr_profile
+        bld_corr_profile = np.zeros([3,3,single_im_size[-2], single_im_size[-1]])
+        for _i_ref,_c_ref in enumerate(channel_list):
+            for _i_tar, _c_tar in enumerate(channel_list):
+                if _c_ref == _c_tar:
+                    bld_corr_profile[_i_ref, _i_tar] = np.ones([single_im_size[-2], single_im_size[-1]])
+                else:
+                    _slope_pf, _intercept_pf = generate_bleedthrough_correction_channel(
+                        folder_list[_i_ref], _c_tar, _c_ref, num_threads=num_threads, 
+                        min_spot_num=min_spot_num, start_fov=start_fov,
+                        num_image=num_image, single_im_size=single_im_size, 
+                        all_channels=all_channels, num_buffer_frames=num_buffer_frames, 
+                        num_empty_frames=num_empty_frames, correction_folder=correction_folder, 
+                        normalization=normalization, illumination_corr=illumination_corr, 
+                        th_seed=th_seed, crop_window=crop_window, 
+                        remove_boundary_pts=remove_boundary_pts, rsq_th=rsq_th, 
+                        fitting_order=fitting_order,
+                        save_temp=save_temp, save_profile=save_profile, save_name=save_name, 
+                        save_folder=save_folder, make_plot=make_plot, 
+                        overwrite=overwrite, verbose=verbose)
+                    bld_corr_profile[_i_ref, _i_tar] = _slope_pf
+
+        # transpose first two axes
+        bld_corr_profile = bld_corr_profile.transpose((1,0,2,3))
+        inv_corr_profile = np.zeros(np.shape(bld_corr_profile))
+        for _i in range(np.shape(bld_corr_profile)[-2]):
+            for _j in range(np.shape(bld_corr_profile)[-1]):
+                inv_corr_profile[:,:,_i,_j] = np.linalg.inv(bld_corr_profile[:,:,_i,_j])
+        # save 
+        reshaped_profile = inv_corr_profile.reshape((9, inv_corr_profile.shape[-2], inv_corr_profile.shape[-1]))
+        if verbose:
+            print(f"-- saving to file:{_profile_filename}")
+        np.save(_profile_filename, reshaped_profile)
+        
+    return reshaped_profile
+
 # bleedthrough correction
 def Bleedthrough_correction(input_im, crop_limits=None, all_channels=_allowed_colors,
                             correction_channels=None, single_im_size=_image_size,
@@ -1150,7 +1629,7 @@ def Bleedthrough_correction(input_im, crop_limits=None, all_channels=_allowed_co
                             correction_folder=_correction_folder,
                             normalization=False,
                             z_shift_corr=True, hot_pixel_remove=True,
-                            profile_basename='Bleedthrough_correction_matrix',
+                            profile_basename='bleedthrough_correction_matrix',
                             profile_dtype=np.float, image_dtype=np.uint16,
                             return_limits=False, verbose=True):
     """Bleedthrough correction for a composite image

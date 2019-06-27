@@ -414,31 +414,62 @@ def sparse_centers(centersh, dist_th=0, brightness_th=0, max_num=np.inf):
     return np.array(centers).T
 
 
-def get_ref_pts(im_ref_sm, dist_th=5, nbeads=400):
-    #fit reference
-    z, x, y, h = get_seed_points_base(im_ref_sm, return_h=True, th_std=4)
-    zk, xk, yk, hk = sparse_centers(
-        (z, x, y, h), dist_th=dist_th, brightness_th=0, max_num=nbeads)
-    cr1 = np.array([zk, xk, yk]).T
-    pfits1 = fast_local_fit(im_ref_sm, cr1, radius=5, width_zxy=[1, 1, 1])
-    cr1 = pfits1[:, 1:4]
-    return cr1
 
-
-def get_cand_pts(im_sm, cr1, tzxy, dist_th=5):
-    #fit candidate
-    z, x, y, h = get_seed_points_base(im_sm, return_h=True, th_std=4)
-    cr2_ = np.array([z, x, y]).T
-    cr2_cand = cr2_+tzxy
-
-    M = cdist(cr1, cr2_cand)
-    M_th = M <= dist_th
-    pairs = [(_cr1, cr2_[m][np.argmax(h[m])])
-             for _cr1, m in zip(cr1, M_th) if np.sum(m) > 0]
-    cr1, cr2 = map(np.array, zip(*pairs))
-    pfits2, keep = fast_local_fit(im_sm, cr2, radius=5, width_zxy=[
-                                  1, 1, 1], return_good=True)
-    cr2 = pfits2[:, 1:4]
-    return np.array(cr1)[keep], cr2
-
+def fast_align_centers(target_centers, ref_centers, cutoff=3., norm=2,
+                       keep_unique=True, return_inds=False, verbose=True):
+    """Function to fast align two set of centers
+    Inputs:
+        target_centers: centers from target image, list of 1d-array or np.ndarray
+        ref_centers: centers from ref image, list of 1d-array or np.ndarray
+        cutoff: threshold to match pairs, float (default: 3.)
+        norm: distance norm used for cutoff, float (default: 2, Eucledian)
+        keep_unique: whether only keep unique matched pairs, bool (default: True)
+        return_inds: whether return indices of kept spots, bool (default: False)
+        verbose: say something!, bool (default: True)
+    Outputs:
+        _aligned_target_centers: aligned target centers, np.ndarray
+        _aligned_ref_centers: aligned reference centers, np.ndarray
+        _target_inds: whether keep certain center, 
+    """
+    target_centers = np.array(target_centers)
+    ref_centers = np.array(ref_centers)
+    if verbose:
+        print(f"-- Aligning {len(target_centers)} target_centers to {len(ref_centers)} ref_centers")
+    _aligned_target_centers, _aligned_ref_centers = [], []
+    _target_inds, _ref_inds = [], []
+    _target_mask = np.ones(len(target_centers), dtype=np.bool)
+    _ref_mask = np.ones(len(ref_centers), dtype=np.bool)
+    if verbose:
+        print(f"--- start finding pairs, keep_unique={keep_unique}")
+    for _i,_tc in enumerate(target_centers):
+        _dists = np.linalg.norm(ref_centers - _tc, axis=1, ord=norm)
+        _matches = np.where((_dists < cutoff)*_ref_mask)[0]
+        if keep_unique:
+            if len(_matches) == 1:
+                _match_id = _matches[0]
+                _ref_mask[_match_id] = False
+                _target_mask[_i] = False
+                _aligned_ref_centers.append(ref_centers[_match_id])
+                _aligned_target_centers.append(target_centers[_i])
+                _target_inds.append(_i)
+                _ref_inds.append(_match_id)
+        else:
+            if len(_matches) > 0:
+                _match_id = np.argmin(_dists)
+                _ref_mask[_match_id] = False
+                _target_mask[_i] = False
+                _aligned_ref_centers.append(ref_centers[_match_id])
+                _aligned_target_centers.append(target_centers[_i])
+                _target_inds.append(_i)
+                _ref_inds.append(_match_id)
+    if verbose:
+        print(f"--- {len(_aligned_target_centers)} pairs founded.")
+    _aligned_ref_centers = np.array(_aligned_ref_centers)
+    _aligned_target_centers = np.array(_aligned_target_centers)
+    if not return_inds:
+        return _aligned_target_centers, _aligned_ref_centers
+    else:
+        _target_inds = np.array(_target_inds, dtype=np.int)
+        _ref_inds = np.array(_ref_inds, dtype=np.int)
+        return _aligned_target_centers, _aligned_ref_centers, _target_inds, _ref_inds
 
