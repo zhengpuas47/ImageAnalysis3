@@ -12,13 +12,12 @@ from Bio.Blast import NCBIXML
 
 # other packages
 from . import LibraryDesigner as ld
+from . import LibraryTools as lt 
 # shared variables
 from . import _rand_seq_generator
 from . import _primer_folder, _readout_folder, _genome_folder
 
-# Screen probes
-
-
+# Load probes
 def _load_probes_in_folder(report_folder, pb_postfix='.pbr', save_folder=None):
 
     pb_dict = {}
@@ -34,9 +33,10 @@ def _load_probes_in_folder(report_folder, pb_postfix='.pbr', save_folder=None):
 
     return pb_dict
 
-def Screen_fasta_against_fast(input_fasta, ref_fasta, word_size=17, allowed_hits=8,
-                              check_rc=True, save=True, save_folder=None,
-                              overwrite=False, return_kept_flag=False, verbose=True):
+# Screen probes
+def Screen_fasta_against_fasta(input_fasta, ref_fasta, word_size=17, allowed_hits=8,
+                               check_rc=True, save=True, save_folder=None,
+                               overwrite=False, return_kept_flag=False, verbose=True):
     """Function to screen a given fasta against another reference fasta"""
     ## Check inputs
     if verbose:
@@ -48,7 +48,7 @@ def Screen_fasta_against_fast(input_fasta, ref_fasta, word_size=17, allowed_hits
     word_size = int(word_size)
     allowed_hits = int(allowed_hits)
     if save_folder is None:
-        save_folder = report_folder+'_filtered'
+        save_folder = os.path.dirname(input_fasta)+'_filtered'
     if not os.path.exists(save_folder):
         os.makedirs(save_folder)
         if verbose:
@@ -57,7 +57,7 @@ def Screen_fasta_against_fast(input_fasta, ref_fasta, word_size=17, allowed_hits
     ## load probes
     with open(input_fasta, 'r') as _handle:
         _input_records = []
-        for _record in SeqIO.parse(_rd_handle, "fasta"):
+        for _record in SeqIO.parse(_handle, "fasta"):
             _input_records.append(_record)
 
     # construct table for ref_fasta
@@ -151,9 +151,8 @@ def Screen_probe_against_fasta(report_folder, ref_fasta, word_size=17, allowed_h
     else:
         return _filtered_pb_dict
 
+
 # load
-
-
 def load_readouts(_num_readouts, _type='NDB', _num_colors=3,
                   _readout_folder=_readout_folder, _start_id=0, _verbose=True):
     """Function to load readouts into a list"""
@@ -313,9 +312,6 @@ def Assemble_probes(library_folder, probe_source, gene_readout_dict, readout_dic
     # primers shared by the library
     fwd_primer, rev_primer = primers
     for _reg_name, _pb_obj in _pb_dict.items():
-        if verbose:
-            print(
-                f"--- assemblying {len(_pb_obj.pb_reports_keep)} probes in region: {_reg_name}")
         _reg_readout_info = gene_readout_dict[_reg_name]
         _reg_readouts = []
         _reg_readout_names = []
@@ -327,20 +323,43 @@ def Assemble_probes(library_folder, probe_source, gene_readout_dict, readout_dic
             _reg_readout_names.append(_sel_readout.id + '_' + _type)
             if _sel_readout not in readout_summary[_type][_reg_name]:
                 readout_summary[_type][_reg_name].append(_sel_readout)
-        for _i, (_seq, _info) in enumerate(_pb_obj.pb_reports_keep.items()):
-            if isinstance(_seq, bytes):
-                _seq = _seq.decode()
-            if rc_targets:
-                _target = SeqRecord(
-                    Seq(_seq), id=_info['name']).reverse_complement()
-            else:
-                _target = SeqRecord(Seq(_seq), id=_info['name'])
-            _probe = _assemble_single_probe(_target, _reg_readouts, fwd_primer, rev_primer,
-                                            _add_random_gap=add_random_gap)
-            _name = _assemble_single_probename(_info, _reg_readout_names, _i)
-            _probe.id = _name
-            _probe.name, _probe.description = '', ''
-            cand_probes.append(_probe)
+        if isinstance(_pb_obj, ld.pb_reports_class):
+            if verbose:
+                print(
+                    f"--- assemblying {len(_pb_obj.pb_reports_keep)} probes in region: {_reg_name}")
+            for _i, (_seq, _info) in enumerate(_pb_obj.pb_reports_keep.items()):
+                if isinstance(_seq, bytes):
+                    _seq = _seq.decode()
+                if rc_targets:
+                    _target = SeqRecord(
+                        Seq(_seq), id=_info['name']).reverse_complement()
+                else:
+                    _target = SeqRecord(Seq(_seq), id=_info['name'])
+                _probe = _assemble_single_probe(_target, _reg_readouts, fwd_primer, rev_primer,
+                                                _add_random_gap=add_random_gap)
+                _name = _assemble_single_probename(_info, _reg_readout_names, _i)
+                _probe.id = _name
+                _probe.name, _probe.description = '', ''
+                cand_probes.append(_probe)
+        elif isinstance(_pb_obj, list):
+            if verbose:
+                print( f"--- assemblying {len(_pb_obj)} probes in region: {_reg_name}")
+            # case that a list is provided
+            for _i, _info in enumerate(_pb_obj):
+                # target
+                if rc_targets:
+                    _target = SeqRecord(Seq(_info['sequence'])).reverse_complement()
+                else:
+                    _target = SeqRecord(Seq(_info['sequence']))
+                # probe
+                _probe = _assemble_single_probe(_target, _reg_readouts, fwd_primer, rev_primer,
+                                                _add_random_gap=add_random_gap)
+                _name = _info['region']+'_gene_'+_info['gene']+'_pb_'+str(_i) +\
+                       '_pos_'+str(_info['position'])+'_readouts_[' + \
+                       ','.join(_reg_readout_names) + ']'
+                _probe.id = _name
+                _probe.name, _probe.description = '', ''
+                cand_probes.append(_probe)
     if verbose:
         print(f"-- {len(cand_probes)} probes assembled in total.")
 
