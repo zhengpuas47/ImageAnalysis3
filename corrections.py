@@ -670,13 +670,14 @@ def generate_illumination_correction(color, data_folder, correction_folder, num_
 # generate bleedthrough 
 def generate_chromatic_abbrevation_info(ca_filename, ref_filename, ca_channel, ref_channel='647',
                                         single_im_size=_image_size, all_channels=_allowed_colors, 
-                                        bead_channel='488', bead_drift_size=500,
+                                        bead_channel='488', bead_drift_size=300, 
+                                        bead_coord_sel=None,
                                         num_buffer_frames=10, num_empty_frames=1,
                                         correction_folder=_correction_folder,
                                         normalization=False, illumination_corr=True, 
                                         th_seed=500, crop_window=9,
-                                        remove_boundary_pts=True, rsq_th=0.81, 
-                                        save_temp=True, verbose=True):
+                                        remove_boundary_pts=True, rsq_th=0.64, 
+                                        save_temp=True, overwrite=False, verbose=True):
     """Generate chromatic_abbrevation coefficient
     Inputs:
         ca_filename: full filename for image having chromatic abbrevation, str of filepath
@@ -706,31 +707,69 @@ def generate_chromatic_abbrevation_info(ca_filename, ref_filename, ca_channel, r
         raise ValueError(f"ref_channel:{ref_channel} should be in all_channels:{all_channels}")
     if ca_channel not in all_channels:
         raise ValueError(f"ca_channel:{ca_channel} should be in all_channels:{all_channels}")
+    # bead drift related info
+    bead_channel = str(bead_channel)
+    if bead_channel not in all_channels:
+        raise ValueError(f"bead_channel:{bead_channel} should be in all_channels:{all_channels}")
+    if bead_coord_sel is None:
+        bead_coord_sel = np.array([single_im_size[-2]/2, single_im_size[-1]/2], dtype=np.int)
+    # collect crop coordinates (slices)
+    crop0 = np.array([[0, single_im_size[0]],
+                      [max(bead_coord_sel[-2]-bead_drift_size, 0), bead_coord_sel[-2]],
+                      [max(bead_coord_sel[-1]-bead_drift_size, 0), bead_coord_sel[-1]]], dtype=np.int)
+    crop1 = np.array([[0, single_im_size[0]],
+                      [bead_coord_sel[-2], min(bead_coord_sel[-2] + bead_drift_size, single_im_size[-2])],
+                      [bead_coord_sel[-1], min(bead_coord_sel[-1] + bead_drift_size, single_im_size[-1])]], dtype=np.int)
+    crop2 = np.array([[0, single_im_size[0]],
+                      [bead_coord_sel[-2], min(bead_coord_sel[-2] + bead_drift_size, single_im_size[-2])],
+                      [max(bead_coord_sel[-1] - bead_drift_size, 0), bead_coord_sel[-1]]], dtype=np.int)
+    # merge into one array which is easier to feed into function
+    selected_crops = np.stack([crop0, crop1, crop2])
+
     # local parameter, cropping radius
     _radius = int((crop_window-1)/2)
     if _radius < 1:
         raise ValueError(f"Crop radius should be at least 1!")
-        
+    # temp_file
+    _basename = os.path.basename(ca_filename).replace('.dax', f'_channel_{ca_channel}_ref_{ref_channel}_seed_{th_seed}.pkl')
+    _basename = 'chromatic_'+_basename
+    temp_filename = os.path.join(os.path.dirname(ca_filename), _basename)
+    if os.path.isfile(temp_filename) and not overwrite:
+        if verbose:
+            print(f"-- directly load from temp_file:{temp_filename}")
+        picked_list = pickle.load(open(temp_filename,'rb'))
+        return picked_list
+    
     if verbose:
         print(f"-- loading reference image: {ref_filename}, channel:{ref_channel}")
-    ref_im = correct_single_image(ref_filename, ref_channel, single_im_size=single_im_size,
-                                  all_channels=all_channels, num_buffer_frames=num_buffer_frames,
-                                  num_empty_frames=num_empty_frames,
-                                  normalization=normalization, correction_folder=correction_folder,
-                                  z_shift_corr=True, hot_pixel_remove=True,
-                                  illumination_corr=illumination_corr, chromatic_corr=False,
-                                  return_limits=False, verbose=verbose)
+    ref_im = correct_single_image(ref_filename, ref_channel, 
+                                single_im_size=single_im_size,
+                                all_channels=all_channels, num_buffer_frames=num_buffer_frames,
+                                num_empty_frames=num_empty_frames,
+                                normalization=normalization, correction_folder=correction_folder,
+                                z_shift_corr=False, hot_pixel_remove=True,
+                                illumination_corr=illumination_corr, chromatic_corr=False,
+                                return_limits=False, verbose=verbose)
     if verbose:
         print(f"-- loading chromatic target image: {ca_filename}, channel:{ca_channel}")
-    ca_im = correct_single_image(ca_filename, ca_channel, single_im_size=single_im_size,
-                                 all_channels=all_channels, num_buffer_frames=num_buffer_frames,
-                                 num_empty_frames=num_empty_frames,
-                                 normalization=normalization, correction_folder=correction_folder,
-                                 z_shift_corr=True, hot_pixel_remove=True,
-                                 illumination_corr=illumination_corr, chromatic_corr=False,
-                                 return_limits=False, verbose=verbose)
+    ca_im = correct_single_image(ca_filename, ca_channel, 
+                                single_im_size=single_im_size,
+                                all_channels=all_channels, num_buffer_frames=num_buffer_frames,
+                                num_empty_frames=num_empty_frames,
+                                normalization=normalization, correction_folder=correction_folder,
+                                z_shift_corr=False, hot_pixel_remove=True,
+                                illumination_corr=illumination_corr, chromatic_corr=False,
+                                return_limits=False, verbose=verbose)
     # fit centers for both images
     print(ref_filename, ca_filename)
+    drift, _drift_flag = alignment_tools.align_single_image(ca_filename, selected_crops, 
+                            _ref_filename=ref_filename, _bead_channel=bead_channel,
+                            _all_channels=all_channels, _single_im_size=single_im_size,
+                            _num_buffer_frames=num_buffer_frames,
+                            _num_empty_frames=num_empty_frames,
+                            _illumination_corr=illumination_corr, _verbose=verbose)
+    
+
     # fit centers for ref centers
     ref_centers = visual_tools.get_STD_centers(ref_im, th_seed=th_seed, 
                                                save_name=os.path.basename(ref_filename).replace('.dax',f'_{ref_channel}_th{th_seed}.pkl'),
@@ -743,6 +782,8 @@ def generate_chromatic_abbrevation_info(ca_filename, ref_filename, ca_channel, r
                                               save_folder=os.path.dirname(ca_filename),
                                               verbose=verbose)
     ca_centers = visual_tools.select_sparse_centers(ca_centers, _radius)
+    # correct for drift
+    ca_centers -= drift
     # align images
     aligned_ca_centers, aligned_ref_centers = fast_align_centers(ca_centers, ref_centers, 
                                                                  cutoff=_radius, keep_unique=True)    
@@ -817,7 +858,11 @@ def generate_chromatic_abbrevation_info(ca_filename, ref_filename, ca_channel, r
             picked_list.append(_pair_dic)
     if verbose:
         print(f"-- {len(picked_list)} pairs kept by rsquare > {rsq_th}")
-
+    if save_temp:
+        if verbose:
+            print(f"--- saving {len(picked_list)} points to file:{temp_filename}")
+        pickle.dump(picked_list, open(temp_filename, 'wb'))
+    
     return picked_list
 
 def generate_chromatic_abbrevation_from_spots(corr_spots, ref_spots, corr_channel, ref_channel, 
@@ -910,10 +955,10 @@ def generate_chromatic_abbrevation_from_spots(corr_spots, ref_spots, corr_channe
         # save 
         if save:
             if verbose:
-                print("-- save profiles to file:{saved_profile_filename}")
+                print(f"-- save profiles to file:{saved_profile_filename}")
             np.save(saved_profile_filename.split('.npy')[0], _cac_profiles)
             if verbose:
-                print("-- save shift functions to file:{saved_const_filename}")
+                print(f"-- save shift functions to file:{saved_const_filename}")
             np.save(saved_const_filename.split('.npy')[0], _cac_consts)
     
     def _cac_func(coords, consts=_cac_consts, max_order=fitting_order):
@@ -938,6 +983,7 @@ def generate_chromatic_abbrevation_from_spots(corr_spots, ref_spots, corr_channe
 def Generate_chromatic_abbrevation(target_folder, ref_folder, target_channel, ref_channel='647', 
                                    num_threads=12, start_fov=0, num_image=40,
                                    single_im_size=_image_size, all_channels=_allowed_colors, 
+                                   bead_channel='488', bead_drift_size=300, bead_coord_sel=None,
                                    num_buffer_frames=10, num_empty_frames=1,
                                    correction_folder=_correction_folder,
                                    normalization=False, illumination_corr=True, 
@@ -982,16 +1028,17 @@ def Generate_chromatic_abbrevation(target_folder, ref_folder, target_channel, re
         _ca_file = os.path.join(target_folder, _fov)
         _ref_file = os.path.join(ref_folder, _fov)
         _ca_args.append((
-            _ca_file, _ref_file, target_channel, ref_channel, single_im_size, all_channels,
+            _ca_file, _ref_file, target_channel, ref_channel, 
+            single_im_size, all_channels, bead_channel, bead_drift_size, bead_coord_sel,
             num_buffer_frames, num_empty_frames, correction_folder, normalization, 
             illumination_corr, th_seed, crop_window, remove_boundary_pts, rsq_th, 
-            save_temp, verbose))
+            save_temp, overwrite, verbose))
     
     # multi-processing
     with mp.Pool(num_threads) as _ca_pool:
         if verbose:
             print(f"-- generating chromatic info for {len(_ca_args)} images in {num_threads} threads.")
-        align_results = _ca_pool.starmap(generate_chromatic_abbrevation_info, _ca_args)
+        align_results = _ca_pool.starmap(generate_chromatic_abbrevation_info, _ca_args, chunksize=1)
         _ca_pool.close()
         _ca_pool.join()
         _ca_pool.terminate()

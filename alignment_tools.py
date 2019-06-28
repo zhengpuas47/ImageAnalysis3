@@ -124,12 +124,10 @@ def align_single_image(_filename, _selected_crops, _ref_filename=None, _ref_ims=
     ## check inputs
     # check filename file type
     if '.dax' not in _filename:
-        raise IOError(
-            f"Wrong input file type, {_filename} should be .dax file")
+        raise IOError(f"Wrong input file type, {_filename} should be .dax file")
     # check ref_filename
     if _ref_filename is not None and '.dax' not in _ref_filename:
-        raise IOError(
-            f"Wrong input reference file type, {_ref_filename} should be .dax file")
+        raise IOError(f"Wrong input reference file type, {_ref_filename} should be .dax file")
     # check ref_centers, should be given if ref_filename is not given
     if _ref_centers is None and _ref_filename is None:
         raise ValueError(f"Either ref_center or ref_filename should be given!")
