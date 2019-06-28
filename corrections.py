@@ -1056,122 +1056,6 @@ def Generate_chromatic_abbrevation(target_folder, ref_folder, target_channel, re
                                                      save=save, save_name=save_name, force=overwrite, verbose=verbose)
 
 
-def fast_chromatic_abbrevation_correction(im, correction_channel, target_channel='647', single_im_size=_image_size,
-                                          crop_limits=None, all_channels=_allowed_colors,
-                                          buffer_frame=10, frame_per_color=30, target_color_ind=-1,
-                                          correction_folder=_correction_folder, cac_profile=None,
-                                          verbose=True):
-    """Chromatic abbrevation correction"""
-    from scipy.ndimage.interpolation import map_coordinates
-    ## check inputs
-    # color
-    _color = str(correction_channel)
-    all_channels = ['750', '647', '561', '488', '405']
-    if _color not in all_channels:
-        raise ValueError(
-            f"Wrong color input, {_color} is given, color among {all_channels} is expected")
-    if target_color_ind == -1:
-        target_color_ind = all_channels.index(_color)
-    # crop_limits
-    if crop_limits is not None:
-        if len(crop_limits) <= 1 or len(crop_limits) > 3:
-            raise ValueError("crop_limits should have 2 elements")
-        else:
-            for _lims in crop_limits:
-                if len(_lims) < 2:
-                    raise ValueError(
-                        f"given limit {_lims} has less than 2 elements, exit")
-    # if no correction required, directly return
-    if _color == target_channel:
-        if verbose:
-            print(f"-- no chromatic abbrevation required for channel:{_color}")
-        return im
-    else:
-        if verbose:
-            print(f"-- chromatic abbrevation for image with size:{im.shape}")
-    if cac_profile is not None and (isinstance(cac_profile, list) or isinstance(cac_profile, np.ndarray)):
-        # directly adopt from input profile
-        _cac_profile = cac_profile
-        print("direct chromatic")
-    elif cac_profile is not None and "multiprocessing" in str(type(cac_profile)):
-        _cac_shape = np.array([3, single_im_size[1], single_im_size[2]], dtype=int)
-        _cac_profile = np.frombuffer(cac_profile).reshape(_cac_shape)
-    else:
-        # load profile from correction file
-        _cac_profile_file = os.path.join(correction_folder,
-                                        'chromatic_correction_'+str(_color)+'_'+str(target_channel)+'_'+str(single_im_size[1])+'x'+str(single_im_size[2])+'.npy')
-        if not os.path.isfile(_cac_profile_file):
-            raise IOError(
-                f"chromatic abbreviation correction file:{_cac_profile_file} doesn't exist, exit! ")
-        else:
-            _cac_profile = np.load(_cac_profile_file)
-    # check image
-    if not isinstance(im, np.ndarray) and not isinstance(im, np.memmap):
-        raise ValueError(
-            "Wrong input type for im, should be np.ndarray or memmap")
-
-    ## process the whole image
-    if crop_limits is None and (np.array(np.shape(im))[:3] == np.array(single_im_size)).all():
-        if verbose:
-            print(f"-- chromatic abbrevation for the whole image")
-        # initialize grid-points
-        _coords = np.meshgrid(np.arange(im.shape[0]), np.arange(
-            single_im_size[1]), np.arange(single_im_size[2]))
-        _coords = np.stack(_coords).transpose((0, 2, 1, 3))
-        _corr_coords = _coords + _cac_profile[:, np.newaxis, :, :]
-        # map coordinates
-        _corr_im = map_coordinates(im, _corr_coords.reshape(
-            _corr_coords.shape[0], -1), mode='nearest')
-        _corr_im = _corr_im.reshape(single_im_size)
-    ## process cropped image
-    elif crop_limits is not None:
-        if len(crop_limits) == 2:
-            if (np.array(np.shape(im))[:3] == np.array(single_im_size)).all():
-                _cropped_im = im[:, crop_limits[0][0]:crop_limits[0]
-                                [1], crop_limits[1][0]:crop_limits[1][1]]
-            elif (np.array(np.shape(im))[:3] == np.array([single_im_size[0], crop_limits[0][1]-crop_limits[0][0], crop_limits[1][1]-crop_limits[1][0]])).all():
-                _cropped_im = im.copy()
-            else:
-                raise ValueError(
-                    "Input image should be of original-image-size or cropped image size given by crop_limits")
-            if verbose:
-                print(f"-- chromatic abbrevation for cropped image")
-            # initialize grid-points for cropped region
-            _coords = np.meshgrid(np.arange(_cropped_im.shape[0]), np.arange(
-                crop_limits[0][1]-crop_limits[0][0]), np.arange(crop_limits[1][1]-crop_limits[1][0]))
-            _coords = np.stack(_coords).transpose((0, 2, 1, 3))
-            _corr_coords= _coords + _cac_profile[:, np.newaxis,
-                                                 crop_limits[0][0]:crop_limits[0][1],
-                                                 crop_limits[1][0]:crop_limits[1][1]]
-        else: # 3 limits are given:
-            if (np.array(np.shape(im))[:3] == np.array(single_im_size)).all():
-                _cropped_im = im[crop_limits[0][0]:crop_limits[0][1], 
-                                 crop_limits[1][0]:crop_limits[1][1],
-                                 crop_limits[2][0]:crop_limits[2][1]
-                                 ]
-            elif (np.array(np.shape(im))[:3] == np.array([crop_limits[0][1]-crop_limits[0][0], crop_limits[1][1]-crop_limits[1][0], crop_limits[2][1]-crop_limits[2][0]])).all():
-                _cropped_im = im.copy()
-            else:
-                raise ValueError(
-                    "Input image should be of original-image-size or cropped image size given by crop_limits")
-            if verbose:
-                print(f"-- chromatic abbrevation for cropped image")
-            # initialize grid-points for cropped region
-            _coords = np.meshgrid( np.arange(crop_limits[0][1]-crop_limits[0][0]), 
-                                   np.arange(crop_limits[1][1]-crop_limits[1][0]), 
-                                   np.arange(crop_limits[2][1]-crop_limits[2][0]))
-
-            _coords = np.stack(_coords).transpose((0, 2, 1, 3))
-            _corr_coords = _coords + _cac_profile[:, np.newaxis, 
-                                                  crop_limits[1][0]:crop_limits[1][1], 
-                                                  crop_limits[2][0]:crop_limits[2][1]]
-        # map coordinates
-        _corr_im = map_coordinates(_cropped_im, _corr_coords.reshape(
-            _corr_coords.shape[0], -1), mode='nearest')
-        _corr_im = _corr_im.reshape(np.shape(_cropped_im))
- 
-    return _corr_im
-
 def load_correction_profile(channel, corr_type, correction_folder=_correction_folder, ref_channel='647', 
                             im_size=_image_size, verbose=False):
     """Function to load chromatic/illumination correction profile"""
@@ -1204,111 +1088,6 @@ def load_correction_profile(channel, corr_type, correction_folder=_correction_fo
         raise IOError(f"File {_corr_filename} doesn't exist, exit!")
 
     return np.array(_corr_profile)
-
-
-# merged function to crop and correct single image
-def correct_single_image(filename, channel, crop_limits=None, seg_label=None, extend_dim=20,
-                         single_im_size=_image_size, all_channels=_allowed_colors, 
-                         num_buffer_frames=10, num_empty_frames=1, 
-                         drift=np.array([0, 0, 0]), correction_folder=_correction_folder, normalization=False,
-                         z_shift_corr=True, hot_pixel_remove=True, illumination_corr=True, chromatic_corr=True,
-                         return_limits=False, verbose=False):
-    """wrapper for all correction steps to one image, used for multi-processing
-    Inputs:
-        filename: full filename of a dax_file or npy_file for one image, string
-        channel: channel to be extracted, str (for example. '647')
-        crop_limits: 2d or 3d crop limits given for this image,
-            required if im is already sliced, 2x2 or 3x2 np.ndarray (default: None, no cropping at all)
-        seg_label: segmentation label, 2D array
-        extend_dim: extension pixel number if doing cropping, int (default: 20)
-        single_im_size: z-x-y size of the image, list of 3
-        all_channels: all_channels used in this image, list of str(for example, ['750','647','561'])
-        num_buffer_frames: number of buffer frame in front and back of image, int (default:10)
-        drift: 3d drift vector for this image, 1d-array
-        correction_folder: path to find correction files
-        z_shift_corr: whether do z-shift correction, bool (default: True)
-        hot_pixel_remove: whether remove hot-pixels, bool (default: True)
-        illumination_corr: whether do illumination correction, bool (default: True)
-        chromatic_corr: whether do chromatic abbrevation correction, bool (default: True)
-        return_limits: whether return cropping limits
-        verbose: whether say something!, bool (default:True)
-        """
-    ## check inputs
-    # color channel
-    channel = str(channel)
-    all_channels = [str(ch) for ch in all_channels]
-    if channel not in all_channels:
-        raise ValueError(
-            f"Target channel {channel} doesn't exist in all_channels:{all_channels}")
-    # only 3 all_channels requires chromatic correction
-    if channel not in ['750', '647', '561']:
-        chromatic_corr = False
-    # check filename
-    if not isinstance(filename, str):
-        raise ValueError(
-            f"Wrong input of filename {filename}, should be a string!")
-    if not os.path.isfile(filename):
-        raise IOError(f"Input filename:{filename} doesn't exist, exit!")
-    elif '.dax' not in filename:
-        raise IOError("Input filename should be .dax format!")
-    # decide crop_limits
-    if crop_limits is not None:
-        _limits = np.array(crop_limits, dtype=np.int)
-    elif seg_label is not None:
-        _limits = visual_tools.Extract_crop_from_segmentation(seg_label, extend_dim=extend_dim,
-                                                              single_im_size=single_im_size)
-    else: # no crop-limit specified
-        _limits = None
-    # check drift
-    if len(drift) != 3:
-        raise ValueError(f"Wrong input drift:{drift}, should be an array of 3")
-
-    ## load image
-    _ref_name = os.path.join(filename.split(
-        os.sep)[-2], filename.split(os.sep)[-1])
-    if verbose:
-        print(f"- Start correcting {_ref_name} for channel:{channel}")
-    _full_im_shape, _num_color = get_img_info.get_num_frame(filename,
-                                                            frame_per_color=single_im_size[0],
-                                                            buffer_frame=num_buffer_frames)
-    # crop image
-    _cropped_im, _dft_limits = visual_tools.crop_single_image(filename, channel, crop_limits=_limits,
-                                                          all_channels=all_channels,
-                                                          drift=drift, single_im_size=single_im_size,
-                                                          num_buffer_frames=num_buffer_frames,
-                                                          num_empty_frames=num_empty_frames,
-                                                          return_limits=True, verbose=verbose)
-    ## corrections
-    _corr_im = _cropped_im.copy()
-    if z_shift_corr:
-        # correct for z axis shift
-        _corr_im = Z_Shift_Correction(
-            _corr_im,  normalization=normalization, verbose=verbose)
-    elif not z_shift_corr and normalization:
-        # normalize if not doing z_shift_corr
-        _corr_im = _corr_im / np.median(_corr_im)
-    if hot_pixel_remove:
-        # correct for hot pixels
-        _corr_im = Remove_Hot_Pixels(_corr_im, hot_th=3, verbose=verbose)
-    if illumination_corr:
-        # illumination correction
-        _corr_im = Illumination_correction(_corr_im, channel,
-                                           crop_limits=_dft_limits,
-                                           correction_folder=correction_folder,
-                                           single_im_size=single_im_size,
-                                           verbose=verbose)
-    if chromatic_corr:
-        # chromatic correction
-        _corr_im = Chromatic_abbrevation_correction(_corr_im, channel,
-                                                    single_im_size=single_im_size,
-                                                    crop_limits=_dft_limits,
-                                                    correction_folder=correction_folder,
-                                                    verbose=verbose)
-    ## return
-    if return_limits:
-        return _corr_im, _dft_limits
-    else:
-        return _corr_im
 
 # generate bleedthrough 
 def _generate_bleedthrough_info_per_image(filename, ref_channel, bld_channel, 
@@ -1592,7 +1371,6 @@ def generate_bleedthrough_correction_channel(data_folder, target_channel, ref_ch
 
     return _slope_profile, _intercept_profile
 
-
 def Generate_bleedthrough_correction(folder_list, channel_list, 
                                      num_threads=12, min_spot_num=300, 
                                      start_fov=0, num_image=40,
@@ -1775,6 +1553,110 @@ def Bleedthrough_correction(input_im, crop_limits=None, all_channels=_allowed_co
         return _corr_ims, _dft_limits
     else:
         return _corr_ims
+
+## merged function to crop and correct single image
+def correct_single_image(filename, channel, crop_limits=None, seg_label=None, extend_dim=20,
+                         single_im_size=_image_size, all_channels=_allowed_colors, 
+                         num_buffer_frames=10, num_empty_frames=1, 
+                         drift=np.array([0, 0, 0]), correction_folder=_correction_folder, normalization=False,
+                         z_shift_corr=True, hot_pixel_remove=True, illumination_corr=True, chromatic_corr=True,
+                         return_limits=False, verbose=False):
+    """wrapper for all correction steps to one image, used for multi-processing
+    Inputs:
+        filename: full filename of a dax_file or npy_file for one image, string
+        channel: channel to be extracted, str (for example. '647')
+        crop_limits: 2d or 3d crop limits given for this image,
+            required if im is already sliced, 2x2 or 3x2 np.ndarray (default: None, no cropping at all)
+        seg_label: segmentation label, 2D array
+        extend_dim: extension pixel number if doing cropping, int (default: 20)
+        single_im_size: z-x-y size of the image, list of 3
+        all_channels: all_channels used in this image, list of str(for example, ['750','647','561'])
+        num_buffer_frames: number of buffer frame in front and back of image, int (default:10)
+        drift: 3d drift vector for this image, 1d-array
+        correction_folder: path to find correction files
+        z_shift_corr: whether do z-shift correction, bool (default: True)
+        hot_pixel_remove: whether remove hot-pixels, bool (default: True)
+        illumination_corr: whether do illumination correction, bool (default: True)
+        chromatic_corr: whether do chromatic abbrevation correction, bool (default: True)
+        return_limits: whether return cropping limits
+        verbose: whether say something!, bool (default:True)
+        """
+    ## check inputs
+    # color channel
+    channel = str(channel)
+    all_channels = [str(ch) for ch in all_channels]
+    if channel not in all_channels:
+        raise ValueError(
+            f"Target channel {channel} doesn't exist in all_channels:{all_channels}")
+    # only 3 all_channels requires chromatic correction
+    if channel not in ['750', '647', '561']:
+        chromatic_corr = False
+    # check filename
+    if not isinstance(filename, str):
+        raise ValueError(
+            f"Wrong input of filename {filename}, should be a string!")
+    if not os.path.isfile(filename):
+        raise IOError(f"Input filename:{filename} doesn't exist, exit!")
+    elif '.dax' not in filename:
+        raise IOError("Input filename should be .dax format!")
+    # decide crop_limits
+    if crop_limits is not None:
+        _limits = np.array(crop_limits, dtype=np.int)
+    elif seg_label is not None:
+        _limits = visual_tools.Extract_crop_from_segmentation(seg_label, extend_dim=extend_dim,
+                                                              single_im_size=single_im_size)
+    else: # no crop-limit specified
+        _limits = None
+    # check drift
+    if len(drift) != 3:
+        raise ValueError(f"Wrong input drift:{drift}, should be an array of 3")
+
+    ## load image
+    _ref_name = os.path.join(filename.split(
+        os.sep)[-2], filename.split(os.sep)[-1])
+    if verbose:
+        print(f"- Start correcting {_ref_name} for channel:{channel}")
+    _full_im_shape, _num_color = get_img_info.get_num_frame(filename,
+                                                            frame_per_color=single_im_size[0],
+                                                            buffer_frame=num_buffer_frames)
+    # crop image
+    _cropped_im, _dft_limits = visual_tools.crop_single_image(filename, channel, crop_limits=_limits,
+                                                          all_channels=all_channels,
+                                                          drift=drift, single_im_size=single_im_size,
+                                                          num_buffer_frames=num_buffer_frames,
+                                                          num_empty_frames=num_empty_frames,
+                                                          return_limits=True, verbose=verbose)
+    ## corrections
+    _corr_im = _cropped_im.copy()
+    if z_shift_corr:
+        # correct for z axis shift
+        _corr_im = Z_Shift_Correction(
+            _corr_im,  normalization=normalization, verbose=verbose)
+    elif not z_shift_corr and normalization:
+        # normalize if not doing z_shift_corr
+        _corr_im = _corr_im / np.median(_corr_im)
+    if hot_pixel_remove:
+        # correct for hot pixels
+        _corr_im = Remove_Hot_Pixels(_corr_im, hot_th=3, verbose=verbose)
+    if illumination_corr:
+        # illumination correction
+        _corr_im = Illumination_correction(_corr_im, channel,
+                                           crop_limits=_dft_limits,
+                                           correction_folder=correction_folder,
+                                           single_im_size=single_im_size,
+                                           verbose=verbose)
+    if chromatic_corr:
+        # chromatic correction
+        _corr_im = Chromatic_abbrevation_correction(_corr_im, channel,
+                                                    single_im_size=single_im_size,
+                                                    crop_limits=_dft_limits,
+                                                    correction_folder=correction_folder,
+                                                    verbose=verbose)
+    ## return
+    if return_limits:
+        return _corr_im, _dft_limits
+    else:
+        return _corr_im
 
 ## correct selected channels from one dax file
 def correct_one_dax(filename, sel_channels=None, crop_limits=None, seg_label=None,

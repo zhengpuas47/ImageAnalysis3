@@ -1412,10 +1412,6 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405,
             _length = np.sum(np.sqrt(np.sum((np.roll(_contours[0],1,axis=0) - _contours[0])**2, axis=1)))
         else:
             _length = 0
-            print(_id)
-            plt.figure()
-            plt.imshow(_label)
-            plt.show()
         _size = np.sum(_label==_id)
         _center = np.round(ndimage.measurements.center_of_mass(_label==_id))
         _shape_ratio = _size/_length**2
@@ -1547,7 +1543,7 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405,
                 np.save(_fl, _lb)
         else:
             for _fl, _lb in zip(save_filenames, _seg_labels):
-                 mp(_lb, open(_fl, 'wb'))
+                 pickle.dump(_lb, open(_fl, 'wb'))
     if return_images:
         return _seg_labels, _ims
     else:

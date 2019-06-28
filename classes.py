@@ -4,7 +4,7 @@ import pickle as pickle
 import multiprocessing as mp
 import psutil
 
-from . import get_img_info, corrections, visual_tools, alignment_tools, analysis, domain_tools
+from . import get_img_info, corrections, visual_tools, analysis, domain_tools
 from . import _correction_folder,_temp_folder,_distance_zxy,\
     _sigma_zxy,_image_size, _allowed_colors, _num_buffer_frames, _num_empty_frames
 from .External import Fitting_v3
@@ -74,7 +74,7 @@ def _fit_single_image(_im, _id, _chrom_coords, _seeding_args, _fitting_args, _ch
 
 # function to allow multi-processing pick spots
 def _pick_spot_in_batch(_cell, _pick_type='EM', _data_type='unique', _use_chrom_coords=True,
-                        _distance_zxy=_distance_zxy, _local_size=5, _intensity_th=1,
+                        _local_size=5, _intensity_th=1,
                         _w_ccdist=1, _w_lcdist=1, _w_int=4, _w_nbdist=1,
                         _save_inter_plot=False, _save_to_info=True, _save_plot=True, 
                         _check_spots=True, _check_th=-3, _check_percentile=1.,
@@ -84,8 +84,7 @@ def _pick_spot_in_batch(_cell, _pick_type='EM', _data_type='unique', _use_chrom_
     """_cell: Cell_Data class"""
     # notice: always load in attributes, never return indices in batch format
     _picked_spots = _cell._pick_spots(_data_type=_data_type, _pick_type=_pick_type, _use_chrom_coords=_use_chrom_coords,
-                                      _distance_zxy=_distance_zxy, _local_size=_local_size, 
-                                      _intensity_th=_intensity_th,
+                                      _local_size=_local_size, _intensity_th=_intensity_th,
                                       _w_ccdist=_w_ccdist, _w_lcdist=_w_lcdist,
                                       _w_int=_w_int, _w_nbdist=_w_nbdist, _save_inter_plot=_save_inter_plot,
                                       _save_to_attr=True, _save_to_info=_save_to_info,
@@ -96,7 +95,6 @@ def _pick_spot_in_batch(_cell, _pick_type='EM', _data_type='unique', _use_chrom_
                                       _overwrite=_overwrite, _verbose=_verbose)
     
     _distmaps = _cell._generate_distance_map(_data_type=_data_type, _pick_type=_pick_type, 
-                                             _distance_zxy=_distance_zxy,
                                              _save_info=_save_to_info, _save_plot=_save_plot,
                                              _limits=_plot_limits, _cmap=_cmap, 
                                              _fig_dpi=_fig_dpi, _fig_size=_fig_size, 
@@ -134,25 +132,6 @@ def _merge_RNA_to_DNA_in_batch(_cell, _source_cell_data, _merge_type='cell_info'
                             _attr_feature=_attr_feature,
                             _load_in_ram=_load_in_ram, _save_to_file=_save_to_file, 
                             _overwrite=_overwrite, _verbose=_verbose)
-    return _cell
-
-# batch call sub_compartments
-def _call_sub_compartments_in_batch(_cell, _data_type='unique', _pick_type='EM', _distance_zxy=None,
-                               _domain_size=5, _gfilt_size=1, _domain_dist_metric='ks',
-                               _domain_cluster_metric='average', _corr_th=0.64, _plot_result_image=True,
-                               _fig_dpi=200, _fig_dim=10, _fig_font_size=18,
-                               _save_result_fig=False, _save_folder=None, _save_name='',
-                               _save_to_info=True, _overwrite=False, _verbose=True):
-    """Function to allow batch calling sub-compartments"""
-    _cell._call_sub_compartments(_data_type=_data_type, _pick_type=_pick_type, 
-                                 _distance_zxy=_distance_zxy, _domain_size=_domain_size, 
-                                 _gfilt_size=_gfilt_size, _domain_dist_metric=_domain_dist_metric,
-                                 _domain_cluster_metric=_domain_cluster_metric, 
-                                 _corr_th=_corr_th, _plot_result_image=_plot_result_image,
-                                 _fig_dpi=_fig_dpi, _fig_dim=_fig_dim, _fig_font_size=_fig_font_size,
-                                 _save_result_fig=_save_result_fig, _save_folder=_save_folder, 
-                                 _save_name=_save_name, _save_to_info=_save_to_info, 
-                                 _overwrite=_overwrite, _verbose=_verbose)
     return _cell
 
 class Cell_List():
@@ -241,13 +220,24 @@ class Cell_List():
             self.shared_parameters['distance_zxy'] = _distance_zxy
         if 'sigma_zxy' not in self.shared_parameters:
             self.shared_parameters['sigma_zxy'] = _sigma_zxy
+        if 'single_im_size' not in self.shared_parameters:
+            self.shared_parameters['single_im_size'] = _image_size
         if 'num_buffer_frames' not in self.shared_parameters:
             self.shared_parameters['num_buffer_frames'] = _num_buffer_frames
         if 'num_empty_frames' not in self.shared_parameters:
             self.shared_parameters['num_empty_frames'] = _num_empty_frames
-
-        self.distance_zxy = _distance_zxy
-        self.sigma_zxy = _sigma_zxy
+        if 'normalization' not in self.shared_parameters:
+            self.shared_parameters['normalization'] = False
+        if 'corr_bleed' not in self.shared_parameters:
+            self.shared_parameters['corr_bleed'] = True
+        if 'corr_Z_shift' not in self.shared_parameters:
+            self.shared_parameters['corr_Z_shift'] = True
+        if 'corr_hot_pixel' not in self.shared_parameters:
+            self.shared_parameters['corr_hot_pixel'] = True
+        if 'corr_illumination' not in self.shared_parameters:
+            self.shared_parameters['corr_illumination'] = True
+        if 'corr_chromatic' not in self.shared_parameters:
+            self.shared_parameters['corr_chromatic'] = True
 
         ## chosen field of views
         if len(_chosen_fovs) == 0: # no specification
@@ -394,9 +384,10 @@ class Cell_List():
         _segmentation_labels, _dapi_ims = visual_tools.DAPI_convoluted_segmentation(
             _chosen_files, self.channels[self.dapi_channel_index], num_threads=_num_threads,
             single_im_size=self.shared_parameters['single_im_size'], 
-            all_channels=self.shared_parameters['all_channels'], 
+            all_channels=self.channels,
             num_buffer_frames=self.shared_parameters['num_buffer_frames'], 
             num_empty_frames=self.shared_parameters['num_empty_frames'], 
+            illumination_correction=self.shared_parameters['corr_illumination'],
             min_shape_ratio=_min_shape_ratio, signal_cap_ratio=_signal_cap_ratio,
             denoise_window=_denoise_window, shrink_percent=_shrink_percent,
             max_conv_th=_max_conv_th, min_boundary_th=_min_boundary_th,
@@ -433,9 +424,9 @@ class Cell_List():
             return _segmentation_labels, _dapi_ims
 
     def _update_cell_segmentations(self, _cell_coord_fl='cell_coords.pkl',
-                                  _overwrite_segmentation=True,
+                                  _overwrite_segmentation=False,
                                   _marker_displace_th = 50,
-                                  _append_new=True, _append_radius=90,
+                                  _append_new=True, _append_radius=100,
                                   _overlap_percent=60,
                                   _save_npy=True, _save_postfix="_segmentation",
                                   _make_plot=True, _return_all=False, _verbose=True):
@@ -688,7 +679,7 @@ class Cell_List():
                             _dapi_fd, _dapi_im_name), self.channels[self.dapi_channel_index],
                             correction_folder=self.correction_folder,
                             single_im_size=self.shared_parameters['single_im_size'], 
-                            all_channels=self.shared_parameters['all_channels'], 
+                            all_channels=self.channels,
                             num_buffer_frames=self.shared_parameters['num_buffer_frames'], 
                             num_empty_frames=self.shared_parameters['num_empty_frames'], 
                             )
@@ -810,6 +801,11 @@ class Cell_List():
             # do segmentation if necessary, or just load existing segmentation file
             _fov_segmentation_labels = visual_tools.DAPI_convoluted_segmentation(
                 os.path.join(_dapi_fd, self.fovs[_fov_id]), self.channels[self.dapi_channel_index],
+                single_im_size=self.shared_parameters['single_im_size'], 
+                all_channels=self.channels,
+                num_buffer_frames=self.shared_parameters['num_buffer_frames'], 
+                num_empty_frames=self.shared_parameters['num_empty_frames'], 
+                illumination_correction=self.shared_parameters['corr_illumination'],
                 num_threads=_num_threads, make_plot=_plot_segmentation, return_images=False,
                 save=_save, save_npy=True, save_folder=self.segmentation_folder, force=False,verbose=_verbose)
             # extract result segmentation and image
@@ -835,6 +831,11 @@ class Cell_List():
                     print(f"+ Generate drift correction profile for fov:{self.fovs[_fov_id]}")
                 _drift, _failed_count = corrections.Calculate_Bead_Drift(_folders, self.fovs, _fov_id, 
                                             num_threads=_num_threads, sequential_mode=_sequential_mode, 
+                                            single_im_size=self.shared_parameters['single_im_size'], 
+                                            all_channels=self.channels,
+                                            num_buffer_frames=self.shared_parameters['num_buffer_frames'], 
+                                            num_empty_frames=self.shared_parameters['num_empty_frames'], 
+                                            illumination_corr=self.shared_parameters['corr_illumination'],
                                             ref_id=_drift_ref, drift_size=_drift_size, save_postfix=_drift_postfix, 
                                             coord_sel=_coord_sel, stringent=_stringent,
                                             overwrite=_force_drift, verbose=_verbose)
@@ -861,8 +862,7 @@ class Cell_List():
                       'correction_folder': self.correction_folder,
                       'drift_folder': self.drift_folder,
                       'map_folder': self.map_folder,
-                      'distance_zxy' : self.distance_zxy,
-                      'sigma_zxy': self.sigma_zxy,
+                      'shared_parameters': self.shared_parameters,
                       } for _cell_id in _cell_ids]
             if not _direct_load_drift:
                 for _p in _params:
@@ -899,12 +899,10 @@ class Cell_List():
                 _cell._save_to_file('cell_info', _verbose=_verbose)
 
     # function to do cropping
-    def _crop_image_for_cells(self, _data_type='unique', _load_in_ram=False, _load_annotated_only=True,
-                              _extend_dim=20, _num_buffer_frames=10, _num_empty_frames=1,
-                              _corr_drift=True, _normalization=False,
-                              _corr_bleed=True, _corr_Z_shift=True, 
-                              _corr_hot_pixel=True, _corr_illumination=True, _corr_chromatic=True,
-                              _save=True, _force=False, _overwrite_cell_info=False, _verbose=True):
+    def _crop_image_for_cells(self, _data_type='unique', _load_in_ram=False, 
+                              _load_annotated_only=True,
+                              _extend_dim=20, _corr_drift=True, _save=True, 
+                              _force=False, _overwrite_cell_info=False, _verbose=True):
         """Load images for all cells in this cell_list
         Inputs:
             _data_type: loading type for this """
@@ -947,13 +945,10 @@ class Cell_List():
                     if not _cell._check_full_set(_data_type) or _force:
                         if _verbose:
                             print(f"+ Crop unique images for fov:{_cell.fov_id}, cell:{_cell.cell_id}")
-                        _cell._crop_images(_data_type, _num_threads=self.num_threads, _single_im_size=_image_size,
-                                           _corr_drift=_corr_drift, _normalization=_normalization, _corr_bleed=_corr_bleed,
-                                           _corr_Z_shift=_corr_Z_shift, _corr_hot_pixel=_corr_hot_pixel,
-                                           _corr_illumination=_corr_illumination, _corr_chromatic=_corr_chromatic,
+                        _cell._crop_images(_data_type, _num_threads=self.num_threads, 
                                            _load_in_ram=_load_in_ram, _extend_dim=_extend_dim,
-                                           _num_buffer_frames=_num_buffer_frames, _num_empty_frames=_num_empty_frames,
-                                           _save=_save, _overwrite=_force, _overwrite_cell_info=_overwrite_cell_info,
+                                           _save=_save, _overwrite=_force, 
+                                           _overwrite_cell_info=_overwrite_cell_info,
                                            _verbose=_verbose)
                     else:
                         if _verbose:
@@ -1155,7 +1150,6 @@ class Cell_List():
     def _translate_chromosome_coords(self, _source_cell_list, _num_threads=12,
                                     _rotation_mat=None, _rotation_ref_file=None,
                                     _rotation_order='reverse', _border_lim=10, 
-                                    _single_im_size=_image_size,
                                     _save=True, _overwrite=False, _verbose=True):
         """Function to translate chromosome coordinates from source_cell_list
         Inputs:
@@ -1192,7 +1186,7 @@ class Cell_List():
             # unique match
             if len(_matched_cell) == 1: 
                 _trans_args.append((copy(_matched_cell[0]), copy(_cell), _rotation_mat, 
-                                    None, _rotation_order, _single_im_size, 
+                                    None, _rotation_order, self.shared_parameters['single_im_size'], 
                                     _border_lim, _overwrite, True, _verbose))
                 _trans_ids.append(_i)
             else:
@@ -1226,7 +1220,7 @@ class Cell_List():
 
     # multi-gaussian fitting
     def _spot_finding_for_cells(self, _data_type='unique', _decoded_flag='diff', _max_fitting_threads=12, 
-                                _clear_image=False, _normalization=True, 
+                                _clear_image=False, _normalize_image=True, 
                                 _use_chrom_coords=True, _seed_th_per=50, _max_filt_size=3,
                                 _max_seed_count=6, _min_seed_count=3, _fit_window=40,
                                 _expect_weight=1000, _min_height=100, _max_iter=10, _th_to_end=1e-6,
@@ -1247,11 +1241,10 @@ class Cell_List():
 
             # do multi_fitting
             _cell._multi_fitting_for_chromosome(_data_type=_data_type, _decoded_flag=_decoded_flag, 
-                                                _normalization=_normalization, _use_chrom_coords=_use_chrom_coords,
+                                                _normalization=_normalize_image, _use_chrom_coords=_use_chrom_coords,
                                                 _num_threads=max(_max_fitting_threads, self.num_threads),
                                                 _seed_th_per=_seed_th_per, _max_filt_size=_max_filt_size, 
                                                 _max_seed_count=_max_seed_count, _min_seed_count=_min_seed_count, 
-                                                _width_zxy=self.sigma_zxy, _fit_radius=5,
                                                 _fit_window=_fit_window, _expect_weight=_expect_weight, 
                                                 _min_height=_min_height, _max_iter=_max_iter,
                                                 _save=_save, _overwrite=_overwrite, _verbose=_verbose)
@@ -1260,10 +1253,11 @@ class Cell_List():
                     print(f"++ clear images for {_data_type} in fov:{_cell.fov_id}, cell:{_cell.cell_id}")
                 delattr(_cell, _im_attr)
 
-    def _old_pick_spots_for_cells(self, _data_type='unique', _decoded_flag='diff', _pick_type='dynamic', _use_chrom_coords=True, _distance_zxy=None,
-                              _w_dist=2, _dist_ref=None, _penalty_type='trapezoidal', _penalty_factor=5,
-                              _gen_distmap=True, _save_plot=True, _plot_limits=[0,2000],
-                              _save=True, _verbose=True):
+    def _old_pick_spots_for_cells(self, _data_type='unique', _decoded_flag='diff', _pick_type='dynamic', 
+                                  _use_chrom_coords=True, _w_dist=2, _dist_ref=None, 
+                                  _penalty_type='trapezoidal', _penalty_factor=5,
+                                  _gen_distmap=True, _save_plot=True, _plot_limits=[0,2000],
+                                  _save=True, _verbose=True):
         """Function to pick spots given candidates."""
         ## Check attributes
         if _verbose:
@@ -1296,7 +1290,7 @@ class Cell_List():
             # pick spots
             if _pick_type == 'dynamic':
                 _cell._dynamic_picking_spots(_data_type=_data_type, _use_chrom_coords=_use_chrom_coords,
-                                             _distance_zxy=_distance_zxy, _w_int=1, _w_dist=_w_dist,
+                                             _w_int=1, _w_dist=_w_dist,
                                              _dist_ref=_dist_ref, _penalty_type=_penalty_type, _penalty_factor=_penalty_factor,
                                              _save=_save, _verbose=_verbose)
             elif _pick_type == 'naive':
@@ -1306,13 +1300,14 @@ class Cell_List():
             if _gen_distmap:
                 if _verbose:
                     print(f"+++ generating distance map for cell:{_cell.cell_id}")
-                _cell._generate_distance_map(_data_type=_data_type, _distance_zxy=_distance_zxy, _save_info=_save,
-                                             _save_plot=_save_plot, _limits=_plot_limits, _verbose=_verbose)
+                _cell._generate_distance_map(_data_type=_data_type, _save_info=_save,
+                                             _save_plot=_save_plot, _limits=_plot_limits, 
+                                             _verbose=_verbose)
 
     # new version for batch pick spots
     def _pick_spots_for_cells(self, _data_type='unique', _pick_type='EM', decoded_flag='diff',
                               _num_threads=12, _use_chrom_coords=True, 
-                              _distance_zxy=_distance_zxy, _local_size=5, _intensity_th=1,
+                              _local_size=5, _intensity_th=1,
                               _w_ccdist=1, _w_lcdist=0.1, _w_int=1, _w_nbdist=3,
                               _save_inter_plot=False, _save_to_info=True, _save_plot=True,
                               _check_spots=True, _check_th=-3, _check_percentile=1., 
@@ -1337,7 +1332,7 @@ class Cell_List():
 
         for _cell in self.cells:
             _pick_args.append((_cell, _pick_type, _data_type, _use_chrom_coords,
-                               _distance_zxy, _local_size, _intensity_th,
+                               _local_size, _intensity_th,
                                _w_ccdist, _w_lcdist, _w_int, _w_nbdist,
                                _save_inter_plot, _save_to_info, _save_plot,
                                _check_spots, _check_th, _check_percentile, 
@@ -1960,7 +1955,7 @@ class Cell_List():
 
     # run domain calling in batch
     def _batch_domain_calling(self, _data_type='unique', _pick_type='EM', _method='iterative', _num_threads=None,
-                            _normalization=True, _distance_zxy=_distance_zxy, _domain_size=5, _gfilt_size=0.5,
+                            _normalization=True, _domain_size=5, _gfilt_size=0.5,
                             _split_level=1, _num_iter=5, _dist_metric='ks', _cluster_metric='ward',
                             _corr_th=0.6, _dist_th=0.2, _plot_results=False, _dpi=100, _dim=10, _fontsize=18,
                             _save_result_figure=False, save_folder=None, _method_add_to_attr=True,
@@ -2039,7 +2034,7 @@ class Cell_List():
         # get partially filled function
         if _method == 'iterative':
             _domain_func = partial(domain_tools.iterative_domain_calling,
-                                distance_zxy=_distance_zxy, dom_sz=_domain_size,
+                                distance_zxy=self.shared_parameters['distance_zxy'], dom_sz=_domain_size,
                                 gfilt_size=_gfilt_size, split_level=_split_level,
                                 num_iter=_num_iter, normalization_matrix=_norm_mat,
                                 domain_dist_metric=_dist_metric,
@@ -2049,7 +2044,7 @@ class Cell_List():
                                 save_result_figs=_save_result_figure, verbose=_verbose)
         elif _method == 'basic':
             _domain_func = partial(domain_tools.basic_domain_calling,
-                                distance_zxy=_distance_zxy, dom_sz=_domain_size,
+                                distance_zxy=self.shared_parameters['distance_zxy'], dom_sz=_domain_size,
                                 gfilt_size=_gfilt_size, normalization_matrix=_norm_mat,
                                 domain_dist_metric=_dist_metric,
                                 domain_cluster_metric=_cluster_metric,
@@ -2058,7 +2053,7 @@ class Cell_List():
                                 save_result_figs=_save_result_figure, verbose=_verbose)
         elif _method == 'local':
             _domain_func = partial(domain_tools.local_domain_calling,
-                                   distance_zxy=_distance_zxy, dom_sz=_domain_size, 
+                                   distance_zxy=self.shared_parameters['distance_zxy'], dom_sz=_domain_size, 
                                    gfilt_size=_gfilt_size,
                                    cutoff_max=_dist_th, plot_results=_plot_results,
                                    fig_dpi=_dpi, fig_dim=_dim, fig_font_size=_fontsize,
@@ -2149,10 +2144,7 @@ class Cell_Data():
         # fov id and cell id given
         self.fov_id = int(parameters['fov_id'])
         self.cell_id = int(parameters['cell_id'])
-        ## Constants
-        # distance zxy
-        self.distance_zxy = _distance_zxy
-        self.sigma_zxy = _sigma_zxy
+        # parameters
         if 'num_threads' in parameters:
             self.num_threads = parameters['num_threads']
         if 'distance_reference' in parameters:
@@ -2186,11 +2178,42 @@ class Cell_Data():
             self.map_folder = parameters['map_folder']
         else:
             self.map_folder = self.analysis_folder+os.sep+'distmap'
+        # other shared_parameters for imaging processing, etc
+        if "shared_parameters" in parameters:
+            self.shared_parameters = parameters['shared_parameters']
+        else:
+            self.shared_parameters = {}
+
         # if loading all remaining attr in parameter
         if _load_all_attr:
             for _key, _value in parameters.items():
                 if not hasattr(self, _key):
                     setattr(self, _key, _value)
+        
+        ## shared parameters
+        # distance from pixel to nm:
+        if 'distance_zxy' not in self.shared_parameters:    
+            self.shared_parameters['distance_zxy'] = _distance_zxy
+        if 'sigma_zxy' not in self.shared_parameters:
+            self.shared_parameters['sigma_zxy'] = _sigma_zxy
+        if 'single_im_size' not in self.shared_parameters:
+            self.shared_parameters['single_im_size'] = _image_size
+        if 'num_buffer_frames' not in self.shared_parameters:
+            self.shared_parameters['num_buffer_frames'] = _num_buffer_frames
+        if 'num_empty_frames' not in self.shared_parameters:
+            self.shared_parameters['num_empty_frames'] = _num_empty_frames
+        if 'normalization' not in self.shared_parameters:
+            self.shared_parameters['normalization'] = False
+        if 'corr_bleed' not in self.shared_parameters:
+            self.shared_parameters['corr_bleed'] = True
+        if 'corr_Z_shift' not in self.shared_parameters:
+            self.shared_parameters['corr_Z_shift'] = True
+        if 'corr_hot_pixel' not in self.shared_parameters:
+            self.shared_parameters['corr_hot_pixel'] = True
+        if 'corr_illumination' not in self.shared_parameters:
+            self.shared_parameters['corr_illumination'] = True
+        if 'corr_chromatic' not in self.shared_parameters:
+            self.shared_parameters['corr_chromatic'] = True
 
         # load color info
         if not hasattr(self, 'color_dic') or not hasattr(self, 'channels'):
@@ -2208,6 +2231,7 @@ class Cell_Data():
                 if len(_matches) == 1:
                     self.annotated_folders.append(_matches[0])
             print(f"-- {len(self.annotated_folders)} folders are found according to color-usage annotation.")
+
 
     # allow print info of Cell_List
     def __str__(self):
@@ -2298,7 +2322,13 @@ class Cell_Data():
             raise ValueError("No DAPI folder detected in annotated_folders, stop!")
         # do segmentation if necessary, or just load existing segmentation file
         _segmentation_labels = visual_tools.DAPI_convoluted_segmentation(
-            os.path.join(_dapi_fd, self.fovs[self.fov_id]), self.channels[self.dapi_channel_index],
+            os.path.join(_dapi_fd, self.fovs[self.fov_id]), 
+            self.channels[self.dapi_channel_index],
+            single_im_size=self.shared_parameters['single_im_size'], 
+            all_channels=self.channels,
+            num_buffer_frames=self.shared_parameters['num_buffer_frames'], 
+            num_empty_frames=self.shared_parameters['num_empty_frames'], 
+            illumination_correction=self.shared_parameters['corr_illumination'],
             min_shape_ratio=_min_shape_ratio, signal_cap_ratio=_signal_cap_ratio,
             denoise_window=_denoise_window, shrink_percent=_shrink_percent,
             max_conv_th=_max_conv_th, min_boundary_th=_min_boundary_th,
@@ -2352,7 +2382,6 @@ class Cell_Data():
     def _load_drift(self, _sequential_mode=True, _load_annotated_only=True, 
                     _size=500, _ref_id=0, _drift_postfix='_current_cor.pkl', 
                     _num_threads=12, _coord_sel=None, _force=False, _dynamic=True, 
-                    _num_buffer_frames=10, _num_empty_frames=0, 
                     _stringent=True, _verbose=True):
         # num-threads
         if hasattr(self, 'num_threads'):
@@ -2399,8 +2428,11 @@ class Cell_Data():
             _drift, _failed_count = corrections.Calculate_Bead_Drift(_folders, self.fovs, self.fov_id, 
                                         num_threads=_num_threads,sequential_mode=_sequential_mode, 
                                         ref_id=_ref_id, drift_size=_size, coord_sel=_coord_sel,
-                                        num_buffer_frames=_num_buffer_frames, 
-                                        num_empty_frames=_num_empty_frames, 
+                                        single_im_size=self.shared_parameters['single_im_size'], 
+                                        all_channels=self.channels,
+                                        num_buffer_frames=self.shared_parameters['num_buffer_frames'], 
+                                        num_empty_frames=self.shared_parameters['num_empty_frames'], 
+                                        illumination_corr=self.shared_parameters['corr_illumination'],
                                         save_postfix=_drift_postfix,
                                         save_folder=self.drift_folder, stringent=_stringent,
                                         overwrite=_force, verbose=_verbose)
@@ -2419,13 +2451,10 @@ class Cell_Data():
                 raise ValueError("length of _drift doesn't match _folders!")
 
     ## crop images given segmentation and images/temp_filenames
-    def _crop_images(self, _data_type, _num_threads=12, _single_im_size=_image_size,
-                     _corr_drift=True, _normalization=False, _corr_bleed=True,
-                     _corr_Z_shift=True, _corr_hot_pixel=True,
-                     _corr_illumination=True, _corr_chromatic=True,
-                     _load_in_ram=False, _extend_dim=20, 
-                     _num_buffer_frames=10, _num_empty_frames=1,
-                     _save=True, _overwrite=False, _overwrite_cell_info=False, _verbose=True):
+    def _crop_images(self, _data_type, _num_threads=12, 
+                     _corr_drift=True, _load_in_ram=False, _extend_dim=20, 
+                     _save=True, _overwrite=False, _overwrite_cell_info=False, 
+                     _verbose=True):
         "Function to crop combo/unique images "
         ## check inputs
         # Num of threads
@@ -2522,11 +2551,18 @@ class Cell_Data():
                         #print('-image length 2:', len(_ims), len(_ids), len(_channels))
                         # add unique_arg
                         _new_arg = (_im_filename, _sel_channels, None, self.segmentation_label,
-                                    _extend_dim, _single_im_size, self.channels,
-                                    _num_buffer_frames, _num_empty_frames,
+                                    _extend_dim, self.shared_parameters['single_im_size'], 
+                                    self.channels,
+                                    self.shared_parameters['num_buffer_frames'], 
+                                    self.shared_parameters['num_empty_frames'],
                                     self.drift[_ref_name],
-                                    self.correction_folder, _normalization, _corr_bleed,
-                                    _corr_Z_shift, _corr_hot_pixel, _corr_illumination, _corr_chromatic,
+                                    self.correction_folder, 
+                                    self.shared_parameters['normalization'], 
+                                    self.shared_parameters['corr_bleed'],
+                                    self.shared_parameters['corr_Z_shift'],
+                                    self.shared_parameters['corr_hot_pixel'], 
+                                    self.shared_parameters['corr_illumination'], 
+                                    self.shared_parameters['corr_chromatic'],
                                     False, _verbose)
                         _args.append(_new_arg)
                     # if not uniquely-matched, skip
@@ -3282,7 +3318,7 @@ class Cell_Data():
                        _normalization=True,  _use_chrom_coords=True, _num_threads=12,
                        _gfilt_size=0.75, _background_gfilt_size=10, _max_filt_size=3,
                        _seed_th_per=50, _max_seed_count=10, _min_seed_count=3,
-                       _width_zxy=None, _fit_radius=5, _fit_window=40, 
+                       _fit_radius=5, _fit_window=40, 
                        _expect_weight=1000, _min_height=100, _max_iter=10, _th_to_end=1e-6,
                        _check_fitting=True, _save=True, _overwrite=False, _verbose=True):
         """Function for multi-fitting for chromosomes in cell_data"""
@@ -3299,9 +3335,7 @@ class Cell_Data():
         _save_filename = os.path.join(self.save_folder, _data_type+'_'+'rounds.npz')
         # generate save_attr
         _spot_attr = _data_type + '_' + 'spots'
-        # check other inputs
-        if _width_zxy is None:
-            _width_zxy = self.sigma_zxy
+        # num threads
         if hasattr(self, 'num_threads'):
             _num_threads = max(self.num_threads, _num_threads)
         if _use_chrom_coords:
@@ -3344,12 +3378,10 @@ class Cell_Data():
             ## Do the multi-fitting
             if _data_type == 'unique' or _data_type  == 'rna-unique':
                 _seeding_args = (_max_seed_count, _fit_window, _gfilt_size, _background_gfilt_size, _max_filt_size, _seed_th_per, 300, True, 10, _min_seed_count, 0, False)
-                #_fitting_args = (_width_zxy, _fit_radius, 100, 500, _expect_weight, _th_to_end, _max_iter, 0.25, _min_height, False, _verbose)
-                _fitting_args = (_fit_radius, 1, 2.5, _max_iter, 0.1, _width_zxy, _expect_weight)
+                _fitting_args = (_fit_radius, 1, 2.5, _max_iter, 0.1, self.shared_parameters['sigma_zxy'], _expect_weight)
             elif _data_type == 'decoded':
                 _seeding_args = (_max_seed_count, _fit_window, _gfilt_size, _background_gfilt_size, _max_filt_size, _seed_th_per, 300, True, 10, _min_seed_count, 0, False)
-                #_fitting_args = (_width_zxy, _fit_radius, 0.1, 0.5, _expect_weight/1000, _th_to_end, _max_iter, 0.25, 0.1, False, _verbose)
-                _fitting_args = (_fit_radius, 1, 2.5, _max_iter, 0.1, _width_zxy, _expect_weight/1000)
+                _fitting_args = (_fit_radius, 1, 2.5, _max_iter, 0.1, self.shared_parameters['sigma_zxy'], _expect_weight/1000)
             # merge arguments
             if _use_chrom_coords:
                 _args = [(_im, _id, self.chrom_coords, _seeding_args, _fitting_args, 
@@ -3391,7 +3423,7 @@ class Cell_Data():
         return _spots
     # pick spots
     def _dynamic_picking_spots(self, _data_type='unique', _use_chrom_coords=True,
-                               _distance_zxy=None, _w_int=1, _w_dist=2, _w_center=0, 
+                               _w_int=1, _w_dist=2, _w_center=0, 
                                _dist_ref = None, _penalty_type='trapezoidal', _penalty_factor=5,
                                _save=True, _verbose=True):
         """Given selected spots, do picking by dynamic programming
@@ -3408,9 +3440,7 @@ class Cell_Data():
         _spot_attr = _data_type + '_' + 'spots'
         # generate save attribute
         _picked_attr = 'picked' + '_' + _spot_attr
-
-        if _distance_zxy is None: # dimension for distance trasfromation
-            _distance_zxy = self.distance_zxy
+        # distance reference
         if _dist_ref is None: # full filename for distance reference npz file
             _dist_ref = self.distance_reference
         # load distance_reference:
@@ -3464,11 +3494,13 @@ class Cell_Data():
 
             ## dynamic progamming
             for _chrom_id, _coord in enumerate(self.chrom_coords):
-                _ch_pts = [chrpts[_chrom_id][:,1:4]*_distance_zxy for chrpts in _cand_spots if len(chrpts[_chrom_id]>0)]
+                _ch_pts = [chrpts[_chrom_id][:,1:4] * self.shared_parameters['distance_zxy'] 
+                            for chrpts in _cand_spots if len(chrpts[_chrom_id]>0)]
                 _ch_ids = [_id for chrpts,_id in zip(_cand_spots, _ids) if len(chrpts[_chrom_id]>0)]
                 # initialize two stucture:
                 _dy_values = [np.log(chrpts[_chrom_id][:,0])*_w_int \
-                              + np.log( np.linalg.norm((chrpts[_chrom_id][:,1:4] - _coord) *_distance_zxy, axis=1) ) * _w_center\
+                              + np.log( np.linalg.norm((chrpts[_chrom_id][:,1:4] - _coord) \
+                              * self.shared_parameters['distance_zxy'], axis=1) ) * _w_center\
                               for chrpts in _cand_spots if len(chrpts[_chrom_id]>0)] # store maximum values
                 _dy_pointers = [-np.ones(len(pt), dtype=np.int) for pt in _ch_pts] # store pointer to previous level
                 
@@ -3592,7 +3624,7 @@ class Cell_Data():
 
     # an integrated function to pick spots
     def _pick_spots(self, _data_type='unique', _pick_type='EM', _use_chrom_coords=True,
-                    _distance_zxy=_distance_zxy, _local_size=5, _intensity_th=1, 
+                    _local_size=5, _intensity_th=1, 
                     _w_ccdist=1, _w_lcdist=0.1, _w_int=1, _w_nbdist=3,
                     _save_inter_plot=False, _save_to_attr=True, _save_to_info=True,
                     _check_spots=True, _check_th=-3., _check_percentile=1.,
@@ -3608,7 +3640,6 @@ class Cell_Data():
             _pick_type: method for picking spots, str ('EM', 'dynamic' or 'naive')
             _data_type: data type of spots to be picked, str ('unique', 'decoded' etc)
             _use_chrom_coords: whether use chrom_coords in cell_data, bool (default: True)
-            _distance_zxy
             _local_size
             _intensity_th
             _save_inter_plot: whether save intermediate plots, bool (default: False)
@@ -3647,9 +3678,6 @@ class Cell_Data():
         # generate save attribute
         _picked_attr = str(_pick_type) + '_'+ 'picked' + '_' + _spot_attr
 
-        # distance_zxy
-        if hasattr(self, 'distance_zxy'):
-            _distance_zxy = getattr(self, 'distance_zxy')
         # get cand_spots
         if _verbose:
             print(
@@ -3702,31 +3730,37 @@ class Cell_Data():
             if _pick_type == 'naive':
                 _picked_spots, _picked_inds = analysis.naive_pick_spots(_cand_spots, _ids,
                                                                         use_chrom_coord=False,
-                                                                        return_indices=True, verbose=_verbose)
+                                                                        return_indices=True, 
+                                                                        verbose=_verbose)
             elif _pick_type == 'dynamic':
                 _naive_spots = analysis.naive_pick_spots(_cand_spots, _ids,
                                                          use_chrom_coord=False,
                                                          return_indices=False, verbose=_verbose)
                 # generate neighbor distance distribution
                 _nb_dists = analysis.generate_distance_score_pool(
-                    _naive_spots, distance_zxy=_distance_zxy)
+                    _naive_spots, distance_zxy=self.shared_parameters['distance_zxy'])
                 # generate scores
                 _scores = [_w_int * np.log(np.array(_pts)[:, 0])
                            for _pts in _cand_spots]
                 # dynamic pick spots
                 _picked_spots, _picked_inds = analysis.dynamic_pick_spots(_cand_spots, _ids,
                                                                           _scores, _nb_dists,
-                                                                          w_nbdist=_w_nbdist, distance_zxy=_distance_zxy,
-                                                                          return_indices=True, verbose=_verbose)
+                                                                          w_nbdist=_w_nbdist, 
+                                                                          distance_zxy=self.shared_parameters['distance_zxy'],
+                                                                          return_indices=True, 
+                                                                          verbose=_verbose)
             elif _pick_type == 'EM':
                 # EM
                 _picked_spots, _picked_inds, _scores, _other_scores = \
                     analysis.EM_pick_spots(_cand_spots, _ids, _chrom_coord,
                                            num_iters=15, terminate_th=1/len(_ids), 
                                            intensity_th=_intensity_th,
-                                           distance_zxy=_distance_zxy, local_size=_local_size,
-                                           w_ccdist=_w_ccdist, w_lcdist=_w_lcdist, w_int=_w_int, w_nbdist=_w_nbdist,
-                                           check_spots=_check_spots, check_th=_check_th, check_percentile=_check_percentile, 
+                                           distance_zxy=self.shared_parameters['distance_zxy'], 
+                                           local_size=_local_size,
+                                           w_ccdist=_w_ccdist, w_lcdist=_w_lcdist, 
+                                           w_int=_w_int, w_nbdist=_w_nbdist,
+                                           check_spots=_check_spots, check_th=_check_th, 
+                                           check_percentile=_check_percentile, 
                                            distance_th=_distance_th, ignore_nan=_ignore_nan,
                                            make_plot=_save_inter_plot, save_plot=_save_inter_plot,
                                            save_path=self.save_folder, save_filename='chr_'+str(_i),
@@ -3755,13 +3789,11 @@ class Cell_Data():
         else:
             return _picked_spot_list
 
-    def _generate_distance_map(self, _data_type='unique', _pick_type='EM', _distance_zxy=None, 
+    def _generate_distance_map(self, _data_type='unique', _pick_type='EM', 
                                _save_info=True, _save_plot=True, _limits=[0, 2000], _cmap='seismic_r',
                                _fig_dpi=300, _fig_size=4, _overwrite=False, _verbose=True):
         """Function to generate distance map"""
         ## check inputs
-        if _distance_zxy is None: # dimension for distance trasfromation
-            _distance_zxy = self.distance_zxy
         # use chrom_coords?
         _use_chrom_coords = True
         if not hasattr(self, 'chrom_coords'):
@@ -3801,7 +3833,7 @@ class Cell_Data():
                 if _verbose:
                     print(f"-- generate {_data_type} dist-map for fov:{self.fov_id}, cell:{self.cell_id}, chrom:{_id}")
                 # get zxy coordinates
-                _zxy = np.array(_spots)[:,1:4] * _distance_zxy[np.newaxis,:]
+                _zxy = np.array(_spots)[:,1:4] * self.shared_parameters['distance_zxy'][np.newaxis,:]
                 # generate distmap
                 _distmap = squareform(pdist(_zxy))
                 # transform inf into NaN
