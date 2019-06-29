@@ -1307,7 +1307,7 @@ class mark_boundaries:
     #Bogdan Bintu
     #Copyright Presidents and Fellows of Harvard College, 2017.
     """
-    def __init__(self,ims,fig=None,image_names=None,min_max_default = [None,None],save_file=None):
+    def __init__(self,ims,fig=None,image_names=None,plot_limits=[0,1000],save_file=None):
         """
         This is a class which controls an interactive maplotlib figure.
         Intended for navigating and interacting with 'spot'-like data that is spread across multiple images <ims>.
@@ -1356,7 +1356,7 @@ class mark_boundaries:
         self.lxy,=self.ax1.plot([],[], 'g-',linewidth=2.5)
         self.imshow_xy = self.ax1.imshow(self.im_,interpolation='nearest',cmap='seismic_r')
         
-        self.min_,self.max_ = min_max_default
+        self.min_,self.max_ = min(plot_limits), max(plot_limits)
         if self.min_ is None: self.min_ = np.min(self.im_)
         if self.max_ is None: self.max_ = np.max(self.im_)
         self.imshow_xy.set_clim(self.min_,self.max_)
