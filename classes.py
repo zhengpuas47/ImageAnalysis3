@@ -3814,21 +3814,28 @@ class Cell_Data():
         _save_attr = str(_pick_type) + '_' + str(_data_type) + '_' + 'distance_map'
         # check loading of necessary
         if not hasattr(self, _key_attr):
-            self._load_from_file('distance_map', _distmap_data=_data_type, _distmap_pick=_pick_type)
+            self._load_from_file('cell_info', _load_attrs=[_key_attr])
             if not hasattr(self, _key_attr):
                 raise AttributeError(f"No {_key_attr} info found in cell-data and saved cell_info.")
         _picked_spots = getattr(self, _key_attr)
+        if not _use_chrom_coords: 
+            _picked_spots = [_picked_spots]  # convert to same order list if not use_chrom_coords
+        # check existing saved attr
+        if not hasattr(self, _save_attr):
+            self._load_from_file('distance_map', _distmap_data=_data_type, _distmap_pick=_pick_type)
         if hasattr(self, _save_attr) and not _overwrite:
             if _verbose:
                 print(f"-- directly load {_save_attr} from fov:{self.fov_id}, cell:{self.cell_id}")
-            # turn off saving if directly loading
-            _save_info = False 
             # loading
             _distmaps = getattr(self, _save_attr)
-        else:
-            ## loop through chrom_coords and make distance map
-            if not _use_chrom_coords:
-                _picked_spots = [_picked_spots]
+            # check size of this distance_map is same as picked_spots, which means picked spots are not updated
+            for _distmap,_spots in zip(_distmaps, _picked_spots):
+                if len(_spots) != len(_distmap):
+                    del(_distmaps) # clear distmaps
+                    break
+
+        ## try to generate new ones of distmaps not exists
+        if '_distmaps' not in locals():
             # initialize distmaps    
             _distmaps = []
             for _id, _spots in enumerate(_picked_spots):
@@ -3842,6 +3849,9 @@ class Cell_Data():
                 _distmap[_distmap == np.inf] = np.nan
                 # append 
                 _distmaps.append(_distmap)
+            # do the saving here
+            if _save_info:
+                self._save_to_file('distance_map', _save_dic={_save_attr: _distmaps}, _verbose=_verbose)
         
         ## make plot         
         for _id, _distmap in enumerate(_distmaps):
@@ -3863,8 +3873,6 @@ class Cell_Data():
         
         # append into attribute and save
         setattr(self, _save_attr, _distmaps)
-        if _save_info:
-            self._save_to_file('distance_map', _save_dic={_save_attr: _distmaps}, _verbose=_verbose)
 
         # return
         return _distmaps
