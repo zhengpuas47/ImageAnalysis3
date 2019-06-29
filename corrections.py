@@ -151,8 +151,7 @@ def Calculate_Bead_Drift(folders, fovs, fov_id, num_threads=12, drift_size=500, 
         old_ref_frame = None
     if not sequential_mode:
         if verbose:
-            print(
-                f"- Start drift-correction with {num_threads} threads, image mapped to image:{ref_id}")
+            print(f"- Start drift-correction with {num_threads} threads, image mapped to image:{ref_id}")
         ## get all reference information
         # ref filename
         _ref_filename = os.path.join(
@@ -170,7 +169,6 @@ def Calculate_Bead_Drift(folders, fovs, fov_id, num_threads=12, drift_size=500, 
                                         num_empty_frames=num_empty_frames,
                                         correction_folder=correction_folder,
                                         illumination_corr=illumination_corr, verbose=verbose)
-            print(np.max(_ref_im))
             _ref_center = visual_tools.get_STD_centers(_ref_im, dynamic=True, th_seed_percentile=ref_seed_per,
                                                        sort_by_h=True, verbose=verbose)
             # limit ref points
