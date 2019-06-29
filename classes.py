@@ -806,6 +806,7 @@ class Cell_List():
                 num_buffer_frames=self.shared_parameters['num_buffer_frames'], 
                 num_empty_frames=self.shared_parameters['num_empty_frames'], 
                 illumination_correction=self.shared_parameters['corr_illumination'],
+                correction_folder=self.correction_folder, 
                 num_threads=_num_threads, make_plot=_plot_segmentation, return_images=False,
                 save=_save, save_npy=True, save_folder=self.segmentation_folder, force=False,verbose=_verbose)
             # extract result segmentation and image
@@ -836,6 +837,7 @@ class Cell_List():
                                             num_buffer_frames=self.shared_parameters['num_buffer_frames'], 
                                             num_empty_frames=self.shared_parameters['num_empty_frames'], 
                                             illumination_corr=self.shared_parameters['corr_illumination'],
+                                            correction_folder=self._correction_folder,
                                             ref_id=_drift_ref, drift_size=_drift_size, save_postfix=_drift_postfix, 
                                             coord_sel=_coord_sel, stringent=_stringent,
                                             overwrite=_force_drift, verbose=_verbose)
