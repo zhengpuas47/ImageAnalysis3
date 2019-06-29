@@ -1744,8 +1744,8 @@ def _local_distance(spot_zxys, chr_sel_zxy, pt_ids, size=5, minimal_dist=0.5):
     chr_sel_zxy = np.array(chr_sel_zxy)
     _half_size = int((size-1)/2)
     _chr_len = len(chr_sel_zxy)
-    _sizes = [min(_half_size, _id, _chr_len-_id-1) for _id in pt_ids]
-    _inds = [np.delete(np.arange(_id-_sz,_id+_sz+1),_sz) for _id,_sz in zip(pt_ids, _sizes)]
+    _sizes = [min(_half_size, _i, _chr_len-_i-1) for _i, _id in enumerate(pt_ids)]
+    _inds = [np.delete(np.arange(_i-_sz,_i+_sz+1),_sz) for _i, (_id,_sz) in enumerate(zip(pt_ids, _sizes))]
     _local_dists = []
     for _spot, _ind in zip(spot_zxys,_inds):
         if len(_ind) == 0:
