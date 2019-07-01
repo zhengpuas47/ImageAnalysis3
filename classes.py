@@ -2495,7 +2495,7 @@ class Cell_Data():
             print(f"- Start cropping {_data_type} image")
         _fov_name = self.fovs[self.fov_id]  # name of this field-of-view
         ### unique
-        if _data_type == 'unique' or _data_type =='rna-unique' or _data_type == 'gene':
+        if _data_type in self.shared_parameters['allowed_kwds']:
             # case 1: unique info already loaded in ram
             if hasattr(self, _im_attr) and hasattr(self, _id_attr) and hasattr(self, _channel_attr) \
                 and len(getattr(self, _im_attr)) == len(getattr(self, _id_attr)) \
@@ -2578,8 +2578,7 @@ class Cell_Data():
                         _args.append(_new_arg)
                     # if not uniquely-matched, skip
                     else:
-                        print(
-                            f"Ref_name:{_ref_name} has non-unique matches:{_matched_folders}, skip!")
+                        print(f"Ref_name:{_ref_name} has non-unique matches:{_matched_folders}, skip!")
                         continue
                 # skip the following if already existed & not overwrite
                 else:
@@ -2645,10 +2644,6 @@ class Cell_Data():
 
             return _sorted_ims, _sorted_ids, _sorted_channels
 
-        elif _data_type == 'combo':
-            pass
-        elif _data_type == 'decoded':
-            pass
 
     # function to give boolean output of whether a centain type of images are fully generated
     def _check_full_set(self, _data_type, _decoded_flag='diff', _verbose=False):
@@ -3696,7 +3691,7 @@ class Cell_Data():
         # if not overwrite:
         if not _overwrite:
             if not hasattr(self, _picked_attr):
-                self._load_from_file('cell_info')
+                self._load_from_file('cell_info', _load_attr=[_picked_attr])
             if hasattr(self, _picked_attr):
                 _picked_spot_list = getattr(self, _picked_attr)
                 # return if 
