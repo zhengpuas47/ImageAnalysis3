@@ -2578,7 +2578,10 @@ class Cell_Data():
                         _args.append(_new_arg)
                     # if not uniquely-matched, skip
                     else:
-                        print(f"Ref_name:{_ref_name} has non-unique matches:{_matched_folders}, skip!")
+                        if len(_matched_folders) > 1:
+                            print(f"Ref_name:{_ref_name} has non-unique matches:{_matched_folders}, skip!")
+                        if len(_matched_folders) == 0:
+                            print(f"Ref_name:{_ref_name} has no corresponding folder, skip.")
                         continue
                 # skip the following if already existed & not overwrite
                 else:
