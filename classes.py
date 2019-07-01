@@ -16,6 +16,12 @@ from functools import partial
 import matplotlib
 import matplotlib.pyplot as plt
 
+_allowed_kwds = {'combo': 'c', 
+                'decoded':'d',
+                'unique': 'u', 
+                'merfish': 'm', 
+                'rna-unique':'r', 
+                'gene':'g'}
 
 def killtree(pid, including_parent=False, verbose=False):
     parent = psutil.Process(pid)
@@ -238,6 +244,8 @@ class Cell_List():
             self.shared_parameters['corr_illumination'] = True
         if 'corr_chromatic' not in self.shared_parameters:
             self.shared_parameters['corr_chromatic'] = True
+        if 'allowed_kwds' not in self.shared_parameters:
+            self.shared_parameters['allowed_kwds'] = _allowed_kwds
 
         ## chosen field of views
         if len(_chosen_fovs) == 0: # no specification
@@ -2216,6 +2224,8 @@ class Cell_Data():
             self.shared_parameters['corr_illumination'] = True
         if 'corr_chromatic' not in self.shared_parameters:
             self.shared_parameters['corr_chromatic'] = True
+        if 'allowed_kwds' not in self.shared_parameters:
+            self.shared_parameters['allowed_kwds'] = _allowed_kwds
 
         # load color info
         if not hasattr(self, 'color_dic') or not hasattr(self, 'channels'):
@@ -2471,10 +2481,9 @@ class Cell_Data():
             self._load_drift()
         # check type
         _data_type = _data_type.lower()
-        _allowed_kwds = {'combo': 'c', 'unique': 'u', 'merfish': 'm', 'rna-unique':'r', 'gene':'g'}
-        if _data_type not in _allowed_kwds:
+        if _data_type not in self.shared_parameters['allowed_kwds']:
             raise ValueError(
-                f"Wrong type kwd! {_data_type} is given, {_allowed_kwds} expected.")
+                f"Wrong type kwd! {_data_type} is given, {self.shared_parameters['allowed_kwds']} expected.")
         # generate attribute names
         _im_attr = _data_type + '_' + 'ims'
         _id_attr = _data_type + '_' + 'ids'
@@ -2525,12 +2534,12 @@ class Cell_Data():
                 _sel_ids = []
                 for _channel, _info in zip(self.channels[:len(_infos)], _infos):
                     # if keyword type matches:
-                    if _allowed_kwds[_data_type] in _info:
+                    if self.shared_parameters['allowed_kwds'][_data_type] in _info:
                         # if this channel requires loading:
-                        if _overwrite or int(_info.split(_allowed_kwds[_data_type])[1]) not in _ids:
+                        if _overwrite or int(_info.split(self.shared_parameters['allowed_kwds'][_data_type])[1]) not in _ids:
                             # append _sel_channel
                             _sel_channels.append(_channel)
-                            _sel_ids.append(int(_info.split(_allowed_kwds[_data_type])[1]) )
+                            _sel_ids.append(int(_info.split(self.shared_parameters['allowed_kwds'][_data_type])[1]) )
                 # do cropping if there are any channels selected:
                 if len(_sel_channels) > 0:
                     # match to annotated_folders
@@ -2646,10 +2655,9 @@ class Cell_Data():
         """Function to check whether files for a certain type exists"""
         # check inputs
         _data_type = _data_type.lower()
-        _allowed_kwds = {'combo': 'c', 'unique': 'u', 'merfish': 'm', 'rna-unique':'r'}
-        if _data_type not in _allowed_kwds:
+        if _data_type not in self.shared_parameters['allowed_kwds']:
             raise ValueError(
-                f"Wrong type kwd! {_data_type} is given, {_allowed_kwds} expected.")
+                f"Wrong type kwd! {_data_type} is given, {self.shared_parameters['allowed_kwds']} expected.")
         # start checking 
         if _data_type == 'unique' or _data_type == 'rna-unique':
             # generate attribute names
@@ -2676,8 +2684,8 @@ class Cell_Data():
                     self._load_color_info()
                 for _hyb_fd, _infos in self.color_dic.items():
                     for _info in _infos:
-                        if _allowed_kwds[_data_type] in _info:
-                            _uid = int(_info.split(_allowed_kwds[_data_type])[-1])
+                        if self.shared_parameters['allowed_kwds'][_data_type] in _info:
+                            _uid = int(_info.split(self.shared_parameters['allowed_kwds'][_data_type])[-1])
                             if _uid not in _ids:
                                 return False
             # if everything's right, return true
@@ -2750,7 +2758,7 @@ class Cell_Data():
                 pickle.dump(_file_dic, output_handle)
 
         # save unique
-        if _data_type == 'all' or _data_type == 'unique' or _data_type == 'rna-unique':
+        if _data_type == 'all' or _data_type in self.shared_parameters['allowed_kwds']:
             # generate attribute names
             _im_attr = _data_type + '_' + 'ims'
             _id_attr = _data_type + '_' + 'ids'
@@ -2913,7 +2921,7 @@ class Cell_Data():
                 print(f"No cell-info file found for fov:{self.fov_id}, cell:{self.cell_id}, skip!")
 
         ## load unique
-        if _data_type == 'all' or _data_type == 'unique' or _data_type == 'rna-unique':
+        if _data_type == 'all' or _data_type in self.shared_parameters['allowed_kwds']:
             # generate attribute names
             _im_attr = _data_type + '_' + 'ims'
             _id_attr = _data_type + '_' + 'ids'
