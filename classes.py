@@ -2471,7 +2471,7 @@ class Cell_Data():
             self._load_drift()
         # check type
         _data_type = _data_type.lower()
-        _allowed_kwds = {'combo': 'c', 'unique': 'u', 'merfish': 'm', 'rna-unique':'r'}
+        _allowed_kwds = {'combo': 'c', 'unique': 'u', 'merfish': 'm', 'rna-unique':'r', 'gene':'g'}
         if _data_type not in _allowed_kwds:
             raise ValueError(
                 f"Wrong type kwd! {_data_type} is given, {_allowed_kwds} expected.")
@@ -2486,7 +2486,7 @@ class Cell_Data():
             print(f"- Start cropping {_data_type} image")
         _fov_name = self.fovs[self.fov_id]  # name of this field-of-view
         ### unique
-        if _data_type == 'unique' or _data_type =='rna-unique':
+        if _data_type == 'unique' or _data_type =='rna-unique' or _data_type == 'gene':
             # case 1: unique info already loaded in ram
             if hasattr(self, _im_attr) and hasattr(self, _id_attr) and hasattr(self, _channel_attr) \
                 and len(getattr(self, _im_attr)) == len(getattr(self, _id_attr)) \
@@ -2575,7 +2575,7 @@ class Cell_Data():
                 # skip the following if already existed & not overwrite
                 else:
                     if _verbose:
-                        print( f"- all channels in hyb:{_ref_name} already exists in {_im_attr}, skip!")
+                        print( f"- all channels in hyb:{_ref_name} don't belong to {_data_type}, skip!")
 
             ## Multiprocessing for unique_args
             _start_time = time.time()
@@ -3371,11 +3371,10 @@ class Cell_Data():
             _ids = self.decoded_ids
 
         # first check wether requires do it denovo
-        if hasattr(self, _spot_attr) and not _overwrite:
-            if len(getattr(self, _spot_attr)) == len(_ims):
-                if _verbose:
-                    print(f"-- {_spot_attr} already exist for fov:{self.fov_id}, cell:{self.cell_id}.")
-                return getattr(self, _spot_attr)
+        if hasattr(self, _spot_attr) and not _overwrite and len(getattr(self, _spot_attr)) == len(_ims):
+            if _verbose:
+                print(f"-- {_spot_attr} already exist for fov:{self.fov_id}, cell:{self.cell_id}.")
+            return getattr(self, _spot_attr)
         else:
             ## Do the multi-fitting
             if _data_type == 'unique' or _data_type  == 'rna-unique':
@@ -3411,7 +3410,6 @@ class Cell_Data():
                 print(f"++ total time in fitting {_data_type}: {time.time()-_start_time}")
             ## return and save
             if _data_type == 'unique' or _data_type  == 'rna-unique':
-
                 setattr(self, _spot_attr, _spots)
                 if _save:
                     self._save_to_file('cell_info',_save_dic={_spot_attr: getattr(self, _spot_attr)},
@@ -3423,6 +3421,7 @@ class Cell_Data():
                                        _verbose=_verbose)
                 return self.decoded_spots
         return _spots
+
     # pick spots
     def _dynamic_picking_spots(self, _data_type='unique', _use_chrom_coords=True,
                                _w_int=1, _w_dist=2, _w_center=0, 
