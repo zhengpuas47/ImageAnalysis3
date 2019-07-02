@@ -80,7 +80,7 @@ def _fit_single_image(_im, _id, _chrom_coords, _seeding_args, _fitting_args, _ch
 
 # function to allow multi-processing pick spots
 def _pick_spot_in_batch(_cell, _pick_type='EM', _data_type='unique', _use_chrom_coords=True,
-                        _local_size=5, _intensity_th=1,
+                        _sel_ids=None, _local_size=5, _intensity_th=1,
                         _w_ccdist=1, _w_lcdist=1, _w_int=4, _w_nbdist=1,
                         _save_inter_plot=False, _save_to_info=True, _save_plot=True, 
                         _check_spots=True, _check_th=-3, _check_percentile=1.,
@@ -90,7 +90,7 @@ def _pick_spot_in_batch(_cell, _pick_type='EM', _data_type='unique', _use_chrom_
     """_cell: Cell_Data class"""
     # notice: always load in attributes, never return indices in batch format
     _picked_spots = _cell._pick_spots(_data_type=_data_type, _pick_type=_pick_type, _use_chrom_coords=_use_chrom_coords,
-                                      _local_size=_local_size, _intensity_th=_intensity_th,
+                                      _sel_ids=_sel_ids, _local_size=_local_size, _intensity_th=_intensity_th,
                                       _w_ccdist=_w_ccdist, _w_lcdist=_w_lcdist,
                                       _w_int=_w_int, _w_nbdist=_w_nbdist, _save_inter_plot=_save_inter_plot,
                                       _save_to_attr=True, _save_to_info=_save_to_info,
@@ -101,7 +101,7 @@ def _pick_spot_in_batch(_cell, _pick_type='EM', _data_type='unique', _use_chrom_
                                       _overwrite=_overwrite, _verbose=_verbose)
     
     _distmaps = _cell._generate_distance_map(_data_type=_data_type, _pick_type=_pick_type, 
-                                             _save_info=_save_to_info, _save_plot=_save_plot,
+                                             _sel_ids=_sel_ids, _save_info=_save_to_info, _save_plot=_save_plot,
                                              _limits=_plot_limits, _cmap=_cmap, 
                                              _fig_dpi=_fig_dpi, _fig_size=_fig_size, 
                                              _overwrite=_overwrite, _verbose=_verbose)
@@ -1316,7 +1316,7 @@ class Cell_List():
     # new version for batch pick spots
     def _pick_spots_for_cells(self, _data_type='unique', _pick_type='EM', decoded_flag='diff',
                               _num_threads=12, _use_chrom_coords=True, 
-                              _local_size=5, _intensity_th=1,
+                              _sel_ids=None, _local_size=5, _intensity_th=1,
                               _w_ccdist=1, _w_lcdist=0.1, _w_int=1, _w_nbdist=3,
                               _save_inter_plot=False, _save_to_info=True, _save_plot=True,
                               _check_spots=True, _check_th=-3, _check_percentile=1., 
@@ -1341,7 +1341,7 @@ class Cell_List():
 
         for _cell in self.cells:
             _pick_args.append((_cell, _pick_type, _data_type, _use_chrom_coords,
-                               _local_size, _intensity_th,
+                               _sel_ids, _local_size, _intensity_th,
                                _w_ccdist, _w_lcdist, _w_int, _w_nbdist,
                                _save_inter_plot, _save_to_info, _save_plot,
                                _check_spots, _check_th, _check_percentile, 
@@ -3688,8 +3688,15 @@ class Cell_Data():
         if _verbose:
             print(
                 f"- Start {_pick_type} picking {_data_type} spots, fov:{self.fov_id}, cell:{self.cell_id}.")
+        if not hasattr(self, _spot_attr):
+            self._load_from_file('cell_info', _load_attrs=[_spot_attr])
         _all_spots = getattr(self, _spot_attr)
+        if not hasattr(self, _id_attr):
+            self._load_from_file('cell_info', _load_attrs=[_id_attr])
         _ids = getattr(self, _id_attr)
+        if _sel_ids is not None:
+            _ids = [_i for _i in _ids if _i in _sel_ids]
+            _all_spots = [_pts for _i, _pts in zip(_ids, _all_spots) if _i in _sel_ids]
         # if not overwrite:
         if not _overwrite:
             if not hasattr(self, _picked_attr):
@@ -3706,10 +3713,9 @@ class Cell_Data():
             self._load_from_file('cell_info')
             if not hasattr(self, 'chrom_coords'):
                 raise AttributeError(
-                    "No chrom-coords info found in cell-data and saved cell_info.")
+                    f"No chrom-coords info found for fov:{self.fov_id}, cell:{self.cell_id} in cell-data and saved cell_info.")
             if len(getattr(self, 'chrom_coords')) != len(_all_spots):
-                raise ValueError(
-                    "Length of chrom_coords and all_spots doesn't match!")
+                raise ValueError(f"Length of chrom_coords and all_spots for fov:{self.fov_id}, cell:{self.cell_id} doesn't match!")
         elif not _use_chrom_coords and len(_all_spots) != len(_ids):
             if hasattr(self, 'chrom_coords') and len(_all_spots) == len(getattr(self, 'chrom_coords')):
                 print("Probably wrong input for _use_chrom_coords?, switch to True")
@@ -3824,6 +3830,7 @@ class Cell_Data():
             if not hasattr(self, _key_attr):
                 raise AttributeError(f"No {_key_attr} info found in cell-data and saved cell_info.")
         _picked_spots = getattr(self, _key_attr)
+
         if not _use_chrom_coords: 
             _picked_spots = [_picked_spots]  # convert to same order list if not use_chrom_coords
         # check existing saved attr
@@ -3844,9 +3851,10 @@ class Cell_Data():
         if '_distmaps' not in locals():
             # initialize distmaps    
             _distmaps = []
-            for _id, _spots in enumerate(_picked_spots):
+            for _chrom_id, _spots in enumerate(_picked_spots):
                 if _verbose:
-                    print(f"-- generate {_data_type} dist-map for fov:{self.fov_id}, cell:{self.cell_id}, chrom:{_id}")
+                    print(f"-- generate {_data_type} dist-map for fov:{self.fov_id}, cell:{self.cell_id}, chrom:{_chrom_id}")
+                
                 # get zxy coordinates
                 _zxy = np.array(_spots)[:,1:4] * self.shared_parameters['distance_zxy'][np.newaxis,:]
                 # generate distmap
