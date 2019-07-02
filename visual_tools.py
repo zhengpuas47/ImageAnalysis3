@@ -2511,6 +2511,7 @@ def Extract_crop_from_segmentation(segmentation_label, extend_dim=20, single_im_
 def translate_segmentation(old_segmentation, old_dapi_im, new_dapi_im, 
                            rotation_mat=None, rotation_ref_file=None,
                            dapi_channel='405', all_channels=_allowed_colors, 
+                           num_buffer_frames=10, num_empty_frames=1,
                            old_correction_folder=_correction_folder, 
                            new_correction_folder=_correction_folder, 
                            fft_gb=0, fft_max_disp=200, 
@@ -2547,7 +2548,10 @@ def translate_segmentation(old_segmentation, old_dapi_im, new_dapi_im,
         if verbose:
             print(f"-- loading old_dapi_im from file:{old_dapi_im}")
         old_dapi_im = corrections.correct_single_image(old_dapi_im, dapi_channel, all_channels=all_channels,
-                                               correction_folder=old_correction_folder, verbose=verbose) 
+                                               correction_folder=old_correction_folder, 
+                                               num_buffer_frames=num_buffer_frames, 
+                                               num_empty_frames=num_empty_frames,
+                                               verbose=verbose) 
     # new_dapi_im
     if not isinstance(new_dapi_im, str) and not isinstance(new_dapi_im, np.ndarray) and not isinstance(new_dapi_im, np.memmap):
         raise TypeError(f"Wrong data type for new_dapi_im:{type(new_dapi_im)}, np.ndarray or np.memmap expected")
@@ -2555,7 +2559,10 @@ def translate_segmentation(old_segmentation, old_dapi_im, new_dapi_im,
         if verbose:
             print(f"-- loading new_dapi_im from file:{new_dapi_im}")
         new_dapi_im = corrections.correct_single_image(new_dapi_im, dapi_channel, all_channels=all_channels,
-                                               correction_folder=new_correction_folder, verbose=verbose) 
+                                               correction_folder=new_correction_folder, 
+                                               num_buffer_frames=num_buffer_frames, 
+                                               num_empty_frames=num_empty_frames,
+                                               verbose=verbose) 
     # check dimension of rotation_matrix
     if rotation_mat is not None:
         if len(rotation_mat.shape) != 2:

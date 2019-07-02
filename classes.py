@@ -673,7 +673,10 @@ class Cell_List():
                     print(f"++ prepare translating segmentation label:{_old_fl}")
                 # prepare args for multi-processing
                 _arg = (_old_fl, os.path.join(old_dapi_folder, _dapi_im_name), os.path.join(_dapi_fd, _dapi_im_name),
-                        rotation_mat, None, '405', self.channels, _old_correction_folder, _new_correction_folder,
+                        rotation_mat, None, '405', self.channels, 
+                        self.shared_parameters['num_buffer_frames'], 
+                        self.shared_parameters['num_empty_frames'], 
+                        _old_correction_folder, _new_correction_folder,
                         _fft_gb, _fft_max_disp, _return_all, _verbose)
                 _seg_args.append(_arg)
                 _seg_fls.append(_new_fl)
@@ -3631,7 +3634,7 @@ class Cell_Data():
 
     # an integrated function to pick spots
     def _pick_spots(self, _data_type='unique', _pick_type='EM', _use_chrom_coords=True,
-                    _local_size=5, _intensity_th=1, 
+                    _sel_ids=None, _local_size=5, _intensity_th=1, 
                     _w_ccdist=1, _w_lcdist=0.1, _w_int=1, _w_nbdist=3,
                     _save_inter_plot=False, _save_to_attr=True, _save_to_info=True,
                     _check_spots=True, _check_th=-3., _check_percentile=1.,
@@ -3694,7 +3697,7 @@ class Cell_Data():
         # if not overwrite:
         if not _overwrite:
             if not hasattr(self, _picked_attr):
-                self._load_from_file('cell_info', _load_attr=[_picked_attr])
+                self._load_from_file('cell_info', _load_attrs=[_picked_attr])
             if hasattr(self, _picked_attr):
                 _picked_spot_list = getattr(self, _picked_attr)
                 # return if 
@@ -3796,7 +3799,7 @@ class Cell_Data():
         else:
             return _picked_spot_list
 
-    def _generate_distance_map(self, _data_type='unique', _pick_type='EM', 
+    def _generate_distance_map(self, _data_type='unique', _pick_type='EM', _sel_ids=None,
                                _save_info=True, _save_plot=True, _limits=[0, 2000], _cmap='seismic_r',
                                _fig_dpi=300, _fig_size=4, _overwrite=False, _verbose=True):
         """Function to generate distance map"""
@@ -3816,6 +3819,8 @@ class Cell_Data():
             _key_attr = str(_pick_type) + '_picked_' + str(_data_type) + '_spots'
         else:
             _key_attr = 'picked_' + str(_data_type) + '_spots'
+        # id attributes
+        _id_attr = _data_type + '_' + 'ids'
         _save_attr = str(_pick_type) + '_' + str(_data_type) + '_' + 'distance_map'
         # check loading of necessary
         if not hasattr(self, _key_attr):
