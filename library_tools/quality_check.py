@@ -280,6 +280,7 @@ def _check_between_probes(pb_records, int_map, _max_internal_hits=50, primer_len
             print(f"--- Sequence:{record.id} got hits:{_rec_hits}, dumped")
 
     if _make_plot:
+        import matplotlib.pyplot as plt 
         plt.figure()
         plt.hist(_internal_hits)
         plt.show()
