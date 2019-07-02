@@ -940,11 +940,8 @@ class Cell_List():
         for _cell in self.cells:
             if _cell.fov_id not in _used_fov_ids:
                 _used_fov_ids.append(_cell.fov_id)
-        ## combo
-        if _data_type == 'combo':
-            pass
-        ## unique
-        elif _data_type == 'unique' or _data_type == 'rna-unique':
+
+        if _data_type in self.shared_parameters['allowed_data_types']:
             if _verbose:
                 print(f"+ generating unique images for field-of-view:{_used_fov_ids}")
             for _fov_id in _used_fov_ids:
