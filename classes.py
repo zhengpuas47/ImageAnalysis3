@@ -245,7 +245,7 @@ class Cell_List():
         if 'corr_chromatic' not in self.shared_parameters:
             self.shared_parameters['corr_chromatic'] = True
         if 'allowed_kwds' not in self.shared_parameters:
-            self.shared_parameters['allowed_kwds'] = _allowed_kwds
+            self.shared_parameters['allowed_data_types'] = _allowed_kwds
 
         ## chosen field of views
         if len(_chosen_fovs) == 0: # no specification
@@ -926,9 +926,8 @@ class Cell_List():
             print("cell_list is empty, exit.")
         # check type
         _data_type = _data_type.lower()
-        _allowed_data_types = ['combo', 'unique', 'rna-unique', 'merfish']
-        if _data_type not in _allowed_data_types:
-            raise ValueError(f"Wrong _data_type kwd, {_data_type} is given, {_allowed_data_types} are expected")
+        if _data_type not in self.shared_parameters['allowed_data_types']:
+            raise ValueError(f"Wrong _data_type kwd, {_data_type} is given, {self.shared_parameters['allowed_data_types']} are expected")
         # whether load annotated hybs only
         if _load_annotated_only:
             _folders = self.annotated_folders
@@ -2225,7 +2224,7 @@ class Cell_Data():
         if 'corr_chromatic' not in self.shared_parameters:
             self.shared_parameters['corr_chromatic'] = True
         if 'allowed_kwds' not in self.shared_parameters:
-            self.shared_parameters['allowed_kwds'] = _allowed_kwds
+            self.shared_parameters['allowed_data_types'] = _allowed_kwds
 
         # load color info
         if not hasattr(self, 'color_dic') or not hasattr(self, 'channels'):
@@ -2481,9 +2480,9 @@ class Cell_Data():
             self._load_drift()
         # check type
         _data_type = _data_type.lower()
-        if _data_type not in self.shared_parameters['allowed_kwds']:
+        if _data_type not in self.shared_parameters['allowed_data_types']:
             raise ValueError(
-                f"Wrong type kwd! {_data_type} is given, {self.shared_parameters['allowed_kwds']} expected.")
+                f"Wrong type kwd! {_data_type} is given, {self.shared_parameters['allowed_data_types']} expected.")
         # generate attribute names
         _im_attr = _data_type + '_' + 'ims'
         _id_attr = _data_type + '_' + 'ids'
@@ -2495,7 +2494,7 @@ class Cell_Data():
             print(f"- Start cropping {_data_type} image")
         _fov_name = self.fovs[self.fov_id]  # name of this field-of-view
         ### unique
-        if _data_type in self.shared_parameters['allowed_kwds']:
+        if _data_type in self.shared_parameters['allowed_data_types']:
             # case 1: unique info already loaded in ram
             if hasattr(self, _im_attr) and hasattr(self, _id_attr) and hasattr(self, _channel_attr) \
                 and len(getattr(self, _im_attr)) == len(getattr(self, _id_attr)) \
@@ -2534,12 +2533,12 @@ class Cell_Data():
                 _sel_ids = []
                 for _channel, _info in zip(self.channels[:len(_infos)], _infos):
                     # if keyword type matches:
-                    if self.shared_parameters['allowed_kwds'][_data_type] in _info:
+                    if self.shared_parameters['allowed_data_types'][_data_type] in _info:
                         # if this channel requires loading:
-                        if _overwrite or int(_info.split(self.shared_parameters['allowed_kwds'][_data_type])[1]) not in _ids:
+                        if _overwrite or int(_info.split(self.shared_parameters['allowed_data_types'][_data_type])[1]) not in _ids:
                             # append _sel_channel
                             _sel_channels.append(_channel)
-                            _sel_ids.append(int(_info.split(self.shared_parameters['allowed_kwds'][_data_type])[1]) )
+                            _sel_ids.append(int(_info.split(self.shared_parameters['allowed_data_types'][_data_type])[1]) )
                 # do cropping if there are any channels selected:
                 if len(_sel_channels) > 0:
                     # match to annotated_folders
@@ -2653,9 +2652,9 @@ class Cell_Data():
         """Function to check whether files for a certain type exists"""
         # check inputs
         _data_type = _data_type.lower()
-        if _data_type not in self.shared_parameters['allowed_kwds']:
+        if _data_type not in self.shared_parameters['allowed_data_types']:
             raise ValueError(
-                f"Wrong type kwd! {_data_type} is given, {self.shared_parameters['allowed_kwds']} expected.")
+                f"Wrong type kwd! {_data_type} is given, {self.shared_parameters['allowed_data_types']} expected.")
         # start checking 
         if _data_type == 'unique' or _data_type == 'rna-unique':
             # generate attribute names
@@ -2682,8 +2681,8 @@ class Cell_Data():
                     self._load_color_info()
                 for _hyb_fd, _infos in self.color_dic.items():
                     for _info in _infos:
-                        if self.shared_parameters['allowed_kwds'][_data_type] in _info:
-                            _uid = int(_info.split(self.shared_parameters['allowed_kwds'][_data_type])[-1])
+                        if self.shared_parameters['allowed_data_types'][_data_type] in _info:
+                            _uid = int(_info.split(self.shared_parameters['allowed_data_types'][_data_type])[-1])
                             if _uid not in _ids:
                                 return False
             # if everything's right, return true
@@ -2756,7 +2755,7 @@ class Cell_Data():
                 pickle.dump(_file_dic, output_handle)
 
         # save unique
-        if _data_type == 'all' or _data_type in self.shared_parameters['allowed_kwds']:
+        if _data_type == 'all' or _data_type in self.shared_parameters['allowed_data_types']:
             # generate attribute names
             _im_attr = _data_type + '_' + 'ims'
             _id_attr = _data_type + '_' + 'ids'
@@ -2919,7 +2918,7 @@ class Cell_Data():
                 print(f"No cell-info file found for fov:{self.fov_id}, cell:{self.cell_id}, skip!")
 
         ## load unique
-        if _data_type == 'all' or _data_type in self.shared_parameters['allowed_kwds']:
+        if _data_type == 'all' or _data_type in self.shared_parameters['allowed_data_types']:
             # generate attribute names
             _im_attr = _data_type + '_' + 'ims'
             _id_attr = _data_type + '_' + 'ids'
