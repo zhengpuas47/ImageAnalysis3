@@ -151,8 +151,7 @@ def Calculate_Bead_Drift(folders, fovs, fov_id, num_threads=12, drift_size=500, 
         old_ref_frame = None
     if not sequential_mode:
         if verbose:
-            print(
-                f"- Start drift-correction with {num_threads} threads, image mapped to image:{ref_id}")
+            print(f"- Start drift-correction with {num_threads} threads, image mapped to image:{ref_id}")
         ## get all reference information
         # ref filename
         _ref_filename = os.path.join(
@@ -168,8 +167,8 @@ def Calculate_Bead_Drift(folders, fovs, fov_id, num_threads=12, drift_size=500, 
                                         single_im_size=single_im_size, all_channels=all_channels, 
                                         num_buffer_frames=num_buffer_frames,
                                         num_empty_frames=num_empty_frames,
+                                        correction_folder=correction_folder,
                                         illumination_corr=illumination_corr, verbose=verbose)
-            print(np.max(_ref_im))
             _ref_center = visual_tools.get_STD_centers(_ref_im, dynamic=True, th_seed_percentile=ref_seed_per,
                                                        sort_by_h=True, verbose=verbose)
             # limit ref points
@@ -879,7 +878,14 @@ def generate_chromatic_abbrevation_from_spots(corr_spots, ref_spots, corr_channe
         raise ValueError(f"corr_channel given:{corr_channel} is not valid, {_allowed_colors} are expected")
     if str(ref_channel) not in _allowed_colors:
         raise ValueError(f"corr_channel given:{ref_channel} is not valid, {_allowed_colors} are expected")
-        
+    # fitting_order
+    if isinstance(fitting_order, int):
+        fitting_order = [fitting_order]*3
+    elif isinstance(fitting_order, list):
+        if len(fitting_order) != 3:
+            raise ValueError(f"Wrong length of fitting_order, should be 3")
+    else:
+        raise TypeError(f"Wrong input type of fitting order, should be list or int")
     ## savefile
     filename_base = save_name + str(corr_channel)+'_'+str(ref_channel)+'_'+str(image_size[1])+'x'+str(image_size[2])
     saved_profile_filename = os.path.join(correction_folder, filename_base+'.npy')
@@ -903,31 +909,34 @@ def generate_chromatic_abbrevation_from_spots(corr_spots, ref_spots, corr_channe
         ref_spots, corr_spots = np.array(ref_spots), np.array(corr_spots) # convert to array
         _x = ref_spots[:,1]
         _y = ref_spots[:,2]
-        _data = [] # variables in polyfit
-        for _order in range(fitting_order+1): # loop through different orders
-            for _p in range(_order+1):
-                _data.append(_x**_p * _y**(_order-_p))
-        _data = np.array(_data).transpose()
+
 
         for _i in range(3): # 3D
             if verbose:
-                print(f"-- fitting chromatic-abbrevation in axis {_i} with order:{fitting_order}")
+                print(f"-- fitting chromatic-abbrevation in axis {_i} with order:{fitting_order[_i]}")
+            # ref
+            _data = [] # variables in polyfit
+            for _order in range(fitting_order[_i]+1): # loop through different orders
+                for _p in range(_order+1):
+                    _data.append(_x**_p * _y**(_order-_p))
+            _data = np.array(_data).transpose()
+            # corr
             _value =  corr_spots[:,_i] - ref_spots[:,_i] # target-value for polyfit
             _C,_r,_r2,_r3 = scipy.linalg.lstsq(_data, _value)    # coefficients and residues
             _cac_consts.append(_C) # store correction constants
-            _rsquare =  1 - np.var(_data.dot(_C) - _value)/np.var(_value)
+            _rsquare =  1 - np.mean((_data.dot(_C) - _value)**2)/np.var(_value)
             if verbose:
                 print(f"--- fitted rsquare:{_rsquare}")
 
             ## generate correction function
-            def _get_shift(coords):
+            def _get_shift(coords, forder=fitting_order[_i]):
                 # traslate into 2d
                 if len(coords.shape) == 1:
                     coords = coords[np.newaxis,:]
                 _cx = coords[:,1]
                 _cy = coords[:,2]
                 _corr_data = []
-                for _order in range(fitting_order+1):
+                for _order in range(forder+1):
                     for _p in range(_order+1):
                         _corr_data.append(_cx**_p * _cy**(_order-_p))
                 _shift = np.dot(np.array(_corr_data).transpose(), _C)
@@ -990,7 +999,7 @@ def Generate_chromatic_abbrevation(target_folder, ref_folder, target_channel, re
                                    th_seed=500, crop_window=9,
                                    remove_boundary_pts=True, rsq_th=0.81, fitting_order=2,
                                    save_temp=True, make_plot=True, save=True, save_name='chromatic_correction_',
-                                   overwrite=False, verbose=True):
+                                   overwrite_info=False, overwrite_profile=False, verbose=True):
     """Function to generate chromatic abbrevation correction profile
     Inputs:
 
@@ -1032,7 +1041,7 @@ def Generate_chromatic_abbrevation(target_folder, ref_folder, target_channel, re
             single_im_size, all_channels, bead_channel, bead_drift_size, bead_coord_sel,
             num_buffer_frames, num_empty_frames, correction_folder, normalization, 
             illumination_corr, th_seed, crop_window, remove_boundary_pts, rsq_th, 
-            save_temp, overwrite, verbose))
+            save_temp, overwrite_info, verbose))
     
     # multi-processing
     with mp.Pool(num_threads) as _ca_pool:
@@ -1053,7 +1062,8 @@ def Generate_chromatic_abbrevation(target_folder, ref_folder, target_channel, re
     return generate_chromatic_abbrevation_from_spots(ca_centers, ref_centers, target_channel, ref_channel,
                                                      image_size=single_im_size, fitting_order=fitting_order,
                                                      correction_folder=correction_folder, make_plot=make_plot,
-                                                     save=save, save_name=save_name, force=overwrite, verbose=verbose)
+                                                     save=save, save_name=save_name, 
+                                                     force=overwrite_profile, verbose=verbose)
 
 
 def load_correction_profile(channel, corr_type, correction_folder=_correction_folder, ref_channel='647', 

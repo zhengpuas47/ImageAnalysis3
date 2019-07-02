@@ -153,6 +153,7 @@ def align_single_image(_filename, _selected_crops, _ref_filename=None, _ref_ims=
                                                    all_channels=_all_channels, 
                                                    num_buffer_frames=_num_buffer_frames,
                                                    num_empty_frames=_num_empty_frames,
+                                                   correction_folder=_correction_folder,
                                                    illumination_corr=_illumination_corr)
         # get reference images
         if _ref_ims is None:
@@ -161,7 +162,8 @@ def align_single_image(_filename, _selected_crops, _ref_filename=None, _ref_ims=
                                                        all_channels=_all_channels, 
                                                        num_buffer_frames=_num_buffer_frames,
                                                        num_empty_frames=_num_empty_frames,
-                                                       illumination_corr=_illumination_corr)
+                                                       correction_folder=_correction_folder,
+                                                       illumination_corr=_illumination_corr,)
         else:
             _ref_im = _ref_ims[_i].copy()
         # get ref center

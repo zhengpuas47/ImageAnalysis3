@@ -16,6 +16,12 @@ from functools import partial
 import matplotlib
 import matplotlib.pyplot as plt
 
+_allowed_kwds = {'combo': 'c', 
+                'decoded':'d',
+                'unique': 'u', 
+                'merfish': 'm', 
+                'rna-unique':'r', 
+                'gene':'g'}
 
 def killtree(pid, including_parent=False, verbose=False):
     parent = psutil.Process(pid)
@@ -238,6 +244,8 @@ class Cell_List():
             self.shared_parameters['corr_illumination'] = True
         if 'corr_chromatic' not in self.shared_parameters:
             self.shared_parameters['corr_chromatic'] = True
+        if 'allowed_kwds' not in self.shared_parameters:
+            self.shared_parameters['allowed_kwds'] = _allowed_kwds
 
         ## chosen field of views
         if len(_chosen_fovs) == 0: # no specification
@@ -806,6 +814,7 @@ class Cell_List():
                 num_buffer_frames=self.shared_parameters['num_buffer_frames'], 
                 num_empty_frames=self.shared_parameters['num_empty_frames'], 
                 illumination_correction=self.shared_parameters['corr_illumination'],
+                correction_folder=self.correction_folder, 
                 num_threads=_num_threads, make_plot=_plot_segmentation, return_images=False,
                 save=_save, save_npy=True, save_folder=self.segmentation_folder, force=False,verbose=_verbose)
             # extract result segmentation and image
@@ -836,6 +845,7 @@ class Cell_List():
                                             num_buffer_frames=self.shared_parameters['num_buffer_frames'], 
                                             num_empty_frames=self.shared_parameters['num_empty_frames'], 
                                             illumination_corr=self.shared_parameters['corr_illumination'],
+                                            correction_folder=self.correction_folder,
                                             ref_id=_drift_ref, drift_size=_drift_size, save_postfix=_drift_postfix, 
                                             coord_sel=_coord_sel, stringent=_stringent,
                                             overwrite=_force_drift, verbose=_verbose)
@@ -2214,6 +2224,8 @@ class Cell_Data():
             self.shared_parameters['corr_illumination'] = True
         if 'corr_chromatic' not in self.shared_parameters:
             self.shared_parameters['corr_chromatic'] = True
+        if 'allowed_kwds' not in self.shared_parameters:
+            self.shared_parameters['allowed_kwds'] = _allowed_kwds
 
         # load color info
         if not hasattr(self, 'color_dic') or not hasattr(self, 'channels'):
@@ -2469,10 +2481,9 @@ class Cell_Data():
             self._load_drift()
         # check type
         _data_type = _data_type.lower()
-        _allowed_kwds = {'combo': 'c', 'unique': 'u', 'merfish': 'm', 'rna-unique':'r'}
-        if _data_type not in _allowed_kwds:
+        if _data_type not in self.shared_parameters['allowed_kwds']:
             raise ValueError(
-                f"Wrong type kwd! {_data_type} is given, {_allowed_kwds} expected.")
+                f"Wrong type kwd! {_data_type} is given, {self.shared_parameters['allowed_kwds']} expected.")
         # generate attribute names
         _im_attr = _data_type + '_' + 'ims'
         _id_attr = _data_type + '_' + 'ids'
@@ -2484,7 +2495,7 @@ class Cell_Data():
             print(f"- Start cropping {_data_type} image")
         _fov_name = self.fovs[self.fov_id]  # name of this field-of-view
         ### unique
-        if _data_type == 'unique' or _data_type =='rna-unique':
+        if _data_type in self.shared_parameters['allowed_kwds']:
             # case 1: unique info already loaded in ram
             if hasattr(self, _im_attr) and hasattr(self, _id_attr) and hasattr(self, _channel_attr) \
                 and len(getattr(self, _im_attr)) == len(getattr(self, _id_attr)) \
@@ -2523,12 +2534,12 @@ class Cell_Data():
                 _sel_ids = []
                 for _channel, _info in zip(self.channels[:len(_infos)], _infos):
                     # if keyword type matches:
-                    if _allowed_kwds[_data_type] in _info:
+                    if self.shared_parameters['allowed_kwds'][_data_type] in _info:
                         # if this channel requires loading:
-                        if _overwrite or int(_info.split(_allowed_kwds[_data_type])[1]) not in _ids:
+                        if _overwrite or int(_info.split(self.shared_parameters['allowed_kwds'][_data_type])[1]) not in _ids:
                             # append _sel_channel
                             _sel_channels.append(_channel)
-                            _sel_ids.append(int(_info.split(_allowed_kwds[_data_type])[1]) )
+                            _sel_ids.append(int(_info.split(self.shared_parameters['allowed_kwds'][_data_type])[1]) )
                 # do cropping if there are any channels selected:
                 if len(_sel_channels) > 0:
                     # match to annotated_folders
@@ -2567,13 +2578,15 @@ class Cell_Data():
                         _args.append(_new_arg)
                     # if not uniquely-matched, skip
                     else:
-                        print(
-                            f"Ref_name:{_ref_name} has non-unique matches:{_matched_folders}, skip!")
+                        if len(_matched_folders) > 1:
+                            print(f"Ref_name:{_ref_name} has non-unique matches:{_matched_folders}, skip!")
+                        if len(_matched_folders) == 0:
+                            print(f"Ref_name:{_ref_name} has no corresponding folder, skip.")
                         continue
                 # skip the following if already existed & not overwrite
                 else:
                     if _verbose:
-                        print( f"- all channels in hyb:{_ref_name} already exists in {_im_attr}, skip!")
+                        print( f"- all channels in hyb:{_ref_name} don't belong to {_data_type}, skip!")
 
             ## Multiprocessing for unique_args
             _start_time = time.time()
@@ -2634,20 +2647,15 @@ class Cell_Data():
 
             return _sorted_ims, _sorted_ids, _sorted_channels
 
-        elif _data_type == 'combo':
-            pass
-        elif _data_type == 'decoded':
-            pass
 
     # function to give boolean output of whether a centain type of images are fully generated
     def _check_full_set(self, _data_type, _decoded_flag='diff', _verbose=False):
         """Function to check whether files for a certain type exists"""
         # check inputs
         _data_type = _data_type.lower()
-        _allowed_kwds = {'combo': 'c', 'unique': 'u', 'merfish': 'm', 'rna-unique':'r'}
-        if _data_type not in _allowed_kwds:
+        if _data_type not in self.shared_parameters['allowed_kwds']:
             raise ValueError(
-                f"Wrong type kwd! {_data_type} is given, {_allowed_kwds} expected.")
+                f"Wrong type kwd! {_data_type} is given, {self.shared_parameters['allowed_kwds']} expected.")
         # start checking 
         if _data_type == 'unique' or _data_type == 'rna-unique':
             # generate attribute names
@@ -2674,8 +2682,8 @@ class Cell_Data():
                     self._load_color_info()
                 for _hyb_fd, _infos in self.color_dic.items():
                     for _info in _infos:
-                        if _allowed_kwds[_data_type] in _info:
-                            _uid = int(_info.split(_allowed_kwds[_data_type])[-1])
+                        if self.shared_parameters['allowed_kwds'][_data_type] in _info:
+                            _uid = int(_info.split(self.shared_parameters['allowed_kwds'][_data_type])[-1])
                             if _uid not in _ids:
                                 return False
             # if everything's right, return true
@@ -2748,7 +2756,7 @@ class Cell_Data():
                 pickle.dump(_file_dic, output_handle)
 
         # save unique
-        if _data_type == 'all' or _data_type == 'unique' or _data_type == 'rna-unique':
+        if _data_type == 'all' or _data_type in self.shared_parameters['allowed_kwds']:
             # generate attribute names
             _im_attr = _data_type + '_' + 'ims'
             _id_attr = _data_type + '_' + 'ids'
@@ -2911,7 +2919,7 @@ class Cell_Data():
                 print(f"No cell-info file found for fov:{self.fov_id}, cell:{self.cell_id}, skip!")
 
         ## load unique
-        if _data_type == 'all' or _data_type == 'unique' or _data_type == 'rna-unique':
+        if _data_type == 'all' or _data_type in self.shared_parameters['allowed_kwds']:
             # generate attribute names
             _im_attr = _data_type + '_' + 'ims'
             _id_attr = _data_type + '_' + 'ids'
@@ -3369,11 +3377,10 @@ class Cell_Data():
             _ids = self.decoded_ids
 
         # first check wether requires do it denovo
-        if hasattr(self, _spot_attr) and not _overwrite:
-            if len(getattr(self, _spot_attr)) == len(_ims):
-                if _verbose:
-                    print(f"-- {_spot_attr} already exist for fov:{self.fov_id}, cell:{self.cell_id}.")
-                return getattr(self, _spot_attr)
+        if hasattr(self, _spot_attr) and not _overwrite and len(getattr(self, _spot_attr)) == len(_ims):
+            if _verbose:
+                print(f"-- {_spot_attr} already exist for fov:{self.fov_id}, cell:{self.cell_id}.")
+            return getattr(self, _spot_attr)
         else:
             ## Do the multi-fitting
             if _data_type == 'unique' or _data_type  == 'rna-unique':
@@ -3409,7 +3416,6 @@ class Cell_Data():
                 print(f"++ total time in fitting {_data_type}: {time.time()-_start_time}")
             ## return and save
             if _data_type == 'unique' or _data_type  == 'rna-unique':
-
                 setattr(self, _spot_attr, _spots)
                 if _save:
                     self._save_to_file('cell_info',_save_dic={_spot_attr: getattr(self, _spot_attr)},
@@ -3421,6 +3427,7 @@ class Cell_Data():
                                        _verbose=_verbose)
                 return self.decoded_spots
         return _spots
+
     # pick spots
     def _dynamic_picking_spots(self, _data_type='unique', _use_chrom_coords=True,
                                _w_int=1, _w_dist=2, _w_center=0, 
@@ -3687,7 +3694,7 @@ class Cell_Data():
         # if not overwrite:
         if not _overwrite:
             if not hasattr(self, _picked_attr):
-                self._load_from_file('cell_info')
+                self._load_from_file('cell_info', _load_attr=[_picked_attr])
             if hasattr(self, _picked_attr):
                 _picked_spot_list = getattr(self, _picked_attr)
                 # return if 
@@ -3812,21 +3819,28 @@ class Cell_Data():
         _save_attr = str(_pick_type) + '_' + str(_data_type) + '_' + 'distance_map'
         # check loading of necessary
         if not hasattr(self, _key_attr):
-            self._load_from_file('distance_map', _distmap_data=_data_type, _distmap_pick=_pick_type)
+            self._load_from_file('cell_info', _load_attrs=[_key_attr])
             if not hasattr(self, _key_attr):
                 raise AttributeError(f"No {_key_attr} info found in cell-data and saved cell_info.")
         _picked_spots = getattr(self, _key_attr)
+        if not _use_chrom_coords: 
+            _picked_spots = [_picked_spots]  # convert to same order list if not use_chrom_coords
+        # check existing saved attr
+        if not hasattr(self, _save_attr):
+            self._load_from_file('distance_map', _distmap_data=_data_type, _distmap_pick=_pick_type)
         if hasattr(self, _save_attr) and not _overwrite:
             if _verbose:
                 print(f"-- directly load {_save_attr} from fov:{self.fov_id}, cell:{self.cell_id}")
-            # turn off saving if directly loading
-            _save_info = False 
             # loading
             _distmaps = getattr(self, _save_attr)
-        else:
-            ## loop through chrom_coords and make distance map
-            if not _use_chrom_coords:
-                _picked_spots = [_picked_spots]
+            # check size of this distance_map is same as picked_spots, which means picked spots are not updated
+            for _distmap,_spots in zip(_distmaps, _picked_spots):
+                if len(_spots) != len(_distmap):
+                    del(_distmaps) # clear distmaps
+                    break
+
+        ## try to generate new ones of distmaps not exists
+        if '_distmaps' not in locals():
             # initialize distmaps    
             _distmaps = []
             for _id, _spots in enumerate(_picked_spots):
@@ -3840,6 +3854,9 @@ class Cell_Data():
                 _distmap[_distmap == np.inf] = np.nan
                 # append 
                 _distmaps.append(_distmap)
+            # do the saving here
+            if _save_info:
+                self._save_to_file('distance_map', _save_dic={_save_attr: _distmaps}, _verbose=_verbose)
         
         ## make plot         
         for _id, _distmap in enumerate(_distmaps):
@@ -3861,8 +3878,6 @@ class Cell_Data():
         
         # append into attribute and save
         setattr(self, _save_attr, _distmaps)
-        if _save_info:
-            self._save_to_file('distance_map', _save_dic={_save_attr: _distmaps}, _verbose=_verbose)
 
         # return
         return _distmaps
