@@ -3326,9 +3326,8 @@ class Cell_Data():
                        _check_fitting=True, _save=True, _overwrite=False, _verbose=True):
         """Function for multi-fitting for chromosomes in cell_data"""
         # first check Inputs
-        _allowed_types = ['unique', 'decoded', 'rna-unique']
         _data_type = _data_type.lower()
-        if _data_type not in _allowed_types:
+        if _data_type not in self.shared_parameters['allowed_data_types']:
             raise KeyError(f"Wrong input key for _data_type:{_data_type}")
         # generate attribute names
         _im_attr = _data_type + '_' + 'ims'
@@ -3349,7 +3348,7 @@ class Cell_Data():
         if _verbose:
             print(f"- Start multi-fitting for {_data_type} images")
         # check specific attributes
-        if _data_type == 'unique' or _data_type == 'rna-unique':
+        if _data_type in self.shared_parameters['allowed_data_types']:
             # check attributes
             if not hasattr(self, _im_attr) or not hasattr(self, _id_attr):
                 _temp_flag = True # this means the unique images are temporarily loaded
@@ -3360,16 +3359,7 @@ class Cell_Data():
             # in both cases set ims and ids
             _ims = getattr(self, _im_attr)
             _ids = getattr(self, _id_attr)
-        elif _data_type == 'decoded':
-            # check attributes
-            if not hasattr(self, 'decoded_ims') or not hasattr(self, 'decoded_ids'):
-                _temp_flag = True  # this means the unique images are temporarily loaded
-                print("++ no decoded image info loaded to this cell, try loading:")
-                self._load_from_file('decoded', _decoded_flag=_decoded_flag, _overwrite=False, _verbose=_verbose)
-            else:
-                _temp_flag = False  # not temporarily loaded
-            _ims = self.decoded_ims
-            _ids = self.decoded_ids
+
 
         # first check wether requires do it denovo
         if hasattr(self, _spot_attr) and not _overwrite and len(getattr(self, _spot_attr)) == len(_ims):
@@ -3378,13 +3368,10 @@ class Cell_Data():
             return getattr(self, _spot_attr)
         else:
             ## Do the multi-fitting
-            if _data_type == 'unique' or _data_type  == 'rna-unique':
+            if _data_type in self.shared_parameters['allowed_data_types']:
                 _seeding_args = (_max_seed_count, _fit_window, _gfilt_size, _background_gfilt_size, _max_filt_size, _seed_th_per, 300, True, 10, _min_seed_count, 0, False)
                 _fitting_args = (_fit_radius, 1, 2.5, _max_iter, 0.1, self.shared_parameters['sigma_zxy'], _expect_weight)
-            elif _data_type == 'decoded':
-                _seeding_args = (_max_seed_count, _fit_window, _gfilt_size, _background_gfilt_size, _max_filt_size, _seed_th_per, 300, True, 10, _min_seed_count, 0, False)
-                _fitting_args = (_fit_radius, 1, 2.5, _max_iter, 0.1, self.shared_parameters['sigma_zxy'], _expect_weight/1000)
-            # merge arguments
+                    # merge arguments
             if _use_chrom_coords:
                 _args = [(_im, _id, self.chrom_coords, _seeding_args, _fitting_args, 
                         _check_fitting, _normalization, _verbose) for _im, _id in zip(_ims, _ids)]
