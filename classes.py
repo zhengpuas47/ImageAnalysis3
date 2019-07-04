@@ -2890,7 +2890,8 @@ class Cell_Data():
         """
         # check input
         _data_type=str(_data_type).lower()
-        if _data_type not in ['all', 'cell_info', 'unique', 'rna-unique' ,'combo', 'decoded','distance_map']:
+        if _data_type not in ['all', 'cell_info', 'distance_map'] \ 
+                and _data_type not in self.shared_parameters['allowed_data_types']:
             raise ValueError(f"Wrong _data_type kwd ({_data_type}) given!")
         if not _save_folder and not hasattr(self, 'save_folder'):
             raise ValueError('Save folder info not given!')
