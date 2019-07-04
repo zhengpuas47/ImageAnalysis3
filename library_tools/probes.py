@@ -16,7 +16,7 @@ from . import LibraryTools as lt
 # shared variables
 from . import _rand_seq_generator
 from . import _primer_folder, _readout_folder, _genome_folder
-
+from . import quality_check
 # Load probes
 def _load_probes_in_folder(report_folder, pb_postfix='.pbr', save_folder=None):
 
