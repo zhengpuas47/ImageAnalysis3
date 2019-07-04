@@ -493,3 +493,60 @@ def Select_subset(input_probes, select_num=None, select_size=None,
     else:
 
         return _sel_pb_records
+
+
+def Replace_primers(input_probes, primers, primer_len=20, primer_nametag='primer_',
+                    save=True, save_folder=None, save_name=None, 
+                    verbose=True):
+    """Function to replace primer set in given library"""
+    if verbose:
+        print(f"- Start replacing primers")
+    if isinstance(input_probes, str):
+        if os.path.isfile(input_probes):
+            with open(input_probes, 'r') as _handle:
+                _pb_records = []
+                for _record in SeqIO.parse(_handle, "fasta"):
+                    _pb_records.append(_record)
+        else:
+            raise IOError(f"Input file:{input_probes} not exists!")
+    elif isinstance(input_probes, list) and isinstance(input_probes[0], SeqRecord):
+        _pb_records = input_probes
+    else:
+        raise TypeError(f"Wrong input type of input_probes, should be list of SeqRecords or string of file-path")
+    # get primers
+    fwd_primer, rev_primer = primers
+    fwd_seq = fwd_primer[-primer_len:].seq
+    rev_seq = rev_primer[-primer_len:].reverse_complement().seq
+    
+    # update primers
+    _updated_records = []
+    for _pb in _pb_records:
+        _new_pb = _pb
+        _new_pb.seq = fwd_seq + _pb.seq[primer_len:-primer_len] + rev_seq
+        _new_pb.name, _new_pb.description = '',''
+        _updated_records.append(_new_pb)
+        if primer_nametag in _pb.id:
+            _new_pb.id = _pb.id.split(primer_nametag)[0]+primer_nametag+\
+                f"[{fwd_primer.id.split('_')[-1]},{rev_primer.id.split('_')[-1]}]"+\
+                _pb.id.split(_pb.id.split(primer_nametag)[1].split('_')[0])[1]
+    if save:
+        if isinstance(input_probes, str):
+            save_basename = os.path.basename(input_probes)
+        else:
+            save_basename = 'probes_new.fasta'
+        save_basename = save_basename.replace('.fasta', f"_primer_{fwd_primer.id.split('_')[-1]}_{rev_primer.id.split('_')[-1]}.fasta")
+        if isinstance(input_probes, str) and save_folder is None:
+            save_folder = os.path.dirname(input_probes)
+        elif save_folder is not None:
+            if not os.path.exists(save_folder):
+                os.makedirs(save_folder)
+        else:
+            raise ValueError(f"save_folder is not given!")
+
+        save_filename = os.path.join(save_folder, save_basename)
+        with open(save_filename, 'w') as _output_handle:
+            if verbose:
+                print(f"-- saving to file: {save_filename}")
+            SeqIO.write(_updated_records, _output_handle, "fasta")
+
+    return _updated_records
