@@ -485,7 +485,7 @@ def Select_subset(input_probes, select_num=None, select_size=None,
 
         with open(save_filename, 'w') as _output_handle:
             if verbose:
-                print(f"-- saving to file: {save_filename}")
+                print(f"-- saving to file: {save_filename} with {len(_sel_pb_records)} probes")
             SeqIO.write(_sel_pb_records, _output_handle, "fasta")
             
     if return_dict:
@@ -546,7 +546,7 @@ def Replace_primers(input_probes, primers, primer_len=20, primer_nametag='primer
         save_filename = os.path.join(save_folder, save_basename)
         with open(save_filename, 'w') as _output_handle:
             if verbose:
-                print(f"-- saving to file: {save_filename}")
+                print(f"-- saving to file: {save_filename} with {len(_updated_records)} probes")
             SeqIO.write(_updated_records, _output_handle, "fasta")
 
     return _updated_records
