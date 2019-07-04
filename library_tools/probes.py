@@ -409,7 +409,7 @@ def Select_subset(input_probes, select_num=None, select_size=None,
     if select_num is None and select_size is None:
         raise ValueError(f"At least one of select_num and select_size should be given. ")
     # probe dict
-    pb_dic = qc.split_probe_by_gene(_pb_records, species_marker=region_marker)
+    pb_dic = quality_check.split_probe_by_gene(_pb_records, species_marker=region_marker)
     # keep record of region length
     _reg_size_dic = {}
     # sort probes and also check region size
@@ -433,7 +433,7 @@ def Select_subset(input_probes, select_num=None, select_size=None,
             elif select_num is not None:
                 _sel_inds = np.argsort(_metric)[:select_num]
 
-        elif sel_mode == 'left':
+        elif select_mode == 'left':
             _metric = _pb_coords
             if select_size is not None:
                 _sel_inds = np.where(_metric <= select_size/2)[0]
@@ -442,7 +442,7 @@ def Select_subset(input_probes, select_num=None, select_size=None,
             elif select_num is not None:
                 _sel_inds = np.argsort(_metric)[:select_num]
         
-        elif sel_mode == 'right':
+        elif select_mode == 'right':
             _metric = _reg_size_dic[_reg_id] - _pb_coords
             if select_size is not None:
                 _sel_inds = np.where(_metric <= select_size/2)[0]
