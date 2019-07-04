@@ -1307,7 +1307,8 @@ class mark_boundaries:
     #Bogdan Bintu
     #Copyright Presidents and Fellows of Harvard College, 2017.
     """
-    def __init__(self,ims,fig=None,image_names=None,plot_limits=[0,1000],save_file=None):
+    def __init__(self,ims,fig=None,image_names=None,plot_limits=[0,1000],
+                 save_file=None, scale_percentile=95):
         """
         This is a class which controls an interactive maplotlib figure.
         Intended for navigating and interacting with 'spot'-like data that is spread across multiple images <ims>.
@@ -1335,7 +1336,8 @@ class mark_boundaries:
         else:
             self.image_names = image_names
         self.save_file = save_file
-        
+        self.scale_percentile = scale_percentile
+
         #define extra vars
         self.dic_min_max = {} #kees record of the min-max for adjusting contrast for the images
         self.class_ids = []
@@ -1406,9 +1408,19 @@ class mark_boundaries:
         if event.key== 'a':
             self.index_im = (self.index_im-1)%len(self.ims)
             self.set_image()
+        if event.key== 'e':
+            self.index_im = (self.index_im+20)%len(self.ims)
+            self.set_image()
+        if event.key== 'q':
+            self.index_im = (self.index_im-20)%len(self.ims)
+            self.set_image()
         if event.key== 'x':
             self.auto_scale()
-        if event.key== 'y':
+        if event.key== 'z':
+            self.scale_up()
+        if event.key== 'c':
+            self.scale_down()    
+        if event.key== 'f':
             self.fit()
         if event.key == 'delete':
             self.draw_x.pop(-1)
@@ -1451,14 +1463,38 @@ class mark_boundaries:
             save_dic['names']=self.image_names
             pickle.dump(save_dic,fid)
             fid.close()
-    def auto_scale(self):
+    def auto_scale(self, percentile=95):
+        from scipy.stats import scoreatpercentile
         x_min,x_max,y_min,y_max = self.get_limits()
         im_chop = np.array(self.im_[x_min:x_max,y_min:y_max])
-        min_,max_ = np.min(im_chop),np.max(im_chop)
+
+        min_ = scoreatpercentile(im_chop[np.isnan(im_chop)==False], 100-self.scale_percentile)
+        max_ = scoreatpercentile(im_chop[np.isnan(im_chop)==False], self.scale_percentile)
+        #min_,max_ = np.nanmin(im_chop),np.nanmax(im_chop)
+        _range = max_ - min_
         self.imshow_xy.set_clim(min_,max_)
-        self.dic_min_max[self.index_im] = [min_,max_]
+        self.dic_min_max[self.index_im] = [min_, max_]
+        self.f.canvas.draw()
+    
+    def scale_up(self, factor=1.1):
+        if self.index_im in self.dic_min_max:
+            min_, max_ = self.dic_min_max[self.index_im]
+        else:
+            min_, max_ = self.min_, self.max_
+        new_min_, new_max_ = min_*factor, max_*factor
+        self.imshow_xy.set_clim(new_min_,new_max_)
+        self.dic_min_max[self.index_im] = [new_min_, new_max_]
         self.f.canvas.draw()
 
+    def scale_down(self, factor=1.1):
+        if self.index_im in self.dic_min_max:
+            min_, max_ = self.dic_min_max[self.index_im]
+        else:
+            min_, max_ = self.min_, self.max_
+        new_min_, new_max_ = min_/factor, max_/factor
+        self.imshow_xy.set_clim(new_min_,new_max_)
+        self.dic_min_max[self.index_im] = [new_min_, new_max_]
+        self.f.canvas.draw()
 
     def set_image(self):
         self.im_ = np.array(self.ims[self.index_im])

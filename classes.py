@@ -962,9 +962,7 @@ class Cell_List():
                     else:
                         if _verbose:
                             print(f"+ unique info exists for fov:{_cell.fov_id}, cell:{_cell.cell_id}, skip")
-        ## merfish
-        elif _data_type == 'merfish':
-            pass 
+
 
     # load processed cell info/unique/decoded/merfish from files
     def _load_cells_from_files(self, _data_type='cell_info', _num_threads=None, _save_folder=None,
@@ -2578,14 +2576,14 @@ class Cell_Data():
                     # if not uniquely-matched, skip
                     else:
                         if len(_matched_folders) > 1:
-                            print(f"Ref_name:{_ref_name} has non-unique matches:{_matched_folders}, skip!")
+                            print(f"- ref_name:{_ref_name} has non-unique matches:{_matched_folders}, skip!")
                         if len(_matched_folders) == 0:
-                            print(f"Ref_name:{_ref_name} has no corresponding folder, skip.")
+                            print(f"- ref_name:{_ref_name} has no corresponding folder, skip.")
                         continue
                 # skip the following if already existed & not overwrite
                 else:
                     if _verbose:
-                        print( f"- all channels in hyb:{_ref_name} don't belong to {_data_type}, skip!")
+                        print( f"- all channels in hyb:{_ref_name} don't have new {_data_type} regions, skip!")
 
             ## Multiprocessing for unique_args
             _start_time = time.time()
@@ -2612,15 +2610,13 @@ class Cell_Data():
                     _ims += _uims
                     #print('image length:', len(_ims), len(_ids), len(_channels))
             # sort
-            print("-- lengths:", len(_ims), len(_ids), len(_channels))
-
             _tp = [(_id, _im, _ch) for _id, _im, _ch in sorted(
                 zip(_ids, _ims, _channels))]
             _sorted_ids = [_t[0] for _t in _tp]
             _sorted_ims = [_t[1] for _t in _tp]
             _sorted_channels = [_t[2] for _t in _tp]
             if _verbose:
-                print(f"-- time spent in cropping:{time.time()-_start_time}")
+                print(f"-- time spent in cropping:{time.time()-_start_time} for {len(_sorted_ims)} images")
             # save unique_ids and unique_channels anyway
             setattr(self, _id_attr, _sorted_ids)
             setattr(self, _channel_attr, _sorted_channels)

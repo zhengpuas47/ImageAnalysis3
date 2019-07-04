@@ -386,3 +386,110 @@ def Assemble_probes(library_folder, probe_source, gene_readout_dict, readout_dic
 
 
 
+def Select_subset(input_probes, select_num=None, select_size=None, 
+                  region_marker='reg_', position_marker='pos_',
+                  select_mode='mid', return_dict=False, 
+                  save=True, save_folder=None, save_name=None, verbose=True):
+    """Function to select a subset of a given library"""
+    ## check inputs
+    if verbose:
+        print(f"- Start selecting sub_library, n={select_num},size={select_size}")
+    if isinstance(input_probes, str):
+        if os.path.isfile(input_probes):
+            with open(input_probes, 'r') as _handle:
+                _pb_records = []
+                for _record in SeqIO.parse(_handle, "fasta"):
+                    _pb_records.append(_record)
+        else:
+            raise IOError(f"Input file:{input_probes} not exists!")
+    elif isinstance(input_probes, list) and isinstance(input_probes[0], SeqRecord):
+        _pb_records = input_probes
+    else:
+        raise TypeError(f"Wrong input type of input_probes, should be list of SeqRecords or string of file-path")
+    if select_num is None and select_size is None:
+        raise ValueError(f"At least one of select_num and select_size should be given. ")
+    # probe dict
+    pb_dic = qc.split_probe_by_gene(_pb_records, species_marker=region_marker)
+    # keep record of region length
+    _reg_size_dic = {}
+    # sort probes and also check region size
+    for _reg_id, _pbs in pb_dic.items():
+        _sorted_pbs = sorted(_pbs, key=lambda v:int(v.id.split(position_marker)[1].split('_')[0]))
+        pb_dic[_reg_id] = _sorted_pbs
+        _start, _end = _pbs[0].id.split(':')[1].split('_')[0].split('-')
+        _start, _end = int(_start), int(_end)
+        _reg_size_dic[_reg_id] = abs(_end - _start)
+    # select probes
+    sel_pb_dic = {_reg_id:[] for _reg_id in pb_dic}
+    for _reg_id, _pbs in pb_dic.items():
+        _pb_coords = np.array([int(_p.id.split(position_marker)[1].split('_')[0]) for _p in _pbs])
+        
+        if select_mode == 'mid':
+            _metric = np.abs(_pb_coords - _reg_size_dic[_reg_id]/2)
+            if select_size is not None:
+                _sel_inds = np.where(_metric <= select_size/2)[0]
+                if select_num is not None and len(_sel_inds) < select_num:
+                    _sel_inds = np.argsort(_metric)[:select_num]
+            elif select_num is not None:
+                _sel_inds = np.argsort(_metric)[:select_num]
+
+        elif sel_mode == 'left':
+            _metric = _pb_coords
+            if select_size is not None:
+                _sel_inds = np.where(_metric <= select_size/2)[0]
+                if select_num is not None and len(_sel_inds) < select_num:
+                    _sel_inds = np.argsort(_metric)[:select_num]
+            elif select_num is not None:
+                _sel_inds = np.argsort(_metric)[:select_num]
+        
+        elif sel_mode == 'right':
+            _metric = _reg_size_dic[_reg_id] - _pb_coords
+            if select_size is not None:
+                _sel_inds = np.where(_metric <= select_size/2)[0]
+                if select_num is not None and len(_sel_inds) < select_num:
+                    _sel_inds = np.argsort(_metric)[:select_num]
+            elif select_num is not None:
+                _sel_inds = np.argsort(_metric)[:select_num]
+                
+        else:
+            raise ValueError(f"Wrong input select_mode. ")
+        # select probes
+        sel_pb_dic[_reg_id] = [_p for _i,_p in enumerate(_pbs) if _i in _sel_inds.astype(np.int)]
+        if verbose:
+            print(f"--- {len(sel_pb_dic[_reg_id])} probes kept for region:{_reg_id}")
+    
+    # summarize into list of pb_records
+    _sel_pb_records = []
+    for _reg_id, _pbs in sel_pb_dic.items():
+        _sel_pb_records += _pbs
+    # save
+    if save:
+        if isinstance(input_probes, str):
+            save_basename = os.path.basename(input_probes)
+        else:
+            save_basename = 'sub_probes.fasta'
+        if isinstance(input_probes, str) and save_folder is None:
+            save_folder = os.path.dirname(input_probes)
+        elif save_folder is not None:
+            if not os.path.exists(save_folder):
+                os.makedirs(save_folder)
+        else:
+            raise ValueError(f"save_folder is not given!")
+        # add postfix
+        if select_num is not None:
+            save_basename = save_basename.replace('.fasta', f'_n_{select_num}.fasta')
+        if select_size is not None:
+            save_basename = save_basename.replace('.fasta', f'_size_{select_size}.fasta')
+        
+        save_filename = os.path.join(save_folder, save_basename)
+
+        with open(save_filename, 'w') as _output_handle:
+            if verbose:
+                print(f"-- saving to file: {save_filename}")
+            SeqIO.write(_sel_pb_records, _output_handle, "fasta")
+            
+    if return_dict:
+        return sel_pb_dic
+    else:
+
+        return _sel_pb_records
