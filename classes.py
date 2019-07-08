@@ -1508,12 +1508,20 @@ class Cell_List():
             _used_fovs = sorted(_used_fovs)
             plt.figure(figsize=(1.25*_fig_size, _fig_size), dpi=_fig_dpi)
             plt.title(f"{_stat_type} {_save_name}, N={len(_cand_distmaps)}")
-            plt.imshow(_averaged_map, interpolation='nearest', cmap=_cmap,
-                       vmin=min(_plot_limits), vmax=max(_plot_limits))
+            
             if _stat_type == 'contact':
-                plt.colorbar(ticks=np.arange(min(_plot_limits), max(_plot_limits)+0.01,
-                             0.01), label='contact prob.')
+                from matplotlib.colors import LogNorm
+                _plot_map = _averaged_map.copy()
+                _plot_map[_plot_map==0] = np.min(_plot_map[_plot_map!=0])
+                plt.imshow(_plot_map, interpolation='nearest', cmap=_cmap,
+                           norm=LogNorm(vmin=min(_plot_limits), 
+                                        vmax=max(_plot_limits)),
+                            )
+                plt.colorbar(ticks=np.arange(min(_plot_limits), max(_plot_limits)+0.05,
+                             0.05), label='contact prob.')
             else:
+                plt.imshow(_averaged_map, interpolation='nearest', cmap=_cmap,
+                       vmin=min(_plot_limits), vmax=max(_plot_limits))
                 plt.colorbar(ticks=np.arange(min(_plot_limits), max(_plot_limits)+2,
                                              200), label='distance (nm)')
 
