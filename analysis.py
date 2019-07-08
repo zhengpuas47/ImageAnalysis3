@@ -1699,27 +1699,51 @@ def spot_score_in_chromosome(spots, reg_id, sel_spots, _chr_center=None,
 
 
 def distance_score_in_chromosome(dists, sel_spots=None, _nb_dists=None, 
-                                 distance_zxy=_distance_zxy, distance_th=800, 
+                                 distance_zxy=_distance_zxy, distance_limits=None, 
                                  w_dist=1):
     """Function to calculate log-score for given spot in selected chr_pts from candidiate_points
     Inputs:
         spots: given fitted spots info, list of spots or one spot
         sel_spots: currently selected spots for chromosome tracing, list of spots / 2darray
         distance_zxy: transform from pixel to nm for z,x,y axes
+        distance_limits: limits for distance scores, None / low_limit / low_high_limit
         w_dist: weight for distances, float (default: 1)
     Output:
         _log_score: log score for this given spot, float 
     """
     if _nb_dists is None:
-        _zxy = np.array(sel_spots)[:, 1:4] * \
-            np.array(distance_zxy)[np.newaxis, :]
-        _nb_dists = np.linalg.norm(_zxy[1:]-_zxy[:-1], axis=1)
-        _nb_dists = _nb_dists[np.isnan(_nb_dists)==False]
-    _th_percentile = 1 - _cum_prob(_nb_dists, distance_th)[0]
-    _max_percentile = 1 - _cum_prob(_nb_dists, 0)[0]
-    _direct_scores = (1-_cum_prob(_nb_dists, dists)) / _th_percentile
-    _direct_scores[_direct_scores > _max_percentile] = _max_percentile
-    _scores = np.log( _direct_scores ) * w_dist
+        if sel_spots is None:
+            raise ValueError(f"sel_spots should be given if _nb_dists is not given.")
+        else:
+            _zxy = np.array(sel_spots)[:, 1:4] * \
+                np.array(distance_zxy)[np.newaxis, :]
+            _nb_dists = np.linalg.norm(_zxy[1:]-_zxy[:-1], axis=1)
+            _nb_dists = _nb_dists[np.isnan(_nb_dists)==False]
+    # calculate cdf as direct score
+    _direct_scores = 1-_cum_prob(_nb_dists, dists)
+    if distance_limits is None:
+        _scores  = np.log( _direct_scores ) * w_dist
+    elif isinstance(distance_limits, int) or isinstance(distance_limits, float):
+        _low_th_percentile = 1 - _cum_prob(_nb_dists, max(distance_limits, 0) )[0] # lower th should be larger than 0
+        _max_percentile = 1 - _cum_prob(_nb_dists, 0)[0]
+        # rescale scores
+        _adjusted_scores = _direct_scores / _low_th_percentile
+        _adjusted_scores[_adjusted_scores > 1] = 1
+        _adjusted_scores[_adjusted_scores <= 0] = min(_adjusted_scores[_adjusted_scores > 0])
+        # score
+        _scores  = np.log( _adjusted_scores ) * w_dist
+    elif isinstance(distance_limits, list) or isinstance(distance_limits, np.ndarray) and len(distance_limits) > 1:
+        _low_th_percentile = 1 - _cum_prob(_nb_dists, max(min(distance_limits), 0) )[0] # lower th should be larger than 0
+        _high_th_percentile = 1 - _cum_prob(_nb_dists, max(distance_limits) )[0] # lower th should be larger than 0
+        _max_percentile = 1 - _cum_prob(_nb_dists, 0)[0]
+        # rescale
+        _adjusted_scores = (_direct_scores - _high_th_percentile) / (_low_th_percentile - _high_th_percentile)
+        _adjusted_scores[_adjusted_scores > 1] = 1
+        _adjusted_scores[_adjusted_scores <= 0] = min(_adjusted_scores[_adjusted_scores > 0])
+        # score
+        _scores  = np.log( _adjusted_scores ) * w_dist
+    else:
+        raise ValueError(f"Wrong inpuf format for distance_limits")
 
     return _scores
 
@@ -1889,6 +1913,175 @@ def dynamic_pick_spots(chrom_cand_spots, unique_ids, cand_spot_scores, nb_dists,
     else:
         return np.array(_sel_spots)
 
+
+# Pick spots by dynamic-programming
+def dynamic_pick_spots_for_chromosomes(cell_cand_spots, region_ids, 
+                                       chrom_coords=None, sel_spot_list=None,
+                                       nb_dist_list=None, local_size=5, w_ccdist=1, 
+                                       w_lcdist=1, w_int=1, w_nbdist=3, 
+                                       ignore_nan=True, chrom_share_spots=False,
+                                       distance_zxy=_distance_zxy, distance_limits=[200,2000],
+                                       return_indices=False, verbose=True):
+    """Function to dynamic-programming pick spots
+    The idea is to use dynamic progamming to pick spots to get GLOBAL maximum
+    for both spot_score (likelihood) and neighboring spot distance (continuity)
+    This version will optimize multiple chromosomes at the same time to get maxima for the cell
+    ----------------------------------------------------------------------------
+    Inputs:
+        cell_cand_spots: all candidate spots required by multi-fitting for a given cell, 
+            list of list of spots-ndarray
+        region_ids: region uid for candidate spots, list/array of ints
+        chrom_coords: chromosome coordinates in 3D, list of np.ndarray of 3
+        sel_spot_list: list of previous selected spots, list of np.ndarray or list of list of np.1d-array
+        nb_dist_list: neighboring distances within their own chromosomes, list of np.ndarray (default: None)
+        local_size: window size to calculate local-distances, int (default: 5)
+        w_ccdist: weight for distance_to_chromosome_center, float (default: 1)
+        w_lcdist: weight for distance_to_local_center, float (default: 1)
+        w_int: weight for spot intensity, float (default: 1)
+        w_nbdist:  weight for distance_to_neighbor_region, float (default: 3)
+        ignore_nan: whether ignore np.nan in calculating scores, bool (default: True)
+        chrom_share_spots: whether different chromosomes share spots, bool (default: False)
+        distance_zxy: translate pixel to nm, array of 3 (default: [200,106,106])
+        distance_limits: threshold for distance score CDF calculation, either None, int, list of 2
+        return_indices: whether return indices for picked spots, bool (default: False)
+        verbose: say something!, bool (default: True)
+    Outputs:
+        _sel_spot_list: list of selected spots, list of np.ndarray
+    optional outputs:
+        _sel_ind_list: list of indices for picked spots, list of np.1d-array with ints
+    """
+    from scipy.spatial.distance import cdist
+    # extract zxy coordiates
+    region_ids = list(np.array(region_ids, dtype=np.int))
+    # merge spots together
+    _merged_spot_list = [check_replicated_spots(_spot_list)[0] for _spot_list in cell_cand_spots]
+    # sort        
+    _merged_spot_list = [_merged_spot_list[_id] for _id in np.argsort(region_ids)]
+    region_ids = [region_ids[_id] for _id in np.argsort(region_ids)]
+    
+    # coordinates
+    _zxy_list = [_spots[:,1:4]*np.array(distance_zxy)[np.newaxis, :]
+                 for _spots in _merged_spot_list if len(_spots) > 0]
+    # ids
+    _ids = [_id for _id, _spots in zip(region_ids, _merged_spot_list) if len(_spots) > 0]
+    
+    # number of chromosomes
+    if chrom_coords is not None:
+        _num_chroms = len(chrom_coords)
+    else:
+        _num_chroms = len(cell_cand_spots[0])
+    # select spots if not given
+    if sel_spot_list is None:
+
+        # do naive picking
+        sel_spot_list = [naive_pick_spots(cell_cand_spots, region_ids, 
+                                          use_chrom_coord=True, chrom_id=_i) 
+                         for _i in range(_num_chroms)]
+    # calculate scores
+    spot_score_list = []
+    for _chrom_id, _sel_spots in enumerate(sel_spot_list):
+        # get chromosome candidate spots
+        _chrom_cand_spots = [_spot_list[_chrom_id] for _spot_list in cell_cand_spots]
+        # get chrom_coord
+        if chrom_coords is not None:
+            _chrom_coord = chrom_coords[_chrom_id]
+        else:
+            _chrom_coord = None
+        # get scores
+        _chrom_scores = [spot_score_in_chromosome(_spots, _uid-1, _sel_spots, _chrom_coord, 
+                                                  distance_zxy=distance_zxy, local_size=local_size, 
+                                                  w_ccdist=w_ccdist, w_lcdist=w_lcdist, w_int=w_int, 
+                                                  ignore_nan=ignore_nan) 
+                         for _spots, _uid in zip(_merged_spot_list, region_ids)]
+        # append
+        spot_score_list.append(_chrom_scores)
+    # check nb_dist_list
+    if nb_dist_list is None:
+        nb_dist_list = [generate_distance_score_pool(_sel_spots, distance_zxy=distance_zxy)
+                        for _sel_spots in sel_spot_list]
+        
+    ## Dynamic picking non-overlapping spots
+    _dy_score_list, _dy_pointer_list = [], []
+    # result stores at here
+    _dy_ind_list, _dy_spot_list = [], []
+    # initialize dynamic score and pointers and ids
+    for _chrom_id, _chrom_scores in enumerate(spot_score_list):
+        # scores
+        _dy_scores = [_scores for _scores, _spots in zip(_chrom_scores, _merged_spot_list) if len(_spots) > 0]        
+        _dy_score_list.append(_dy_scores)
+        # pointers
+        _dy_pointers = [-np.ones(len(_spots), dtype=np.int) for _spots in _merged_spot_list if len(_spots) > 0]
+        _dy_pointer_list.append(_dy_pointers)
+
+    ## Start dynamic if there are spots kept
+    if len(_zxy_list) > 0 and len(_ids) > 0:
+        ## forward
+        for _i, (_zxys, _id) in enumerate(zip(_zxy_list[1:], _ids[1:])):
+            # notice: i is actually 1 smaller than real indices
+            # calculate min_distance and give score
+            # real pair-wise distances
+            _dists = cdist(_zxy_list[_i], _zxy_list[_i+1])
+            # add distance score, which is normalized by how far exactly these two regions are
+            _measure_list = [distance_score_in_chromosome(_dists, _nb_dists=_nb_dists, 
+                             w_dist=w_nbdist, distance_limits=distance_limits ) / (_ids[_i+1] - _ids[_i]) \
+                             + _dy_scores[_i][:,np.newaxis]
+                             for _nb_dists, _dy_scores in zip(nb_dist_list, _dy_score_list)]
+            # pick from this measure_list
+            # generate shared iteration
+            from itertools import product
+            _inds = list(product(np.arange(len(_zxy_list[_i])), repeat=_num_chroms))
+            if not chrom_share_spots: # remove share-spot case
+                _inds = [_ind for _ind in _inds if len(set(_ind))==len(_ind)]
+            # enumerate through spots in _i+1 round
+            for _nid in range(len(_zxy_list[_i+1])):
+                _global_scores = [sum([_measure[_ind[_chrom_id], _nid] 
+                                       for _chrom_id, _measure in enumerate(_measure_list)])
+                                  for _ind in _inds]
+                _sel_ind = _inds[np.argmax(_global_scores)]
+                # update corresponding _dy_score and pointer based on previous selected ind
+                for _chrom_id in range(_num_chroms):
+                    # update dy_score and _dy_pointer
+                    _dy_score_list[_chrom_id][_i+1][_nid] += _measure_list[_chrom_id][_sel_ind[_chrom_id], _nid]
+                    _dy_pointer_list[_chrom_id][_i+1][_nid] = _sel_ind[_chrom_id]
+            #print(_dy_pointer_list[0][_i+1], _dy_pointer_list[1][_i+1])
+        ## backward
+        for _chrom_id, (_dy_scores, _dy_pointers) in enumerate(zip(_dy_score_list, _dy_pointer_list)):
+            _dy_indices = [np.argmax(_dy_scores[-1])]
+            _dy_spots = [_merged_spot_list[region_ids.index(_ids[-1])][_dy_indices[-1]]]
+            for _id, _pointers in zip(_ids[:-1][::-1], _dy_pointers[1:][::-1]):
+                _dy_indices.append(_pointers[_dy_indices[-1]])
+                _dy_spots.append(_merged_spot_list[region_ids.index(_id)][_dy_indices[-1]])
+            # inverse _sel_indices and _sel_spots
+            _dy_indices.reverse() # this is an in-object inverse!
+            _dy_spots.reverse()
+           # append
+            _dy_ind_list.append(_dy_indices)
+            _dy_spot_list.append(_dy_spots)
+    # append bad spots as well
+    _sel_spot_list, _sel_ind_list = [], []
+    for _chrom_id, (_dy_spots, _dy_indices) in enumerate(zip(_dy_spot_list, _dy_ind_list)):
+        _sel_spots, _sel_indices = [], []
+        for _uid in region_ids:
+            if _uid in _ids:
+                _sel_spots.append(_dy_spots[_ids.index(_uid)])
+                _sel_indices.append(_dy_indices[_ids.index(_uid)])
+            else:
+                if len(_dy_spots) > 0:
+                    _bad_pt = np.nan*np.ones(len(_dy_spots[-1]))
+                    _bad_pt[0] = 0 # set bad_pt intensity=0
+                else:
+                    _bad_pt = np.nan*np.ones(11)
+                    _bad_pt[0] = 0 # set bad_pt intensity=0
+                _sel_spots.append(_bad_pt)
+                _sel_indices.append(-1)
+        # append
+        _sel_spot_list.append(np.array(_sel_spots))
+        _sel_ind_list.append(np.array(_sel_indices, dtype=np.int))
+        
+    if return_indices:
+        return _sel_spot_list, _sel_ind_list
+    else:
+        return _sel_spot_list
 
 # Pick spots by EM algorithm
 def EM_pick_spots(chrom_cand_spots, unique_ids, _chrom_coord=None,
@@ -2164,5 +2357,38 @@ def EM_pick_spots(chrom_cand_spots, unique_ids, _chrom_coord=None,
         return _return_args
 
 
-def test_fun(a, b='1,', c='2,'):
-    print(a, b, c)
+def check_replicated_spots(spot_list, dist_th=0.1, dist_norm=2):
+    """Function to check replicated spots in a spot list
+        - only keep the first seen spot
+        - return a corresponding list with boolean type ndarray
+    Inputs:
+        spot_list: list of spots, list of np.ndarray
+        dist_th: threshold for distances considered as same spot, float (default: 0.1 pixel)
+        dist_norm: norm for calculating distances, float (default: 2, Euclidean)
+    Outputs:
+        _kept_spots: list of spots that kept, np.ndarray
+        _kept_list: list of boolean ndarray
+    """
+    # initialize
+    _kept_spots, _kept_list = [], []
+    # loop through spot_list
+    for _spots in spot_list:
+        _spots = np.array(_spots)
+        _coords = _spots[:,1:4]
+        # if empty, directly append
+        if len(_kept_spots) == 0:
+            _kept_spots += list(_spots)
+            _kept_list.append( np.ones(len(_spots)).astype(np.bool))
+        else:
+            _kept_coords = np.array(_kept_spots)[:,1:4]
+            _curr_kept = []
+            for _spot in _spots:
+                _coord = _spot[1:4]
+                if (np.linalg.norm(_kept_coords - _coord, axis=1, ord=dist_norm)>dist_th).all():
+                    _kept_spots.append(_spot)
+                    _curr_kept.append(True)
+                else:
+                    _curr_kept.append(False)
+            _kept_list.append(np.array(_curr_kept).astype(np.bool))
+
+    return np.array(_kept_spots), _kept_list
