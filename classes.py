@@ -3752,8 +3752,7 @@ class Cell_Data():
                 nb_dist_list=None, local_size=_local_size, w_ccdist=_w_ccdist, w_lcdist=_w_lcdist,
                 w_int=_w_int, w_nbdist=_w_nbdist, chrom_share_spots=_chrom_share_spots,
                 distance_zxy=self.shared_parameters['distance_zxy'],
-                ignore_nan=_ignore_nan, return_indices=True, verbose=_verbose,
-            )
+                ignore_nan=_ignore_nan, return_indices=True, verbose=_verbose)
         elif _pick_type == 'EM':
             # dirctly do EM
             # note: by running this allows default Naive picking as initial condition
@@ -3763,8 +3762,7 @@ class Cell_Data():
                 local_size=_local_size, w_ccdist=_w_ccdist, w_lcdist=_w_lcdist,
                 w_int=_w_int, w_nbdist=_w_nbdist, distance_limits=_distance_limits,
                 ignore_nan=_ignore_nan, chrom_share_spots=_chrom_share_spots,
-                return_indices=True, verbose=_verbose,
-            )
+                return_indices=True, verbose=_verbose)
         else:
             raise ValueError(f"Wrong input _pick_type!")
 
