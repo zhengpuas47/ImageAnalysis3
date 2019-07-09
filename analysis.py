@@ -2418,7 +2418,7 @@ def EM_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
                                   w_ccdist=1, w_lcdist=0.1, w_int=1, w_nbdist=3,
                                   distance_limits=200, ignore_nan=True, 
                                   update_chrom_coords=False, chrom_share_spots=False,
-                                  check_spots=True, check_th=-2., check_percentile=5., 
+                                  check_spots=True, check_th=-2., check_percentile=10., 
                                   make_plot=False, save_plot=False, save_path=None, save_filename='',
                                   return_indices=False, return_scores=False, return_other_scores=False, 
                                   verbose=True):

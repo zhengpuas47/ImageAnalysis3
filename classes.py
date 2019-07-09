@@ -81,11 +81,11 @@ def _fit_single_image(_im, _id, _chrom_coords, _seeding_args, _fitting_args, _ch
 # function to allow multi-processing pick spots
 def _pick_spot_in_batch(_cell, _pick_type='EM', _data_type='unique', _use_chrom_coords=True,
                         _sel_ids=None, _local_size=5, _intensity_th=1,
-                        _w_ccdist=1, _w_lcdist=1, _w_int=4, _w_nbdist=1,
+                        _w_ccdist=1, _w_lcdist=1, _w_int=3, _w_nbdist=1,
                         _save_inter_plot=False, _save_to_info=True, _save_plot=True, 
-                        _check_spots=True, _check_th=-3, _check_percentile=1.,
-                        _distance_th=800., _ignore_nan=True, _plot_limits=[0, 2000], 
-                        _cmap='seismic_r', _fig_dpi=300, _fig_size=4,
+                        _check_spots=True, _check_th=-3, _check_percentile=10.,
+                        _distance_limits=200., _ignore_nan=True, _chrom_share_spots=False, 
+                        _plot_limits=[0, 1500], _cmap='seismic_r', _fig_dpi=300, _fig_size=4,
                         _overwrite=False, _verbose=True):
     """_cell: Cell_Data class"""
     # notice: always load in attributes, never return indices in batch format
@@ -96,8 +96,8 @@ def _pick_spot_in_batch(_cell, _pick_type='EM', _data_type='unique', _use_chrom_
                                       _save_to_attr=True, _save_to_info=_save_to_info,
                                       _check_spots=_check_spots, _check_th=_check_th, 
                                       _check_percentile=_check_percentile, 
-                                      _distance_th=_distance_th, _ignore_nan=_ignore_nan,
-                                      _return_indices=False,
+                                      _distance_limits=_distance_limits, _ignore_nan=_ignore_nan,
+                                      _chrom_share_spots=_chrom_share_spots, _return_indices=False,
                                       _overwrite=_overwrite, _verbose=_verbose)
     
     _distmaps = _cell._generate_distance_map(_data_type=_data_type, _pick_type=_pick_type, 
@@ -1318,8 +1318,8 @@ class Cell_List():
                               _w_ccdist=1, _w_lcdist=0.1, _w_int=1, _w_nbdist=3,
                               _save_inter_plot=False, _save_to_info=True, _save_plot=True,
                               _check_spots=True, _check_th=-3, _check_percentile=1., 
-                              _distance_th=800., _ignore_nan=True, _plot_limits=[0, 2000],
-                              _cmap='seismic_r', _fig_dpi=300, _fig_size=4,
+                              _distance_th=800., _ignore_nan=True, _chrom_share_spots=False,
+                              _plot_limits=[0, 2000], _cmap='seismic_r', _fig_dpi=300, _fig_size=4,
                               _release_ram=False, _overwrite=False, _verbose=True):
         """Function to pick spots given candidates in batch"""
         ## Check Inputs
@@ -1343,8 +1343,8 @@ class Cell_List():
                                _w_ccdist, _w_lcdist, _w_int, _w_nbdist,
                                _save_inter_plot, _save_to_info, _save_plot,
                                _check_spots, _check_th, _check_percentile, 
-                               _distance_th, _ignore_nan, _plot_limits,
-                               _cmap, _fig_dpi, _fig_size,
+                               _distance_th, _ignore_nan, _chrom_share_spots,
+                               _plot_limits, _cmap, _fig_dpi, _fig_size,
                                _overwrite, _verbose))
             # create folder to save distmaps ahead
             if _save_plot:
@@ -3621,11 +3621,11 @@ class Cell_Data():
 
     # an integrated function to pick spots
     def _pick_spots(self, _data_type='unique', _pick_type='EM', _use_chrom_coords=True,
-                    _sel_ids=None, _local_size=5, _intensity_th=1, 
+                    _sel_ids=None, _local_size=5, _intensity_th=0.8, 
                     _w_ccdist=1, _w_lcdist=0.1, _w_int=1, _w_nbdist=3,
                     _save_inter_plot=False, _save_to_attr=True, _save_to_info=True,
-                    _check_spots=True, _check_th=-3., _check_percentile=1.,
-                    _distance_th=800., _ignore_nan=True,
+                    _check_spots=True, _check_th=-2., _check_percentile=10.,
+                    _distance_limits=200., _ignore_nan=True, _chrom_share_spots=False,
                     _return_indices=False, _overwrite=False, _verbose=True):
         """Function to pick spots from all candidate spots within Cell_Data
         There are three versions allowed for now:
@@ -3720,58 +3720,53 @@ class Cell_Data():
                                         for _spot_lst in _all_spots])
         else:
             _cand_spot_list = [_all_spots]
-
-        ## Initialize
-        _picked_spot_list, _picked_ind_list = [], []
+        
         # judge whether use chrom_coords
         if not _use_chrom_coords:
-            _chrom_coords = [None]
+            _chrom_coords = None
         else:
             _chrom_coords = getattr(self, 'chrom_coords')
 
-        for _i, (_cand_spots, _chrom_coord) in enumerate(zip(_cand_spot_list, _chrom_coords)):
-            if _pick_type == 'naive':
+        ## Initialize
+        
+        # pick spots according to types
+        if _pick_type == 'naive':
+            # initialize
+            _picked_spot_list, _picked_ind_list = [], []
+            # re-size chrom_coords
+            if not _use_chrom_coords:
+                _chrom_coords = [None]
+            # loop through chromosomes and pick
+            for _i, (_cand_spots, _chrom_coord) in enumerate(zip(_cand_spot_list, _chrom_coords)):
                 _picked_spots, _picked_inds = analysis.naive_pick_spots(_cand_spots, _ids,
                                                                         use_chrom_coord=False,
                                                                         return_indices=True, 
                                                                         verbose=_verbose)
-            elif _pick_type == 'dynamic':
-                _naive_spots = analysis.naive_pick_spots(_cand_spots, _ids,
-                                                         use_chrom_coord=False,
-                                                         return_indices=False, verbose=_verbose)
-                # generate neighbor distance distribution
-                _nb_dists = analysis.generate_distance_score_pool(
-                    _naive_spots, distance_zxy=self.shared_parameters['distance_zxy'])
-                # generate scores
-                _scores = [_w_int * np.log(np.array(_pts)[:, 0])
-                           for _pts in _cand_spots]
-                # dynamic pick spots
-                _picked_spots, _picked_inds = analysis.dynamic_pick_spots(_cand_spots, _ids,
-                                                                          _scores, _nb_dists,
-                                                                          w_nbdist=_w_nbdist, 
-                                                                          distance_zxy=self.shared_parameters['distance_zxy'],
-                                                                          return_indices=True, 
-                                                                          verbose=_verbose)
-            elif _pick_type == 'EM':
-                # EM
-                _picked_spots, _picked_inds, _scores, _other_scores = \
-                    analysis.EM_pick_spots(_cand_spots, _ids, _chrom_coord,
-                                           num_iters=15, terminate_th=1/len(_ids), 
-                                           intensity_th=_intensity_th,
-                                           distance_zxy=self.shared_parameters['distance_zxy'], 
-                                           local_size=_local_size,
-                                           w_ccdist=_w_ccdist, w_lcdist=_w_lcdist, 
-                                           w_int=_w_int, w_nbdist=_w_nbdist,
-                                           check_spots=_check_spots, check_th=_check_th, 
-                                           check_percentile=_check_percentile, 
-                                           distance_th=_distance_th, ignore_nan=_ignore_nan,
-                                           make_plot=_save_inter_plot, save_plot=_save_inter_plot,
-                                           save_path=self.save_folder, save_filename='chr_'+str(_i),
-                                           return_indices=True, return_scores=True,
-                                           return_other_scores=True, verbose=_verbose)
-            # append
-            _picked_spot_list.append(_picked_spots)
-            _picked_ind_list.append(_picked_inds)
+                _picked_spot_list.append(_picked_spots)
+                _picked_ind_list.append(_picked_inds)
+        elif _pick_type == 'dynamic':
+            # directly do dynamic picking
+            # note: by running this allows default Naive picking as initial condition
+            _picked_spot_list, _picked_ind_list = analysis.dynamic_pick_spots_for_chromosomes(
+                _cand_spots, _ids, chrom_coords=_chrom_coords, sel_spot_list=None,
+                nb_dist_list=None, local_size=_local_size, w_ccdist=_w_ccdist, w_lcdist=_w_lcdist,
+                w_int=_w_int, w_nbdist=_w_nbdist, chrom_share_spots=_chrom_share_spots,
+                distance_zxy=self.shared_parameters['distance_zxy'],
+                ignore_nan=_ignore_nan, return_indices=True, verbose=_verbose,
+            )
+        elif _pick_type == 'EM':
+            # dirctly do EM
+            # note: by running this allows default Naive picking as initial condition
+            _picked_spot_list, _picked_ind_list = analysis.EM_pick_spots_for_chromosomes(
+                _cand_spots, _ids, chrom_coords=_chrom_coords, sel_spot_list=None,
+                nb_dist_list=None, intensity_th=_intensity_th, distance_zxy=self.shared_parameters['distance_zxy'],
+                local_size=_local_size, w_ccdist=_w_ccdist, w_lcdist=_w_lcdist,
+                w_int=_w_int, w_nbdist=_w_nbdist, distance_limits=_distance_limits,
+                ignore_nan=_ignore_nan, chrom_share_spots=_chrom_share_spots,
+                return_indices=True, verbose=_verbose,
+            )
+        else:
+            raise ValueError(f"Wrong input _pick_type!")
 
         # convert cases for not use_chrom_coords
         if not _use_chrom_coords:
