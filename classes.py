@@ -80,7 +80,8 @@ def _fit_single_image(_im, _id, _chrom_coords, _seeding_args, _fitting_args, _ch
 
 # function to allow multi-processing pick spots
 def _pick_spot_in_batch(_cell, _pick_type='EM', _data_type='unique', _use_chrom_coords=True,
-                        _sel_ids=None, _local_size=5, _intensity_th=1,
+                        _sel_ids=None, _local_size=5, _terminate_th=0.003, 
+                        _intensity_th=1, _hard_intensity_th=True, 
                         _w_ccdist=1, _w_lcdist=1, _w_int=3, _w_nbdist=1,
                         _save_inter_plot=False, _save_to_info=True, _save_plot=True, 
                         _check_spots=True, _check_th=-3, _check_percentile=10.,
@@ -90,7 +91,8 @@ def _pick_spot_in_batch(_cell, _pick_type='EM', _data_type='unique', _use_chrom_
     """_cell: Cell_Data class"""
     # notice: always load in attributes, never return indices in batch format
     _picked_spots = _cell._pick_spots(_data_type=_data_type, _pick_type=_pick_type, _use_chrom_coords=_use_chrom_coords,
-                                      _sel_ids=_sel_ids, _local_size=_local_size, _intensity_th=_intensity_th,
+                                      _sel_ids=_sel_ids, _local_size=_local_size, _terminate_th=_terminate_th, 
+                                      _intensity_th=_intensity_th, _hard_intensity_th=_hard_intensity_th,
                                       _w_ccdist=_w_ccdist, _w_lcdist=_w_lcdist,
                                       _w_int=_w_int, _w_nbdist=_w_nbdist, _save_inter_plot=_save_inter_plot,
                                       _save_to_attr=True, _save_to_info=_save_to_info,
@@ -280,7 +282,6 @@ class Cell_List():
         print(f"{len(self.annotated_folders)} folders are found according to color-usage annotation.")
         # tool for iteration
         self.index = 0
-
 
 
     # allow print info of Cell_List
@@ -876,10 +877,14 @@ class Cell_List():
                       'drift_folder': self.drift_folder,
                       'map_folder': self.map_folder,
                       'shared_parameters': self.shared_parameters,
+                      'experiment_type': self.experiment_type, 
                       } for _cell_id in _cell_ids]
             if not _direct_load_drift:
                 for _p in _params:
                     _p['drift'] = _drift
+            if self.experiment_type == 'RNA':
+                for _p in _params:
+                    _p['rna-info_dic'] = getattr(self, 'rna-info_dic')
             _args += [(_p, True, _color_filename, _load_segmentation,
                        _direct_load_drift, _drift_size, _drift_ref, 
                        _drift_postfix, _dynamic, _load_exist_info, 
@@ -1314,17 +1319,18 @@ class Cell_List():
     # new version for batch pick spots
     def _pick_spots_for_cells(self, _data_type='unique', _pick_type='EM', decoded_flag='diff',
                               _num_threads=12, _use_chrom_coords=True, 
-                              _sel_ids=None, _local_size=5, _intensity_th=1,
+                              _sel_ids=None, _local_size=5, 
+                              _terminate_th=0.0025, _intensity_th=1., _hard_intensity_th=True,
                               _w_ccdist=1, _w_lcdist=0.1, _w_int=1, _w_nbdist=3,
                               _save_inter_plot=False, _save_to_info=True, _save_plot=True,
-                              _check_spots=True, _check_th=-3, _check_percentile=1., 
-                              _distance_th=800., _ignore_nan=True, _chrom_share_spots=False,
+                              _check_spots=True, _check_th=-1.5, _check_percentile=1., 
+                              _distance_th=200., _ignore_nan=True, _chrom_share_spots=False,
                               _plot_limits=[0, 2000], _cmap='seismic_r', _fig_dpi=300, _fig_size=4,
                               _release_ram=False, _overwrite=False, _verbose=True):
         """Function to pick spots given candidates in batch"""
         ## Check Inputs
         if _verbose:
-            print("+ Pick spots and convert to distmap.")
+            print(f"+ Pick spots and convert to distmap, use_chrom_coords:{_use_chrom_coords}")
         if _pick_type not in ['dynamic', 'naive', 'EM']:
             raise ValueError(
                 f"Wrong _pick_type kwd given ({_pick_type}), should be dynamic or naive.")
@@ -1339,7 +1345,8 @@ class Cell_List():
 
         for _cell in self.cells:
             _pick_args.append((_cell, _pick_type, _data_type, _use_chrom_coords,
-                               _sel_ids, _local_size, _intensity_th,
+                               _sel_ids, _local_size, _terminate_th, 
+                               _intensity_th, _hard_intensity_th, 
                                _w_ccdist, _w_lcdist, _w_int, _w_nbdist,
                                _save_inter_plot, _save_to_info, _save_plot,
                                _check_spots, _check_th, _check_percentile, 
@@ -3621,10 +3628,11 @@ class Cell_Data():
 
     # an integrated function to pick spots
     def _pick_spots(self, _data_type='unique', _pick_type='EM', _use_chrom_coords=True,
-                    _sel_ids=None, _local_size=5, _intensity_th=0.8, 
+                    _sel_ids=None, _local_size=5, _terminate_th=0.0025, 
+                    _intensity_th=1.0, _hard_intensity_th=True,
                     _w_ccdist=1, _w_lcdist=0.1, _w_int=1, _w_nbdist=3,
                     _save_inter_plot=False, _save_to_attr=True, _save_to_info=True,
-                    _check_spots=True, _check_th=-2., _check_percentile=10.,
+                    _check_spots=True, _check_th=-1.5, _check_percentile=1.,
                     _distance_limits=200., _ignore_nan=True, _chrom_share_spots=False,
                     _return_indices=False, _overwrite=False, _verbose=True):
         """Function to pick spots from all candidate spots within Cell_Data
@@ -3688,6 +3696,19 @@ class Cell_Data():
         if _sel_ids is not None:
             _ids = [_i for _i in _ids if _i in _sel_ids]
             _all_spots = [_pts for _i, _pts in zip(_ids, _all_spots) if _i in _sel_ids]
+
+        # special ids for RNA, corresponding to DNA regions
+        if _data_type == 'rna-unique':
+            _gids = []
+            _rna_dic = getattr(self, 'rna-info_dic')
+            for _id in _ids:
+                _info = _rna_dic[_id]
+                if 'DNA_id' in _info:
+                    _gids.append(int(_info['DNA_id']))
+                else:
+                    _gids.append(-1 * _id)
+            _ids = _gids
+        
         # if not overwrite:
         if not _overwrite:
             if not hasattr(self, _picked_attr):
@@ -3701,11 +3722,12 @@ class Cell_Data():
                     return _picked_spot_list
         # check chrom_coords
         if _use_chrom_coords and not hasattr(self, 'chrom_coords'):
-            self._load_from_file('cell_info')
+            self._load_from_file('cell_info', _load_attrs=['chrom_coords'])
             if not hasattr(self, 'chrom_coords'):
                 raise AttributeError(
                     f"No chrom-coords info found for fov:{self.fov_id}, cell:{self.cell_id} in cell-data and saved cell_info.")
-            if len(getattr(self, 'chrom_coords')) != len(_all_spots):
+            # check if length of chrom_coords matches all_spots
+            if len(_all_spots) > 0 and len(getattr(self, 'chrom_coords')) != len(_all_spots[0]):
                 raise ValueError(f"Length of chrom_coords and all_spots for fov:{self.fov_id}, cell:{self.cell_id} doesn't match!")
         elif not _use_chrom_coords and len(_all_spots) != len(_ids):
             if hasattr(self, 'chrom_coords') and len(_all_spots) == len(getattr(self, 'chrom_coords')):
@@ -3748,7 +3770,7 @@ class Cell_Data():
             # directly do dynamic picking
             # note: by running this allows default Naive picking as initial condition
             _picked_spot_list, _picked_ind_list = analysis.dynamic_pick_spots_for_chromosomes(
-                _cand_spots, _ids, chrom_coords=_chrom_coords, sel_spot_list=None,
+                _all_spots, _ids, chrom_coords=_chrom_coords, sel_spot_list=None,
                 nb_dist_list=None, local_size=_local_size, w_ccdist=_w_ccdist, w_lcdist=_w_lcdist,
                 w_int=_w_int, w_nbdist=_w_nbdist, chrom_share_spots=_chrom_share_spots,
                 distance_zxy=self.shared_parameters['distance_zxy'],
@@ -3757,12 +3779,16 @@ class Cell_Data():
             # dirctly do EM
             # note: by running this allows default Naive picking as initial condition
             _picked_spot_list, _picked_ind_list = analysis.EM_pick_spots_for_chromosomes(
-                _cand_spots, _ids, chrom_coords=_chrom_coords, sel_spot_list=None,
-                nb_dist_list=None, intensity_th=_intensity_th, distance_zxy=self.shared_parameters['distance_zxy'],
+                _all_spots, _ids, chrom_coords=_chrom_coords, sel_spot_list=None,
+                nb_dist_list=None, terminate_th=_terminate_th,
+                intensity_th=_intensity_th, hard_intensity_th=_hard_intensity_th,
+                distance_zxy=self.shared_parameters['distance_zxy'],
                 local_size=_local_size, w_ccdist=_w_ccdist, w_lcdist=_w_lcdist,
                 w_int=_w_int, w_nbdist=_w_nbdist, distance_limits=_distance_limits,
                 ignore_nan=_ignore_nan, chrom_share_spots=_chrom_share_spots,
+                check_spots=_check_spots, check_th=_check_th, check_percentile=_check_percentile,
                 return_indices=True, verbose=_verbose)
+
         else:
             raise ValueError(f"Wrong input _pick_type!")
 

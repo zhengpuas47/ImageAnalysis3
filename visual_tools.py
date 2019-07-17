@@ -2452,36 +2452,72 @@ def crop_multi_channel_image(filename, channels, crop_limits=None,
     else:
         return _crp_ims
 
-
-def visualize_fitted_spots(im, centers, radius=10):
+# visualize fitted spot crops
+def visualize_fitted_spot_crops(im, centers, center_inds, radius=10):
     """Function to visualize fitted spots within a given images and fitted centers"""
     if len(centers) == 0:  # no center given
         return
-    if len(im.shape) != 3:
+    if isinstance(im, np.ndarray) and len(im.shape) != 3:
         raise ValueError("Input image should be 3D!")
-    # iterate through centers
+    elif isinstance(im, list) and len(im[0].shape)!= 3:
+        raise ValueError("Input images should be 3D!")
+
     cropped_ims = []
-    for ct in centers:
-        if len(ct) != 3:
-            raise ValueError(
-                f"Wrong input dimension of centers, only expect [z,x,y] coordinates in center:{ct}")
-        crop_l = np.array([np.zeros(3), np.round(ct-radius)], dtype=np.int).max(0)
-        crop_r = np.array([np.array(np.shape(im)), 
-                           np.round(ct+radius+1)], dtype=np.int).min(0)
-        cropped_ims.append(
-            im[crop_l[0]:crop_r[0], crop_l[1]:crop_r[1], crop_l[2]:crop_r[2]])
-    cropped_shape = np.array([np.array(_cim.shape)
-                              for _cim in cropped_ims]).max(0)
+    if isinstance(im, np.ndarray):
+        # iterate through centers
+        
+        for ct in centers:
+            if len(ct) != 3:
+                raise ValueError(
+                    f"Wrong input dimension of centers, only expect [z,x,y] coordinates in center:{ct}")
+            crop_l = np.array([np.zeros(3), np.round(ct-radius)], dtype=np.int).max(0)
+            crop_r = np.array([np.array(np.shape(im)), 
+                            np.round(ct+radius+1)], dtype=np.int).min(0)
+            _cim = im[crop_l[0]:crop_r[0], crop_l[1]:crop_r[1], crop_l[2]:crop_r[2]]
+            _nim = np.ones([radius*2+1]*3) * np.median(_cim)
+            _im_l = np.round(ct - crop_l + radius).astype(np.int)
+            _im_r = np.round(crop_r - ct + radius).astype(np.int)
+            _nim[_im_l[0],_im_r[0],
+                 _im_l[1],_im_r[1],
+                 _im_l[2],_im_r[2]] = _cim
+
+            cropped_ims.append(_nim)
+    elif isinstance(im, list):
+        _ims = im
+        center_list = partition_map(centers, center_inds, enumerate_all=True)
+        for _i, _list in zip(np.arange(np.min(center_inds), np.max(center_inds)+1), center_list):
+            # extract image
+            _im = _ims[_i]
+            for ct in _list:
+                if len(ct) != 3:
+                    raise ValueError(f"Wrong input dimension of centers, only expect [z,x,y] coordinates in center:{ct}")
+                crop_l = np.array([np.zeros(3), np.round(ct-radius)], dtype=np.int).max(0)
+                crop_r = np.array([np.array(np.shape(_im)), np.round(ct+radius+1)], dtype=np.int).min(0)
+                _cim = _im[crop_l[0]:crop_r[0], crop_l[1]:crop_r[1], crop_l[2]:crop_r[2]]
+                _nim = np.ones([radius*2+1]*3) * np.median(_cim)
+                _im_l = np.round(ct - crop_l + radius).astype(np.int)
+                _im_r = np.round(crop_r - ct + radius).astype(np.int)
+                _nim[_im_l[0],_im_r[0],
+                    _im_l[1],_im_r[1],
+                    _im_l[2],_im_r[2]] = _cim
+                cropped_ims.append(_nim)
+    else:
+        raise TypeError(f"Wrong input type for im")
+
+    cropped_shape = np.array([np.array(_cim.shape) for _cim in cropped_ims]).max(0)
+    image_names = [f"im:{_ind}, ct:{np.round(_ct,2)}" for _ct, _ind in zip(centers, center_inds)]
     if sum([(np.array(_cim.shape) == cropped_shape).all() for _cim in cropped_ims]) == len(cropped_ims):
-        return imshow_mark_3d_v2(cropped_ims, image_names=[str(ct) for ct in centers])
+        return imshow_mark_3d_v2(cropped_ims, image_names=image_names)
     else:
         amended_cropped_ims = [
             np.ones(cropped_shape)*np.mean(_cim) for _cim in cropped_ims]
         for _cim, _acim in zip(cropped_ims, amended_cropped_ims):
             _cs = list(_cim.shape)
             _acim[:_cs[0], :_cs[1], :_cs[2]] += _cim
-        return imshow_mark_3d_v2(amended_cropped_ims, image_names=[str(ct) for ct in centers])
+        return imshow_mark_3d_v2(amended_cropped_ims, image_names=image_names)
 
+def visualize_fitted_spot_images():
+    pass
 
 def Extract_crop_from_segmentation(segmentation_label, extend_dim=20, single_im_size=_image_size):
     """Function to extract a crop matrix from given segmentation label and extend_dim
