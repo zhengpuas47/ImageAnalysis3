@@ -1399,8 +1399,8 @@ class Cell_List():
             _data_type: unique or decoded
             _max_loss_prob: maximum """
         ## check inputs:
-        if _data_type not in ['unique','decoded']:
-            raise ValueError(f"Wrong _data_type kwd given, should be unique or decoded, {_data_type} is given!")
+        if _data_type not in self.shared_parameters['allowed_data_types']:
+            raise ValueError(f"Wrong _data_type kwd given, should be {self.shared_parameters['allowed_data_types'].keys()}, {_data_type} is given!")
         _allowed_pick_types = ['EM', 'dynamic', 'naive']
         if _pick_type not in _allowed_pick_types:
             raise ValueError(
