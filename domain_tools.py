@@ -1411,7 +1411,7 @@ class mark_boundaries:
         if event.key== 'e':
             self.index_im = (self.index_im+20)%len(self.ims)
             self.set_image()
-        if event.key== 'q':
+        if event.key== 'w':
             self.index_im = (self.index_im-20)%len(self.ims)
             self.set_image()
         if event.key== 'x':
