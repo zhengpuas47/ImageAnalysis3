@@ -1143,7 +1143,8 @@ class Cell_List():
                 print(f"++ matching {len(_chrom_coords)} chromosomes for fov:{_cell.fov_id}, cell:{_cell.cell_id}")
         # then update files if specified
             if _save:
-                _cell._save_to_file('cell_info', _save_dic={'chrom_coords': _cell.chrom_coords},  _verbose=_verbose)
+                _cell._save_to_file('cell_info', _save_dic={'chrom_coords': _cell.chrom_coords
+                                                            'chrom_im':_cell.chrom_im},  _verbose=_verbose)
                 if hasattr(_cell, 'combo_groups') or _force_save_to_combo:
                     if _cell._check_full_set('combo'):
                         if not hasattr(_cell, 'combo_groups'):
@@ -1323,7 +1324,7 @@ class Cell_List():
                               _terminate_th=0.0025, _intensity_th=1., _hard_intensity_th=True,
                               _w_ccdist=1, _w_lcdist=0.1, _w_int=1, _w_nbdist=3,
                               _save_inter_plot=False, _save_to_info=True, _save_plot=True,
-                              _check_spots=True, _check_th=-1.5, _check_percentile=1., 
+                              _check_spots=True, _check_th=-1.5, _check_percentile=10., 
                               _distance_th=200., _ignore_nan=True, _chrom_share_spots=False,
                               _plot_limits=[0, 2000], _cmap='seismic_r', _fig_dpi=300, _fig_size=4,
                               _release_ram=False, _overwrite=False, _verbose=True):
@@ -3632,7 +3633,7 @@ class Cell_Data():
                     _intensity_th=1.0, _hard_intensity_th=True,
                     _w_ccdist=1, _w_lcdist=0.1, _w_int=1, _w_nbdist=3,
                     _save_inter_plot=False, _save_to_attr=True, _save_to_info=True,
-                    _check_spots=True, _check_th=-1.5, _check_percentile=1.,
+                    _check_spots=True, _check_th=-1.5, _check_percentile=10.,
                     _distance_limits=200., _ignore_nan=True, _chrom_share_spots=False,
                     _return_indices=False, _overwrite=False, _verbose=True):
         """Function to pick spots from all candidate spots within Cell_Data

@@ -1929,7 +1929,7 @@ def EM_pick_spots(chrom_cand_spots, unique_ids, _chrom_coord=None,
                   num_iters=np.inf, terminate_th=0.002, intensity_th=1,
                   distance_zxy=_distance_zxy, local_size=5, spot_num_th=200,
                   w_ccdist=1, w_lcdist=0.1, w_int=1, w_nbdist=3,
-                  check_spots=True, check_th=-3., check_percentile=1., 
+                  check_spots=True, check_th=-3., check_percentile=10., 
                   distance_th=800, ignore_nan=True, make_plot=False, 
                   save_plot=False, save_path=None, save_filename='',
                   return_indices=False, return_scores=False, 
@@ -2497,7 +2497,7 @@ def EM_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
                                   local_size=5, w_ccdist=1, w_lcdist=0.1, w_int=1, w_nbdist=3,
                                   distance_limits=200, ignore_nan=True, 
                                   update_chrom_coords=False, chrom_share_spots=False,
-                                  check_spots=True, check_th=-1., check_percentile=1., 
+                                  check_spots=True, check_th=-1., check_percentile=10., 
                                   make_plot=False, save_plot=False, save_path=None, save_filename='',
                                   return_indices=False, return_sel_scores=False, return_other_scores=False, 
                                   verbose=True):
@@ -2760,7 +2760,7 @@ def EM_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
 ## check spots
 def check_spot_scores(all_spot_list, sel_spots, region_ids=None, sel_indices=None,
                       chrom_coord=None, distance_zxy=_distance_zxy, local_size=5, w_ccdist=1, 
-                      w_lcdist=0.1, w_int=1, ignore_nan=True, check_th=-1., check_percentile=20., 
+                      w_lcdist=0.1, w_int=1, ignore_nan=True, check_th=-10., check_percentile=10., 
                       return_sel_scores=False, return_other_scores=False, verbose=False):
     """Function to check spots given merged_spot_list and selected_spots
     Inputs:
@@ -2833,19 +2833,23 @@ def check_spot_scores(all_spot_list, sel_spots, region_ids=None, sel_indices=Non
         for _scs in _spot_scores:
             _other_scores += list(_scs)
     
+    _sel_scores = np.array(_sel_scores)
+    _other_scores = np.array(_other_scores)
     ## picking thresholds
     # calculate threshold
     _th_sel = scoreatpercentile(_sel_scores[_sel_scores > - np.inf], check_percentile)
-    _kept_other_scores = np.array(_other_scores)[np.array(_other_scores) > - np.inf]
+    _kept_other_scores = _other_scores[_other_scores > - np.inf]
     if sel_indices is None:
-        _th_other = scoreatpercentile(_kept_other_scores,100-100*(float(len(_sel_scores))/float(len(_other_scores)))-check_percentile)
+        _th_other = scoreatpercentile(_kept_other_scores,100\
+                                        -100*(float(len(_sel_scores))/float(len(_other_scores)))\
+                                        -check_percentile)
     else:
-        _th_other = scoreatpercentile(_kept_other_scores,90-check_percentile)
+        _th_other = scoreatpercentile(_kept_other_scores,100-check_percentile)
     _th_weight = check_th * (w_ccdist + w_lcdist + w_int)
     if verbose:
-        print(f"--- current thresholds: {[_th_sel, _th_other, _th_weight]}")
+        print(f"--- current thresholds: {np.round([_th_sel, _th_other, _th_weight],3)}")
     if check_percentile > 0 and check_percentile < 100:
-        _final_check_th = max(_th_sel, _th_other, _th_weight)
+        _final_check_th = max(min(_th_sel, _th_other), _th_weight)
     else:
         _final_check_th = _th_weight
     ## appliy filtering
