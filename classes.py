@@ -4,7 +4,7 @@ import pickle as pickle
 import multiprocessing as mp
 import psutil
 
-from . import get_img_info, corrections, visual_tools, analysis, domain_tools
+from . import get_img_info, corrections, visual_tools, spot_tools, domain_tools
 from . import _correction_folder,_temp_folder,_distance_zxy,\
     _sigma_zxy,_image_size, _allowed_colors, _num_buffer_frames, _num_empty_frames
 from .External import Fitting_v3
@@ -32,7 +32,6 @@ def killtree(pid, including_parent=False, verbose=False):
 def killchild(verbose=False):
     _pid = os.getpid()
     killtree(_pid, False, verbose)
-
 
 # initialize pool
 init_dic = {}
@@ -80,21 +79,27 @@ def _fit_single_image(_im, _id, _chrom_coords, _seeding_args, _fitting_args, _ch
 
 # function to allow multi-processing pick spots
 def _pick_spot_in_batch(_cell, _pick_type='EM', _data_type='unique', _use_chrom_coords=True,
-                        _sel_ids=None, _local_size=5, _terminate_th=0.003, 
-                        _intensity_th=1, _hard_intensity_th=True, 
-                        _w_ccdist=1, _w_lcdist=1, _w_int=3, _w_nbdist=1,
+                        _sel_ids=None, _num_iters=10, _terminate_th=0.003, 
+                        _intensity_th=1, _hard_intensity_th=True, _spot_num_th=100,
+                        _ref_dist_metric='median', _score_metric='linear',
+                        _local_size=5, _w_ctdist=2, _w_lcdist=1, _w_int=1, _w_nbdist=2,
                         _save_inter_plot=False, _save_to_info=True, _save_plot=True, 
-                        _check_spots=True, _check_th=-3, _check_percentile=10.,
-                        _distance_limits=200., _ignore_nan=True, _chrom_share_spots=False, 
+                        _check_spots=True, _check_th=-3.5, _check_percentile=10.,
+                        _distance_limits=[0, np.inf], _ignore_nan=True, _chrom_share_spots=False, 
                         _plot_limits=[0, 1500], _cmap='seismic_r', _fig_dpi=300, _fig_size=4,
                         _overwrite=False, _verbose=True):
     """_cell: Cell_Data class"""
+
     # notice: always load in attributes, never return indices in batch format
-    _picked_spots = _cell._pick_spots(_data_type=_data_type, _pick_type=_pick_type, _use_chrom_coords=_use_chrom_coords,
-                                      _sel_ids=_sel_ids, _local_size=_local_size, _terminate_th=_terminate_th, 
+    _picked_spots = _cell._pick_spots(_data_type=_data_type, _pick_type=_pick_type, 
+                                      _use_chrom_coords=_use_chrom_coords, _sel_ids=_sel_ids, 
+                                      _num_iters=_num_iters, _terminate_th=_terminate_th, 
                                       _intensity_th=_intensity_th, _hard_intensity_th=_hard_intensity_th,
-                                      _w_ccdist=_w_ccdist, _w_lcdist=_w_lcdist,
-                                      _w_int=_w_int, _w_nbdist=_w_nbdist, _save_inter_plot=_save_inter_plot,
+                                      _spot_num_th=_spot_num_th,
+                                      _ref_dist_metric=_ref_dist_metric, _score_metric=_score_metric,
+                                      _local_size=_local_size, _w_ctdist=_w_ctdist, _w_lcdist=_w_lcdist,  
+                                      _w_int=_w_int, _w_nbdist=_w_nbdist, 
+                                      _save_inter_plot=_save_inter_plot,
                                       _save_to_attr=True, _save_to_info=_save_to_info,
                                       _check_spots=_check_spots, _check_th=_check_th, 
                                       _check_percentile=_check_percentile, 
@@ -1143,8 +1148,10 @@ class Cell_List():
                 print(f"++ matching {len(_chrom_coords)} chromosomes for fov:{_cell.fov_id}, cell:{_cell.cell_id}")
         # then update files if specified
             if _save:
-                _cell._save_to_file('cell_info', _save_dic={'chrom_coords': _cell.chrom_coords
-                                                            'chrom_im':_cell.chrom_im},  _verbose=_verbose)
+                _cell._save_to_file('cell_info', 
+                                    _save_dic={'chrom_coords': _cell.chrom_coords,
+                                               'chrom_im':_cell.chrom_im,},  
+                                    _verbose=_verbose)
                 if hasattr(_cell, 'combo_groups') or _force_save_to_combo:
                     if _cell._check_full_set('combo'):
                         if not hasattr(_cell, 'combo_groups'):
@@ -1319,14 +1326,15 @@ class Cell_List():
 
     # new version for batch pick spots
     def _pick_spots_for_cells(self, _data_type='unique', _pick_type='EM', decoded_flag='diff',
-                              _num_threads=12, _use_chrom_coords=True, 
-                              _sel_ids=None, _local_size=5, 
-                              _terminate_th=0.0025, _intensity_th=1., _hard_intensity_th=True,
-                              _w_ccdist=1, _w_lcdist=0.1, _w_int=1, _w_nbdist=3,
+                              _num_threads=12, _use_chrom_coords=True,  _sel_ids=None, 
+                              _num_iters=10, _terminate_th=0.0025, 
+                              _intensity_th=1., _hard_intensity_th=True,
+                              _spot_num_th=100, _ref_dist_metric='median', _score_metric='linear',
+                              _local_size=5, _w_ctdist=1, _w_lcdist=0.1, _w_int=1, _w_nbdist=3,
                               _save_inter_plot=False, _save_to_info=True, _save_plot=True,
                               _check_spots=True, _check_th=-1.5, _check_percentile=10., 
-                              _distance_th=200., _ignore_nan=True, _chrom_share_spots=False,
-                              _plot_limits=[0, 2000], _cmap='seismic_r', _fig_dpi=300, _fig_size=4,
+                              _distance_limits=[0,np.inf], _ignore_nan=True, _chrom_share_spots=False,
+                              _plot_limits=[0, 1500], _cmap='seismic_r', _fig_dpi=100, _fig_size=4,
                               _release_ram=False, _overwrite=False, _verbose=True):
         """Function to pick spots given candidates in batch"""
         ## Check Inputs
@@ -1343,15 +1351,14 @@ class Cell_List():
                 "++ _save_inter_plot is ON for now, which may requires long time to finish.")
         ## start generate multi-processing args
         _pick_args = []
-
         for _cell in self.cells:
             _pick_args.append((_cell, _pick_type, _data_type, _use_chrom_coords,
-                               _sel_ids, _local_size, _terminate_th, 
+                               _sel_ids, _num_iters, _terminate_th, 
                                _intensity_th, _hard_intensity_th, 
-                               _w_ccdist, _w_lcdist, _w_int, _w_nbdist,
+                               _local_size, _w_ctdist, _w_lcdist, _w_int, _w_nbdist,
                                _save_inter_plot, _save_to_info, _save_plot,
                                _check_spots, _check_th, _check_percentile, 
-                               _distance_th, _ignore_nan, _chrom_share_spots,
+                               _distance_limits, _ignore_nan, _chrom_share_spots,
                                _plot_limits, _cmap, _fig_dpi, _fig_size,
                                _overwrite, _verbose))
             # create folder to save distmaps ahead
@@ -3629,12 +3636,13 @@ class Cell_Data():
 
     # an integrated function to pick spots
     def _pick_spots(self, _data_type='unique', _pick_type='EM', _use_chrom_coords=True,
-                    _sel_ids=None, _local_size=5, _terminate_th=0.0025, 
-                    _intensity_th=1.0, _hard_intensity_th=True,
-                    _w_ccdist=1, _w_lcdist=0.1, _w_int=1, _w_nbdist=3,
+                    _sel_ids=None, _num_iters=10, _terminate_th=0.0025, 
+                    _intensity_th=0., _hard_intensity_th=True, _spot_num_th=100,
+                    _ref_dist_metric='median', _score_metric='linear',
+                    _local_size=5, _w_ctdist=2, _w_lcdist=1, _w_int=1, _w_nbdist=2,
                     _save_inter_plot=False, _save_to_attr=True, _save_to_info=True,
-                    _check_spots=True, _check_th=-1.5, _check_percentile=10.,
-                    _distance_limits=200., _ignore_nan=True, _chrom_share_spots=False,
+                    _check_spots=True, _check_th=-3.5, _check_percentile=2.5,
+                    _distance_limits=[0,np.inf], _ignore_nan=True, _chrom_share_spots=False,
                     _return_indices=False, _overwrite=False, _verbose=True):
         """Function to pick spots from all candidate spots within Cell_Data
         There are three versions allowed for now:
@@ -3751,43 +3759,55 @@ class Cell_Data():
             _chrom_coords = getattr(self, 'chrom_coords')
 
         ## Initialize
-        
+        _plot_folder = os.path.join(self.map_folder, self.fovs[self.fov_id].replace('.dax', ''))
+        _plot_filename = f"Steps-{_pick_type}_{_data_type}_{self.cell_id}.png"
+        if _save_inter_plot and not os.path.exists(_plot_folder):
+            if _verbose:
+                print(f"-- create distance_map folder:{_plot_folder} to save picking-step plots")
+            os.makedirs(_plot_folder)
         # pick spots according to types
         if _pick_type == 'naive':
-            # initialize
-            _picked_spot_list, _picked_ind_list = [], []
-            # re-size chrom_coords
-            if not _use_chrom_coords:
-                _chrom_coords = [None]
+            from .spot_tools.picking import naive_pick_spots_for_chromosomes
             # loop through chromosomes and pick
             for _i, (_cand_spots, _chrom_coord) in enumerate(zip(_cand_spot_list, _chrom_coords)):
-                _picked_spots, _picked_inds = analysis.naive_pick_spots(_cand_spots, _ids,
-                                                                        use_chrom_coord=False,
-                                                                        return_indices=True, 
-                                                                        verbose=_verbose)
-                _picked_spot_list.append(_picked_spots)
-                _picked_ind_list.append(_picked_inds)
+                _picked_spot_list, _picked_ind_list = naive_pick_spots_for_chromosomes(
+                    _all_spots, _ids, chrom_coords=_chrom_coords, intensity_th=_intensity_th,
+                    hard_intensity_th=_hard_intensity_th,chrom_share_spots=_chrom_share_spots,
+                    distance_zxy=self.shared_parameters['distance_zxy'],
+                    return_indices=True, verbose=_verbose)
+
         elif _pick_type == 'dynamic':
             # directly do dynamic picking
             # note: by running this allows default Naive picking as initial condition
-            _picked_spot_list, _picked_ind_list = analysis.dynamic_pick_spots_for_chromosomes(
+            from .spot_tools.picking import dynamic_pick_spots_for_chromosomes
+            _picked_spot_list, _picked_ind_list = dynamic_pick_spots_for_chromosomes(
                 _all_spots, _ids, chrom_coords=_chrom_coords, sel_spot_list=None,
-                nb_dist_list=None, local_size=_local_size, w_ccdist=_w_ccdist, w_lcdist=_w_lcdist,
-                w_int=_w_int, w_nbdist=_w_nbdist, chrom_share_spots=_chrom_share_spots,
+                intensity_th=_intensity_th, hard_intensity_th=_hard_intensity_th,
+                nb_dist_list=None, spot_num_th=_spot_num_th,
+                ref_dist_metric=_ref_dist_metric, score_metric=_score_metric,
+                local_size=_local_size, w_ctdist=_w_ctdist, w_lcdist=_w_lcdist,
+                w_int=_w_int, w_nbdist=_w_nbdist, ignore_nan=_ignore_nan, 
+                chrom_share_spots=_chrom_share_spots,
                 distance_zxy=self.shared_parameters['distance_zxy'],
-                ignore_nan=_ignore_nan, return_indices=True, verbose=_verbose)
+                distance_limits=_distance_limits,
+                return_indices=True, verbose=_verbose)
         elif _pick_type == 'EM':
             # dirctly do EM
             # note: by running this allows default Naive picking as initial condition
-            _picked_spot_list, _picked_ind_list = analysis.EM_pick_spots_for_chromosomes(
+            from .spot_tools.picking import EM_pick_spots_for_chromosomes
+            _picked_spot_list, _picked_ind_list = EM_pick_spots_for_chromosomes(
                 _all_spots, _ids, chrom_coords=_chrom_coords, sel_spot_list=None,
-                nb_dist_list=None, terminate_th=_terminate_th,
+                num_iters=_num_iters, terminate_th=_terminate_th,
                 intensity_th=_intensity_th, hard_intensity_th=_hard_intensity_th,
-                distance_zxy=self.shared_parameters['distance_zxy'],
-                local_size=_local_size, w_ccdist=_w_ccdist, w_lcdist=_w_lcdist,
+                nb_dist_list=None, spot_num_th=_spot_num_th, 
+                local_size=_local_size, w_ctdist=_w_ctdist, w_lcdist=_w_lcdist,
                 w_int=_w_int, w_nbdist=_w_nbdist, distance_limits=_distance_limits,
                 ignore_nan=_ignore_nan, chrom_share_spots=_chrom_share_spots,
-                check_spots=_check_spots, check_th=_check_th, check_percentile=_check_percentile,
+                distance_zxy=self.shared_parameters['distance_zxy'],
+                check_spots=_check_spots, check_th=_check_th, 
+                check_percentile=_check_percentile,
+                save_plot=_save_inter_plot, save_path=_plot_folder,
+                save_filename=_plot_filename,
                 return_indices=True, verbose=_verbose)
 
         else:
@@ -4069,103 +4089,6 @@ class Cell_Data():
         if _load_in_ram:
             return _new_cell_data
         
-    # old method to call AB compartments
-    def _PCA_call_AB_compartments(self, _data_type='unique', _force=False, _norm_matrix='normalization_matrix.npy', 
-                                  _min_allowed_dist=50, _gaussian_size=2, _boundary_window_size=3, 
-                                  _make_plot=True, _save_coef_plot=False, _save_compartment_plot=False, _verbose=True):
-        """Function to call AB compartment for given type of distance-map
-        Inputs:
-            _data_type: type of distance map given, unique / decoded
-            _force: whether force doing compartment calling if result exists, bool (default: False)
-            _norm_matrix: normalization matrix to remove polymer effect, np.ndarray or string(filename)
-            _min_allowed_dist: minimal distance kept during the process, int (default: 50)
-            _gaussian_size: gaussian-filter during compartment calling, non-negative float (default: 2)
-            _boundary_window_size: boundary calling window size, int (default: 3)
-            _make_plot: whether make plots for compartments, bool (default: True)
-            _save_coef_plot
-            _save_compartment_plot
-            _verbose: whether say something! (default: True)
-            """
-        from astropy.convolution import Gaussian2DKernel
-        from astropy.convolution import convolve    
-        ## check inputs
-        _data_type = _data_type.lower()
-        if _data_type not in ['unique','decoded']:
-            raise ValueError("Wrong _data_type kwd is given!")
-        if not hasattr(self, _data_type+'_distance_map'):
-            raise AttributeError(f"Attribute { _data_type+'_distance_map'} doesn't exist for this cell, exist!")
-        if isinstance(_norm_matrix, str):
-            if os.sep not in _norm_matrix: # only filename is given, then assume the file is in analysis_folder
-                _norm_matrix = os.path.join(self.analysis_folder, _norm_matrix)
-            if _verbose:
-                print(f"-- loading normalization matrix from file: {_norm_matrix}")
-            _norm_matrix = np.load(_norm_matrix)
-        elif isinstance(_norm_matrix, np.ndarray):
-            if _verbose:
-                print(f"-- normalization matrix is directly given!")
-        else:
-            raise ValueError("Wrong input type for _norm_matrix")
-        
-        ## initalize
-        if hasattr(self, 'compartment_boundaries') and hasattr(self, 'compartment_boundary_scores') and not _force:
-            if _verbose:
-                print(f"-- directly load existing compartment information")
-        else:
-            if _verbose:
-                print(f"-- call compartment from {_data_type} distance map!")
-            self.compartment_boundaries = []
-            self.compartment_boundary_scores = []
-            ## start calculating compartments
-            _distmaps = getattr(self, _data_type+'_distance_map')
-            for _chrom_id, _distmap in enumerate(_distmaps):
-                _normed_map = _distmap.copy()
-                # exclude extreme values
-                _normed_map[_normed_map == np.inf] = np.nan
-                _normed_map[_normed_map < _min_allowed_dist] = np.nan
-                # normalization
-                _normed_map = _normed_map / _norm_matrix
-                if _gaussian_size > 0:
-                    # set gaussian kernel
-                    _kernel = Gaussian2DKernel(x_stddev=_gaussian_size)
-                    # convolution, which will interpolate any NaN numbers
-                    _normed_map = convolve(_normed_map, _kernel)
-                else:
-                    _normed_map[_normed_map == np.nan] = 0
-
-                _coef_mat = np.corrcoef(_normed_map)
-                if _make_plot:
-                    f1 = plt.figure()
-                    plt.imshow(_coef_mat, cmap='seismic', vmin=-1, vmax=1)
-                    plt.title(f"{_data_type} coef-matrix for fov:{self.fov_id}, cell:{self.cell_id}, chrom:{_chrom_id}")
-                    plt.colorbar()
-                    if _save_coef_plot:
-                        _coef_savefile = os.path.join(self.map_folder,
-                                                    self.fovs[self.fov_id].replace('.dax',''),
-                                                    f"coef_matrix_{_data_type}_{self.cell_id}_{_chrom_id}.png")
-                        plt.savefig(_coef_savefile, transparent=True)
-                        plt.close(f1)
-                #get the eigenvectors and eigenvalues
-                _evals, _evecs = analysis.pca_components(_coef_mat)
-                #get the A/B boundaries based on the correaltion matrix and the first eigenvector
-                if _save_compartment_plot:
-                    _compartment_savefile = os.path.join(self.map_folder,
-                                                        self.fovs[self.fov_id].replace('.dax',''),
-                                                        f"compartment_{_data_type}_{self.cell_id}_{_chrom_id}.png")
-                else:
-                    _compartment_savefile = None
-                _bds,_bd_scores =analysis.get_AB_boundaries(_coef_mat,_evecs[:,0],sz_min=_boundary_window_size,plt_val=_make_plot, plot_filename=_compartment_savefile, verbose=_verbose)
-                # store information
-                self.compartment_boundaries.append(_bds)
-                self.compartment_boundary_scores.append(_bd_scores)
-            # save compartment info to cell-info
-            self._save_to_file('cell_info', _save_dic={'compartment_boundaries': self.compartment_boundaries,
-                                                    'compartment_boundary_scores': self.compartment_boundary_scores})
-        
-        return getattr(self, 'compartment_boundaries'), getattr(self, 'compartment_boundary_scores')
-
-
-
-
 
 class Encoding_Group():
     """defined class for each group of encoded images"""

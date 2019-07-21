@@ -19,8 +19,8 @@ _num_empty_frames = 1
 
 # library design tools
 from . import library_tools
-# wrapped multi-step functions for image analysis
-from . import analysis
+# function to process fitted spots
+from . import spot_tools
 # everything about gaussian fitting, imshow3d
 from . import visual_tools
 # everything about aligments
