@@ -200,13 +200,15 @@ def generate_ref_from_chromosome(sel_spots, sel_ids=None, distance_zxy=_distance
     if ignore_nan:
         _lc_dist = _lc_dist[np.isnan(_lc_dist)==False]
         if len(_lc_dist) == 0:
-            raise ValueError(f"_lc_dist has no valid values in this chromosome")
+            print(f"_lc_dist has no valid values in this chromosome")
+            _lc_dist = [np.inf]
     # caluclate neighboring distances
     _nb_dist = _neighboring_distance(_zxys, _ids)
     if ignore_nan:
         _nb_dist = _nb_dist[np.isnan(_nb_dist)==False]
         if len(_nb_dist) == 0:
-            raise ValueError(f"_nb_dist has no valid values in this chromosome")
+            print(f"_nb_dist has no valid values in this chromosome")
+            _nb_dist = [np.inf]
     # intensities
     _intensities = _filter_intensities(_spots, intensity_th=intensity_th)
     if ignore_nan:

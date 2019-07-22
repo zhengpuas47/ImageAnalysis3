@@ -1044,7 +1044,7 @@ def dynamic_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
     for _chrom_id, (_dy_spots, _dy_indices) in enumerate(zip(_dy_spot_list, _dy_ind_list)):        
         # sort as orignial region_ids order
         for _j, _order in enumerate(np.argsort(region_ids)):
-            if region_ids[_order] in _ids:
+            if region_ids[_order] in _ids and _j in _id_indices:
                 # if there's any bad spot, just append empty one
                 _picked_spot = _dy_spots[np.where(np.array(_id_indices)==_j)[0][0]]
                 if np.isnan(_picked_spot).any():
