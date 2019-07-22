@@ -89,6 +89,8 @@ def _pick_spot_in_batch(_cell, _pick_type='EM', _data_type='unique', _use_chrom_
                         _plot_limits=[0, 1500], _cmap='seismic_r', _fig_dpi=300, _fig_size=4,
                         _overwrite=False, _verbose=True):
     """_cell: Cell_Data class"""
+    if _verbose:
+        print(f"-- {_pick_type} pick spots for fov:{_cell.fov_id}, cell:{_cell.cell_id}")
 
     # notice: always load in attributes, never return indices in batch format
     _picked_spots = _cell._pick_spots(_data_type=_data_type, _pick_type=_pick_type, 
@@ -1354,7 +1356,8 @@ class Cell_List():
         for _cell in self.cells:
             _pick_args.append((_cell, _pick_type, _data_type, _use_chrom_coords,
                                _sel_ids, _num_iters, _terminate_th, 
-                               _intensity_th, _hard_intensity_th, 
+                               _intensity_th, _hard_intensity_th, _spot_num_th,
+                               _ref_dist_metric, _score_metric,
                                _local_size, _w_ctdist, _w_lcdist, _w_int, _w_nbdist,
                                _save_inter_plot, _save_to_info, _save_plot,
                                _check_spots, _check_th, _check_percentile, 
@@ -1372,8 +1375,7 @@ class Cell_List():
         with mp.Pool(_num_threads) as _pick_pool:
             _pick_start = time.time()
             if _verbose:
-                print(
-                    f"++ start multi-processing picking spots by {_pick_type} for {len(self.cells)} cells")
+                print(f"++ start multi-processing picking spots by {_pick_type} for {len(self.cells)} cells")
             # feed in args
             _updated_cells = _pick_pool.starmap(_pick_spot_in_batch,
                                                 _pick_args, chunksize=1)

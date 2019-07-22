@@ -63,13 +63,13 @@ def check_spot_scores(all_spot_list, sel_spots, region_ids=None, sel_indices=Non
     # determine reference spots
     if len(sel_spots) < spot_num_th:
         if verbose:
-            print(f"--- use selected spots as reference")
+            print(f"--- use all spots as reference")
         _ref_spots = all_spots
         _ref_ids = np.concatenate([_id*np.ones(len(_spots), dtype=np.int) 
                                    for _spots,_id in zip(all_spot_list, region_ids)])          
     else:
         if verbose:
-            print(f"--- use all spots as reference")
+            print(f"--- use selected spots as reference")
         _ref_spots = sel_spots
         _ref_ids = region_ids
 

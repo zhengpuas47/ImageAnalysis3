@@ -918,6 +918,15 @@ def dynamic_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
             _chrom_coord = chrom_coords[_chrom_id]
         else:
             _chrom_coord = None
+        # decide which reference to use
+        if len(_sel_spots) >= spot_num_th:
+            # use selected spots as reference
+            _ref_spots = _sel_spots
+            _ref_ids = region_ids
+        else:
+            _ref_spots = np.concatenate(_chrom_cand_spots)
+            _ref_ids = np.concatenate([np.ones(len(_spots))*_id for _spots,_id in zip(_chrom_cand_spots, region_ids) ])
+
         # v2
         _ref_ct_dist, _ref_lc_dist, ref_nb_dist, _ref_ints = scoring.generate_ref_from_chromosome(
             _sel_spots, region_ids, distance_zxy, _chrom_coord, intensity_th,
@@ -925,7 +934,7 @@ def dynamic_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
         # append nb_dist reference
         if nb_dist_list is None:
             _ref_nb_list.append(ref_nb_dist)
-
+        
         _chrom_scores = [scoring.spot_score_in_chromosome(_spots, _uid, _sel_spots, region_ids,
                             _chrom_coord, _ref_ct_dist, _ref_lc_dist, ref_nb_dist, _ref_ints,
                             ref_dist_metric, ignore_nan, distance_zxy, distance_limits, 
@@ -968,15 +977,12 @@ def dynamic_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
     if len(_zxy_list) > 0 and len(_ids) > 0:
         ## forward
         for _i, (_zxys, _id) in enumerate(zip(_zxy_list[1:], _ids[1:])):
+            #print(_i, end=' ')
             # notice: i is actually 1 smaller than real indices
             # calculate min_distance and give score
             # real pair-wise distances
             _dists = cdist(_zxy_list[_i], _zxy_list[_i+1])
             # add distance score, which is normalized by how far exactly these two regions are
-            #_measure_list = [distance_score_in_chromosome(_dists, _nb_dists=_nb_dists, 
-            #                    w_dist=w_nbdist, distance_limits=distance_limits ) \
-            #                    / np.abs(_ids[_i+1] - _ids[_i]) + _dy_scores[_i][:,np.newaxis]
-            #                    for _nb_dists, _dy_scores in zip(nb_dist_list, _dy_score_list)]
             _measure_list = [scoring.distance_score(_dists, ref_dist=_nb_dist, 
                                 weight=w_nbdist, metric=score_metric,
                                 distance_limits=distance_limits ) \
@@ -992,7 +998,7 @@ def dynamic_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
             # enumerate through spots in _i+1 round
             for _nid in range(len(_zxy_list[_i+1])):
                 # version 1.0 optimize sum of scores
-                _global_scores = [sum([_measure[_ind[_chrom_id], _nid] 
+                _global_scores = [np.nansum([_measure[_ind[_chrom_id], _nid] 
                                        for _chrom_id, _measure in enumerate(_measure_list)])
                                   for _ind in _inds]
                 # version 1.1 optimize sum of order
@@ -1009,6 +1015,7 @@ def dynamic_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
                 if len(_sids) == 1:
                     _sel_ind = _inds[_sids[0]]
                 else:
+                    #print(_sids, _global_scores, _global_maxs)
                     _maxid = np.argmax(_global_maxs[_sids])
                     _sel_ind = _inds[_sids[_maxid]]
                 # update corresponding _dy_score and pointer based on previous selected ind
