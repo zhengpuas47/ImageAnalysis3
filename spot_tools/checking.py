@@ -86,7 +86,7 @@ def check_spot_scores(all_spot_list, sel_spots, region_ids=None, sel_indices=Non
                         distance_limits=distance_limits, metric=score_metric, intensity_th=intensity_th,
                         local_size=local_size, w_ctdist=w_ctdist, w_lcdist=w_lcdist, w_int=w_int) 
                         for _spots, _uid in zip(all_spot_list, region_ids)]
-    _sel_scores = scoring.spot_score_in_chromosome(_ref_spots, _ref_ids, _ref_spots, _ref_ids, chrom_coord, 
+    _sel_scores = scoring.spot_score_in_chromosome(sel_spots, region_ids, _ref_spots, _ref_ids, chrom_coord, 
                         _ref_center_dist, _ref_local_dist, _ref_neighbor_dist, _ref_intensities,
                         ref_dist_metric=ref_dist_metric, ignore_nan=ignore_nan, distance_zxy=distance_zxy,
                         distance_limits=distance_limits, metric=score_metric, intensity_th=intensity_th,
