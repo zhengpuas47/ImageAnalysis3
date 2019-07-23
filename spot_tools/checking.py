@@ -10,7 +10,8 @@ def check_spot_scores(all_spot_list, sel_spots, region_ids=None, sel_indices=Non
                       chrom_coord=None, distance_zxy=_distance_zxy, distance_limits=[0, np.inf],
                       intensity_th=0., ref_dist_metric='median', score_metric='linear',
                       local_size=5, w_ctdist=2, w_lcdist=1, w_int=1, 
-                      ignore_nan=True, check_th=-3.5, check_percentile=1., 
+                      ignore_nan=True, nan_mask=0., inf_mask=-1000.,
+                      check_th=-3.5, check_percentile=1., 
                       return_sel_scores=False, return_other_scores=False, verbose=False):
     """Function to check spots given merged_spot_list and selected_spots
     Inputs:
@@ -63,13 +64,13 @@ def check_spot_scores(all_spot_list, sel_spots, region_ids=None, sel_indices=Non
     # determine reference spots
     if len(sel_spots) < spot_num_th:
         if verbose:
-            print(f"--- use all spots as reference")
+            print(f"--- use all spots as reference,", end=' ')
         _ref_spots = all_spots
         _ref_ids = np.concatenate([_id*np.ones(len(_spots), dtype=np.int) 
                                    for _spots,_id in zip(all_spot_list, region_ids)])          
     else:
         if verbose:
-            print(f"--- use selected spots as reference")
+            print(f"--- use selected spots as reference,", end=' ')
         _ref_spots = sel_spots
         _ref_ids = region_ids
 
@@ -82,13 +83,15 @@ def check_spot_scores(all_spot_list, sel_spots, region_ids=None, sel_indices=Non
     # calculate spot scores
     _spot_scores = [scoring.spot_score_in_chromosome(_spots, int(_uid), _ref_spots, _ref_ids, chrom_coord, 
                         _ref_center_dist, _ref_local_dist, _ref_neighbor_dist, _ref_intensities,
-                        ref_dist_metric=ref_dist_metric, ignore_nan=ignore_nan, distance_zxy=distance_zxy,
+                        ref_dist_metric=ref_dist_metric, ignore_nan=ignore_nan, 
+                        nan_mask=nan_mask, inf_mask=inf_mask, distance_zxy=distance_zxy,
                         distance_limits=distance_limits, metric=score_metric, intensity_th=intensity_th,
                         local_size=local_size, w_ctdist=w_ctdist, w_lcdist=w_lcdist, w_int=w_int) 
                         for _spots, _uid in zip(all_spot_list, region_ids)]
     _sel_scores = scoring.spot_score_in_chromosome(sel_spots, region_ids, _ref_spots, _ref_ids, chrom_coord, 
                         _ref_center_dist, _ref_local_dist, _ref_neighbor_dist, _ref_intensities,
-                        ref_dist_metric=ref_dist_metric, ignore_nan=ignore_nan, distance_zxy=distance_zxy,
+                        ref_dist_metric=ref_dist_metric, ignore_nan=ignore_nan, 
+                        nan_mask=nan_mask, inf_mask=inf_mask, distance_zxy=distance_zxy,
                         distance_limits=distance_limits, metric=score_metric, intensity_th=intensity_th,
                         local_size=local_size, w_ctdist=w_ctdist, w_lcdist=w_lcdist, w_int=w_int)
     _other_scores = []
@@ -106,9 +109,9 @@ def check_spot_scores(all_spot_list, sel_spots, region_ids=None, sel_indices=Non
     _other_scores = np.array(_other_scores)
     ## picking thresholds
     # calculate threshold
-    _kept_sel_scores = _sel_scores[_sel_scores > - np.inf]
+    _kept_sel_scores = _sel_scores[_sel_scores > max(inf_mask, - np.inf)]
     _th_sel = scoreatpercentile(_kept_sel_scores, check_percentile)
-    _kept_other_scores = _other_scores[_other_scores > - np.inf]
+    _kept_other_scores = _other_scores[_other_scores > max(inf_mask, - np.inf)]
     
     if sel_indices is None:
         _other_th_per = max(0, 100-100.*len(_kept_sel_scores)/len(_kept_other_scores) - check_percentile )
