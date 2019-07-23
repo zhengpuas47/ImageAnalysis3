@@ -2,14 +2,21 @@ import numpy as np
 from . import _distance_zxy
 # Function to give scores
 def distance_score(dist, ref_dist, weight=1., 
-                   metric='linear', distance_limits=[-np.inf, np.inf]):
-    """Function to calculate distance score given a reference number"""
+                   metric='linear', distance_limits=[-np.inf, np.inf],
+                   nan_mask=0., inf_mask=-1000.):
+    """Function to calculate distance score given a reference number
+    weight is dominating here, which means if weight is zero then everything is zero"""
     # localize variables
     _dist = np.array(dist)
     # weight
     _w = float(weight)
     # metric
     metric = metric.lower()
+    # Scores
+    _scores = np.zeros(np.shape(_dist))
+    # if weight is zero, return zeros!
+    if _w == 0.:
+        return _scores
     # calculate score based on metric types
     if metric == 'linear':
         # ref_dist is one number if metric is linear
@@ -26,32 +33,43 @@ def distance_score(dist, ref_dist, weight=1.,
                              vmin=min(distance_limits), 
                              vmax=max(distance_limits))
         # calculate scores
-        _scores = np.zeros(np.shape(_cdf))
         _scores[_cdf > 0] = np.log(_cdf[_cdf > 0]) * _w
         _scores[_cdf <= 0] = - np.inf
     else:
         raise ValueError(f"metric type:{metric} has not been supported yet!")
-
+    # remove nan spots
+    _scores = np.array(_scores)
+    _scores[np.isnan(_scores)] = nan_mask
+    # NOTE
+    # this doesnt matter because if lc_dist is nan, all spots has comparable scores
+    # if ct_dist is nan, which means this is a bad spota
     return _scores
 
 def intensity_score(intensity, ref_intensities, weight=1.,
-                    metric='linear', intensity_th=0.):
+                    metric='linear', intensity_th=0.,
+                    nan_mask=0., inf_mask=-1000.):
     # input intensites
     _int = np.array(intensity)
     # weight
     _w = float(weight)
+    # scores
+    _scores = np.zeros(np.shape(_int))
     # calculate scores in different metrices
     if metric == 'linear':
         _ref = float(ref_intensities)
-        _scores = np.log( _ref / (_int+_ref) ) * _w
+        _scores[_int <= 0] = - np.inf
+        _scores[_int > 0] = np.log(_int[_int > 0] / (_int[_int > 0] + _ref) ) * _w
     elif metric == 'cdf':
         if isinstance(ref_intensities, int) or isinstance(ref_intensities, float):
             raise ValueError(f"ref_intensity in {metric} mode should be an array rather than one value")
         _ref = np.array(ref_intensities)            
         _cdf = _cum_prob(_ref, _int, vmin=intensity_th)
-        _scores = np.zeros(np.shape(_cdf))
         _scores[_cdf > 0] = np.log(_cdf[_cdf > 0]) * _w
         _scores[_cdf <= 0] = - np.inf
+    # apply masks
+    _scores[np.isnan(_scores)] = nan_mask
+    _scores[np.isinf(_scores)] = inf_mask
+    
     return _scores
 
 # accumulative prob.
@@ -59,6 +77,8 @@ def _cum_prob(data, target_value, vmin=-np.inf, vmax=np.inf):
     """Function to calculate CDF from a dataset"""
     data = np.array(data, dtype=np.float)
     data = data[np.isnan(data)==False]
+    if len(data) == 0:
+        raise ValueError(f"Wrong input data, no valid points at all.")
     target_value = np.array(target_value, dtype=np.float)
     if len(target_value.shape) == 0:
         target_value = np.array([target_value], dtype=np.float)
@@ -200,14 +220,14 @@ def generate_ref_from_chromosome(sel_spots, sel_ids=None, distance_zxy=_distance
     if ignore_nan:
         _lc_dist = _lc_dist[np.isnan(_lc_dist)==False]
         if len(_lc_dist) == 0:
-            print(f"_lc_dist has no valid values in this chromosome")
+            print(f"_lc_dist has no valid values in this chromosome", end=', ')
             _lc_dist = [np.inf]
     # caluclate neighboring distances
     _nb_dist = _neighboring_distance(_zxys, _ids)
     if ignore_nan:
         _nb_dist = _nb_dist[np.isnan(_nb_dist)==False]
         if len(_nb_dist) == 0:
-            print(f"_nb_dist has no valid values in this chromosome")
+            print(f"_nb_dist has no valid values in this chromosome", end=', ')
             _nb_dist = [np.inf]
     # intensities
     _intensities = _filter_intensities(_spots, intensity_th=intensity_th)
@@ -244,7 +264,8 @@ def generate_ref_from_chromosome(sel_spots, sel_ids=None, distance_zxy=_distance
 
 def spot_score_in_chromosome(spots, spot_ids, sel_spots, sel_ids=None, chr_center=None,
                              ref_center_dist=None, ref_local_dist=None, ref_neighbor_dist=None, 
-                             ref_intensities=None, ref_dist_metric='median', ignore_nan=True,
+                             ref_intensities=None, ref_dist_metric='median', 
+                             ignore_nan=True, nan_mask=0., inf_mask=-1000., 
                              distance_zxy=_distance_zxy, distance_limits=[0,np.inf], metric='linear',
                              intensity_th=0., local_size=5, w_ctdist=1, w_lcdist=0.1, w_int=1):
     """Function to generate spot_scores in a given chromosomes selected spots
@@ -319,11 +340,24 @@ def spot_score_in_chromosome(spots, spot_ids, sel_spots, sel_ids=None, chr_cente
     _spot_local_scores = _local_distance(_zxys, _ids, _sel_zxys, _sel_ids, local_size=local_size)
     _spot_intensities = _spots[:,0]
     _scores = distance_score(_spot_center_scores, ref_center_dist, weight=w_ctdist, 
-                             metric=metric, distance_limits=distance_limits) \
+                             metric=metric, distance_limits=distance_limits,
+                             nan_mask=nan_mask, inf_mask=inf_mask) \
             + distance_score(_spot_local_scores, ref_local_dist, weight=w_lcdist, 
-                             metric=metric, distance_limits=distance_limits) \
+                             metric=metric, distance_limits=distance_limits,
+                             nan_mask=nan_mask, inf_mask=inf_mask) \
             + intensity_score(_spot_intensities, ref_intensities, weight=w_int, 
-                              metric=metric, intensity_th=intensity_th)
+                              metric=metric, intensity_th=intensity_th,
+                              nan_mask=nan_mask, inf_mask=inf_mask)
+    # For debugging:
+    #print('ct', distance_score(_spot_center_scores, ref_center_dist, weight=w_ctdist, 
+    #                         metric=metric, distance_limits=distance_limits, 
+    #                         nan_mask=nan_mask, inf_mask=inf_mask))
+    #print('lc', distance_score(_spot_local_scores, ref_local_dist, weight=w_lcdist, 
+    #                         metric=metric, distance_limits=distance_limits,
+    #                         nan_mask=nan_mask, inf_mask=inf_mask))
+    #print('in',intensity_score(_spot_intensities, ref_intensities, weight=w_int, 
+    #                          metric=metric, intensity_th=intensity_th,
+    #                          nan_mask=nan_mask, inf_mask=inf_mask))
     
     return _scores
 

@@ -831,8 +831,8 @@ def dynamic_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
                                        nb_dist_list=None, spot_num_th=100,
                                        ref_dist_metric='median', score_metric='linear',
                                        local_size=5, w_ctdist=2, w_lcdist=1, w_int=1, w_nbdist=2,
-                                       ignore_nan=True, update_chrom_coords=False, 
-                                       chrom_share_spots=False,
+                                       ignore_nan=True, nan_mask=0., inf_mask=-1000., 
+                                       update_chrom_coords=False, chrom_share_spots=False,
                                        distance_zxy=_distance_zxy, distance_limits=[200,3000],
                                        return_indices=False, verbose=True):
     """Function to dynamic-programming pick spots
@@ -937,14 +937,18 @@ def dynamic_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
         
         _chrom_scores = [scoring.spot_score_in_chromosome(_spots, _uid, _sel_spots, region_ids,
                             _chrom_coord, _ref_ct_dist, _ref_lc_dist, ref_nb_dist, _ref_ints,
-                            ref_dist_metric, ignore_nan, distance_zxy, distance_limits, 
+                            ref_dist_metric, ignore_nan, nan_mask, inf_mask, 
+                            distance_zxy, distance_limits, 
                             score_metric, intensity_th, local_size, w_ctdist, w_lcdist, w_int)
                          for _spots, _uid in zip(_merged_spot_list, _region_ids)]        
         # append
         spot_score_list.append(_chrom_scores)
+
     # update nb_dist_list
     nb_dist_list = _ref_nb_list
 
+    #raise ValueError
+    
     ## get dynamic zxy coordiantes, ids and indices and spot_scores
     _zxy_list, _ids, _id_indices = [],[],[] # coord, ids, indices
     # Dynamic picking non-overlapping spots
@@ -971,6 +975,8 @@ def dynamic_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
                     # pointers
                     _pointers = -np.ones(len(_spots), dtype=np.int)
                     _dy_pointer_list[_chrom_id].append(_pointers)
+                #if _i == 86:
+                #    raise ValueError()
     # result stores at here
     _dy_ind_list, _dy_spot_list = [], []
     ## Start dynamic if there are spots kept
@@ -983,18 +989,34 @@ def dynamic_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
             # real pair-wise distances
             _dists = cdist(_zxy_list[_i], _zxy_list[_i+1])
             # add distance score, which is normalized by how far exactly these two regions are
-            _measure_list = [scoring.distance_score(_dists, ref_dist=_nb_dist, 
-                                weight=w_nbdist, metric=score_metric,
-                                distance_limits=distance_limits ) \
-                                / np.abs(_ids[_i+1] - _ids[_i]) + _dy_scores[_i][:,np.newaxis]
-                                for _nb_dist, _dy_scores in zip(nb_dist_list, _dy_score_list)]
+            if np.abs(_ids[_i+1] - _ids[_i]) > 0:
+                _measure_list = [scoring.distance_score(_dists, ref_dist=_nb_dist, 
+                                    weight=w_nbdist, metric=score_metric,
+                                    nan_mask=nan_mask, inf_mask=inf_mask, 
+                                    distance_limits=distance_limits ) \
+                                    / np.abs(_ids[_i+1] - _ids[_i]) + _dy_scores[_i][:,np.newaxis]
+                                    for _nb_dist, _dy_scores in zip(nb_dist_list, _dy_score_list)]
+            else:
+                _measure_list = [scoring.distance_score(_dists, ref_dist=_nb_dist, 
+                                    weight=w_nbdist, metric=score_metric,
+                                    nan_mask=nan_mask, inf_mask=inf_mask, 
+                                    distance_limits=distance_limits ) \
+                                    + _dy_scores[_i][:,np.newaxis]
+                                    for _nb_dist, _dy_scores in zip(nb_dist_list, _dy_score_list)]
+
             # pick from this measure_list
             # generate shared iteration
-            from itertools import product
-            _inds = list(product(np.arange(len(_zxy_list[_i])), repeat=_num_chroms))
-            if not chrom_share_spots: # and len(_zxy_list[_i]) >= _num_chroms: # remove share-spot case
-                _old_inds = [_ind for _ind in _inds]
-                _inds = [_ind for _ind in _inds if len(set(_ind))==len(_ind)]
+            if len(_zxy_list[_i]) < 2 * _num_chroms:
+                _inds = _all_score_combinations([_dy_scores[_i] for _dy_scores in _dy_score_list], 
+                                          chrom_share_spots=chrom_share_spots)
+            else:
+                _inds = _optimized_score_combinations([_dy_scores[_i] for _dy_scores in _dy_score_list], 
+                                                chrom_share_spots=chrom_share_spots)
+
+            #print(_i, _id, _id_indices[_i], len(_inds), #_zxy_list[_i], 
+            #      np.array([_dy_score_list[_cid][_i] for _cid in range(_num_chroms)]))
+            
+            #raise ValueError
             # enumerate through spots in _i+1 round
             for _nid in range(len(_zxy_list[_i+1])):
                 # version 1.0 optimize sum of scores
@@ -1009,7 +1031,7 @@ def dynamic_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
                 #_global_scores = np.array([sum(_order) for _order in _global_orders])
                 _global_maxs = np.array([max(_order) for _order in _global_orders])
                 if len(_global_scores) == 0:
-                    print(_i, _inds, _old_inds, len(_zxy_list[_i]), len(_zxy_list[_i+1]), )
+                    print(_i, _inds, len(_zxy_list[_i]), len(_zxy_list[_i+1]), )
                     raise ValueError(f"Not enough _inds combinations")
                 _sids = np.where(_global_scores==np.nanmax(_global_scores))[0]
                 if len(_sids) == 1:
@@ -1077,8 +1099,8 @@ def EM_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
                                   ref_dist_metric='median', score_metric='linear',
                                   local_size=5, w_ctdist=2, w_lcdist=1, w_int=1, w_nbdist=2,
                                   distance_limits=[0,3000], ignore_nan=True, 
-                                  update_chrom_coords=False, chrom_share_spots=False,
-                                  distance_zxy=_distance_zxy, 
+                                  nan_mask=0., inf_mask=-1000., update_chrom_coords=False, 
+                                  chrom_share_spots=False, distance_zxy=_distance_zxy, 
                                   check_spots=True, check_th=-2., check_percentile=10., 
                                   make_plot=False, save_plot=False, save_path=None, save_filename='',
                                   return_indices=False, return_sel_scores=False, return_other_scores=False, 
@@ -1213,7 +1235,8 @@ def EM_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
                                          ref_dist_metric=ref_dist_metric, score_metric=score_metric,
                                          local_size=local_size, w_ctdist=w_ctdist,
                                          w_lcdist=w_lcdist, w_int=w_int, w_nbdist=w_nbdist,
-                                         ignore_nan=ignore_nan, update_chrom_coords=update_chrom_coords, 
+                                         ignore_nan=ignore_nan, nan_mask=nan_mask, inf_mask=inf_mask,
+                                         update_chrom_coords=update_chrom_coords, 
                                          chrom_share_spots=chrom_share_spots,
                                          distance_zxy=distance_zxy, distance_limits=distance_limits,
                                          return_indices=True, verbose=verbose)
@@ -1246,7 +1269,7 @@ def EM_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
         # special exit for long term oscillation around minimum
         if len(_previous_ratios) > 5 and np.mean(_previous_ratios[-5:]) <= 2 * terminate_th:
             if verbose:
-                print("- exit loop because of long oscillation around minimum.")
+                print("-- exit loop because of long oscillation around minimum.")
             break
     
     # calculate final scores if necesary
@@ -1355,4 +1378,37 @@ def EM_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
 
 
 
-
+# Generate spot score combinations for multiple chromosomes, used in dynamic_pick_spots
+def _optimized_score_combinations(_score_list, chrom_share_spots=False):
+    from itertools import product
+    if len(_score_list) == 0:
+        raise ValueError(f"_score_list is empty, exit!")
+    if len(_score_list[0]) == 0:
+        raise ValueError(f"_score_list[0] is empty, no spots, exit!")
+    _num_chroms = len(_score_list)
+    _num_spots = len(_score_list[0])
+    if _num_spots < _num_chroms:
+        raise IndexError(f"there should be more spots than chromosomes!")
+    _allowed_ind_list = []
+    for _scores in _score_list:
+        if np.isinf(_scores).all():
+            _allowed_ind_list.append( np.arange(_num_spots) )
+        else:
+            _allowed_ind_list.append(np.argsort(_scores)[-_num_chroms:])
+    _inds = list(product(*_allowed_ind_list))
+    if not chrom_share_spots:
+        _inds = [_ind for _ind in _inds if len(set(_ind))==len(_ind)]
+    return _inds
+    
+def _all_score_combinations(_score_list, chrom_share_spots=False):
+    from itertools import product
+    if len(_score_list) == 0:
+        raise ValueError(f"_score_list is empty, exit!")
+    if len(_score_list[0]) == 0:
+        raise ValueError(f"_score_list[0] is empty, no spots, exit!")
+    _num_chroms = len(_score_list)
+    _num_spots = len(_score_list[0])
+    _inds = list(product(np.arange(_num_spots), repeat=_num_chroms))
+    if not chrom_share_spots:
+        _inds = [_ind for _ind in _inds if len(set(_ind))==len(_ind)]
+    return _inds

@@ -85,8 +85,8 @@ def _pick_spot_in_batch(_cell, _pick_type='EM', _data_type='unique', _use_chrom_
                         _local_size=5, _w_ctdist=2, _w_lcdist=1, _w_int=1, _w_nbdist=2,
                         _save_inter_plot=False, _save_to_info=True, _save_plot=True, 
                         _check_spots=True, _check_th=-3.5, _check_percentile=10.,
-                        _distance_limits=[0, np.inf], _ignore_nan=True, _chrom_share_spots=False, 
-                        _plot_limits=[0, 1500], _cmap='seismic_r', _fig_dpi=300, _fig_size=4,
+                        _distance_limits=[0, np.inf], _ignore_nan=True, _nan_mask=0., _inf_mask=-1000., 
+                        _chrom_share_spots=False, _plot_limits=[0, 1500], _cmap='seismic_r', _fig_dpi=300, _fig_size=4,
                         _overwrite=False, _verbose=True):
     """_cell: Cell_Data class"""
     if _verbose:
@@ -101,14 +101,12 @@ def _pick_spot_in_batch(_cell, _pick_type='EM', _data_type='unique', _use_chrom_
                                       _ref_dist_metric=_ref_dist_metric, _score_metric=_score_metric,
                                       _local_size=_local_size, _w_ctdist=_w_ctdist, _w_lcdist=_w_lcdist,  
                                       _w_int=_w_int, _w_nbdist=_w_nbdist, 
-                                      _save_inter_plot=_save_inter_plot,
-                                      _save_to_attr=True, _save_to_info=_save_to_info,
-                                      _check_spots=_check_spots, _check_th=_check_th, 
-                                      _check_percentile=_check_percentile, 
                                       _distance_limits=_distance_limits, _ignore_nan=_ignore_nan,
-                                      _chrom_share_spots=_chrom_share_spots, _return_indices=False,
-                                      _overwrite=_overwrite, _verbose=_verbose)
-    
+                                      _nan_mask=_nan_mask, _inf_mask=_inf_mask, _chrom_share_spots=_chrom_share_spots, 
+                                      _check_spots=_check_spots, _check_th=_check_th, _check_percentile=_check_percentile, 
+                                      _save_inter_plot=_save_inter_plot, _save_to_attr=True, _save_to_info=_save_to_info,
+                                      _return_indices=False, _overwrite=_overwrite, _verbose=_verbose)
+
     _distmaps = _cell._generate_distance_map(_data_type=_data_type, _pick_type=_pick_type, 
                                              _sel_ids=_sel_ids, _save_info=_save_to_info, _save_plot=_save_plot,
                                              _limits=_plot_limits, _cmap=_cmap, 
@@ -1335,7 +1333,8 @@ class Cell_List():
                               _local_size=5, _w_ctdist=1, _w_lcdist=0.1, _w_int=1, _w_nbdist=3,
                               _save_inter_plot=False, _save_to_info=True, _save_plot=True,
                               _check_spots=True, _check_th=-1.5, _check_percentile=10., 
-                              _distance_limits=[0,np.inf], _ignore_nan=True, _chrom_share_spots=False,
+                              _distance_limits=[0,np.inf], _ignore_nan=True, 
+                              _nan_mask=0., _inf_mask=-1000., _chrom_share_spots=False,
                               _plot_limits=[0, 1500], _cmap='seismic_r', _fig_dpi=100, _fig_size=4,
                               _release_ram=False, _overwrite=False, _verbose=True):
         """Function to pick spots given candidates in batch"""
@@ -1361,8 +1360,8 @@ class Cell_List():
                                _local_size, _w_ctdist, _w_lcdist, _w_int, _w_nbdist,
                                _save_inter_plot, _save_to_info, _save_plot,
                                _check_spots, _check_th, _check_percentile, 
-                               _distance_limits, _ignore_nan, _chrom_share_spots,
-                               _plot_limits, _cmap, _fig_dpi, _fig_size,
+                               _distance_limits, _ignore_nan, _nan_mask, _inf_mask,
+                               _chrom_share_spots, _plot_limits, _cmap, _fig_dpi, _fig_size,
                                _overwrite, _verbose))
             # create folder to save distmaps ahead
             if _save_plot:
@@ -3387,7 +3386,9 @@ class Cell_Data():
 
 
         # first check wether requires do it denovo
-        if hasattr(self, _spot_attr) and not _overwrite and len(getattr(self, _spot_attr)) == len(_ims):
+        if hasattr(self, _spot_attr) and not _overwrite \
+            and len(getattr(self, _spot_attr)) == len(_ims) \
+            and (not _use_chrom_coords or len(getattr(self, 'chrom_coords')) == len(getattr(self, _spot_attr)[0]) ):
             if _verbose:
                 print(f"-- {_spot_attr} already exist for fov:{self.fov_id}, cell:{self.cell_id}.")
             return getattr(self, _spot_attr)
@@ -3642,9 +3643,10 @@ class Cell_Data():
                     _intensity_th=0., _hard_intensity_th=True, _spot_num_th=100,
                     _ref_dist_metric='median', _score_metric='linear',
                     _local_size=5, _w_ctdist=2, _w_lcdist=1, _w_int=1, _w_nbdist=2,
-                    _save_inter_plot=False, _save_to_attr=True, _save_to_info=True,
+                    _distance_limits=[0,np.inf], _ignore_nan=True,  
+                    _nan_mask=0., _inf_mask=-1000., _chrom_share_spots=False,
                     _check_spots=True, _check_th=-3.5, _check_percentile=2.5,
-                    _distance_limits=[0,np.inf], _ignore_nan=True, _chrom_share_spots=False,
+                    _save_inter_plot=False, _save_to_attr=True, _save_to_info=True,
                     _return_indices=False, _overwrite=False, _verbose=True):
         """Function to pick spots from all candidate spots within Cell_Data
         There are three versions allowed for now:
@@ -3789,6 +3791,7 @@ class Cell_Data():
                 ref_dist_metric=_ref_dist_metric, score_metric=_score_metric,
                 local_size=_local_size, w_ctdist=_w_ctdist, w_lcdist=_w_lcdist,
                 w_int=_w_int, w_nbdist=_w_nbdist, ignore_nan=_ignore_nan, 
+                nan_mask=_nan_mask, inf_mask=_inf_mask, 
                 chrom_share_spots=_chrom_share_spots,
                 distance_zxy=self.shared_parameters['distance_zxy'],
                 distance_limits=_distance_limits,
@@ -3804,7 +3807,8 @@ class Cell_Data():
                 nb_dist_list=None, spot_num_th=_spot_num_th, 
                 local_size=_local_size, w_ctdist=_w_ctdist, w_lcdist=_w_lcdist,
                 w_int=_w_int, w_nbdist=_w_nbdist, distance_limits=_distance_limits,
-                ignore_nan=_ignore_nan, chrom_share_spots=_chrom_share_spots,
+                ignore_nan=_ignore_nan, nan_mask=_nan_mask, inf_mask=_inf_mask, 
+                chrom_share_spots=_chrom_share_spots,
                 distance_zxy=self.shared_parameters['distance_zxy'],
                 check_spots=_check_spots, check_th=_check_th, 
                 check_percentile=_check_percentile,
