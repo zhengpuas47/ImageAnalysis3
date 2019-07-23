@@ -1102,13 +1102,16 @@ def EM_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
         region_ids: region uid for candidate spots, list/array of ints
         chrom_coords: chromosome coordinates in 3D, list of np.ndarray of 3
         sel_spot_list: list of previous selected spots, list of np.ndarray or list of list of np.1d-array
-        nb_dist_list: neighboring distances within their own chromosomes, list of np.ndarray (default: None)
-        num_iters: maximum allowed number of iterations, int (default: 100)
+        num_iters: maximum number of iterations allowed in EM, int (default: 10)
+        num_iters: maximum number of iterations allowed in EM, int (default: 10)
         terminate_th: termination threshold for change percentage of spot-picking, float (default: 0.0025)
         intensity_th: threshold for intensity that keep to try EM, float (default: 0.8)
             * threshold=1 means SNR=1, which is a pretty generous threshold
         hard_intensity_th: whether remove spot even its the brightest in this round, bool (default: True)
-        distance_zxy: translate pixel to nm, array of 3 (default: [200,106,106])
+        nb_dist_list: neighboring distances within their own chromosomes, list of np.ndarray (default: None)
+        spot_num_th:
+        ref_dist_metric:
+        score_metric:
         local_size: size to calculate local distance, int (default: 5)
         w_ctdist: weight for distance_to_chromosome_center, float (default: 1)
         w_lcdist: weight for distance_to_local_center, float (default: 1)
@@ -1118,6 +1121,7 @@ def EM_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
         ignore_nan: whether ignore nan during scoring, bool (default: True)
         update_chrom_coords: whether update chromosome coordinates during EM, bool (default: False)
         chrom_share_spots: whether chromosomes are allowed to share spots, bool (default: False)
+        distance_zxy: translate pixel to nm, array of 3 (default: [200,106,106])
         check_spots: whether apply stringency check for selected spots, bool (default: True)
         check_th: the relative threshold for stringency check, 
             * which will multiply the sum of all weights to estimate threshold, bool (default: -2)
