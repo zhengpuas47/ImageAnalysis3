@@ -2770,6 +2770,13 @@ def translate_chromosome_coordinates(source_cell_data, target_cell_data, rotatio
     return _tar_coords
 
 
+def translate_spot_coordinates():
+    """Function to translate spot coordnates given cell_data ojbects and translation matrix
+    UNDER CONSTRUCTION
+    
+    """
+    pass
+
 
 # find nearby seeds for given center references, used in bead-drift
 def find_matched_seeds(im, ref_centers, search_distance=3, 
