@@ -1395,7 +1395,7 @@ def _optimized_score_combinations(_score_list, chrom_share_spots=False):
             _allowed_ind_list.append( np.arange(_num_spots) )
         else:
             _allowed_ind_list.append(np.argsort(_scores)[-_num_chroms:])
-    _inds = list(product(*_allowed_ind_list))
+    _inds = list(product(*_allowed_ind_list)) # this star is critical to expand list into multiple args
     if not chrom_share_spots:
         _inds = [_ind for _ind in _inds if len(set(_ind))==len(_ind)]
     return _inds
