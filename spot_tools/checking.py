@@ -122,7 +122,7 @@ def check_spot_scores(all_spot_list, sel_spots, region_ids=None, sel_indices=Non
 
     _th_weight = check_th * (w_ctdist + w_lcdist + w_int)
     if verbose:
-        print(f"--- current thresholds: {np.round([_th_sel, _th_other, _th_weight],3)}")
+        print(f"current thresholds: {np.round([_th_sel, _th_other, _th_weight],3)}")
     if check_percentile > 0 and check_percentile < 100:
         _final_check_th = max(min(_th_sel, _th_other), _th_weight)
     else:
