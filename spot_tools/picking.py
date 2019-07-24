@@ -1006,7 +1006,7 @@ def dynamic_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
 
             # pick from this measure_list
             # generate shared iteration
-            if len(_zxy_list[_i]) < 2 * _num_chroms:
+            if len(_zxy_list[_i]) <= _num_chroms:
                 _inds = _all_score_combinations([_dy_scores[_i] for _dy_scores in _dy_score_list], 
                                           chrom_share_spots=chrom_share_spots)
             else:
