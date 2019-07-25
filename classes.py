@@ -1463,7 +1463,7 @@ class Cell_List():
             else:
                 for _chrom_id, _distmap in enumerate(getattr(_cell, _distmap_attr)):
                     # calculate failed entries
-                    _chr_failure_rate = np.sum(np.isnan(_distmap)) / np.size(_distmap)
+                    _chr_failure_rate = np.sum(np.isnan(_distmap).sum(0) == len(_distmap)-1)/len(_distmap)
                     # screen out by flag
                     if _pick_flag is not None and np.max(_pick_flag[_cell_id][_chrom_id]) < 1:
                         if _verbose:
@@ -3426,8 +3426,8 @@ class Cell_Data():
             if _data_type == 'unique' or _data_type  == 'rna-unique':
                 setattr(self, _spot_attr, _spots)
                 if _save:
-                    self._save_to_file('cell_info',_save_dic={_spot_attr: getattr(self, _spot_attr)},
-                                       _verbose=_verbose)
+                    self._save_to_file('cell_info',_save_dic={_spot_attr: getattr(self, _spot_attr),
+                                                              _id_attr: _ids}, _verbose=_verbose)
             elif _data_type == 'decoded':
                 self.decoded_spots = _spots
                 if _save:
@@ -3726,7 +3726,9 @@ class Cell_Data():
         if not _overwrite:
             if not hasattr(self, _picked_attr):
                 self._load_from_file('cell_info', _load_attrs=[_picked_attr])
-            if hasattr(self, _picked_attr):
+            if _use_chrom_coords:
+                pass
+            if hasattr(self, _picked_attr) and len(_ids)==len(getattr(self, _picked_attr)[0]):
                 _picked_spot_list = getattr(self, _picked_attr)
                 # return if 
                 if _verbose:
@@ -3739,6 +3741,12 @@ class Cell_Data():
             if not hasattr(self, 'chrom_coords'):
                 raise AttributeError(
                     f"No chrom-coords info found for fov:{self.fov_id}, cell:{self.cell_id} in cell-data and saved cell_info.")
+            
+            # temporary limit
+            if len(getattr(self, 'chrom_coords')) > 6:
+                return []
+
+
             # check if length of chrom_coords matches all_spots
             if len(_all_spots) > 0 and len(getattr(self, 'chrom_coords')) != len(_all_spots[0]):
                 raise ValueError(f"Length of chrom_coords and all_spots for fov:{self.fov_id}, cell:{self.cell_id} doesn't match!")
@@ -3796,6 +3804,7 @@ class Cell_Data():
                 distance_zxy=self.shared_parameters['distance_zxy'],
                 distance_limits=_distance_limits,
                 return_indices=True, verbose=_verbose)
+
         elif _pick_type == 'EM':
             # dirctly do EM
             # note: by running this allows default Naive picking as initial condition

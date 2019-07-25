@@ -891,11 +891,11 @@ def dynamic_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
         if verbose:
             print(f"-- initiate dynamic picking by naive picking spots.")
         # do naive picking
-        sel_spot_list = naive_pick_spots_for_chromosomes(
-            cell_cand_spots, region_ids, chrom_coords=chrom_coords,
-            intensity_th=intensity_th, hard_intensity_th=hard_intensity_th,
-            chrom_share_spots=chrom_share_spots, distance_zxy=distance_zxy, 
-            return_indices=False, verbose=verbose)
+        sel_spot_list, sel_ind_list = naive_pick_spots_for_chromosomes(
+                                        cell_cand_spots, region_ids, chrom_coords=chrom_coords,
+                                        intensity_th=intensity_th, hard_intensity_th=hard_intensity_th,
+                                        chrom_share_spots=chrom_share_spots, distance_zxy=distance_zxy, 
+                                        return_indices=True, verbose=verbose)
         # sort sel_spot_list:
         for _chrom_id in range(_num_chroms):
             sel_spot_list[_chrom_id] = np.array([sel_spot_list[_chrom_id][_id] for _id in np.argsort(region_ids)])
@@ -1069,6 +1069,7 @@ def dynamic_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
             if region_ids[_order] in _ids and _j in _id_indices:
                 # if there's any bad spot, just append empty one
                 _picked_spot = _dy_spots[np.where(np.array(_id_indices)==_j)[0][0]]
+                # this step revoke temp spot coordinates
                 if np.isnan(_picked_spot).any():
                     _picked_spot = np.ones(len(_picked_spot)) * np.nan
                     _picked_spot[0] = 0
@@ -1095,7 +1096,8 @@ def dynamic_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
 def EM_pick_spots_for_chromosomes(cell_cand_spots, region_ids, 
                                   chrom_coords=None, sel_spot_list=None, 
                                   num_iters=10, terminate_th=0.0025, intensity_th=0.,
-                                  hard_intensity_th=True, nb_dist_list=None, spot_num_th=100, 
+                                  hard_intensity_th=True, nb_dist_list=None, 
+                                  spot_num_th=100, chrom_num_th=6,
                                   ref_dist_metric='median', score_metric='linear',
                                   local_size=5, w_ctdist=2, w_lcdist=1, w_int=1, w_nbdist=2,
                                   distance_limits=[0,3000], ignore_nan=True, 
@@ -1228,18 +1230,38 @@ def EM_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
             _step_start = time.time()
         # do dynamic, spot order will be sorted back to original region_ids
         # note: its critical to pass over new_ind_list, which is essentially E-step
-        sel_spot_list, new_ind_list = dynamic_pick_spots_for_chromosomes(cell_cand_spots,
-                                         region_ids, chrom_coords=chrom_coords, sel_spot_list=sel_spot_list,
-                                         intensity_th=intensity_th, hard_intensity_th=hard_intensity_th,
-                                         nb_dist_list=nb_dist_list, spot_num_th=spot_num_th,
-                                         ref_dist_metric=ref_dist_metric, score_metric=score_metric,
-                                         local_size=local_size, w_ctdist=w_ctdist,
-                                         w_lcdist=w_lcdist, w_int=w_int, w_nbdist=w_nbdist,
-                                         ignore_nan=ignore_nan, nan_mask=nan_mask, inf_mask=inf_mask,
-                                         update_chrom_coords=update_chrom_coords, 
-                                         chrom_share_spots=chrom_share_spots,
-                                         distance_zxy=distance_zxy, distance_limits=distance_limits,
-                                         return_indices=True, verbose=verbose)
+        # if there are too many chromosomes, optimize by themselves
+        if _num_chroms > chrom_num_th:
+            sel_spot_list, new_ind_list = [], []
+            for _i in range(_num_chroms):
+                sel_spots, new_inds = dynamic_pick_spots_for_chromosomes(cell_cand_spots,
+                                        region_ids, chrom_coords=[chrom_coords[_i]], sel_spot_list=sel_spot_list,
+                                        intensity_th=intensity_th, hard_intensity_th=hard_intensity_th,
+                                        nb_dist_list=nb_dist_list, spot_num_th=spot_num_th,
+                                        ref_dist_metric=ref_dist_metric, score_metric=score_metric,
+                                        local_size=local_size, w_ctdist=w_ctdist,
+                                        w_lcdist=w_lcdist, w_int=w_int, w_nbdist=w_nbdist,
+                                        ignore_nan=ignore_nan, nan_mask=nan_mask, inf_mask=inf_mask,
+                                        update_chrom_coords=update_chrom_coords, 
+                                        chrom_share_spots=chrom_share_spots,
+                                        distance_zxy=distance_zxy, distance_limits=distance_limits,
+                                        return_indices=True, verbose=verbose)
+            sel_spot_list += sel_spots
+            new_ind_list += new_inds
+        else:
+
+            sel_spot_list, new_ind_list = dynamic_pick_spots_for_chromosomes(cell_cand_spots,
+                                            region_ids, chrom_coords=chrom_coords, sel_spot_list=sel_spot_list,
+                                            intensity_th=intensity_th, hard_intensity_th=hard_intensity_th,
+                                            nb_dist_list=nb_dist_list, spot_num_th=spot_num_th,
+                                            ref_dist_metric=ref_dist_metric, score_metric=score_metric,
+                                            local_size=local_size, w_ctdist=w_ctdist,
+                                            w_lcdist=w_lcdist, w_int=w_int, w_nbdist=w_nbdist,
+                                            ignore_nan=ignore_nan, nan_mask=nan_mask, inf_mask=inf_mask,
+                                            update_chrom_coords=update_chrom_coords, 
+                                            chrom_share_spots=chrom_share_spots,
+                                            distance_zxy=distance_zxy, distance_limits=distance_limits,
+                                            return_indices=True, verbose=verbose)
 
         # make plot for initialized
         if make_plot:
