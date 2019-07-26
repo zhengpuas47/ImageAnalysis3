@@ -1463,6 +1463,11 @@ class mark_boundaries:
             save_dic['names']=self.image_names
             pickle.dump(save_dic,fid)
             fid.close()
+    def save_copy(self):
+        save_copy_file = self.save_file.replace('.npy', '_picked.npy')
+        from shutil import copyfile
+        copyfile(save_file, save_copy_file)
+            
     def auto_scale(self, percentile=95):
         from scipy.stats import scoreatpercentile
         x_min,x_max,y_min,y_max = self.get_limits()

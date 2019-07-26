@@ -305,9 +305,10 @@ def standard_domain_calling_new(zxy, gaussian=None,
     dom_starts, seps = fuse_doms(mat, dom_starts, tag=metric, 
                                  cut_off=cutoff_max, hard_cutoff=hard_cutoff,
                                 use_local=use_local, min_dom_sz=dom_sz+3)
-    
+
     return dom_starts
 
+def _n
 
 
 def nan_gaussian_filter(mat,sigma,keep_nan=False):
