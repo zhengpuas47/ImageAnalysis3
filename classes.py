@@ -3684,11 +3684,10 @@ class Cell_Data():
             raise ValueError(
                 f"Wrong input for {_pick_type}, should be among {_allowed_pick_types}")
         # data type
-        _allowed_data_types = ['unique', 'rna-unique', 'decoded']
         _data_type = _data_type.lower()
-        if _data_type not in _allowed_data_types:
+        if _data_type not in self.shared_parameters['allowed_data_types']:
             raise ValueError(
-                f"Wrong input for {_data_type}, should be among {_allowed_data_types}")
+                f"Wrong input for {_data_type}, should be among {self.shared_parameters['allowed_data_types']}")
         # generate attribute names
         _im_attr = _data_type + '_' + 'ims'
         _id_attr = _data_type + '_' + 'ids'
@@ -3721,7 +3720,9 @@ class Cell_Data():
                 else:
                     _gids.append(-1 * _id)
             _ids = _gids
-        
+        if _data_type == 'gene':
+            _gids = []
+
         # if not overwrite:
         if not _overwrite:
             if not hasattr(self, _picked_attr):
@@ -3855,7 +3856,7 @@ class Cell_Data():
         # use chrom_coords?
         _use_chrom_coords = True
         if not hasattr(self, 'chrom_coords'):
-            self._load_from_file('dist')
+            self._load_from_file('cell_info', _load_attrs=['chrom_coords'])
             if not hasattr(self, 'chrom_coords'):
                 _use_chrom_coords = False
         ## check specific attributes and initialize
@@ -3870,6 +3871,21 @@ class Cell_Data():
         # id attributes
         _id_attr = _data_type + '_' + 'ids'
         _save_attr = str(_pick_type) + '_' + str(_data_type) + '_' + 'distance_map'
+        if not hasattr(self, _id_attr):
+            self._load_from_file('cell_info', _load_attrs=[_id_attr])
+        _ids = getattr(self, _id_attr)
+        # special ids for RNA, corresponding to DNA regions
+        if _data_type == 'rna-unique':
+            _gids = []
+            _rna_dic = getattr(self, 'rna-info_dic')
+            for _id in _ids:
+                _info = _rna_dic[_id]
+                if 'DNA_id' in _info:
+                    _gids.append(int(_info['DNA_id']))
+                else:
+                    _gids.append(-1 * _id)
+            _ids = _gids
+
         # check loading of necessary
         if not hasattr(self, _key_attr):
             self._load_from_file('cell_info', _load_attrs=[_key_attr])
@@ -3903,6 +3919,9 @@ class Cell_Data():
                 
                 # get zxy coordinates
                 _zxy = np.array(_spots)[:,1:4] * self.shared_parameters['distance_zxy'][np.newaxis,:]
+                # sort 
+                _order =np.argsort(_ids)
+                _zxy = _zxy[_order]
                 # generate distmap
                 _distmap = squareform(pdist(_zxy))
                 # transform inf into NaN
@@ -3919,6 +3938,12 @@ class Cell_Data():
             plt.title(f"{_data_type} dist-map for fov:{self.fov_id}, cell:{self.cell_id}, chrom:{_id}")
             plt.imshow(_distmap, interpolation='nearest', cmap=_cmap, vmin=np.min(_limits), vmax=np.max(_limits))
             plt.colorbar(ticks=range(np.min(_limits),np.max(_limits)+200,200), label='distance (nm)')
+            if len(_distmap) > 100:
+                plt.xticks(np.arange(0,len(_distmap), 50), np.array(_ids)[::50])
+                plt.yticks(np.arange(0,len(_distmap), 50), np.array(_ids)[::50])
+            else:
+                plt.xticks(np.arange(0,len(_distmap), 20), np.array(_ids)[::20])
+                plt.yticks(np.arange(0,len(_distmap), 20), np.array(_ids)[::20])
             # save plot
             if _save_plot:
                 _distmap_fd = os.path.join(self.map_folder, self.fovs[self.fov_id].replace('.dax', ''))

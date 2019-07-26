@@ -674,46 +674,51 @@ def merge_spot_list(spot_list, dist_th=0.1, dist_norm=2,
         _cand_spots += list(_spots)
     # convert datatype into numpy
     _cand_spots = np.array(_cand_spots) # candidate spots
-    _cand_coords = _cand_spots[:,1:4] # candidate coordinates
-    _kept_flag = np.ones(len(_cand_spots), dtype=np.bool) # flag to decide keep spots
-    # exclude if spot didn't pass intensity threshold
-    if intensity_th is not None:
-        _ints = _cand_spots[:,0]
-        if hard_intensity_th:
-            _kept_flag *= (_ints >= intensity_th)
-        else:
-            _int_inds = np.argsort(_ints)[-max(len(spot_list), sum(_ints>=intensity_th)):]
-            for _i in range(len(_kept_flag)):
-                if _i not in _int_inds:
-                    _kept_flag[_i] = False
-    if append_nan_spots:
-        _spot_chrom_flag = -1 * np.ones(len(_cand_spots), dtype=np.int) # match spot to chromosomes
-        
-    for _i, (_spot, _flg) in enumerate(zip(_cand_spots, _kept_flag)):
-        # if currently this spot is kept:
-        if _flg:
-            _coord = _spot[1:4]
-            _dists = np.linalg.norm(_cand_coords-_coord, axis=1, ord=dist_norm)
-            _dist_flag = (_dists < dist_th) # pick close spots
-            _dist_flag[_i] = False # exclude itself
-            #_dist_flag *= _kept_flag # intersect with kept_flag
-            _kept_flag[_dist_flag] = False # remove these spots
+    if len(_cand_spots) == 0:
+        _kept_spots = np.array([])
+        _spot_obj_len=11
+    else:
+        _kept_flag = np.ones(len(_cand_spots), dtype=np.bool) # flag to decide keep spots
+        # exclude if spot didn't pass intensity threshold
+        if intensity_th is not None:
+            _ints = _cand_spots[:,0]
+            if hard_intensity_th:
+                _kept_flag *= (_ints >= intensity_th)
+            else:
+                _int_inds = np.argsort(_ints)[-max(len(spot_list), sum(_ints>=intensity_th)):]
+                for _i in range(len(_kept_flag)):
+                    if _i not in _int_inds:
+                        _kept_flag[_i] = False
+        if append_nan_spots:
+            _spot_chrom_flag = -1 * np.ones(len(_cand_spots), dtype=np.int) # match spot to chromosomes
             
-
-            if append_nan_spots:
-                _chrom_dists = np.linalg.norm(chrom_coords-_coord, axis=1)
-                _spot_chrom_flag[_i] = np.argmin(_chrom_dists)
-        # if this spot already being dumped, skip
-        else:
-            continue
-
-    # extract kept spots
-    _kept_spots = list(_cand_spots[_kept_flag])
+        for _i, (_spot, _flg) in enumerate(zip(_cand_spots, _kept_flag)):
+            # if currently this spot is kept:
+            if _flg:
+                _coord = _spot[1:4]
+                _dists = np.linalg.norm(_cand_spots[:,1:4]-_coord, axis=1, ord=dist_norm)
+                _dist_flag = (_dists < dist_th) # pick close spots
+                _dist_flag[_i] = False # exclude itself
+                #_dist_flag *= _kept_flag # intersect with kept_flag
+                _kept_flag[_dist_flag] = False # remove these spots
+                
+                if append_nan_spots:
+                    _chrom_dists = np.linalg.norm(chrom_coords-_coord, axis=1)
+                    _spot_chrom_flag[_i] = np.argmin(_chrom_dists)
+            # if this spot already being dumped, skip
+            else:
+                continue
+        # extract kept spots
+        _kept_spots = list(_cand_spots[_kept_flag])
+    
     # append nan spots if specified.
     if append_nan_spots:
         for _chrid, _chrom_coord in enumerate(chrom_coords):
             if _chrid not in _spot_chrom_flag:
-                _spot_obj_len = [np.array(_s).shape[1] for _s in spot_list]
+                if len(_cand_spots)== 0:
+                    _spot_obj_len=11
+                else:
+                    _spot_obj_len = [np.array(_s).shape[1] for _s in spot_list]
                 if len(np.unique(_spot_obj_len)) == 1:
                     _spot_obj_len = np.unique(_spot_obj_len)[0]
                 else:
@@ -768,15 +773,21 @@ def naive_pick_spots_for_chromosomes(cell_cand_spots, region_ids, chrom_coords=N
         _num_chroms = len(chrom_coords)
     else:
         _num_chroms = len(cell_cand_spots[0])
+    if _num_chroms == 0:
+        if return_indices:
+            return [], []
+        else:
+            return []
     # length of spot object, to add bad spots
-    _spot_obj_len = [np.array(_s[0]).shape[1] for _s in cell_cand_spots if len(_s[0])>0]
-    if len(np.unique(_spot_obj_len)) == 1:
+    _spot_obj_len = [np.array(_s[0]).shape[1] for _s in cell_cand_spots if len(_s) >0 and len(_s[0])>0]
+    if len(_spot_obj_len) == 0:
+        _spot_obj_len = 11
+    elif len(np.unique(_spot_obj_len)) == 1:
         _spot_obj_len = np.unique(_spot_obj_len)[0]
-        _bad_spot = np.ones(_spot_obj_len) * np.nan
-        _bad_spot[0] = 0 # set intensity
     else:
         raise ValueError(f"_spot object length is not unique, exit")
-
+    _bad_spot = np.ones(_spot_obj_len) * np.nan
+    _bad_spot[0] = 0 # set intensity
     # case 1, no chromosome coordnates specifed or share spots
     if chrom_coords is None or chrom_share_spots:
         _sel_spot_list = [naive_pick_spots(cell_cand_spots, _region_ids, 
@@ -886,6 +897,13 @@ def dynamic_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
         _num_chroms = len(chrom_coords)
     else:
         _num_chroms = len(cell_cand_spots[0])
+    
+    if _num_chroms == 0:
+        if return_indices:
+            return [], []
+        else:
+            return []
+
     # select spots if not given
     if sel_spot_list is None:
         if verbose:
@@ -1190,6 +1208,18 @@ def EM_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
         _num_chroms = len(chrom_coords)
     else:
         _num_chroms = len(cell_cand_spots[0])
+    
+    if _num_chroms == 0:
+        _return_args = ([],)
+        if return_indices:
+            _return_args += ([],)
+        if return_sel_scores:
+            _return_args += ([],)
+        if return_other_scores:
+            _return_args += ([],)
+        # return!
+        return _return_args
+
     # select chromosome to initiate
     if sel_spot_list is None:
         if verbose:

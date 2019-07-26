@@ -234,8 +234,8 @@ def generate_ref_from_chromosome(sel_spots, sel_ids=None, distance_zxy=_distance
     if ignore_nan:
         _intensities = _intensities[np.isnan(_intensities)==False]
         if len(_intensities) == 0:
-            raise ValueError(f"_intensities has no valid values in this chromosome")
-    
+            print(f"_intensities has no valid values in this chromosome")
+            _intensities = np.ones(1)
     # determine ref-metric type
     if ref_dist_metric == 'median':
         _ref_center_dist = np.nanmedian(_ct_dist)
