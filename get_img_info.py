@@ -339,6 +339,77 @@ def Load_RNA_Info(analysis_folder, filename='RNA_Info', table_format='csv',
         print(f"-- {len(_rna_info)} RNA information loaded!")
     return _rna_info
 
+# load gene information
+def Load_Gene_Info(analysis_folder, filename='Gene_Info', table_format='csv',
+                  verbose=True):
+    '''Function to load standard gene_Info:
+    ------------------------------------------------------------------------------
+    table_format:
+    gene_id \t gene_name \t chr \t TSS_posiiton \t 5kb_readout \n
+    2 \t HSPA13 \t chr21 \t - \t 14383484 \t NDB_1159 \n
+    ------------------------------------------------------------------------------
+    Inputs:
+        analysis_folder: analysis directory of this dataset, path(string)
+        filename: filename and possible sub-path for color file, string
+        table_format: table_format of color file, csv or txt
+        verbose: say something!, bool (default:True)
+    Outputs:
+        _gene_info: dictionary of genes labelled in experiment, 
+            gene_id -> dict of other formation
+        '''
+    # initialize as default
+    _gene_info = {}
+
+    # process with csv table_format
+    if table_format == 'csv':
+        _full_name = analysis_folder+os.sep+filename+"."+'csv'
+        if verbose:
+            print("- Importing csv file:", _full_name)
+        import csv
+        with open(_full_name, 'r') as _handle:
+            _reader = csv.reader(_handle)
+            _header = next(_reader)
+            if verbose:
+                print("- header:", _header)
+            for _content in _reader:
+                while len(_content) > 0 and _content[-1] == '':
+                    _content = _content[:-1]
+                if len(_content) > 1:
+                    _hyb = int(_content.pop(0))
+                    _dic = {_h: _c for _h, _c in zip(_header[1:], _content)}
+                    for _d, _v in _dic.items():
+                            if _d in ['start', 'end', 'TSS_position']:
+                                _dic[_d] = int(_v)
+                            if _d == 'midpoint':
+                                _dic[_d] = float(_v)
+                    _gene_info[_hyb] = _dic
+    # process with txt table_format (\t splitted)
+    elif table_format == 'txt':
+        _full_name = analysis_folder+os.sep+filename+"."+'txt'
+        if verbose:
+            print("- Importing txt file:", _full_name)
+        with open(_full_name, 'r') as _handle:
+            _line = _handle.readline().rstrip()
+            _header = _line.split('\t')
+            if verbose:
+                print("-- header:", _header)
+            for _line in _handle.readlines():
+                _content = _line.rstrip().split('\t')
+                while _content[-1] == '':
+                    _content = _content[:-1]
+                if len(_content) > 1:
+                    _hyb = int(_content.pop(0))
+                    _dic = {_h: _c for _h, _c in zip(_header[1:], _content)}
+                    for _d, _v in _dic.items():
+                            if _d in ['start', 'end']:
+                                _dic[_d] = int(_v)
+                            if _d == 'midpoint':
+                                _dic[_d] = float(_v)
+                    _gene_info[_hyb] = _dic
+    if verbose:
+        print(f"-- {len(_gene_info)} gene information loaded!")
+    return _gene_info
+
 # function to match results from Load_Region_Positions and Load_ChIP_Data
 def match_peak_to_region(region_dic, peak_list, return_list=True):
     """Function to match region_dictionary and a list for peaks, decide which region contain peaks"""
