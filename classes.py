@@ -342,6 +342,21 @@ class Cell_List():
 
         return _rna_dic
 
+    ## load Gene
+    def _load_gene_info(self, _filename='Gene_Info', _table_format='csv', 
+                       _match_to_genomic_region=True, _verbose=True):
+        """Load RNA information"""
+        _gene_dic = get_img_info.Load_Gene_Info(self.analysis_folder, filename=_filename,
+                                              table_format=_table_format, verbose=_verbose)
+        if _match_to_genomic_region:
+            _region_dic = self._load_genomic_regions(_verbose=_verbose)
+            _gene_dic = get_img_info.match_Gene_to_DNA(_gene_dic, _region_dic)
+        # set to attribute
+        setattr(self, 'gene_dic', _gene_dic)
+
+        return _gene_dic
+
+
     ## load genomic regions
     def _load_genomic_regions(self, _filename='Region_Positions', _table_format='csv', _verbose=True):
         """Function to load Genomic Positions etc."""
@@ -2305,13 +2320,33 @@ class Cell_Data():
 
         return _color_dic
 
-    ## load RNA info
-    def _load_rna_info(self, _filename='RNA_Info', _table_format='csv', _verbose=True):
+    ## load RNA
+    def _load_rna_info(self, _filename='RNA_Info', _table_format='csv', 
+                       _match_to_genomic_region=True, _verbose=True):
         """Load RNA information"""
         _rna_dic = get_img_info.Load_RNA_Info(self.analysis_folder, filename=_filename,
                                               table_format=_table_format, verbose=_verbose)
+        if _match_to_genomic_region:
+            _region_dic = self._load_genomic_regions(_verbose=_verbose)
+            _rna_dic = get_img_info.match_RNA_to_DNA(_rna_dic, _region_dic)
+        # set to attribute
         setattr(self, 'rna-info_dic', _rna_dic)
+
         return _rna_dic
+
+    ## load Gene
+    def _load_gene_info(self, _filename='Gene_Info', _table_format='csv', 
+                       _match_to_genomic_region=True, _verbose=True):
+        """Load RNA information"""
+        _gene_dic = get_img_info.Load_Gene_Info(self.analysis_folder, filename=_filename,
+                                              table_format=_table_format, verbose=_verbose)
+        if _match_to_genomic_region:
+            _region_dic = self._load_genomic_regions(_verbose=_verbose)
+            _gene_dic = get_img_info.match_Gene_to_DNA(_gene_dic, _region_dic)
+        # set to attribute
+        setattr(self, 'gene_dic', _gene_dic)
+
+        return _gene_dic
     
     ## load genomic regions
     def _load_genomic_regions(self, _filename='Region_Positions', _table_format='csv', _verbose=True):
@@ -3712,7 +3747,10 @@ class Cell_Data():
         # special ids for RNA, corresponding to DNA regions
         if _data_type == 'rna-unique':
             _gids = []
-            _rna_dic = getattr(self, 'rna-info_dic')
+            if hasattr(self, 'rna-info_dic'):
+                _rna_dic = getattr(self, 'rna-info_dic')
+            else:
+                _rna_dic = self._load_rna_info(_verbose=False)
             for _id in _ids:
                 _info = _rna_dic[_id]
                 if 'DNA_id' in _info:
@@ -3722,6 +3760,17 @@ class Cell_Data():
             _ids = _gids
         if _data_type == 'gene':
             _gids = []
+            if hasattr(self, 'gene_dic'):
+                _rna_dic = getattr(self, 'gene_dic')
+            else:
+                _rna_dic = self._load_gene_info(_verbose=False)
+            for _id in _ids:
+                _info = _rna_dic[_id]
+                if 'DNA_id' in _info:
+                    _gids.append(int(_info['DNA_id']))
+                else:
+                    _gids.append(-1 * _id)
+            _ids = _gids
 
         # if not overwrite:
         if not _overwrite:
@@ -3877,7 +3926,23 @@ class Cell_Data():
         # special ids for RNA, corresponding to DNA regions
         if _data_type == 'rna-unique':
             _gids = []
-            _rna_dic = getattr(self, 'rna-info_dic')
+            if hasattr(self, 'rna-info_dic'):
+                _rna_dic = getattr(self, 'rna-info_dic')
+            else:
+                _rna_dic = self._load_rna_info(_verbose=False)
+            for _id in _ids:
+                _info = _rna_dic[_id]
+                if 'DNA_id' in _info:
+                    _gids.append(int(_info['DNA_id']))
+                else:
+                    _gids.append(-1 * _id)
+            _ids = _gids
+        if _data_type == 'gene':
+            _gids = []
+            if hasattr(self, 'gene_dic'):
+                _rna_dic = getattr(self, 'gene_dic')
+            else:
+                _rna_dic = self._load_gene_info(_verbose=False)
             for _id in _ids:
                 _info = _rna_dic[_id]
                 if 'DNA_id' in _info:
