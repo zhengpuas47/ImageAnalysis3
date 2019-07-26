@@ -444,6 +444,18 @@ def match_RNA_to_DNA(rna_dic, region_dic, max_size_th=100000):
                 _updated_dic[_k]['DNA_id'] = _rid
     return _updated_dic 
 
+# function to match result from Load_Region_Positions to Load_Gene_Info 
+def match_Gene_to_DNA(gene_dic, region_dic, max_size_th=100000):
+    """Function to match gene to DNA region and append new information to gene_dic"""
+    # initialize a dict
+    _updated_dic = {_k:_v for _k,_v in gene_dic.items()}
+    for _k, _rdic in _updated_dic.items():
+        for _rid, _region in region_dic.items():
+            if _rdic['TSS_position'] >= _region['start'] and \
+               _rdic['TSS_position'] < _region['end'] and \
+               _rdic['chr'] == _region['chr']:
+                _updated_dic[_k]['DNA_id'] = _rid
+    return _updated_dic 
 
 # function for finding bead_channel given color_usage profile
 def find_bead_channel(__color_dic, __bead_mark='beads'):
