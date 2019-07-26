@@ -3684,11 +3684,10 @@ class Cell_Data():
             raise ValueError(
                 f"Wrong input for {_pick_type}, should be among {_allowed_pick_types}")
         # data type
-        _allowed_data_types = ['unique', 'rna-unique', 'decoded']
         _data_type = _data_type.lower()
-        if _data_type not in _allowed_data_types:
+        if _data_type not in self.shared_parameters['allowed_data_types']:
             raise ValueError(
-                f"Wrong input for {_data_type}, should be among {_allowed_data_types}")
+                f"Wrong input for {_data_type}, should be among {self.shared_parameters['allowed_data_types']}")
         # generate attribute names
         _im_attr = _data_type + '_' + 'ims'
         _id_attr = _data_type + '_' + 'ids'
@@ -3721,7 +3720,9 @@ class Cell_Data():
                 else:
                     _gids.append(-1 * _id)
             _ids = _gids
-        
+        if _data_type == 'gene':
+            _gids = []
+
         # if not overwrite:
         if not _overwrite:
             if not hasattr(self, _picked_attr):
