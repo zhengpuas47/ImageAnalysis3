@@ -308,7 +308,6 @@ def standard_domain_calling_new(zxy, gaussian=None,
 
     return dom_starts
 
-def _n
 
 
 def nan_gaussian_filter(mat,sigma,keep_nan=False):
