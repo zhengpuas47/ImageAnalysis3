@@ -3458,17 +3458,11 @@ class Cell_Data():
             if _verbose:
                 print(f"++ total time in fitting {_data_type}: {time.time()-_start_time}")
             ## return and save
-            if _data_type == 'unique' or _data_type  == 'rna-unique':
-                setattr(self, _spot_attr, _spots)
-                if _save:
-                    self._save_to_file('cell_info',_save_dic={_spot_attr: getattr(self, _spot_attr),
-                                                              _id_attr: _ids}, _verbose=_verbose)
-            elif _data_type == 'decoded':
-                self.decoded_spots = _spots
-                if _save:
-                    self._save_to_file('cell_info',_save_dic={'decoded_id':self.decoded_ids, 'decoded_spots':self.decoded_spots},
-                                       _verbose=_verbose)
-                return self.decoded_spots
+            setattr(self, _spot_attr, _spots)
+            if _save:
+                self._save_to_file('cell_info',_save_dic={_spot_attr: getattr(self, _spot_attr),
+                                                            _id_attr: _ids}, _verbose=_verbose)
+
         return _spots
 
     # pick spots
