@@ -3745,6 +3745,11 @@ class Cell_Data():
             _ids = [_i for _i in _ids if _i in _sel_ids]
             _all_spots = [_pts for _i, _pts in zip(_ids, _all_spots) if _i in _sel_ids]
 
+        if _use_chrom_coords and not hasattr(self, 'chrom_coords'):
+            self._load_from_file('cell_info', _load_attrs=['chrom_coords'])
+            if getattr(self, 'chrom_coords', None) is None:
+                raise AttributeError(f"chrom_coords not found in fov:{self.fov_id}, cell:{self.cell_id}.")
+
         # special ids for RNA, corresponding to DNA regions
         if _data_type == 'rna-unique':
             _gids = []
@@ -3772,7 +3777,7 @@ class Cell_Data():
                 else:
                     _gids.append(-1 * _id)
             _ids = _gids
-
+        
         # if not overwrite:
         if not _overwrite:
             if not hasattr(self, _picked_attr):
