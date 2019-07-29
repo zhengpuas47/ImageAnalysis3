@@ -3903,9 +3903,8 @@ class Cell_Data():
             if not hasattr(self, 'chrom_coords'):
                 _use_chrom_coords = False
         ## check specific attributes and initialize
-        _allowed_data_types = ['unique', 'decoded', 'rna-unique']
-        if _data_type not in _allowed_data_types:
-            raise ValueError(f"Wrong input for _data_type:{_data_type}, should be among {_allowed_data_types}")
+        if _data_type not in self.shared_parameters['allowed_data_types']:
+            raise ValueError(f"Wrong input for _data_type:{_data_type}, should be among {self.shared_parameters['allowed_data_types']}")
         # extract attribute names
         if _pick_type != '':
             _key_attr = str(_pick_type) + '_picked_' + str(_data_type) + '_spots'
