@@ -78,7 +78,7 @@ def _fit_single_image(_im, _id, _chrom_coords, _seeding_args, _fitting_args, _ch
     return _spots_for_chrom
 
 # function to allow multi-processing pick spots
-def _pick_spot_in_batch(_cell, _pick_type='EM', _data_type='unique', _use_chrom_coords=True,
+def _pick_spot_in_batch(_cell, _data_type='unique', _pick_type='EM', _use_chrom_coords=True,
                         _sel_ids=None, _num_iters=10, _terminate_th=0.003, 
                         _intensity_th=1, _hard_intensity_th=True, _spot_num_th=100,
                         _ref_dist_metric='median', _score_metric='linear',
@@ -1368,7 +1368,7 @@ class Cell_List():
         ## start generate multi-processing args
         _pick_args = []
         for _cell in self.cells:
-            _pick_args.append((_cell, _pick_type, _data_type, _use_chrom_coords,
+            _pick_args.append((_cell, _data_type, _pick_type, _use_chrom_coords,
                                _sel_ids, _num_iters, _terminate_th, 
                                _intensity_th, _hard_intensity_th, _spot_num_th,
                                _ref_dist_metric, _score_metric,
@@ -3449,7 +3449,7 @@ class Cell_Data():
             _fitting_pool.join()
             _fitting_pool.terminate()
             # release
-            _ims, _ids = None, None
+            _ims = None
             if _temp_flag:
                 if _data_type == 'unique' or _data_type  == 'rna-unique':
                     delattr(self, _im_attr)
@@ -3726,14 +3726,21 @@ class Cell_Data():
 
         # get cand_spots
         if _verbose:
-            print(
-                f"- Start {_pick_type} picking {_data_type} spots, fov:{self.fov_id}, cell:{self.cell_id}.")
+            print(f"- Start {_pick_type} picking {_data_type} spots, fov:{self.fov_id}, cell:{self.cell_id}.")
+        # spot_attr
         if not hasattr(self, _spot_attr):
             self._load_from_file('cell_info', _load_attrs=[_spot_attr])
         _all_spots = getattr(self, _spot_attr)
+        if _all_spots is None:
+            raise ValueError(f"fov:{self.fov_id}, cell:{self.cell_id} doesnt have attribute: {_spot_attr}")
+        # id_attr
         if not hasattr(self, _id_attr):
             self._load_from_file('cell_info', _load_attrs=[_id_attr])
         _ids = getattr(self, _id_attr)
+        if _ids is None:
+            print( _id_attr, hasattr(self, _id_attr) )
+            raise ValueError(f"fov:{self.fov_id}, cell:{self.cell_id} doesnt have attribute: {_id_attr}")
+
         if _sel_ids is not None:
             _ids = [_i for _i in _ids if _i in _sel_ids]
             _all_spots = [_pts for _i, _pts in zip(_ids, _all_spots) if _i in _sel_ids]
