@@ -3996,7 +3996,10 @@ class Cell_Data():
             plt.title(f"{_data_type} dist-map for fov:{self.fov_id}, cell:{self.cell_id}, chrom:{_id}")
             plt.imshow(_distmap, interpolation='nearest', cmap=_cmap, vmin=np.min(_limits), vmax=np.max(_limits))
             plt.colorbar(ticks=range(np.min(_limits),np.max(_limits)+200,200), label='distance (nm)')
-            if len(_distmap) > 100:
+            if len(_distmap) > 300:
+                plt.xticks(np.arange(0,len(_distmap), 100), np.array(_ids)[::100])
+                plt.yticks(np.arange(0,len(_distmap), 100), np.array(_ids)[::100])
+            elif len(_distmap) > 100:
                 plt.xticks(np.arange(0,len(_distmap), 50), np.array(_ids)[::50])
                 plt.yticks(np.arange(0,len(_distmap), 50), np.array(_ids)[::50])
             else:
