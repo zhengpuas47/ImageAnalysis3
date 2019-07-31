@@ -112,7 +112,8 @@ def check_spot_scores(all_spot_list, sel_spots, region_ids=None, sel_indices=Non
     _kept_sel_scores = _sel_scores[_sel_scores > max(inf_mask, - np.inf)]
     _th_sel = scoreatpercentile(_kept_sel_scores, check_percentile)
     _kept_other_scores = _other_scores[_other_scores > max(inf_mask, - np.inf)]
-    
+    if len(_kept_other_scores) == 0:
+        _kept_other_scores = np.array([-np.inf])
     if sel_indices is None:
         _other_th_per = max(0, 100-100.*len(_kept_sel_scores)/len(_kept_other_scores) - check_percentile )
     else:
