@@ -685,7 +685,7 @@ def merge_spot_list(spot_list, dist_th=0.1, dist_norm=2,
             if append_nan_spots:
                 if chrom_coords is None:
                     raise ValueError(f"chrom_coords should be given if allowing append_nan_spots")
-                _spot_obj_len = [np.array(_s).shape[1] for _s in spot_list]
+                _spot_obj_len = [np.array(_s).shape[1] for _s in spot_list if len(_s)>0]
                 if len(np.unique(_spot_obj_len)) == 1:
                     _spot_obj_len = np.unique(_spot_obj_len)[0]
                 else:
