@@ -3164,14 +3164,14 @@ class Cell_Data():
                 with np.load(_save_filename) as handle:
                     if _load_attr in handle.keys():
                         if _verbose:
-                            print(f"-- loading {_load_attr} from saved-file")
+                            print(f"-- loading {_load_attr} for fov:{self.fov_id}, cell:{self.cell_id}")
                         _distmap = handle[_load_attr]
                         # append to cell_data
                         setattr(self, _load_attr, _distmap)
                         return _distmap 
                     elif _distmap_data is None or _distmap_pick is None:
                         if _verbose:
-                            print(f"-- loading all {_load_attr} from saved-file")
+                            print(f"-- loading all {_load_attr} for fov:{self.fov_id}, cell:{self.cell_id}")
                         # initialize a list to store saved distmaps                        
                         _all_maps = []
                         for _distmap_attr in handle.iterkeys():

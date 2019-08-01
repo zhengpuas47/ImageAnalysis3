@@ -166,8 +166,8 @@ def extract_sequences(zxy, domain_starts):
 
 def radius_of_gyration(segment):
     segment = np.array(segment)
-    segment = np.linalg.norm(segment - np.nanmean(segment, axis=0), axis=1)
-
+    dists = np.linalg.norm(segment - np.nanmean(segment, axis=0), axis=1)
+    return np.nanmean(dists)
 
 def domain_distance(coordinates, _dom1_bds, _dom2_bds,
                     _metric='median', _normalization_mat=None,
@@ -1521,3 +1521,62 @@ class mark_boundaries:
         return x_min,x_max,y_min,y_max
     def fit(self):
         pass
+
+
+def fit_manual_boundaries(save_file, zxys, num_chroms=None, dom_sz=5, cutoff_max=1.):
+    """Function to fit manual picked boundaries to match local minimum"""
+    
+    def _local_distances(_zxy, dom_sz=5):
+        _dists = []
+        for i in range(len(_zxy)):
+            if i >= int(dom_sz/2) and i < len(_zxy)-int(dom_sz/2):
+                cm1 = np.nanmean(_zxy[max(i-dom_sz, 0):i], axis=0)
+                cm2 = np.nanmean(_zxy[i:min(i+dom_sz, len(_zxy))], axis=0)
+                dist = np.linalg.norm(cm1-cm2)
+                _dists.append(dist)
+        return _dists
+    
+    manual_dict = np.load(save_file.replace('.npy', '_picked.npy'))
+    if num_chroms is None:
+        manual_starts = visual_tools.partition_map(manual_dict['coords'], manual_dict['class_ids'])
+    else:
+        manual_starts = visual_tools.partition_map(manual_dict['coords'], manual_dict['class_ids'])[:int(num_chroms)]
+    
+    if len(zxys) < len(manual_starts):
+        raise IndexError(f"length of zxy_list:{len(zxys)} should be larger than manual starts:{len(manual_starts)}")
+    manual_starts = manual_starts[:len(zxys)]
+    # initialize fitted_start_list
+    fitted_start_list = []
+    for _zxy, _starts in zip(zxys, manual_starts):
+        _dists = _local_distances(_zxy, dom_sz=dom_sz)
+        _loc_max = int(dom_sz/2) + DomainTools.get_ind_loc_max(_dists, cutoff_max=cutoff_max,
+                                                               valley=int((dom_sz+1)/2))
+        # append a zero for first domain
+        if 0 not in _loc_max:
+            _loc_max = np.concatenate([_loc_max, np.zeros(1,dtype=np.int)])
+        # find nearest match 
+        _ft_starts = [_loc_max[np.argmin(np.abs(_s-_loc_max))] for _s in _starts]
+        fitted_start_list.append(np.sort(_ft_starts).astype(np.int))
+        
+    return fitted_start_list
+
+def find_matched_starts(starts, ref_starts, dom_sz=5, ignore_multi_match=True, ignore_zero=True):
+    """Function to find matched domain starts"""
+    # convert data_types
+    _ref_starts = np.array(ref_starts, dtype=np.int)
+    # initialize
+    _matched_starts = []
+    
+    for _start in starts:
+        _match = np.where(np.abs(_ref_starts - _start) <= int(dom_sz/2))[0]
+        if len(_match) == 0:
+            continue
+        elif len(_match) == 1:
+            _matched_starts.append(_ref_starts[_match[0]])
+        else:
+            if ignore_multi_match:
+                continue
+            else:
+                _matched_starts.append(_ref_starts[_match[0]])
+    
+    return np.array(_matched_starts, dtype=np.int)
