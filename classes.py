@@ -81,6 +81,7 @@ def _fit_single_image(_im, _id, _chrom_coords, _seeding_args, _fitting_args, _ch
 def _pick_spot_in_batch(_cell, _data_type='unique', _pick_type='EM', _use_chrom_coords=True,
                         _sel_ids=None, _num_iters=10, _terminate_th=0.003, 
                         _intensity_th=1, _hard_intensity_th=True, _spot_num_th=100,
+                        _ref_spot_list=None, _ref_spot_ids=None, _ref_pick_type='EM',
                         _ref_dist_metric='median', _score_metric='linear',
                         _local_size=5, _w_ctdist=2, _w_lcdist=1, _w_int=1, _w_nbdist=2,
                         _save_inter_plot=False, _save_to_info=True, _save_plot=True, 
@@ -97,7 +98,8 @@ def _pick_spot_in_batch(_cell, _data_type='unique', _pick_type='EM', _use_chrom_
                                       _use_chrom_coords=_use_chrom_coords, _sel_ids=_sel_ids, 
                                       _num_iters=_num_iters, _terminate_th=_terminate_th, 
                                       _intensity_th=_intensity_th, _hard_intensity_th=_hard_intensity_th,
-                                      _spot_num_th=_spot_num_th,
+                                      _spot_num_th=_spot_num_th, _ref_spot_list=_ref_spot_list, 
+                                      _ref_spot_ids=_ref_spot_ids, _ref_pick_type=_ref_pick_type,
                                       _ref_dist_metric=_ref_dist_metric, _score_metric=_score_metric,
                                       _local_size=_local_size, _w_ctdist=_w_ctdist, _w_lcdist=_w_lcdist,  
                                       _w_int=_w_int, _w_nbdist=_w_nbdist, 
@@ -1344,7 +1346,8 @@ class Cell_List():
                               _num_threads=12, _use_chrom_coords=True,  _sel_ids=None, 
                               _num_iters=10, _terminate_th=0.0025, 
                               _intensity_th=1., _hard_intensity_th=True,
-                              _spot_num_th=100, _ref_dist_metric='median', _score_metric='linear',
+                              _spot_num_th=100, _ref_spot_list=None, _ref_spot_ids=None, _ref_pick_type='EM',
+                              _ref_dist_metric='median', _score_metric='linear',
                               _local_size=5, _w_ctdist=1, _w_lcdist=0.1, _w_int=1, _w_nbdist=3,
                               _save_inter_plot=False, _save_to_info=True, _save_plot=True,
                               _check_spots=True, _check_th=-1.5, _check_percentile=10., 
@@ -1365,12 +1368,27 @@ class Cell_List():
         if _save_inter_plot:
             print(
                 "++ _save_inter_plot is ON for now, which may requires long time to finish.")
+        # decide references
+        if _ref_spot_list is None:
+            _ref_spot_list = [None for _cell in self.cells]
+            _ref_id_list = [None for _cell in self.cells]
+        elif isinstance(_ref_spot_list, list):
+            if len(_ref_spot_list) != len(self.cells):
+                raise IndexError(f"Wrong length of _ref_spot_list as list:{len(_ref_spot_list)}, should be same as number of cells:{len(self.cells)} ")
+            if _ref_spot_ids is None:
+                _ref_id_list = [None for _cell in self.cells]
+            else:
+                _ref_id_list = [_ref_spot_ids for _cell in self.cells]
         ## start generate multi-processing args
         _pick_args = []
-        for _cell in self.cells:
+        for _i, _cell in enumerate(self.cells):
+            # extract references
+            _ref_spots = _ref_spot_list[_i]
+            _ref_ids = _ref_id_list[_i]
             _pick_args.append((_cell, _data_type, _pick_type, _use_chrom_coords,
                                _sel_ids, _num_iters, _terminate_th, 
                                _intensity_th, _hard_intensity_th, _spot_num_th,
+                               _ref_spots, _ref_ids, _ref_pick_type,
                                _ref_dist_metric, _score_metric,
                                _local_size, _w_ctdist, _w_lcdist, _w_int, _w_nbdist,
                                _save_inter_plot, _save_to_info, _save_plot,
@@ -2959,6 +2977,8 @@ class Cell_Data():
         if _data_type == 'all' or _data_type == 'cell_info':
             _infofile = _save_folder + os.sep + 'cell_info.pkl'
             if os.path.exists(_infofile):
+                if _verbose:
+                    print(f"-- loading {_data_type} for fov:{self.fov_id}, cell:{self.cell_id}")
                 _info_dic = pickle.load(open(_infofile, 'rb'))
                 #loading keys from info_dic
                 for _key, _value in _info_dic.items():
@@ -3026,8 +3046,7 @@ class Cell_Data():
             if not hasattr(self, 'combo_groups'):
                 self.combo_groups = []
             elif not isinstance(self.combo_groups, list):
-                raise TypeError(
-                    'Wrong datatype for combo_groups attribute for cell data.')
+                raise TypeError('Wrong datatype for combo_groups attribute for cell data.')
 
             # load existing combo files
             _raw_combo_fl = "rounds.npz"
@@ -3668,13 +3687,14 @@ class Cell_Data():
 
     # an integrated function to pick spots
     def _pick_spots(self, _data_type='unique', _pick_type='EM', _use_chrom_coords=True,
-                    _sel_ids=None, _num_iters=10, _terminate_th=0.0025, 
+                    _sel_ids=None, _num_iters=10, _terminate_th=0.003, 
                     _intensity_th=0., _hard_intensity_th=True, _spot_num_th=100,
+                    _ref_spot_list=None, _ref_spot_ids=None, _ref_pick_type='EM',
                     _ref_dist_metric='median', _score_metric='linear',
                     _local_size=5, _w_ctdist=2, _w_lcdist=1, _w_int=1, _w_nbdist=2,
                     _distance_limits=[0,np.inf], _ignore_nan=True,  
                     _nan_mask=0., _inf_mask=-1000., _chrom_share_spots=False,
-                    _check_spots=True, _check_th=-3.5, _check_percentile=2.5,
+                    _check_spots=True, _check_th=-3., _check_percentile=2.5,
                     _save_inter_plot=False, _save_to_attr=True, _save_to_info=True,
                     _return_indices=False, _overwrite=False, _verbose=True):
         """Function to pick spots from all candidate spots within Cell_Data
@@ -3687,17 +3707,34 @@ class Cell_Data():
             _pick_type: method for picking spots, str ('EM', 'dynamic' or 'naive')
             _data_type: data type of spots to be picked, str ('unique', 'decoded' etc)
             _use_chrom_coords: whether use chrom_coords in cell_data, bool (default: True)
+            _sel_ids: selected ids to pick spots, list/array of ints (default: None, which means all possible spots)
+            _num_iters: number of iterations for EM picking spots, int (default: 10)
+            _terminate_th: threshold of thermination for spot picking change in EM spots, float (default: 0.003)
+            _intensity_th: intensity threshold for fitted spots, float (default: 0., no threshold)
+            _hard_intensity_th: whether apply hard intensity threshold, bool (default: True)
+            _spot_num_th: min number of spots as reference, int (default: 100)
+            _ref_spot_list: list of reference spots, could be data_type or direct spots
+            _ref_spot_ids: list/array of reference ids, could be data_type or direct spots
+            _ref_pick_type: pick type for reference spots, str
+            _ref_dist_metric: metric for reference distance metric, str {'median'|'cdf'|'rg'} 
+            _score_metric: 
             _local_size
-            _intensity_th
+            _w_ctdist, 
+            _w_lcdist, 
+            _w_int, 
+            _w_nbdist,
+            _distance_limits
+            _ignore_nan: whether ignore nan spots, bool (default:True)
+            _nan_mask
+            _inf_mask
+            _chrom_share_spots
+            _check_spots: whether do statistical check for spots, bool (default: True)
+            _check_th: threshold of spot_checking, float (default: -3.)
+            _check_percentile: another percentile threshold that may apply to data, float (default: 2.5.)
             _save_inter_plot: whether save intermediate plots, bool (default: False)
                 * only useful in EM
             _save_to_attr: whether save picked spots into attributes, bool (default: True)
             _save_to_info: whether save picked spots into cell_info, bool (default: True)
-            _check_spots: whether do statistical check for spots, bool (default: True)
-            _check_th: threshold of spot_checking, float (default: -3)
-            _check_percentile: another percentile threshold that may apply to data, float (default: 1.)
-            _distance_th: distance threshold that below this distance no score punishment applied, float(default: 800.)
-            _ignore_nan: whether ignore nan spots, bool (default:True)
             _return_indices: whether return indices for selected spots, bool (default: False)
             _overwrite: whether overwrite existing info, bool (default: False)
             _verbose: say something!, bool (default: True)
@@ -3710,19 +3747,55 @@ class Cell_Data():
         # pick type
         _allowed_pick_types = ['EM', 'naive', 'dynamic']
         if _pick_type not in _allowed_pick_types:
-            raise ValueError(
-                f"Wrong input for {_pick_type}, should be among {_allowed_pick_types}")
+            raise ValueError(f"Wrong input for _pick_type:{_pick_type}, should be among {_allowed_pick_types}")
+        if _ref_pick_type not in _allowed_pick_types:
+            raise ValueError(f"Wrong input for _ref_pick_type:{_ref_pick_type}, should be among {_allowed_pick_types}")
         # data type
         _data_type = _data_type.lower()
         if _data_type not in self.shared_parameters['allowed_data_types']:
             raise ValueError(
                 f"Wrong input for {_data_type}, should be among {self.shared_parameters['allowed_data_types']}")
+        
         # generate attribute names
         _im_attr = _data_type + '_' + 'ims'
         _id_attr = _data_type + '_' + 'ids'
         _spot_attr = _data_type + '_' + 'spots'
         # generate save attribute
         _picked_attr = str(_pick_type) + '_'+ 'picked' + '_' + _spot_attr
+
+        ## ref spots and ids
+        # _ref_spot_list is data_type
+        if isinstance(_ref_spot_list, str):
+            if _ref_spot_list not in self.shared_parameters['allowed_data_types']:
+                raise ValueError(f"if _ref_spot_list is specified as string ({_ref_spot_list}), \
+                                                                                                  it should be among {self.shared_parameters['allowed_data_types']}")
+            # decided attributes
+            _ref_picked_attr = str(_ref_pick_type) + '_'+ 'picked' + '_' + _ref_spot_list + '_' + 'spots'
+            _ref_id_attr = _ref_spot_list + '_' + 'ids'
+            # load if not exist now
+            if not hasattr(self, _ref_picked_attr):
+                self._load_from_file('cell_info', _load_attrs=[_ref_picked_attr])
+            if not hasattr(self, _ref_id_attr):
+                self._load_from_file('cell_info', _load_attrs=[_ref_id_attr])
+            # get attributes
+            _ref_spot_list = getattr(self, _ref_picked_attr)
+            _ref_ids = getattr(self, _ref_id_attr)
+        # _ref_spot_list is directly list
+        elif isinstance(_ref_spot_list, list):
+            if _ref_spot_ids is None:
+                _ref_ids = None
+            elif isinstance(_ref_spot_ids, list) or isinstance(_ref_spot_ids, np.ndarray):
+                if len(_ref_spot_ids) == _ref_spot_list[0]:
+                    _ref_ids = _ref_spot_ids
+                else:
+                    raise IndexError(f"length of _ref_spot_ids{_ref_spot_ids} not matched with length of _ref_spot_list[0]{_ref_spot_list[0]}")
+            else:
+                raise TypeError(f"Wrong input type for _ref_spot_ids:{type(_ref_spot_ids)}")
+        # _ref_spot_list is None
+        elif _ref_spot_list is None:
+            _ref_ids = None
+        else:
+            raise TypeError(f"Wrong input type for _ref_spot_list:{_ref_spot_list}")
 
         # get cand_spots
         if _verbose:
@@ -3851,6 +3924,7 @@ class Cell_Data():
             _picked_spot_list, _picked_ind_list = dynamic_pick_spots_for_chromosomes(
                 _all_spots, _ids, chrom_coords=_chrom_coords, sel_spot_list=None,
                 intensity_th=_intensity_th, hard_intensity_th=_hard_intensity_th,
+                ref_spot_list=_ref_spot_list, ref_spot_ids=_ref_ids, 
                 nb_dist_list=None, spot_num_th=_spot_num_th,
                 ref_dist_metric=_ref_dist_metric, score_metric=_score_metric,
                 local_size=_local_size, w_ctdist=_w_ctdist, w_lcdist=_w_lcdist,
@@ -3869,6 +3943,7 @@ class Cell_Data():
                 _all_spots, _ids, chrom_coords=_chrom_coords, sel_spot_list=None,
                 num_iters=_num_iters, terminate_th=_terminate_th,
                 intensity_th=_intensity_th, hard_intensity_th=_hard_intensity_th,
+                ref_spot_list=_ref_spot_list, ref_spot_ids=_ref_ids, 
                 nb_dist_list=None, spot_num_th=_spot_num_th, 
                 local_size=_local_size, w_ctdist=_w_ctdist, w_lcdist=_w_lcdist,
                 w_int=_w_int, w_nbdist=_w_nbdist, distance_limits=_distance_limits,
