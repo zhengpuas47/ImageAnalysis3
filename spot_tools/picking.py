@@ -688,7 +688,7 @@ def merge_spot_list(spot_list, dist_th=0.1, dist_norm=2,
                 _spot_obj_len = [np.array(_s).shape[1] for _s in spot_list if len(_s)>0]
                 if len(np.unique(_spot_obj_len)) == 1:
                     _spot_obj_len = np.unique(_spot_obj_len)[0]
-                if len(np.unique(_spot_obj_len)) == 0:
+                elif len(np.unique(_spot_obj_len)) == 0:
                     _spot_obj_len = 11
                 else:
                     raise ValueError(f"_spot object length is not unique, exit")
@@ -983,9 +983,8 @@ def dynamic_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
                 ref_id_list.append(np.array(ref_spot_ids, dtype=np.int))
         else:
             _chrom_cand_spots = [_spot_list[_chrom_id] for _spot_list in cell_cand_spots]
-            _ref_spots = np.concatenate(_chrom_cand_spots)
             # change for spots
-            ref_spot_list[_chrom_id] = _ref_spots
+            ref_spot_list[_chrom_id] = np.concatenate(_chrom_cand_spots)
             # change for ids
             if ref_spot_ids is None:
                 ref_id_list.append(np.concatenate([np.ones(len(_spots))*_id for _spots,_id in zip(_chrom_cand_spots, region_ids) ]) )
@@ -1005,7 +1004,7 @@ def dynamic_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
             _chrom_coord = None
         if len(_ref_ids) != len(_ref_spots):
             raise IndexError(f"chr:{_chrom_id}, Length of _ref_ids:{len(_ref_ids)} doesn't match length of _ref_spots:{len(_ref_spots)}")
-
+        print(f"* length of ref spots{len(_ref_spots)}")
         # v2
         _ref_ct_dist, _ref_lc_dist, ref_nb_dist, _ref_ints = scoring.generate_ref_from_chromosome(
             _ref_spots, _ref_ids, distance_zxy, _chrom_coord, intensity_th,
@@ -1270,81 +1269,73 @@ def EM_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
         _num_chroms = len(chrom_coords)
     else:
         _num_chroms = len(cell_cand_spots[0])
+
+    print('num of chromosome:', _num_chroms)  
     
     if _num_chroms == 0:
-        _return_args = ([],)
-        if return_indices:
-            _return_args += ([],)
-        if return_sel_scores:
-            _return_args += ([],)
-        if return_other_scores:
-            _return_args += ([],)
-        # return!
-        return _return_args
-
-    # select chromosome to initiate
-    if sel_spot_list is None:
         if verbose:
-            print(f"-- initialize EM by naively picking spots!")
-        # select spots by naive
-        sel_spot_list, sel_ind_list = naive_pick_spots_for_chromosomes(
-            cell_cand_spots, region_ids, chrom_coords=chrom_coords,
-            intensity_th=intensity_th, hard_intensity_th=hard_intensity_th,
-            chrom_share_spots=chrom_share_spots, distance_zxy=distance_zxy, 
-            return_indices=True, verbose=verbose) # naive picking doesnt change order
-        # make plot for initialized
-        if make_plot:
-            from scipy.spatial.distance import pdist, squareform
-            _distmap_list = [[] for _i in range(_num_chroms)]
-            for _chrom_id, _sel_spots in enumerate(sel_spot_list):
-                _distmap = squareform(pdist(_sel_spots[np.argsort(region_ids), 1:4] * distance_zxy[np.newaxis,:]))
-                _distmap[_distmap == np.inf] = np.nan
-                _distmap_list[_chrom_id].append(_distmap)
-    # check termination flags
-    if num_iters == np.inf and terminate_th < 0:
-        raise ValueError(f"At least one valid termination flag required!")
-    # check other inputs
-    local_size = int(local_size)
-    
-    ## initialize select_ind for EM
-    if 'sel_ind_list' not in locals():
-        sel_ind_list = [[] for _chrom_id in range(_num_chroms)]
-    # initialize flags to finish EM
-    _iter = 0  # a counter for iteration
-    _change_ratio = 1  # keep record of how much picked-points are changed
-    _previous_ratios = []
-    ## get into EM loops if
-    # not exceeding num_iters and
-    # picked point change percentage lower than terminate_th
-    while(_iter < num_iters and _change_ratio >= terminate_th):
-        if verbose:
-            print(f"--- EM iter:{_iter}", end=', ')
-            _step_start = time.time()
-        # do dynamic, spot order will be sorted back to original region_ids
-        # note: its critical to pass over new_ind_list, which is essentially E-step
-        # if there are too many chromosomes, optimize by themselves
-        if _num_chroms > 6:
-            sel_spot_list, new_ind_list = [], []
-            for _i in range(_num_chroms):
-                sel_spots, new_inds = dynamic_pick_spots_for_chromosomes(cell_cand_spots,
-                                        region_ids, chrom_coords=[chrom_coords[_i]], sel_spot_list=[sel_spot_list[_i]],
-                                        ref_spot_list=None, ref_spot_ids=ref_spot_ids,
-                                        ref_dist_metric=ref_dist_metric, nb_dist_list=None, spot_num_th=spot_num_th,
-                                        intensity_th=intensity_th, hard_intensity_th=hard_intensity_th,
-                                        score_metric=score_metric, local_size=local_size, w_ctdist=w_ctdist,
-                                        w_lcdist=w_lcdist, w_int=w_int, w_nbdist=w_nbdist,
-                                        ignore_nan=ignore_nan, nan_mask=nan_mask, inf_mask=inf_mask,
-                                        update_chrom_coords=update_chrom_coords, 
-                                        chrom_share_spots=chrom_share_spots,
-                                        distance_zxy=distance_zxy, distance_limits=distance_limits,
-                                        return_indices=True, verbose=verbose)
-            sel_spot_list += sel_spots
-            new_ind_list += new_inds
+            print("-- exit for no-chromosome case.")
+        if not return_indices and not return_sel_scores and not return_other_scores:
+            return []
         else:
-            sel_spot_list, new_ind_list = dynamic_pick_spots_for_chromosomes(cell_cand_spots,
-                                            region_ids, chrom_coords=chrom_coords, sel_spot_list=sel_spot_list,
-                                            ref_spot_list=ref_spot_list, ref_spot_ids=ref_spot_ids,
-                                            ref_dist_metric=ref_dist_metric, nb_dist_list=nb_dist_list, spot_num_th=spot_num_th,
+            _return_args = ([],)
+            if return_indices:
+                _return_args += ([],)
+            if return_sel_scores:
+                _return_args += ([],)
+            if return_other_scores:
+                _return_args += ([],)
+            # return!
+            return _return_args
+    else:
+        # select chromosome to initiate
+        if sel_spot_list is None:
+            if verbose:
+                print(f"-- initialize EM by naively picking spots!")
+            # select spots by naive
+            sel_spot_list, sel_ind_list = naive_pick_spots_for_chromosomes(
+                cell_cand_spots, region_ids, chrom_coords=chrom_coords,
+                intensity_th=intensity_th, hard_intensity_th=hard_intensity_th,
+                chrom_share_spots=chrom_share_spots, distance_zxy=distance_zxy, 
+                return_indices=True, verbose=verbose) # naive picking doesnt change order
+            # make plot for initialized
+            if make_plot:
+                from scipy.spatial.distance import pdist, squareform
+                _distmap_list = [[] for _i in range(_num_chroms)]
+                for _chrom_id, _sel_spots in enumerate(sel_spot_list):
+                    _distmap = squareform(pdist(_sel_spots[np.argsort(region_ids), 1:4] * distance_zxy[np.newaxis,:]))
+                    _distmap[_distmap == np.inf] = np.nan
+                    _distmap_list[_chrom_id].append(_distmap)
+        # check termination flags
+        if num_iters == np.inf and terminate_th < 0:
+            raise ValueError(f"At least one valid termination flag required!")
+        # check other inputs
+        local_size = int(local_size)
+        
+        ## initialize select_ind for EM
+        if 'sel_ind_list' not in locals():
+            sel_ind_list = [[] for _chrom_id in range(_num_chroms)]
+        # initialize flags to finish EM
+        _iter = 0  # a counter for iteration
+        _change_ratio = 1  # keep record of how much picked-points are changed
+        _previous_ratios = []
+        ## get into EM loops if
+        # not exceeding num_iters and
+        # picked point change percentage lower than terminate_th
+        while(_iter < num_iters and _change_ratio >= terminate_th):
+            if verbose:
+                print(f"--- EM iter:{_iter}", end=', ')
+                _step_start = time.time()
+            # do dynamic, spot order will be sorted back to original region_ids
+            # note: its critical to pass over new_ind_list, which is essentially E-step
+            # if there are too many chromosomes, optimize by themselves
+            if _num_chroms > 6:
+                sel_spot_list, new_ind_list = [], []
+                for _i in range(_num_chroms):
+                    sel_spots, new_inds = dynamic_pick_spots_for_chromosomes(cell_cand_spots,
+                                            region_ids, chrom_coords=[chrom_coords[_i]], sel_spot_list=[sel_spot_list[_i]],
+                                            ref_spot_list=None, ref_spot_ids=ref_spot_ids,
+                                            ref_dist_metric=ref_dist_metric, nb_dist_list=None, spot_num_th=spot_num_th,
                                             intensity_th=intensity_th, hard_intensity_th=hard_intensity_th,
                                             score_metric=score_metric, local_size=local_size, w_ctdist=w_ctdist,
                                             w_lcdist=w_lcdist, w_int=w_int, w_nbdist=w_nbdist,
@@ -1353,141 +1344,156 @@ def EM_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
                                             chrom_share_spots=chrom_share_spots,
                                             distance_zxy=distance_zxy, distance_limits=distance_limits,
                                             return_indices=True, verbose=verbose)
-
-        # make plot for initialized
-        if make_plot:
-            for _chrom_id, _sel_spots in enumerate(sel_spot_list):
-                _distmap = squareform(pdist(_sel_spots[np.argsort(region_ids), 1:4] * distance_zxy[np.newaxis,:] ) )
-                _distmap[_distmap == np.inf] = np.nan
-                _distmap_list[_chrom_id].append(_distmap)
-        # update exit checking flags
-        _iter += 1
-        _change_num, _total_num = 0, 0
-        for _new_indices, _sel_indices in zip(new_ind_list, sel_ind_list):
-            # number of changed indices
-            if len(_sel_indices) == 0 and len(_new_indices) != 0:
-                _change_num += len(_new_indices)
+                sel_spot_list += sel_spots
+                new_ind_list += new_inds
             else:
-                _change_num += sum(np.array(_new_indices, dtype=np.int) - np.array(_sel_indices, dtype=np.int) != 0)
-            # total number of selected points
-            _total_num += len(_new_indices)
-        _change_ratio = _change_num / _total_num
-        _previous_ratios.append(_change_ratio)
-        if verbose:
-            print(f"time: {time.time()-_step_start:.3f}, change_ratio={_change_ratio}")
-        # update sel_indices
-        for _i, _new_indices in enumerate(new_ind_list):
-            sel_ind_list[_i] = _new_indices
-            
-        # special exit for long term oscillation around minimum
-        if len(_previous_ratios) > 5 and np.mean(_previous_ratios[-5:]) <= 2 * terminate_th:
+                sel_spot_list, new_ind_list = dynamic_pick_spots_for_chromosomes(cell_cand_spots,
+                                                region_ids, chrom_coords=chrom_coords, sel_spot_list=sel_spot_list,
+                                                ref_spot_list=ref_spot_list, ref_spot_ids=ref_spot_ids,
+                                                ref_dist_metric=ref_dist_metric, nb_dist_list=nb_dist_list, spot_num_th=spot_num_th,
+                                                intensity_th=intensity_th, hard_intensity_th=hard_intensity_th,
+                                                score_metric=score_metric, local_size=local_size, w_ctdist=w_ctdist,
+                                                w_lcdist=w_lcdist, w_int=w_int, w_nbdist=w_nbdist,
+                                                ignore_nan=ignore_nan, nan_mask=nan_mask, inf_mask=inf_mask,
+                                                update_chrom_coords=update_chrom_coords, 
+                                                chrom_share_spots=chrom_share_spots,
+                                                distance_zxy=distance_zxy, distance_limits=distance_limits,
+                                                return_indices=True, verbose=verbose)
+
+            # make plot for initialized
+            if make_plot:
+                for _chrom_id, _sel_spots in enumerate(sel_spot_list):
+                    _distmap = squareform(pdist(_sel_spots[np.argsort(region_ids), 1:4] * distance_zxy[np.newaxis,:] ) )
+                    _distmap[_distmap == np.inf] = np.nan
+                    _distmap_list[_chrom_id].append(_distmap)
+            # update exit checking flags
+            _iter += 1
+            _change_num, _total_num = 0, 0
+            for _new_indices, _sel_indices in zip(new_ind_list, sel_ind_list):
+                # number of changed indices
+                if len(_sel_indices) == 0 and len(_new_indices) != 0:
+                    _change_num += len(_new_indices)
+                else:
+                    _change_num += sum(np.array(_new_indices, dtype=np.int) - np.array(_sel_indices, dtype=np.int) != 0)
+                # total number of selected points
+                _total_num += len(_new_indices)
+            _change_ratio = _change_num / _total_num
+            _previous_ratios.append(_change_ratio)
             if verbose:
-                print("-- exit loop because of long oscillation around minimum.")
-            break
-    
-    # calculate final scores if necesary
-    if check_spots or return_sel_scores or return_other_scores:
-        sel_score_list, other_score_list = [], []
-        # loop through chromosomes
-        for _chrom_id, _sel_spots in enumerate(sel_spot_list):
-            _sel_indices = sel_ind_list[_i]
-            if chrom_coords is not None:
-                _chrom_coord = chrom_coords[_i]
-            else:
-                _chrom_coord = None
-            _filtered_spots, _sel_scores, _other_scores = checking.check_spot_scores(
-                _merged_spot_list, _sel_spots, region_ids, _sel_indices, 
-                chrom_coord=_chrom_coord, distance_zxy=distance_zxy, distance_limits=distance_limits,
-                intensity_th=intensity_th, ref_dist_metric=ref_dist_metric, score_metric=score_metric,
-                local_size=local_size, w_ctdist=w_ctdist, w_lcdist=w_lcdist,
-                w_int=w_int, ignore_nan=ignore_nan, check_th=check_th, check_percentile=check_percentile, 
-                return_sel_scores=True, return_other_scores=True, verbose=verbose)
-            # append
-            sel_score_list.append(np.array(_sel_scores))
-            other_score_list.append(np.array(_other_scores))
-            # update spots if check_spots specified
-            if check_spots:
-                sel_spot_list[_chrom_id] = np.array(_filtered_spots)
-
-        # make plot for checks
-        if make_plot:
-            for _chrom_id, _sel_spots in enumerate(sel_spot_list):
-                _distmap = squareform(pdist(_sel_spots[np.argsort(region_ids), 1:4] * distance_zxy[np.newaxis,:] ) )
-                _distmap[_distmap == np.inf] = np.nan
-                _distmap_list[_chrom_id].append(_distmap)
-            
-    ## make plot
-    if make_plot:
-        _num_im = len(_distmap_list[0])
-        _plot_limits = [0,1500]
-        _font_size = 14
-        _dpi = 100
-        _single_im_size = 5
-        _fig,_axes = plt.subplots(len(_distmap_list), _num_im, 
-                                  figsize=(_single_im_size*_num_im, _single_im_size*1.2*len(_distmap_list)), 
-                                  dpi=_dpi)
-        _fig.subplots_adjust(left=0.02, bottom=0, right=0.98, top=1, wspace=0., hspace=0)
-
-        for _chrom_id, _distmaps in enumerate(_distmap_list):
-            for _im_id, _distmap in enumerate(_distmaps):
-                # get axis
-                if len(_distmap_list) == 1:
-                    ax = _axes[_im_id]
-                else:
-                    ax = _axes[_chrom_id, _im_id]
-                # plot
-                im = ax.imshow(_distmap, interpolation='nearest',  cmap='seismic_r', 
-                               vmin=min(_plot_limits), vmax=max(_plot_limits))
-                ax.tick_params(left=False, labelsize=_font_size, length=2)
-                ax.yaxis.set_ticklabels([])
-                # title
-                if _im_id==0:
-                    ax.set_title('Initialized by naive', fontsize=_font_size+2)
-                if _im_id == len(_distmaps)-1 and check_spots:
-                    ax.set_title('Final result by EM', fontsize=_font_size+2)
-                else:
-                    ax.set_title(f"Chr:{_chrom_id}, EM:{_im_id}", fontsize=_font_size+2)
-                # add colorbar
-                cb = plt.colorbar(im, ax=ax, ticks=np.arange(0,2200,200), shrink=0.6)
-                cb.ax.tick_params(labelsize=_font_size, width=0.6, length=1)
-
-        # save filename
-        if save_plot and save_path is not None:
-            if not os.path.exists(save_path):
+                print(f"time: {time.time()-_step_start:.3f}, change_ratio={_change_ratio}")
+            # update sel_indices
+            for _i, _new_indices in enumerate(new_ind_list):
+                sel_ind_list[_i] = _new_indices
+                
+            # special exit for long term oscillation around minimum
+            if len(_previous_ratios) > 5 and np.mean(_previous_ratios[-5:]) <= 2 * terminate_th:
                 if verbose:
-                    print(f"-- create folder for image: {save_path}")
-                os.makedirs(save_path)
-            if save_filename == '':
-                save_filename = 'EM_iterations.png'
-            else:
-                save_filename = 'EM_iterations_'+save_filename
-                if '.png' not in save_filename:
-                    save_filename += '.png'
-            _plot_filename = os.path.join(save_path, save_filename)
-            if verbose:
-                print(f"-- saving image to file: {_plot_filename}")
-            _fig.savefig(_plot_filename, transparent=True)
-        elif save_plot:
-            print("Save path for plot is not given, skip!")
-        # plot show if only in main stream
-        if __name__ == '__main__':
-            plt.show()
+                    print("-- exit loop because of long oscillation around minimum.")
+                break
+        
+        # calculate final scores if necesary
+        if check_spots or return_sel_scores or return_other_scores:
+            sel_score_list, other_score_list = [], []
+            # loop through chromosomes
+            for _chrom_id, _sel_spots in enumerate(sel_spot_list):
+                _sel_indices = sel_ind_list[_i]
+                if chrom_coords is not None:
+                    _chrom_coord = chrom_coords[_i]
+                else:
+                    _chrom_coord = None
+                _filtered_spots, _sel_scores, _other_scores = checking.check_spot_scores(
+                    _merged_spot_list, _sel_spots, region_ids, _sel_indices, 
+                    chrom_coord=_chrom_coord, distance_zxy=distance_zxy, distance_limits=distance_limits,
+                    intensity_th=intensity_th, ref_dist_metric=ref_dist_metric, score_metric=score_metric,
+                    local_size=local_size, w_ctdist=w_ctdist, w_lcdist=w_lcdist,
+                    w_int=w_int, ignore_nan=ignore_nan, check_th=check_th, check_percentile=check_percentile, 
+                    return_sel_scores=True, return_other_scores=True, verbose=verbose)
+                # append
+                sel_score_list.append(np.array(_sel_scores))
+                other_score_list.append(np.array(_other_scores))
+                # update spots if check_spots specified
+                if check_spots:
+                    sel_spot_list[_chrom_id] = np.array(_filtered_spots)
 
-    # Return!
-    # case 1: simple return selected spots
-    if not return_indices and not return_sel_scores and not return_other_scores:
-        return sel_spot_list
-    # return spots combined with other info
-    else:
-        _return_args = (sel_spot_list,)
-        if return_indices:
-            _return_args += (sel_ind_list,)
-        if return_sel_scores:
-            _return_args += (sel_score_list,)
-        if return_other_scores:
-            _return_args += (other_score_list,)
-        # return!
-        return _return_args
+            # make plot for checks
+            if make_plot:
+                for _chrom_id, _sel_spots in enumerate(sel_spot_list):
+                    _distmap = squareform(pdist(_sel_spots[np.argsort(region_ids), 1:4] * distance_zxy[np.newaxis,:] ) )
+                    _distmap[_distmap == np.inf] = np.nan
+                    _distmap_list[_chrom_id].append(_distmap)
+                
+        ## make plot
+        if make_plot:
+            _num_im = len(_distmap_list[0])
+            _plot_limits = [0,1500]
+            _font_size = 14
+            _dpi = 100
+            _single_im_size = 5
+            _fig,_axes = plt.subplots(len(_distmap_list), _num_im, 
+                                    figsize=(_single_im_size*_num_im, _single_im_size*1.2*len(_distmap_list)), 
+                                    dpi=_dpi)
+            _fig.subplots_adjust(left=0.02, bottom=0, right=0.98, top=1, wspace=0., hspace=0)
+
+            for _chrom_id, _distmaps in enumerate(_distmap_list):
+                for _im_id, _distmap in enumerate(_distmaps):
+                    # get axis
+                    if len(_distmap_list) == 1:
+                        ax = _axes[_im_id]
+                    else:
+                        ax = _axes[_chrom_id, _im_id]
+                    # plot
+                    im = ax.imshow(_distmap, interpolation='nearest',  cmap='seismic_r', 
+                                vmin=min(_plot_limits), vmax=max(_plot_limits))
+                    ax.tick_params(left=False, labelsize=_font_size, length=2)
+                    ax.yaxis.set_ticklabels([])
+                    # title
+                    if _im_id==0:
+                        ax.set_title('Initialized by naive', fontsize=_font_size+2)
+                    if _im_id == len(_distmaps)-1 and check_spots:
+                        ax.set_title('Final result by EM', fontsize=_font_size+2)
+                    else:
+                        ax.set_title(f"Chr:{_chrom_id}, EM:{_im_id}", fontsize=_font_size+2)
+                    # add colorbar
+                    cb = plt.colorbar(im, ax=ax, ticks=np.arange(0,2200,200), shrink=0.6)
+                    cb.ax.tick_params(labelsize=_font_size, width=0.6, length=1)
+
+            # save filename
+            if save_plot and save_path is not None:
+                if not os.path.exists(save_path):
+                    if verbose:
+                        print(f"-- create folder for image: {save_path}")
+                    os.makedirs(save_path)
+                if save_filename == '':
+                    save_filename = 'EM_iterations.png'
+                else:
+                    save_filename = 'EM_iterations_'+save_filename
+                    if '.png' not in save_filename:
+                        save_filename += '.png'
+                _plot_filename = os.path.join(save_path, save_filename)
+                if verbose:
+                    print(f"-- saving image to file: {_plot_filename}")
+                _fig.savefig(_plot_filename, transparent=True)
+            elif save_plot:
+                print("Save path for plot is not given, skip!")
+            # plot show if only in main stream
+            if __name__ == '__main__':
+                plt.show()
+
+        # Return!
+        # case 1: simple return selected spots
+        if not return_indices and not return_sel_scores and not return_other_scores:
+            return sel_spot_list
+        # return spots combined with other info
+        else:
+            _return_args = (sel_spot_list,)
+            if return_indices:
+                _return_args += (sel_ind_list,)
+            if return_sel_scores:
+                _return_args += (sel_score_list,)
+            if return_other_scores:
+                _return_args += (other_score_list,)
+            # return!
+            return _return_args
 
 
 # Generate spot score combinations for multiple chromosomes, used in dynamic_pick_spots

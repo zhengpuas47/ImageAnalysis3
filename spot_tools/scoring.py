@@ -200,6 +200,7 @@ def generate_ref_from_chromosome(sel_spots, sel_ids=None, distance_zxy=_distance
         if len(sel_ids) != len(sel_spots):
             raise IndexError(f"Wrong input ")
         _ids = np.array(sel_ids, dtype=np.int)
+    print(f"** shape of ref spots{_spots.shape}, {distance_zxy.shape}")
     # zxys
     _zxys = _spots[:,1:4] * distance_zxy[np.newaxis,:]
     # ref_dist_metric

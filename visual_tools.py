@@ -49,7 +49,7 @@ def partition_map(list_,map_, enumerate_all=False):
     list__=np.array(list_)
     map__=np.array(map_)
     if enumerate_all:
-        return [list(list__[map__==_i]) for _i in np.arange(np.min(map__), np.max(map__)+1)]
+        return [list(list__[map__==_i]) for _i in np.arange(0, np.max(map__)+1)]
     else:
         return [list(list__[map__==element]) for element in np.unique(map__)]
 
