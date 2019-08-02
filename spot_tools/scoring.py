@@ -200,6 +200,7 @@ def generate_ref_from_chromosome(sel_spots, sel_ids=None, distance_zxy=_distance
         if len(sel_ids) != len(sel_spots):
             raise IndexError(f"Wrong input ")
         _ids = np.array(sel_ids, dtype=np.int)
+    print(f"** shape of ref spots{_spots.shape}, {distance_zxy.shape}")
     # zxys
     _zxys = _spots[:,1:4] * distance_zxy[np.newaxis,:]
     # ref_dist_metric
@@ -214,7 +215,8 @@ def generate_ref_from_chromosome(sel_spots, sel_ids=None, distance_zxy=_distance
     if ignore_nan:
         _ct_dist = _ct_dist[np.isnan(_ct_dist)==False]
         if len(_ct_dist) == 0:
-            raise ValueError(f"_ct_dist has no valid values in this chromosome")
+            print(f"_ct_dist has no valid values in this chromosome")
+            _ct_dist = [1000]
     # calculate local distance list
     _lc_dist = _local_distance(_zxys, _ids, _zxys, _ids, local_size=local_size)
     if ignore_nan:
