@@ -1004,7 +1004,7 @@ def dynamic_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
             _chrom_coord = None
         if len(_ref_ids) != len(_ref_spots):
             raise IndexError(f"chr:{_chrom_id}, Length of _ref_ids:{len(_ref_ids)} doesn't match length of _ref_spots:{len(_ref_spots)}")
-        print(f"* length of ref spots{len(_ref_spots)}")
+        #print(f"* length of ref spots{len(_ref_spots)}")
         # v2
         _ref_ct_dist, _ref_lc_dist, ref_nb_dist, _ref_ints = scoring.generate_ref_from_chromosome(
             _ref_spots, _ref_ids, distance_zxy, _chrom_coord, intensity_th,
@@ -1269,8 +1269,6 @@ def EM_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
         _num_chroms = len(chrom_coords)
     else:
         _num_chroms = len(cell_cand_spots[0])
-
-    print('num of chromosome:', _num_chroms)  
     
     if _num_chroms == 0:
         if verbose:
@@ -1330,7 +1328,7 @@ def EM_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
             # note: its critical to pass over new_ind_list, which is essentially E-step
             # if there are too many chromosomes, optimize by themselves
             if _num_chroms > 6:
-                sel_spot_list, new_ind_list = [], []
+                new_spot_list, new_ind_list = [], []
                 for _i in range(_num_chroms):
                     sel_spots, new_inds = dynamic_pick_spots_for_chromosomes(cell_cand_spots,
                                             region_ids, chrom_coords=[chrom_coords[_i]], sel_spot_list=[sel_spot_list[_i]],
@@ -1344,8 +1342,9 @@ def EM_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
                                             chrom_share_spots=chrom_share_spots,
                                             distance_zxy=distance_zxy, distance_limits=distance_limits,
                                             return_indices=True, verbose=verbose)
-                sel_spot_list += sel_spots
-                new_ind_list += new_inds
+                    new_spot_list += sel_spots
+                    new_ind_list += new_inds
+                sel_spot_list = new_spot_list
             else:
                 sel_spot_list, new_ind_list = dynamic_pick_spots_for_chromosomes(cell_cand_spots,
                                                 region_ids, chrom_coords=chrom_coords, sel_spot_list=sel_spot_list,
