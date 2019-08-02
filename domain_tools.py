@@ -1522,20 +1522,20 @@ class mark_boundaries:
     def fit(self):
         pass
 
+def _local_distances(_zxy, dom_sz=5):
+    """Calculate local distances to determine local_domain_calling"""
+    _dists = []
+    for i in range(len(_zxy)):
+        if i >= int(dom_sz/2) and i < len(_zxy)-int(dom_sz/2):
+            cm1 = np.nanmean(_zxy[max(i-dom_sz, 0):i], axis=0)
+            cm2 = np.nanmean(_zxy[i:min(i+dom_sz, len(_zxy))], axis=0)
+            dist = np.linalg.norm(cm1-cm2)
+            _dists.append(dist)
+    return _dists
 
 def fit_manual_boundaries(save_file, zxys, num_chroms=None, dom_sz=5, cutoff_max=1.):
     """Function to fit manual picked boundaries to match local minimum"""
-    
-    def _local_distances(_zxy, dom_sz=5):
-        _dists = []
-        for i in range(len(_zxy)):
-            if i >= int(dom_sz/2) and i < len(_zxy)-int(dom_sz/2):
-                cm1 = np.nanmean(_zxy[max(i-dom_sz, 0):i], axis=0)
-                cm2 = np.nanmean(_zxy[i:min(i+dom_sz, len(_zxy))], axis=0)
-                dist = np.linalg.norm(cm1-cm2)
-                _dists.append(dist)
-        return _dists
-    
+
     manual_dict = np.load(save_file.replace('.npy', '_picked.npy'))
     if num_chroms is None:
         manual_starts = visual_tools.partition_map(manual_dict['coords'], manual_dict['class_ids'])
