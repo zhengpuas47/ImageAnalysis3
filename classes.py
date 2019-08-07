@@ -2097,7 +2097,7 @@ class Cell_List():
         ## start multi-processing
         # get partially filled function
         if _method == 'iterative':
-            _domain_func = partial(domain_tools.iterative_domain_calling,
+            _domain_func = partial(domain_tools.calling.iterative_domain_calling,
                                 distance_zxy=self.shared_parameters['distance_zxy'], dom_sz=_domain_size,
                                 gfilt_size=_gfilt_size, split_level=_split_level,
                                 num_iter=_num_iter, normalization_matrix=_norm_mat,
@@ -2107,7 +2107,7 @@ class Cell_List():
                                 fig_dpi=_dpi, fig_dim=_dim, fig_font_size=_fontsize,
                                 save_result_figs=_save_result_figure, verbose=_verbose)
         elif _method == 'basic':
-            _domain_func = partial(domain_tools.basic_domain_calling,
+            _domain_func = partial(domain_tools.calling.basic_domain_calling,
                                 distance_zxy=self.shared_parameters['distance_zxy'], dom_sz=_domain_size,
                                 gfilt_size=_gfilt_size, normalization_matrix=_norm_mat,
                                 domain_dist_metric=_dist_metric,
@@ -2116,7 +2116,7 @@ class Cell_List():
                                 fig_dpi=_dpi, fig_dim=_dim, fig_font_size=_fontsize,
                                 save_result_figs=_save_result_figure, verbose=_verbose)
         elif _method == 'local':
-            _domain_func = partial(domain_tools.local_domain_calling,
+            _domain_func = partial(domain_tools.calling.local_domain_calling,
                                    distance_zxy=self.shared_parameters['distance_zxy'], dom_sz=_domain_size, 
                                    gfilt_size=_gfilt_size,
                                    cutoff_max=_dist_th, plot_results=_plot_results,

@@ -70,12 +70,26 @@ def gauss_ker(sig_xyz=[2,2,2],sxyz=16,xyz_disp=[0,0,0]):
     xyz=np.swapaxes(np.indices([sxyz+1]*dim), 0,dim)
     return np.exp(-np.sum(((xyz-np.array(xyz_disp)-sxyz/2.)/np.array(sig_xyz)**2)**2,axis=dim)/2.)
 
+def gaussian_kernel_2d(center_xy, sigma_xy=[2,2], radius=8):
+    """Function to generate gaussian kernel in 2d space"""
+    ## check inputs
+    if len(center_xy) != 2:
+        raise IndexError(f"center_xy should be length=2 list or array")
+    if len(sigma_xy) != 2:
+        raise IndexError(f"sigma_xy should be length=2 list or array")
+    radius = int(radius)
+    if radius < 3 * max(sigma_xy): # if radius is smaller than 3-sigma, expand
+        radius = 3*max(sigma_xy)
+    xy_coords=np.swapaxes(np.indices([radius*2+1]*2), 0, 2)
+    return np.exp(-np.sum(((xy_coords-np.array(center_xy)-radius)/np.array(sigma_xy)**2)**2,axis=2)/2.)
+
 def add_source(im_,pos=[0,0,0],h=200,sig=[2,2,2],size_fold=10):
     '''Impose a guassian distribution with given position, height and sigma, onto an existing figure'''
     im=np.array(im_,dtype=float)
+    pos = np.array(pos)
     pos_int = np.array(pos,dtype=int)
     xyz_disp = -pos_int+pos
-    im_ker = gauss_ker(sig, int(np.max(sig)*size_fold), xyz_disp)
+    im_ker = gauss_ker(sig, int(max(sig)*size_fold), xyz_disp)
     im_ker_sz = np.array(im_ker.shape,dtype=int)
     pos_min = np.array(pos_int-im_ker_sz/2, dtype=np.int)
     pos_max = np.array(pos_min+im_ker_sz, dtype=np.int)
@@ -89,8 +103,8 @@ def add_source(im_,pos=[0,0,0],h=200,sig=[2,2,2],size_fold=10):
     pos_max_ = in_im(pos_max)
     pos_min_ker = pos_min_-pos_min
     pos_max_ker = im_ker_sz+pos_max_-pos_max
-    slices_ker = [slice(pm,pM) for pm,pM in zip(pos_min_ker,pos_max_ker)]
-    slices_im = [slice(pm,pM) for pm,pM in zip(pos_min_,pos_max_)]
+    slices_ker = tuple(slice(pm,pM) for pm,pM in zip(pos_min_ker,pos_max_ker))
+    slices_im = tuple(slice(pm,pM) for pm,pM in zip(pos_min_,pos_max_))
     im[slices_im] += im_ker[slices_ker]*h
     return im
 
