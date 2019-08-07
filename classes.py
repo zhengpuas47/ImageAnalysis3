@@ -86,7 +86,8 @@ def _pick_spot_in_batch(_cell, _data_type='unique', _pick_type='EM', _use_chrom_
                         _local_size=5, _w_ctdist=2, _w_lcdist=1, _w_int=1, _w_nbdist=2,
                         _save_inter_plot=False, _save_to_info=True, _save_plot=True, 
                         _check_spots=True, _check_th=-3.5, _check_percentile=10.,
-                        _distance_limits=[0, np.inf], _ignore_nan=True, _nan_mask=0., _inf_mask=-1000., 
+                        _hard_dist_th=6000, _distance_limits=[0, np.inf], 
+                        _ignore_nan=True, _nan_mask=0., _inf_mask=-1000., 
                         _chrom_share_spots=False, _plot_limits=[0, 1500], _cmap='seismic_r', _fig_dpi=300, _fig_size=4,
                         _overwrite=False, _verbose=True):
     """_cell: Cell_Data class"""
@@ -105,7 +106,8 @@ def _pick_spot_in_batch(_cell, _data_type='unique', _pick_type='EM', _use_chrom_
                                       _w_int=_w_int, _w_nbdist=_w_nbdist, 
                                       _distance_limits=_distance_limits, _ignore_nan=_ignore_nan,
                                       _nan_mask=_nan_mask, _inf_mask=_inf_mask, _chrom_share_spots=_chrom_share_spots, 
-                                      _check_spots=_check_spots, _check_th=_check_th, _check_percentile=_check_percentile, 
+                                      _check_spots=_check_spots, _check_th=_check_th, 
+                                      _check_percentile=_check_percentile, _hard_dist_th=_hard_dist_th,
                                       _save_inter_plot=_save_inter_plot, _save_to_attr=True, _save_to_info=_save_to_info,
                                       _return_indices=False, _overwrite=_overwrite, _verbose=_verbose)
 
@@ -1350,7 +1352,8 @@ class Cell_List():
                               _ref_dist_metric='median', _score_metric='linear',
                               _local_size=5, _w_ctdist=1, _w_lcdist=0.1, _w_int=1, _w_nbdist=3,
                               _save_inter_plot=False, _save_to_info=True, _save_plot=True,
-                              _check_spots=True, _check_th=-1.5, _check_percentile=10., 
+                              _check_spots=True, _check_th=-1.5, 
+                              _check_percentile=10., _hard_dist_th=6000,
                               _distance_limits=[0,np.inf], _ignore_nan=True, 
                               _nan_mask=0., _inf_mask=-1000., _chrom_share_spots=False,
                               _plot_limits=[0, 1500], _cmap='seismic_r', _fig_dpi=100, _fig_size=4,
@@ -1392,7 +1395,7 @@ class Cell_List():
                                _ref_dist_metric, _score_metric,
                                _local_size, _w_ctdist, _w_lcdist, _w_int, _w_nbdist,
                                _save_inter_plot, _save_to_info, _save_plot,
-                               _check_spots, _check_th, _check_percentile, 
+                               _check_spots, _check_th, _check_percentile, _hard_dist_th,
                                _distance_limits, _ignore_nan, _nan_mask, _inf_mask,
                                _chrom_share_spots, _plot_limits, _cmap, _fig_dpi, _fig_size,
                                _overwrite, _verbose))
@@ -3694,7 +3697,8 @@ class Cell_Data():
                     _local_size=5, _w_ctdist=2, _w_lcdist=1, _w_int=1, _w_nbdist=2,
                     _distance_limits=[0,np.inf], _ignore_nan=True,  
                     _nan_mask=0., _inf_mask=-1000., _chrom_share_spots=False,
-                    _check_spots=True, _check_th=-3., _check_percentile=2.5,
+                    _check_spots=True, _check_th=-3., 
+                    _check_percentile=2.5, _hard_dist_th=6000, 
                     _save_inter_plot=False, _save_to_attr=True, _save_to_info=True,
                     _return_indices=False, _overwrite=False, _verbose=True):
         """Function to pick spots from all candidate spots within Cell_Data
@@ -3951,7 +3955,7 @@ class Cell_Data():
                 chrom_share_spots=_chrom_share_spots,
                 distance_zxy=self.shared_parameters['distance_zxy'],
                 check_spots=_check_spots, check_th=_check_th, 
-                check_percentile=_check_percentile,
+                check_percentile=_check_percentile, hard_dist_th=_hard_dist_th,
                 save_plot=_save_inter_plot, save_path=_plot_folder,
                 save_filename=_plot_filename,
                 return_indices=True, verbose=_verbose)

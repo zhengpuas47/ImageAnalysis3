@@ -23,6 +23,9 @@ def distance_score(dist, ref_dist, weight=1.,
         _ref_dist = float(ref_dist)
         # calculate score
         _scores = -1 * _w * (_dist / _ref_dist) # this score mimic log-pval
+        # extra penalty for distance larger than limit
+        _scores[_dist>max(distance_limits)] -= \
+            _w * (_dist[_dist>max(distance_limits)]-max(distance_limits)) / _ref_dist
     elif metric == 'cdf':
         # ref_dist should be an array of numbers
         _ref_dist = np.ravel(np.array(ref_dist))

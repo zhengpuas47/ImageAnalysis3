@@ -11,7 +11,7 @@ def check_spot_scores(all_spot_list, sel_spots, region_ids=None, sel_indices=Non
                       intensity_th=0., ref_dist_metric='median', score_metric='linear',
                       local_size=5, w_ctdist=2, w_lcdist=1, w_int=1, 
                       ignore_nan=True, nan_mask=0., inf_mask=-1000.,
-                      check_th=-3.5, check_percentile=1., 
+                      check_th=-3.5, check_percentile=1., hard_dist_th=6000,
                       return_sel_scores=False, return_other_scores=False, verbose=False):
     """Function to check spots given merged_spot_list and selected_spots
     Inputs:
@@ -40,6 +40,7 @@ def check_spot_scores(all_spot_list, sel_spots, region_ids=None, sel_indices=Non
         other_scores: un-selected spot scores, np.ndarray or list of spots
     """
     ## check inputs
+    from .scoring import _center_distance
     if isinstance(all_spot_list, list):
         all_spots = np.concatenate(all_spot_list)
     elif isinstance(all_spot_list, np.ndarray):
@@ -132,14 +133,20 @@ def check_spot_scores(all_spot_list, sel_spots, region_ids=None, sel_indices=Non
     if verbose:
         print(f"--- applying stringency check for {len(sel_spots)} spots, threshold={_final_check_th}")
     _filtered_spots = np.array(sel_spots).copy()
-    if np.sum(_sel_scores < _final_check_th) > 0:
-        _inds = np.where((_sel_scores < _final_check_th) \
-                         + (np.isnan(_filtered_spots).sum(1)>0) )[0]
-        for _i in _inds:
-            _filtered_spots[_i] = np.nan
-            _filtered_spots[_i,0] = 0
-        if verbose:
-            print(f"--- {len(_inds)} spots didn't pass stringent quality check.")
+
+    # seletion condition 
+    _condition = (_sel_scores < _final_check_th) + (np.isnan(_filtered_spots).sum(1)>0)
+    if hard_dist_th is not None and hard_dist_th is not False:
+        _ct_dists = _center_distance(sel_spots[:,1:4]*distance_zxy, 
+                                     center=chrom_coord*distance_zxy)
+        _condition += _ct_dists > hard_dist_th
+    # get failed inds
+    _inds = np.where(_condition)[0]
+    # delete spots
+    _filtered_spots[_inds,0] = 0 # remove intensities
+    _filtered_spots[_inds,1:] = np.nan # remove other parameters
+    if verbose:
+        print(f"--- {len(_inds)} spots didn't pass stringent quality check.")
     
     ## return
     if not return_sel_scores and not return_other_scores:

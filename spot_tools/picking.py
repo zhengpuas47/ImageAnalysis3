@@ -1070,7 +1070,7 @@ def dynamic_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
                                     weight=w_nbdist, metric=score_metric,
                                     nan_mask=nan_mask, inf_mask=inf_mask, 
                                     distance_limits=distance_limits ) \
-                                    / np.abs(_ids[_i+1] - _ids[_i]) + _dy_scores[_i][:,np.newaxis]
+                                    / (_ids[_i+1] - _ids[_i]) + _dy_scores[_i][:,np.newaxis]
                                     for _nb_dist, _dy_scores in zip(nb_dist_list, _dy_score_list)]
             else:
                 _measure_list = [scoring.distance_score(_dists, ref_dist=_nb_dist, 
@@ -1179,7 +1179,7 @@ def EM_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
                                   distance_limits=[0,3000], ignore_nan=True, 
                                   nan_mask=0., inf_mask=-1000., update_chrom_coords=False, 
                                   chrom_share_spots=False, distance_zxy=_distance_zxy, 
-                                  check_spots=True, check_th=-2., check_percentile=10., 
+                                  check_spots=True, check_th=-2., check_percentile=10.,hard_dist_th=8000, 
                                   make_plot=False, save_plot=False, save_path=None, save_filename='',
                                   return_indices=False, return_sel_scores=False, return_other_scores=False, 
                                   verbose=True):
@@ -1405,7 +1405,8 @@ def EM_pick_spots_for_chromosomes(cell_cand_spots, region_ids,
                     chrom_coord=_chrom_coord, distance_zxy=distance_zxy, distance_limits=distance_limits,
                     intensity_th=intensity_th, ref_dist_metric=ref_dist_metric, score_metric=score_metric,
                     local_size=local_size, w_ctdist=w_ctdist, w_lcdist=w_lcdist,
-                    w_int=w_int, ignore_nan=ignore_nan, check_th=check_th, check_percentile=check_percentile, 
+                    w_int=w_int, ignore_nan=ignore_nan, check_th=check_th, 
+                    check_percentile=check_percentile, hard_dist_th=hard_dist_th,
                     return_sel_scores=True, return_other_scores=True, verbose=verbose)
                 # append
                 sel_score_list.append(np.array(_sel_scores))
