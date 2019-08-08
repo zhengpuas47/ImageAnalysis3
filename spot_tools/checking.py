@@ -77,7 +77,7 @@ def check_spot_scores(all_spot_list, sel_spots, region_ids=None, sel_indices=Non
 
     # generate reference spot pool 
     _ref_center_dist, _ref_local_dist, _ref_neighbor_dist, _ref_intensities = scoring.generate_ref_from_chromosome(
-        _ref_spots, _ref_ids, distance_zxy=distance_zxy, ref_center=chrom_coord,
+        _ref_spots, _ref_ids, distance_zxy=distance_zxy, chr_center=chrom_coord,
         intensity_th=intensity_th, local_size=local_size, ref_dist_metric=ref_dist_metric,
         ignore_nan=ignore_nan)
     
@@ -138,7 +138,8 @@ def check_spot_scores(all_spot_list, sel_spots, region_ids=None, sel_indices=Non
     _condition = (_sel_scores < _final_check_th) + (np.isnan(_filtered_spots).sum(1)>0)
     if hard_dist_th is not None and hard_dist_th is not False:
         _ct_dists = _center_distance(sel_spots[:,1:4]*distance_zxy, 
-                                     center=chrom_coord*distance_zxy)
+                                     #center=chrom_coord*distance_zxy)
+                                     center=None)
         _condition += _ct_dists > hard_dist_th
     # get failed inds
     _inds = np.where(_condition)[0]
