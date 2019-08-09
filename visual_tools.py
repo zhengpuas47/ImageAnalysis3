@@ -2530,8 +2530,36 @@ def visualize_fitted_spot_crops(im, centers, center_inds, radius=10):
             _acim[:_cs[0], :_cs[1], :_cs[2]] += _cim
         return imshow_mark_3d_v2(amended_cropped_ims, image_names=image_names)
 
-def visualize_fitted_spot_images():
-    pass
+def visualize_fitted_spot_images(ims, centers, center_inds, 
+                                 save_folder=None, save_name='fitted_image.pkl', 
+                                 overwrite=True, verbose=True):
+    """Visualize fitted spots in original image shape"""
+    ## Inputs
+    # images
+    _ims = list(ims)
+    if len(_ims[0].shape)!= 3:
+        raise ValueError("Input images should be 3D!")
+    # centers
+    center_inds = [_id for _id,_ct in zip(center_inds, centers) if (np.isnan(_ct)==False).all()]
+    centers = [_ct for _ct in centers if (np.isnan(_ct)==False).all()]
+    if len(centers) == 0:  # no center given
+        return
+    _coord_dic = {'coords': [np.flipud(_ct) for _ct,_id in zip(centers, center_inds)],
+                  'class_ids': [int(_id) for _ct,_id in zip(centers, center_inds)],
+                  'pfits':{},
+                  'dec_text':{},
+                  } # initialize _coord_dic for picking
+    if save_folder is None:
+        save_folder = '.'
+    save_filename = os.path.join(save_folder, save_name)
+    if not os.path.isfile(save_filename) or overwrite:
+        if verbose:
+            print(f"--- dump coordinate information into {save_filename}")
+        pickle.dump(_coord_dic, open(save_filename, 'wb'))
+    _im_viewer = imshow_mark_3d_v2(_ims, 
+                                   #image_names=[f"id:{_id}, coord:{_ct}" for _id,_ct in zip(center_inds, centers)],
+                                   save_file=save_filename)
+    return _im_viewer
 
 def Extract_crop_from_segmentation(segmentation_label, extend_dim=20, single_im_size=_image_size):
     """Function to extract a crop matrix from given segmentation label and extend_dim

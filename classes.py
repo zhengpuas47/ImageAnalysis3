@@ -1372,8 +1372,8 @@ class Cell_List():
             print(
                 "++ _save_inter_plot is ON for now, which may requires long time to finish.")
         # decide references
-        if _ref_spot_list is None:
-            _ref_spot_list = [None for _cell in self.cells]
+        if _ref_spot_list is None or isinstance(_ref_spot_list, str):
+            _ref_spot_list = [_ref_spot_list for _cell in self.cells]
             _ref_id_list = [None for _cell in self.cells]
         elif isinstance(_ref_spot_list, list):
             if len(_ref_spot_list) != len(self.cells):
@@ -3868,6 +3868,9 @@ class Cell_Data():
                     print(f"-- not overwriting {_picked_attr} for fov:{self.fov_id}, cell:{self.cell_id}")
                 if not _return_indices:
                     return _picked_spot_list
+                else:
+                    return _picked_spot_list, []
+        
         # check chrom_coords
         if _use_chrom_coords and not hasattr(self, 'chrom_coords'):
             self._load_from_file('cell_info', _load_attrs=['chrom_coords'])
@@ -3877,8 +3880,10 @@ class Cell_Data():
             
             # temporary limit
             if len(getattr(self, 'chrom_coords')) > 6:
-                return []
-
+                if not _return_indices:
+                    return []
+                else:
+                    return [], []
 
             # check if length of chrom_coords matches all_spots
             if len(_all_spots) > 0 and len(getattr(self, 'chrom_coords')) != len(_all_spots[0]):
@@ -3904,6 +3909,7 @@ class Cell_Data():
             _chrom_coords = getattr(self, 'chrom_coords')
 
         ## Initialize
+        _picked_spot_list = []
         _plot_folder = os.path.join(self.map_folder, self.fovs[self.fov_id].replace('.dax', ''))
         _plot_filename = f"Steps-{_pick_type}_{_data_type}_{self.cell_id}.png"
         if _save_inter_plot and not os.path.exists(_plot_folder):
@@ -3914,12 +3920,11 @@ class Cell_Data():
         if _pick_type == 'naive':
             from .spot_tools.picking import naive_pick_spots_for_chromosomes
             # loop through chromosomes and pick
-            for _i, (_cand_spots, _chrom_coord) in enumerate(zip(_cand_spot_list, _chrom_coords)):
-                _picked_spot_list, _picked_ind_list = naive_pick_spots_for_chromosomes(
-                    _all_spots, _ids, chrom_coords=_chrom_coords, intensity_th=_intensity_th,
-                    hard_intensity_th=_hard_intensity_th,chrom_share_spots=_chrom_share_spots,
-                    distance_zxy=self.shared_parameters['distance_zxy'],
-                    return_indices=True, verbose=_verbose)
+            _picked_spot_list, _picked_ind_list = naive_pick_spots_for_chromosomes(
+                _all_spots, _ids, chrom_coords=_chrom_coords, intensity_th=_intensity_th,
+                hard_intensity_th=_hard_intensity_th,chrom_share_spots=_chrom_share_spots,
+                distance_zxy=self.shared_parameters['distance_zxy'],
+                return_indices=True, verbose=_verbose)
 
         elif _pick_type == 'dynamic':
             # directly do dynamic picking
@@ -3959,7 +3964,6 @@ class Cell_Data():
                 save_plot=_save_inter_plot, save_path=_plot_folder,
                 save_filename=_plot_filename,
                 return_indices=True, verbose=_verbose)
-
         else:
             raise ValueError(f"Wrong input _pick_type!")
 
