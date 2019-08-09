@@ -20,38 +20,35 @@ from scipy.spatial.distance import cdist, pdist, squareform
 from scipy.cluster.hierarchy import linkage, dendrogram, to_tree, is_valid_linkage
 
 
-
-def _get_candidate_boundary(_distmap, dom_sz=4, make_plot=False):
+def generate_candidate_domain_boundary(coordinates, dm_sz=10, match_boundary_dist=1):
+    """Generate candidate domain boundaries"""
+    from .distance import _sliding_window_dist
+    from scipy.signal import find_peaks
+    # initialize coordinates and convert to squared array
+    _coordinates = np.array(coordinates)
+    if len(np.shape(_coordinates))!= 2:
+        raise IndexError(f"Wrong input shape for _coordinates, should be 2d-array but {_coordinates.shape} is given.")
+    if np.shape(_coordinates)[1] == 3:
+        _coordinates = squareform(pdist(_coordinates))
+        
+    # get sliding window peaks
+    _slide_dists = _sliding_window_dist(_coordinates, dm_sz)
+    _slide_peaks = find_peaks(_slide_dists, distance=int(dm_sz/2))[0]
     
-    _size = len(_distmap)
-    # initialize
-    _dists = []
-    # get dists
-    for _i in range(_size):
-        if _i >= dom_sz/2 and _i < _size - dom_sz/2:
-            _b1 = np.ravel(
-                np.triu(_distmap[max(_i-dom_sz, 0):_i, max(_i-dom_sz, 0):_i], 1))
-            _b2 = np.ravel(
-                np.triu(_distmap[_i:min(_i+dom_sz, _size), _i:min(_i+dom_sz, _size)], 1))
-            _intra = np.concatenate([_b1, _b2])
-            _inter = np.ravel(
-                _distmap[max(_i-dom_sz, 0):_i, _i:min(_i+dom_sz, _size)])
-            _dists.append(np.nanmean(_inter) - np.nanmean(_intra))
-        else:
-            _dists.append(0)
-    # call peaks
-    _peaks = find_peaks(_dists, distance=dom_sz, prominence=10)
-    # candidate boundaries
-    _cand_boundaries = [0] + list(_peaks[0])
+    # get correlation coef peaks
+    _coef_map = np.ma.corrcoef(np.ma.masked_invalid(_coordinates))
+    _coef_dists = []
+    for _i in range(int(dm_sz/2), len(_coordinates)-int(dm_sz/2)):
+        _coef_dists.append(np.linalg.norm(_coef_map[_i-int(dm_sz/2):_i] - _coef_map[_i:_i+int(dm_sz/2)]))
 
-    if make_plot:
-        plt.figure(figsize=[18, 3])
-        plt.plot(_dists)
-        plt.xticks(np.arange(0, _size, _size/10))
-        if __name__ == '__main__':
-            plt.show()
-    return _cand_boundaries
-
+    _coef_peaks = find_peaks(_coef_dists, distance=int(dm_sz/2))[0]+int(dm_sz/2)
+    print(_slide_peaks, _coef_peaks)
+    # match coef_peaks and slide peaks
+    _kept_peaks = [0]
+    for _p in _coef_peaks:
+        if (np.abs(_slide_peaks-_p) <= match_boundary_dist).any():
+            _kept_peaks.append(_p)
+    return np.array(_kept_peaks, dtype=np.int)
 
 def extract_sequences(zxy, domain_starts):
     """Function to extract sequences of zxy coordinates given domain start indices"""
@@ -129,10 +126,11 @@ def merge_domains(coordinates, cand_bd_starts, norm_mat=None,
             plt.show()
         # update domain_id to be merged (domain 0 will never be merged)
         if len(cand_bd_starts) > 2:
-            _corr_inds = np.where(np.diag(_coef_mat, 1) > corr_th)[0]+1
+            _corr_inds = np.where(np.diag(_coef_mat, 1) >= corr_th)[0]+1
         else:
             _corr_inds = np.where(np.diag(_coef_mat, 1) >= -1)[0]+1
         _dist_inds = np.where(np.diag(_dm_dist_mat, 1) <= dist_th)[0]+1
+        print(_corr_inds, _dist_inds)
         if len(_dist_inds) > 0 and len(_corr_inds) > 0:
             _merge_inds = [int(_cid) for _cid in _corr_inds if _cid in _dist_inds]
         else:
@@ -147,7 +145,7 @@ def merge_domains(coordinates, cand_bd_starts, norm_mat=None,
             _merge_dists = _merge_dists[np.array(_merge_inds, dtype=np.int)-1]
             _picked_ind = _merge_inds[np.argmax(_merge_dists)]
             if verbose:
-                print(f"---* merge domain:{_picked_ind} starting with region:{cand_bd_starts[_picked_ind]}")
+                print(f"---* merge domain:{_picked_ind} starting with region:{cand_bd_starts[_picked_ind]}, dist={np.diag(_coef_mat, 1)[_picked_ind-1], np.diag(_dm_dist_mat, 1)[_picked_ind-1]}")
             # remove this domain from domain_starts (candidates)
             cand_bd_starts = np.delete(cand_bd_starts, _picked_ind)
     
@@ -163,13 +161,14 @@ def merge_domains(coordinates, cand_bd_starts, norm_mat=None,
 
 
 def basic_domain_calling(spots, save_folder=None,
-                         distance_zxy=_distance_zxy, dom_sz=5, gfilt_size=0.5,
-                         normalization_matrix=r'Z:\References\normalization_matrix.npy',
-                         domain_dist_metric='ks', domain_cluster_metric='ward',
-                         corr_th=0.64, dist_th=0.2, plot_steps=False, plot_results=True,
-                         fig_dpi=100,  fig_dim=10, fig_font_size=18,
+                         distance_zxy=_distance_zxy, gfilt_size=0.,
+                         normalization_matrix=None, min_domain_size=5, match_boundary_dist=1,
+                         domain_dist_metric='median', domain_cluster_metric='average',
+                         corr_th=0.8, dist_th=1., hard_dist_th=2.,
+                         plot_steps=False, plot_results=True,
+                         fig_dpi=150,  fig_dim=4, fig_font_size=12,
                          save_result_figs=False, save_name='', verbose=True):
-    """Function to call 'sub-compartments' by thresholding correlation matrices.
+    """Function to call single-cell domains by thresholding correlation matrices.
     --------------------------------------------------------------------------------
     The idea for subcompartment calling:
     1. call rough domain candidates by maximize local distances.
@@ -180,11 +179,13 @@ def basic_domain_calling(spots, save_folder=None,
     Inputs:
         spots: all sepected spots for this chromosome, np.ndarray
         distance_zxy: transform pixels in spots into nm, np.ndarray-like of 3 (default: [200,106,106])
-        dom_sz: domain window size of the first rough domain candidate calling, int (default: 5)
+        min_domain_size: domain window size of the first rough domain candidate calling, int (default: 5)
         gfilt_size: filter-size to gaussian smooth picked coordinates, float (default: 1.)
         normalization_matrix: either path or matrix for normalizing polymer effect, str or np.ndarray 
-            * if specified, allow normalization, otherwise put a None. (default:str of path)        corr_th: lower threshold for correlations to merge neighboring vectors, float (default: 0.64)
-        dist_th: upper threshold for distance to merge neighboring vectors, float (default: 0.2)
+            * if specified, allow normalization, otherwise put a None. (default:str of path)        
+        corr_th: lower threshold for correlations to merge neighboring vectors, float (default: 0.6)
+        dist_th: upper threshold for distance to merge neighboring vectors, float (default: 1.)
+        hard_dist_th: hard threshold for distance to not merge if beyond this, folat (default: 2.)
         plot_steps: whether make plots during intermediate steps, bool (default: False)
         plot_results: whether make plots for results, bool (default: True)
         fig_dpi: dpi of image, int (default: 200)  
@@ -224,7 +225,7 @@ def basic_domain_calling(spots, save_folder=None,
     else:
         _zxy = np.array(_spots)[:, 1:4] * distance_zxy[np.newaxis, :]
     # smooth
-    if gfilt_size is not None and gfilt_size > 0:
+    if gfilt_size is not None and gfilt_size >= 0:
         if verbose:
             print(f"--- gaussian interpolate chromosome, sigma={gfilt_size}")
         _zxy = interpolate_chr(_zxy, gaussian=gfilt_size)
@@ -232,16 +233,22 @@ def basic_domain_calling(spots, save_folder=None,
     ## 1. call candidate domains
     if verbose:
         print(f"--- call initial candidate boundaries")
-    cand_bd_starts = call_candidate_boundaries(_zxy, dom_sz, 'local')
+    cand_bd_starts = generate_candidate_domain_boundary(_zxy, min_domain_size*2, 
+                        match_boundary_dist=match_boundary_dist)
 
     ## 2. get zxy sequences
     cand_bd_starts = merge_domains(_zxy, cand_bd_starts=cand_bd_starts,
                                    norm_mat=norm_mat, corr_th=corr_th, dist_th=dist_th,
+                                   hard_dist_th=hard_dist_th,
                                    domain_dist_metric=domain_dist_metric,
                                    plot_steps=plot_steps, verbose=verbose)
 
     ## 3. finish up and make plot
     if plot_results and len(cand_bd_starts) > 1:
+        from .distance import domain_pdists
+        from ..figure_tools import plot_boundaries
+        import matplotlib.gridspec as gridspec
+
         _dm_pdists = domain_pdists(_zxy, cand_bd_starts,
                                    metric=domain_dist_metric,
                                    normalization_mat=norm_mat,
@@ -250,7 +257,7 @@ def basic_domain_calling(spots, save_folder=None,
         if verbose:
             print(
                 f"-- make plot for results with {len(cand_bd_starts)} domains")
-        import matplotlib.gridspec as gridspec
+        
         _fig = plt.figure(figsize=(3*(fig_dim+1), 2*fig_dim), dpi=fig_dpi)
         gs = gridspec.GridSpec(2, 5, figure=_fig)
         gs.update(wspace=0.1, hspace=0)
@@ -285,8 +292,8 @@ def basic_domain_calling(spots, save_folder=None,
         #ax3 = plt.subplot2grid((2, 5), (0, 2), colspan=3, rowspan=2)
         ax3 = plt.subplot(gs[:, 2:])
         plot_boundaries(squareform(pdist(_zxy)), cand_bd_starts, input_ax=ax3,
-                        figure_dpi=fig_dpi,
-                        figure_fontsize=fig_font_size, save=save_result_figs,
+                        figure_dpi=fig_dpi, figure_fontsize=fig_font_size, 
+                        line_width=2, save=save_result_figs,
                         save_folder=save_folder, save_name=save_name)
         # save result figure
         if save_result_figs and save_folder is not None:
@@ -299,8 +306,7 @@ def basic_domain_calling(spots, save_folder=None,
             _full_result_filename = os.path.join(
                 save_folder, _result_save_name)
             if verbose:
-                print(
-                    f"--- save result image into file:{_full_result_filename}")
+                print(f"--- save result image into file:{_full_result_filename}")
             plt.savefig(_full_result_filename, transparent=True)
         if __name__ == '__main__':
             plt.show()
@@ -310,8 +316,6 @@ def basic_domain_calling(spots, save_folder=None,
             f"--- total time spent in basic domain calling: {time.time()-_start_time}")
 
     return cand_bd_starts
-
-
 def iterative_domain_calling(spots, save_folder=None,
                              distance_zxy=_distance_zxy, dom_sz=5, gfilt_size=0.5,
                              split_level=1, num_iter=5, corr_th_scaling=1., dist_th_scaling=1.,
