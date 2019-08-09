@@ -3487,207 +3487,6 @@ class Cell_Data():
 
         return _spots
 
-    # pick spots
-    def _dynamic_picking_spots(self, _data_type='unique', _use_chrom_coords=True,
-                               _w_int=1, _w_dist=2, _w_center=0, 
-                               _dist_ref = None, _penalty_type='trapezoidal', _penalty_factor=5,
-                               _save=True, _verbose=True):
-        """Given selected spots, do picking by dynamic programming
-        Input:"""
-        ## check inputs
-        # first check data_type input
-        _allowed_types = ['unique', 'decoded', 'rna-unique']
-        _data_type = _data_type.lower()
-        if _data_type not in _allowed_types:
-            raise KeyError(f"Wrong input key for _data_type:{_data_type}")
-        # generate attribute names
-        _im_attr = _data_type + '_' + 'ims'
-        _id_attr = _data_type + '_' + 'ids'
-        _spot_attr = _data_type + '_' + 'spots'
-        # generate save attribute
-        _picked_attr = 'picked' + '_' + _spot_attr
-        # distance reference
-        if _dist_ref is None: # full filename for distance reference npz file
-            _dist_ref = self.distance_reference
-        # load distance_reference:
-        with np.load(_dist_ref) as data:
-            ref_matrix = data['distance_map']
-        # penalty function for distance
-        def distance_penalty(real_dist, exp_dist, __type='trapezoidal', _factor=5):
-            """Penalty function for distance, given matrix of real_dist and float exp_dist, return [0,1] penalty funciton"""
-            real_dist = np.array(real_dist)
-            if __type == 'gaussian':
-                return np.exp(-(real_dist-exp_dist)**2/2/(exp_dist/_factor)**2)
-            elif __type == 'spike':
-                return np.max(np.stack([(exp_dist-np.abs(real_dist-exp_dist)/_factor)/exp_dist, np.zeros(real_dist.shape)]),0)
-            elif __type == 'trapezoidal':
-                return np.max(np.stack([np.zeros(real_dist.shape)**(real_dist>exp_dist),(exp_dist-np.abs(real_dist-exp_dist)/_factor)/exp_dist, np.zeros(real_dist.shape)]),0)
-            elif __type == 'triangle':
-                return np.max(np.stack([1-real_dist/exp_dist/_factor, np.zeros(real_dist.shape)]), 0)
-            else:
-                raise KeyError("Wrong input __type kwd!")
-        # if isolate chromosomes:
-        if _use_chrom_coords:
-            if not hasattr(self, 'chrom_coords'):
-                self._load_from_file('cell_info')
-                if not hasattr(self, 'chrom_coords'):
-                    raise AttributeError("No chrom-coords info found in cell-data and saved cell_info.")
-            # check specific attributes and initialize
-            if _data_type == 'unique' or _data_type == 'rna-unique':
-                # check attributes
-                if not hasattr(self, _spot_attr):
-                    self._load_from_file('cell_info')
-                    if not hasattr(self, _spot_attr):
-                        raise AttributeError(f"No {_spot_attr} info found in cell-data and saved cell_info.")
-                if _verbose:
-                    print(f"+ Pick {_data_type} spots for by brightness in fov:{self.fov_id}, cell:{self.cell_id}")
-                # spots for unique:
-                _cand_spots = getattr(self, _spot_attr)
-                _ids = getattr(self, _id_attr)
-                _picked_spots = [] # initialize
-            elif _data_type == 'decoded':
-                # check attributes
-                if not hasattr(self, 'decoded_spots'):
-                    self._load_from_file('cell_info')
-                    if not hasattr(self, 'decoded_spots'):
-                        raise AttributeError("No decoded_spots info found in cell-data and saved cell_info.")
-                if _verbose:
-                    print(f"+ Pick {_data_type} spots for by brightness in fov:{self.fov_id}, cell:{self.cell_id}")
-                # spots for unique:
-                _cand_spots = self.decoded_spots
-                _ids = self.decoded_ids
-                _picked_spots = [] # initialize
-
-            ## dynamic progamming
-            for _chrom_id, _coord in enumerate(self.chrom_coords):
-                _ch_pts = [chrpts[_chrom_id][:,1:4] * self.shared_parameters['distance_zxy'] 
-                            for chrpts in _cand_spots if len(chrpts[_chrom_id]>0)]
-                _ch_ids = [_id for chrpts,_id in zip(_cand_spots, _ids) if len(chrpts[_chrom_id]>0)]
-                # initialize two stucture:
-                _dy_values = [np.log(chrpts[_chrom_id][:,0])*_w_int \
-                              + np.log( np.linalg.norm((chrpts[_chrom_id][:,1:4] - _coord) \
-                              * self.shared_parameters['distance_zxy'], axis=1) ) * _w_center\
-                              for chrpts in _cand_spots if len(chrpts[_chrom_id]>0)] # store maximum values
-                _dy_pointers = [-np.ones(len(pt), dtype=np.int) for pt in _ch_pts] # store pointer to previous level
-                
-                # Forward
-                for _j, (_pts, _id) in enumerate(zip(_ch_pts[1:], _ch_ids[1:])):
-                    _dists = cdist(_ch_pts[_j], _ch_pts[_j+1]) # real pair-wise distance
-                    _ref_dist = ref_matrix[_ch_ids[_j]-1, _ch_ids[_j+1]-1] # distance inferred by Hi-C as prior
-                    # two components in dynamic progamming: distance and intensity
-                    _measure =  distance_penalty(_dists, _ref_dist, _penalty_type, _penalty_factor) * _w_dist + _dy_values[_j][:,np.newaxis]
-                    # update maximum values and maximum pointers
-                    _dy_values[_j+1] += np.max(_measure, axis=0)
-                    _dy_pointers[_j+1] = np.argmax(_measure, axis=0)
-                # backward
-                if len(_dy_values) > 0:
-                    _picked_ids = [np.argmax(_dy_values[-1])]
-                else:
-                    _picked_ids = []
-                for _j in range(len(_ch_pts)-1):
-                    _picked_ids.append(_dy_pointers[-(_j+1)][_picked_ids[-1]])
-                _picked_ids = np.flip(_picked_ids, axis=0)
-                # clean up and match candidate spots
-                _picked_chrom_pts = []
-                _counter = 0
-                for _j, (_cand_list, _id) in enumerate(zip(_cand_spots, _ids)):
-                    _cands = _cand_list[_chrom_id]
-                    if len(_cands) > 0 and _id in _ch_ids:
-                        _picked_chrom_pts.append(_cands[_picked_ids[_counter]])
-                        _counter += 1
-                    else:
-                        _picked_chrom_pts.append(np.inf*np.ones(8))
-                _picked_spots.append(_picked_chrom_pts)
-
-            ## dump into attribute and save
-            if _data_type == 'unique' or _data_type == 'decoded':
-                setattr(self, _picked_attr, _picked_spots)
-                # save
-                if _save:
-                    self._save_to_file('cell_info', _save_dic={_picked_spots:_picked_spots})
-                # return
-            if _data_type == 'decoded':
-                self.picked_decoded_spots = _picked_spots
-                # save
-                if _save:
-                    self._save_to_file('cell_info', _save_dic={'picked_decoded_spots':self.picked_decoded_spots})
-                # return
-            return _picked_spots
-
-    def _naive_picking_spots(self, _data_type='unique', _use_chrom_coords=True,
-                             _save=True, _verbose=True):
-        """Given selected spots, do picking by the brightness
-        Input:"""
-        # generate attribute names
-        _im_attr = _data_type + '_' + 'ims'
-        _id_attr = _data_type + '_' + 'ids'
-        _spot_attr = _data_type + '_' + 'spots'
-        # generate save attribute
-        _picked_attr = 'picked' + '_' + _spot_attr
-
-        if _use_chrom_coords:
-            if not hasattr(self, 'chrom_coords'):
-                self._load_from_file('cell_info')
-                if not hasattr(self, 'chrom_coords'):
-                    raise AttributeError("No chrom-coords info found in cell-data and saved cell_info.")
-            # check specific attributes and initialize
-            if _data_type == 'unique' or _data_type == 'rna-unique':
-                # check attributes
-                if not hasattr(self, _im_attr):
-                    self._load_from_file('cell_info')
-                    if not hasattr(self, _im_attr):
-                        raise AttributeError("No unique_spots info found in cell-data and saved cell_info.")
-                if _verbose:
-                    print(f"+ Pick {_data_type} spots for by brightness in fov:{self.fov_id}, cell:{self.cell_id}")
-                # spots for unique:
-                _cand_spots = getattr(self, _spot_attr)
-                _ids = getattr(self, _id_attr)
-                _picked_spots = [] # initialize
-            elif _data_type == 'decoded':
-                # check attributes
-                if not hasattr(self, 'decoded_spots'):
-                    self._load_from_file('cell_info')
-                    if not hasattr(self, 'decoded_spots'):
-                        raise AttributeError("No decoded_spots info found in cell-data and saved cell_info.")
-                if _verbose:
-                    print(f"+ Pick {_data_type} spots for by brightness in fov:{self.fov_id}, cell:{self.cell_id}")
-                # spots for unique:
-                _cand_spots = self.decoded_spots
-                _ids = self.decoded_ids
-                _picked_spots = [] # initialize
-
-            # picking spots
-            for _chrom_id, _chrom_coord in enumerate(self.chrom_coords):
-                _picked_in_chrom = []
-                for _cand_lst, _id in zip(_cand_spots, _ids):
-                    # extract candidate spots for this
-                    _cands = _cand_lst[_chrom_id]
-                    # case 1: no fit at all:
-                    if len(_cands) == 0:
-                        _picked_in_chrom.append(np.inf*np.ones(11))
-                    else:
-                        _intensity_order = np.argsort(_cands[:,0])
-                        # PICK THE BRIGHTEST ONE
-                        _pspt = _cands[_intensity_order[-1]]
-                        _picked_in_chrom.append(_pspt)
-                # append
-                _picked_spots.append(_picked_in_chrom)
-
-            ## dump into attribute and save
-            if _data_type == 'unique' or _data_type == 'rna-unique':
-                setattr(self, _picked_attr, _picked_spots)
-                # save
-                if _save:
-                    self._save_to_file('cell_info', _save_dic={_picked_attr:_picked_spots})
-
-            if _data_type == 'decoded':
-                self.picked_decoded_spots = _picked_spots
-                # save
-                if _save:
-                    self._save_to_file('cell_info', _save_dic={'picked_decoded_spots':self.picked_decoded_spots})
-
-            return _picked_spots
-
     # an integrated function to pick spots
     def _pick_spots(self, _data_type='unique', _pick_type='EM', _use_chrom_coords=True,
                     _sel_ids=None, _num_iters=10, _terminate_th=0.003, 
@@ -3782,8 +3581,8 @@ class Cell_Data():
             if not hasattr(self, _ref_id_attr):
                 self._load_from_file('cell_info', _load_attrs=[_ref_id_attr])
             # get attributes
-            _ref_spot_list = getattr(self, _ref_picked_attr)
-            _ref_ids = getattr(self, _ref_id_attr)
+            _ref_spot_list = getattr(self, _ref_picked_attr, None)
+            _ref_ids = getattr(self, _ref_id_attr, None)
         # _ref_spot_list is directly list
         elif isinstance(_ref_spot_list, list):
             if _ref_spot_ids is None:
@@ -3985,6 +3784,92 @@ class Cell_Data():
             return _picked_spot_list, _picked_ind_list
         else:
             return _picked_spot_list
+
+    # visualize picked spots
+    def _visualize_picked_spots(self, _data_type='unique', _pick_type='EM', 
+                                _use_chrom_coords=True,
+                                _overwrite=False, _verbose=True):
+        """Function to visualize picked-fitted spots in corresponding images, 
+            generate one window for each chromosome
+        Inputs:
+            _pick_type: method for picking spots, str ('EM', 'dynamic' or 'naive')
+            _data_type: data type of spots to be picked, str ('unique', 'decoded' etc)
+            _use_chrom_coords: whether use chrom_coords in cell_data, bool (default: True)
+            _overwrite: whether overwrite existing info, bool (default: False)
+            _verbose: say something!, bool (default: True)
+        Outputs:    
+            tuple of viewer items
+        """
+        ## check inputs
+        # pick type
+        _allowed_pick_types = ['EM', 'naive', 'dynamic']
+        if _pick_type not in _allowed_pick_types:
+            raise ValueError(f"Wrong input for _pick_type:{_pick_type}, should be among {_allowed_pick_types}")
+        # data type
+        _data_type = _data_type.lower()
+        if _data_type not in self.shared_parameters['allowed_data_types']:
+            raise ValueError(
+                f"Wrong input for {_data_type}, should be among {self.shared_parameters['allowed_data_types']}")
+        
+        ## required attributes
+        # generate attribute names
+        _im_attr = _data_type + '_' + 'ims'
+        _id_attr = _data_type + '_' + 'ids'
+        _spot_attr = _data_type + '_' + 'spots'
+        # generate save attribute
+        _picked_attr = str(_pick_type) + '_'+ 'picked' + '_' + _spot_attr
+        # load images and ids if necessary
+        if not hasattr(self, _im_attr) or not hasattr(self, _id_attr):
+            self._load_from_file(_data_type=_data_type, _overwrite=True, _verbose=_verbose)
+        # load picked spots if necessary
+        if not hasattr(self, _picked_attr) or not hasattr(self, 'chrom_coords'):
+            self._load_from_file(_data_type='cell_info', _load_attrs=[_picked_attr, 'chrom_coords'],
+                                 _verbose=_verbose)
+        # generate image names to show in viewer
+        _image_name_list = []
+        _sel_spot_list = []
+        _sel_ind_list = []
+        if not _use_chrom_coords:
+            _im_names = [f"id:{_id}, int:{np.round(_spot[0],2)}, coord:{np.round(_spot[1:4],1)}" 
+                for _id, _spot in zip(getattr(self, _id_attr), getattr(self, _picked_attr))
+                ]
+            _sel_spots = [_spot
+                for _id, _spot in zip(getattr(self, _id_attr), getattr(self, _picked_attr))
+                if not np.isnan(_spot).any()]
+            _sel_inds = [_i
+                for _i,(_id, _spot) in enumerate(zip(getattr(self, _id_attr), getattr(self, _picked_attr)))
+                if not np.isnan(_spot).any()]
+            _image_name_list.append(_im_names)
+            _sel_spot_list.append(_sel_spots)
+            _sel_ind_list.append(_sel_inds)
+        else:
+            for _chrom_id, _chrom_coord in enumerate(getattr(self,'chrom_coords')):
+                _spots = getattr(self, _picked_attr)[_chrom_id]
+                _im_names = [f"chr:{np.round(_chrom_coord,1)}, id:{_id}, int:{np.round(_spot[0],2)}, coord:{np.round(_spot[1:4],1)}" 
+                    for _id, _spot in zip(getattr(self, _id_attr), _spots)
+                    ]
+                _sel_spots = [_spot
+                    for _id, _spot in zip(getattr(self, _id_attr), _spots)
+                    if not np.isnan(_spot).any()]
+                _sel_inds = [_i
+                    for _i, (_id, _spot) in enumerate(zip(getattr(self, _id_attr), _spots))
+                    if not np.isnan(_spot).any()]
+                _image_name_list.append(_im_names)
+                _sel_spot_list.append(np.array(_sel_spots))
+                _sel_ind_list.append(np.array(_sel_inds, dtype=np.int))
+        # generate visualization items
+        _vis_objs = []
+        for _chrom_id, (_spots, _inds, _names) in enumerate(zip(_sel_spot_list, _sel_ind_list, _image_name_list)):
+            _vis_objs.append(visual_tools.visualize_fitted_spot_images(
+                    getattr(self, _im_attr), _spots[:,1:4], _inds, save_folder=self.save_folder,
+                    image_names=_names,
+                    save_name=f"visualize_{_picked_attr}_chr_{_chrom_id}.pkl",
+                    overwrite=_overwrite, verbose=_verbose,
+                )
+            )
+        return tuple(_vis_objs)
+
+
 
     def _generate_distance_map(self, _data_type='unique', _pick_type='EM', _sel_ids=None,
                                _save_info=True, _save_plot=True, _limits=[0, 2000], _cmap='seismic_r',

@@ -2532,7 +2532,8 @@ def visualize_fitted_spot_crops(im, centers, center_inds, radius=10):
         return imshow_mark_3d_v2(amended_cropped_ims, image_names=image_names)
 
 def visualize_fitted_spot_images(ims, centers, center_inds, 
-                                 save_folder=None, save_name='fitted_image.pkl', 
+                                 save_folder=None, image_names=None,
+                                 save_name='fitted_image.pkl', 
                                  overwrite=True, verbose=True):
     """Visualize fitted spots in original image shape"""
     ## Inputs
@@ -2545,6 +2546,8 @@ def visualize_fitted_spot_images(ims, centers, center_inds,
     centers = [_ct for _ct in centers if (np.isnan(_ct)==False).all()]
     if len(centers) == 0:  # no center given
         return
+    if image_names is None:
+        image_names = [str(_i) for _i in range(len(_ims))]
     _coord_dic = {'coords': [np.flipud(_ct) for _ct,_id in zip(centers, center_inds)],
                   'class_ids': [int(_id) for _ct,_id in zip(centers, center_inds)],
                   'pfits':{},
@@ -2558,7 +2561,7 @@ def visualize_fitted_spot_images(ims, centers, center_inds,
             print(f"--- dump coordinate information into {save_filename}")
         pickle.dump(_coord_dic, open(save_filename, 'wb'))
     _im_viewer = imshow_mark_3d_v2(_ims, 
-                                   #image_names=[f"id:{_id}, coord:{_ct}" for _id,_ct in zip(center_inds, centers)],
+                                   image_names=image_names,
                                    save_file=save_filename)
     return _im_viewer
 
