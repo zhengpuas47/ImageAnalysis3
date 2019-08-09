@@ -2469,6 +2469,8 @@ def crop_multi_channel_image(filename, channels, crop_limits=None,
 # visualize fitted spot crops
 def visualize_fitted_spot_crops(im, centers, center_inds, radius=10):
     """Function to visualize fitted spots within a given images and fitted centers"""
+    center_inds = [_id for _id,ct in zip(center_inds, centers) if (np.isnan(ct)==False).all()]
+    centers = [ct for ct in centers if (np.isnan(ct)==False).all()]
     if len(centers) == 0:  # no center given
         return
     if isinstance(im, np.ndarray) and len(im.shape) != 3:
@@ -2479,7 +2481,6 @@ def visualize_fitted_spot_crops(im, centers, center_inds, radius=10):
     cropped_ims = []
     if isinstance(im, np.ndarray):
         # iterate through centers
-        
         for ct in centers:
             if len(ct) != 3:
                 raise ValueError(
@@ -2509,11 +2510,11 @@ def visualize_fitted_spot_crops(im, centers, center_inds, radius=10):
                 crop_r = np.array([np.array(np.shape(_im)), np.round(ct+radius+1)], dtype=np.int).min(0)
                 _cim = _im[crop_l[0]:crop_r[0], crop_l[1]:crop_r[1], crop_l[2]:crop_r[2]]
                 _nim = np.ones([radius*2+1]*3) * np.median(_cim)
-                _im_l = np.round(ct - crop_l + radius).astype(np.int)
+                _im_l = np.round(crop_l - ct + radius).astype(np.int)
                 _im_r = np.round(crop_r - ct + radius).astype(np.int)
-                _nim[_im_l[0],_im_r[0],
-                    _im_l[1],_im_r[1],
-                    _im_l[2],_im_r[2]] = _cim
+                _nim[_im_l[0]:_im_r[0],
+                     _im_l[1]:_im_r[1],
+                     _im_l[2]:_im_r[2]] = _cim
                 cropped_ims.append(_nim)
     else:
         raise TypeError(f"Wrong input type for im")

@@ -1295,7 +1295,7 @@ class Cell_List():
     def _old_pick_spots_for_cells(self, _data_type='unique', _decoded_flag='diff', _pick_type='dynamic', 
                                   _use_chrom_coords=True, _w_dist=2, _dist_ref=None, 
                                   _penalty_type='trapezoidal', _penalty_factor=5,
-                                  _gen_distmap=True, _save_plot=True, _plot_limits=[0,2000],
+                                  _gen_distmap=True, _save_plot=True, _plot_limits=[0,1500],
                                   _save=True, _verbose=True):
         """Function to pick spots given candidates."""
         ## Check attributes
