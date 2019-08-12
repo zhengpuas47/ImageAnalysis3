@@ -1369,8 +1369,8 @@ class Cell_List():
             print(
                 "++ _save_inter_plot is ON for now, which may requires long time to finish.")
         # decide references
-        if _ref_spot_list is None:
-            _ref_spot_list = [None for _cell in self.cells]
+        if _ref_spot_list is None or isinstance(_ref_spot_list, str):
+            _ref_spot_list = [_ref_spot_list for _cell in self.cells]
             _ref_id_list = [None for _cell in self.cells]
         elif isinstance(_ref_spot_list, list):
             if len(_ref_spot_list) != len(self.cells):
@@ -3970,7 +3970,9 @@ class Cell_Data():
 
         # save to info
         if _save_to_info:
-            self._save_to_file('cell_info', _save_dic={_picked_attr: _picked_spot_list}, _verbose=_verbose)
+            self._save_to_file('cell_info', 
+                               _save_dic={_picked_attr: _picked_spot_list}, 
+                               _verbose=_verbose)
 
         # return
         if _return_indices:
