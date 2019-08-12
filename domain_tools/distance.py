@@ -192,6 +192,30 @@ def domain_pdists(coordinates, domain_starts, metric='median',
 
     return dom_pdists
 
+# pdist in correlation format
+def domain_correlation_pdists(coordinates, domain_starts):
+    """Function to calculate domain correlation pair-wise distances"""
+    _coordinates = np.array(coordinates)
+    if len(_coordinates.shape) != 2:
+        raise IndexError(f"Wrong dimension of _coordinates:{_coordinates.shape}, should be 2darray")
+    if _coordinates.shape[1] == 3:
+        from . import interpolate_chr
+        # calculate corrlation matrix
+        _coef_map = np.corrcoef(squareform(pdist(interpolate_chr( _coordinates ))))
+    elif _coordinates.shape[0] == _coordinates.shape[1] :
+        _coef_map = np.ma.corrcoef(np.ma.masked_invalid(_coordinates))
+    else:
+        raise IndexError(f"Wrong dimension of _coordinates:{_coordinates.shape}, should be zxy or distmap")
+
+    # get domain starts and ends
+    _starts = np.array(domain_starts, dtype=np.int)
+    if 0 not in _starts:
+        _starts = np.concatenate([np.array([0]), _starts])
+    _ends = np.concatenate([_starts[1:],np.array([len(_coordinates)])])
+    # domain vectors
+    _corr_vectors = [np.nanmean(_coef_map[_s:_e], axis=0) for _s,_e in zip(_starts, _ends)]
+    # domain corr pdists
+    return pdist(_corr_vectors) / len(_coordinates)
 
 def domain_neighboring_dists(coordinates, domain_starts, metric='median', 
                              use_local=True, min_dom_sz=5, 

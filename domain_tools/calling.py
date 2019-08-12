@@ -10,7 +10,7 @@ from .. import get_img_info, corrections, visual_tools, alignment_tools, classes
 from ..External import Fitting_v3, DomainTools
 from .. import _correction_folder, _temp_folder, _distance_zxy, _sigma_zxy, _image_size, _allowed_colors
 from ..figure_tools import plot_boundaries
-from .distance import domain_distance, domain_pdists
+from .distance import domain_distance, domain_pdists, domain_correlation_pdists
 from . import interpolate_chr
 
 # 
@@ -20,7 +20,9 @@ from scipy.spatial.distance import cdist, pdist, squareform
 from scipy.cluster.hierarchy import linkage, dendrogram, to_tree, is_valid_linkage
 
 
-def generate_candidate_domain_boundary(coordinates, dm_sz=10, match_boundary_dist=1):
+def generate_candidate_domain_boundary(coordinates, dm_sz=5, 
+                                       match_boundary_dist=1, adjust_corr_bd=False,
+                                       make_plot=False):
     """Generate candidate domain boundaries"""
     from .distance import _sliding_window_dist
     from scipy.signal import find_peaks
@@ -33,65 +35,39 @@ def generate_candidate_domain_boundary(coordinates, dm_sz=10, match_boundary_dis
         
     # get sliding window peaks
     _slide_dists = _sliding_window_dist(_coordinates, dm_sz)
-    _slide_peaks = find_peaks(_slide_dists, distance=int(dm_sz/2))[0]
+    _slide_peaks = find_peaks(_slide_dists, distance=dm_sz)[0]
     
-    # get correlation coef peaks
-    _coef_map = np.ma.corrcoef(np.ma.masked_invalid(_coordinates))
-    _coef_dists = []
-    for _i in range(int(dm_sz/2), len(_coordinates)-int(dm_sz/2)):
-        _coef_dists.append(np.linalg.norm(_coef_map[_i-int(dm_sz/2):_i] - _coef_map[_i:_i+int(dm_sz/2)]))
-
-    _coef_peaks = find_peaks(_coef_dists, distance=int(dm_sz/2))[0]+int(dm_sz/2)
-    print(_slide_peaks, _coef_peaks)
-    # match coef_peaks and slide peaks
+    # get correlation corr peaks
+    _corr_map = np.ma.corrcoef(np.ma.masked_invalid(_coordinates))
+    _corr_dists = []
+    for _i in range(dm_sz, len(_coordinates)-dm_sz):
+        _corr_dists.append(np.linalg.norm(_corr_map[_i-dm_sz:_i] - _corr_map[_i:_i+dm_sz]))
+    _corr_dists = np.array(_corr_dists)
+    _corr_peaks = find_peaks(_corr_dists, distance=dm_sz)[0]+dm_sz
+    #print(_slide_peaks, _slide_dists[_slide_peaks])
+    #print(_corr_peaks, _corr_dists[_corr_peaks-dm_sz])
+    if make_plot:
+        plt.figure(figsize=(9,3))
+        plt.plot(np.arange(len(_coordinates)), _slide_dists*10, label='window')
+        plt.plot(np.arange(dm_sz, len(_coordinates)-dm_sz), _corr_dists, label='corr')
+        plt.legend()
+        plt.title(f"distance measures")
+        plt.show()
+    # match corr_peaks and slide peaks
     _kept_peaks = [0]
-    for _p in _coef_peaks:
+    for _p in _corr_peaks:
         if (np.abs(_slide_peaks-_p) <= match_boundary_dist).any():
-            _kept_peaks.append(_p)
+            if adjust_corr_bd:
+                _matched_peak = _slide_peaks[np.argmin(np.abs(_slide_peaks-_p))]
+                _kept_peaks.append( int((_matched_peak+_p)/2) )
+            else:
+                _kept_peaks.append(_p)
     return np.array(_kept_peaks, dtype=np.int)
-
-def extract_sequences(zxy, domain_starts):
-    """Function to extract sequences of zxy coordinates given domain start indices"""
-    _dm_starts = np.array(domain_starts, dtype=np.int)
-    _dm_ends = np.array(list(domain_starts[1:])+[len(zxy)], dtype=np.int)
-    _zxy = np.array(zxy)
-    _seqs = []
-    for _start, _end in zip(_dm_starts, _dm_ends):
-        _seqs.append(_zxy[_start:_end])
-    return _seqs
-
-
-def call_candidate_boundaries(_zxy, _dom_sz, _method='local'):
-    """This is the function to first test call domains"""
-    if _method == 'local':
-        _local_dists = []
-        _start = 1
-        for i in range(_start,len(_zxy)):
-            cm1 = np.nanmean(_zxy[max(i-_dom_sz, 0):i], axis=0)
-            cm2 = np.nanmean(_zxy[i:i+_dom_sz], axis=0)
-            dist = np.linalg.norm(cm1-cm2)
-            _local_dists.append(dist)
-
-        # call maximums as domain starting boundaries
-        _cand_bd_starts = DomainTools.get_ind_loc_max(
-            _local_dists, cutoff_max=0, valley=_dom_sz)
-        # remove extreme values
-        filtered_bd_starts = []
-        for _bd in list(_cand_bd_starts):
-            if _bd >= _dom_sz and _bd < len(_zxy)-_dom_sz:
-                filtered_bd_starts.append(_bd + _start)
-
-        # append a zero as the start for first domain
-        if 0 not in filtered_bd_starts:
-            filtered_bd_starts = np.concatenate([np.array([0]), 
-                np.array(filtered_bd_starts)]).astype(np.int)
-
-    return filtered_bd_starts
 
 
 def merge_domains(coordinates, cand_bd_starts, norm_mat=None, 
-                  corr_th=0.64, dist_th=0.2, hard_dist_th=2.,
-                  domain_dist_metric='ks', plot_steps=False, verbose=True):
+                  corr_th=0.05, dist_th=0.8, flexible_rate=0.2, 
+                  domain_dist_metric='median', plot_steps=False, verbose=True):
     """Function to merge domains given zxy coordinates and candidate_boundaries"""
     cand_bd_starts = np.array(cand_bd_starts, dtype=np.int)
     _merge_inds = np.array([-1])
@@ -111,41 +87,42 @@ def merge_domains(coordinates, cand_bd_starts, norm_mat=None,
             print(f"---** remove {len(cand_bd_starts)-np.sum(_keep_inds)} domains because of NaNs")
         _dm_dist_mat = _dm_dist_mat[_keep_inds][:,_keep_inds]
         cand_bd_starts = cand_bd_starts[_keep_inds]
-        # calculate correlation coefficient matrix
-        _coef_mat = np.corrcoef(_dm_dist_mat)
+        # calculate correlation coefficient pdist
+        _dm_corr_pdists = domain_correlation_pdists(coordinates, cand_bd_starts)
+        _dm_corr_mat = squareform(_dm_corr_pdists)
+        # plot step if specified
         if plot_steps:
-            plt.figure()
-            plt.imshow(squareform(_dm_pdists), cmap='seismic_r')
-            plt.title(f"Domain distances")
-            plt.colorbar()
+            _fig, _axes = plt.subplots(1,2, figsize=(8,3), sharey=True)
+            _axes[0].imshow(_dm_dist_mat, cmap='seismic_r')
+            _axes[1].imshow(_dm_corr_mat, cmap='seismic')
+            _axes[0].set_title(f"Domain distances")
+            _axes[1].set_title(f"Domain correlations")
             plt.show()
-            plt.figure()
-            plt.imshow(_coef_mat, cmap='seismic')
-            plt.title(f"Domain correlations")
-            plt.colorbar()
-            plt.show()
+        # get nb_dists
+        _nb_dists = np.diag(_dm_dist_mat, 1)
+        _nb_corrs = np.diag(_dm_corr_mat, 1)
         # update domain_id to be merged (domain 0 will never be merged)
-        if len(cand_bd_starts) > 2:
-            _corr_inds = np.where(np.diag(_coef_mat, 1) >= corr_th)[0]+1
-        else:
-            _corr_inds = np.where(np.diag(_coef_mat, 1) >= -1)[0]+1
-        _dist_inds = np.where(np.diag(_dm_dist_mat, 1) <= dist_th)[0]+1
-        print(_corr_inds, _dist_inds)
-        if len(_dist_inds) > 0 and len(_corr_inds) > 0:
-            _merge_inds = [int(_cid) for _cid in _corr_inds if _cid in _dist_inds]
-        else:
-            _merge_inds = []
+        # generate conditions
+        _merge_ind_list = [np.where((_nb_dists<=dist_th)* (_nb_corrs<=corr_th))[0]+1] # condition1: all pass
+        if flexible_rate > 0 and flexible_rate < 1:
+            _merge_ind_list.append(
+                np.where((_nb_dists<=dist_th*(1+flexible_rate)) * (_nb_corrs<=corr_th*(1-flexible_rate)))[0]+1
+            )
+            _merge_ind_list.append(
+                np.where((_nb_dists<=dist_th*(1-flexible_rate)) * (_nb_corrs<=corr_th*(1+flexible_rate)))[0]+1
+            )
+        # summarize merge_inds
+        _merge_inds = np.unique(np.concatenate(_merge_ind_list)).astype(np.int)
         # if there are any domain to be merged:
         if len(_merge_inds) > 0:
             # find the index with minimum distance bewteen neighboring domains
             # first merge neighbors with high corr and low dist
-            _merge_dists = (1-np.diag(_dm_dist_mat, 1)) / (1-dist_th) + \
-                np.diag(_coef_mat,1) / corr_th 
+            _merge_dists = _nb_dists / dist_th + _nb_corrs / corr_th 
             # filter
             _merge_dists = _merge_dists[np.array(_merge_inds, dtype=np.int)-1]
-            _picked_ind = _merge_inds[np.argmax(_merge_dists)]
+            _picked_ind = _merge_inds[np.argmin(_merge_dists)]
             if verbose:
-                print(f"---* merge domain:{_picked_ind} starting with region:{cand_bd_starts[_picked_ind]}, dist={np.diag(_coef_mat, 1)[_picked_ind-1], np.diag(_dm_dist_mat, 1)[_picked_ind-1]}")
+                print(f"---* merge domain:{_picked_ind} starting with region:{cand_bd_starts[_picked_ind]}, dist={np.diag(_dm_corr_mat, 1)[_picked_ind-1].round(4), np.diag(_dm_dist_mat, 1)[_picked_ind-1].round(4)}")
             # remove this domain from domain_starts (candidates)
             cand_bd_starts = np.delete(cand_bd_starts, _picked_ind)
     
@@ -153,8 +130,8 @@ def merge_domains(coordinates, cand_bd_starts, norm_mat=None,
             print(f"--- only 1 domain left, skip plotting.")
     elif verbose:
         print(
-            f"--- final neighbor domain dists:{np.diag(_dm_dist_mat,1)}")
-        print(f"--- final neighbor domain corr:{np.diag(_coef_mat,1)}")
+            f"--- final neighbor domain dists:{np.diag(_dm_dist_mat,1).round(4)}")
+        print(f"--- final neighbor domain corr:{np.diag(_dm_corr_mat,1).round(4)}")
         print(f"--- num of domain kept:{len(cand_bd_starts)}")
 
     return cand_bd_starts
@@ -162,9 +139,10 @@ def merge_domains(coordinates, cand_bd_starts, norm_mat=None,
 
 def basic_domain_calling(spots, save_folder=None,
                          distance_zxy=_distance_zxy, gfilt_size=0.,
-                         normalization_matrix=None, min_domain_size=5, match_boundary_dist=1,
+                         normalization_matrix=None, min_domain_size=5, 
+                         match_boundary_dist=3, adjust_corr_bd=False, 
                          domain_dist_metric='median', domain_cluster_metric='average',
-                         corr_th=0.8, dist_th=1., hard_dist_th=2.,
+                         corr_th=0.03, dist_th=0.65, flexible_rate=0.25,
                          plot_steps=False, plot_results=True,
                          fig_dpi=150,  fig_dim=4, fig_font_size=12,
                          save_result_figs=False, save_name='', verbose=True):
@@ -185,12 +163,11 @@ def basic_domain_calling(spots, save_folder=None,
             * if specified, allow normalization, otherwise put a None. (default:str of path)        
         corr_th: lower threshold for correlations to merge neighboring vectors, float (default: 0.6)
         dist_th: upper threshold for distance to merge neighboring vectors, float (default: 1.)
-        hard_dist_th: hard threshold for distance to not merge if beyond this, folat (default: 2.)
         plot_steps: whether make plots during intermediate steps, bool (default: False)
         plot_results: whether make plots for results, bool (default: True)
         fig_dpi: dpi of image, int (default: 200)  
         fig_dim: dimension of subplot of image, int (default: 10)  
-        fig_font_size: font size of titles in image, int (default: 18)
+        fig_font_size: font size of titles in image, int (default: 12)
         save_result_figs: whether save result image, bool (default: False)
         save_folder: folder to save image, str (default: None, which means not save)
         save_name: filename of saved image, str (default: '', which will add default postfixs)
@@ -233,13 +210,14 @@ def basic_domain_calling(spots, save_folder=None,
     ## 1. call candidate domains
     if verbose:
         print(f"--- call initial candidate boundaries")
-    cand_bd_starts = generate_candidate_domain_boundary(_zxy, min_domain_size*2, 
-                        match_boundary_dist=match_boundary_dist)
+    cand_bd_starts = generate_candidate_domain_boundary(_zxy, min_domain_size, 
+                        match_boundary_dist=match_boundary_dist, 
+                        adjust_corr_bd=adjust_corr_bd)
 
     ## 2. get zxy sequences
     cand_bd_starts = merge_domains(_zxy, cand_bd_starts=cand_bd_starts,
                                    norm_mat=norm_mat, corr_th=corr_th, dist_th=dist_th,
-                                   hard_dist_th=hard_dist_th,
+                                   flexible_rate=flexible_rate,
                                    domain_dist_metric=domain_dist_metric,
                                    plot_steps=plot_steps, verbose=verbose)
 
@@ -253,7 +231,7 @@ def basic_domain_calling(spots, save_folder=None,
                                    metric=domain_dist_metric,
                                    normalization_mat=norm_mat,
                                    allow_minus_dist=False)
-        _coef_mat = np.corrcoef(squareform(_dm_pdists))
+        _dm_corr_pdists = domain_correlation_pdists(_zxy, cand_bd_starts)
         if verbose:
             print(
                 f"-- make plot for results with {len(cand_bd_starts)} domains")
@@ -263,19 +241,17 @@ def basic_domain_calling(spots, save_folder=None,
         gs.update(wspace=0.1, hspace=0)
         #ax1 = plt.subplot2grid((2, 5), (0, 0), colspan=1)
         ax1 = plt.subplot(gs[0, 0])
-        ax1.set_title('Noramlized distances between domains',
+        ax1.set_title('Domain noramlized distances',
                       fontsize=fig_font_size)
-        im1 = ax1.imshow(squareform(_dm_pdists), cmap='seismic_r',
-                         vmin=0, vmax=1)
-        cb1 = plt.colorbar(
-            im1, ax=ax1, ticks=np.arange(0, 1.2, 0.2), shrink=0.6)
+        im1 = ax1.imshow(squareform(_dm_pdists), cmap='seismic_r',)
+        cb1 = plt.colorbar(im1, ax=ax1, shrink=0.6)
         cb1.ax.tick_params(labelsize=fig_font_size-2, width=0.6, length=1)
 
         #ax2 = plt.subplot2grid((2, 5), (0, 1), colspan=1)
         ax2 = plt.subplot(gs[0, 1])
-        ax2.set_title('Correlation matrix between domains',
+        ax2.set_title('Domain correlation distances',
                       fontsize=fig_font_size)
-        im2 = ax2.imshow(_coef_mat, cmap='seismic')
+        im2 = ax2.imshow(squareform(_dm_corr_pdists), cmap='seismic_r')
         cb2 = plt.colorbar(im2, ax=ax2, shrink=0.6)
         cb2.ax.tick_params(labelsize=fig_font_size-2, width=0.6, length=1)
 
@@ -293,7 +269,7 @@ def basic_domain_calling(spots, save_folder=None,
         ax3 = plt.subplot(gs[:, 2:])
         plot_boundaries(squareform(pdist(_zxy)), cand_bd_starts, input_ax=ax3,
                         figure_dpi=fig_dpi, figure_fontsize=fig_font_size, 
-                        line_width=2, save=save_result_figs,
+                        line_width=1.5, save=save_result_figs, plot_limits=[0,1000],
                         save_folder=save_folder, save_name=save_name)
         # save result figure
         if save_result_figs and save_folder is not None:

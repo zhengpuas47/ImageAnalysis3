@@ -51,6 +51,15 @@ def radius_of_gyration(segment):
     dists = np.linalg.norm(segment - np.nanmean(segment, axis=0), axis=1)
     return np.nanmean(dists)
 
+def extract_sequences(zxy, domain_starts):
+    """Function to extract sequences of zxy coordinates given domain start indices"""
+    _dm_starts = np.array(domain_starts, dtype=np.int)
+    _dm_ends = np.array(list(domain_starts[1:])+[len(zxy)], dtype=np.int)
+    _zxy = np.array(zxy)
+    _seqs = []
+    for _start, _end in zip(_dm_starts, _dm_ends):
+        _seqs.append(_zxy[_start:_end])
+    return _seqs
 
 ## sub packages
 # domain calling functions

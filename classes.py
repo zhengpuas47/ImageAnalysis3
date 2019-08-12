@@ -2722,7 +2722,6 @@ class Cell_Data():
 
             return _sorted_ims, _sorted_ids, _sorted_channels
 
-
     # function to give boolean output of whether a centain type of images are fully generated
     def _check_full_set(self, _data_type, _decoded_flag='diff', _verbose=False):
         """Function to check whether files for a certain type exists"""
@@ -3207,7 +3206,6 @@ class Cell_Data():
                         print(f"--- {_load_attr} doesn't exist in saved file, exit!")
                         return None
             
-
     # Generate pooled image representing chromosomes
     def _generate_chromosome_image(self, _source='unique', _max_count=90, _verbose=False):
         """Generate chromosome from existing combo / unique images"""
@@ -3870,7 +3868,6 @@ class Cell_Data():
         return tuple(_vis_objs)
 
 
-
     def _generate_distance_map(self, _data_type='unique', _pick_type='EM', _sel_ids=None,
                                _save_info=True, _save_plot=True, _limits=[0, 2000], _cmap='seismic_r',
                                _fig_dpi=300, _fig_size=4, _overwrite=False, _verbose=True):
@@ -4170,6 +4167,9 @@ class Cell_Data():
         if _load_in_ram:
             return _new_cell_data
         
+    def _domain_calling(self, _data_type='unique', _pick_type='EM', method='basic',                        
+                        ):
+        pass
 
 class Encoding_Group():
     """defined class for each group of encoded images"""
