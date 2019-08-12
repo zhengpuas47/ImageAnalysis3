@@ -164,7 +164,7 @@ def get_boundaries_old(im,su=5,sl=5,valley=5,cutoff_max=1.,plt_val=False):
     return local_max_good,max_ratio[local_max_good]
 def fuse_doms(mat,dom_starts,tag='median',cut_off=1, hard_cutoff=2, 
               use_local=True, min_dom_sz=5):
-    from ..domain_tools import domain_neighboring_dists, domain_neighboring_stats
+    from ..domain_tools.distance import domain_neighboring_dists, domain_neighboring_stats
 
     dom_starts = np.array(dom_starts, dtype=np.int)
     dom_ends = np.zeros(np.shape(dom_starts))

@@ -70,12 +70,26 @@ def gauss_ker(sig_xyz=[2,2,2],sxyz=16,xyz_disp=[0,0,0]):
     xyz=np.swapaxes(np.indices([sxyz+1]*dim), 0,dim)
     return np.exp(-np.sum(((xyz-np.array(xyz_disp)-sxyz/2.)/np.array(sig_xyz)**2)**2,axis=dim)/2.)
 
+def gaussian_kernel_2d(center_xy, sigma_xy=[2,2], radius=8):
+    """Function to generate gaussian kernel in 2d space"""
+    ## check inputs
+    if len(center_xy) != 2:
+        raise IndexError(f"center_xy should be length=2 list or array")
+    if len(sigma_xy) != 2:
+        raise IndexError(f"sigma_xy should be length=2 list or array")
+    radius = int(radius)
+    if radius < 3 * max(sigma_xy): # if radius is smaller than 3-sigma, expand
+        radius = 3*max(sigma_xy)
+    xy_coords=np.swapaxes(np.indices([radius*2+1]*2), 0, 2)
+    return np.exp(-np.sum(((xy_coords-np.array(center_xy)-radius)/np.array(sigma_xy)**2)**2,axis=2)/2.)
+
 def add_source(im_,pos=[0,0,0],h=200,sig=[2,2,2],size_fold=10):
     '''Impose a guassian distribution with given position, height and sigma, onto an existing figure'''
     im=np.array(im_,dtype=float)
+    pos = np.array(pos)
     pos_int = np.array(pos,dtype=int)
     xyz_disp = -pos_int+pos
-    im_ker = gauss_ker(sig, int(np.max(sig)*size_fold), xyz_disp)
+    im_ker = gauss_ker(sig, int(max(sig)*size_fold), xyz_disp)
     im_ker_sz = np.array(im_ker.shape,dtype=int)
     pos_min = np.array(pos_int-im_ker_sz/2, dtype=np.int)
     pos_max = np.array(pos_min+im_ker_sz, dtype=np.int)
@@ -89,8 +103,8 @@ def add_source(im_,pos=[0,0,0],h=200,sig=[2,2,2],size_fold=10):
     pos_max_ = in_im(pos_max)
     pos_min_ker = pos_min_-pos_min
     pos_max_ker = im_ker_sz+pos_max_-pos_max
-    slices_ker = [slice(pm,pM) for pm,pM in zip(pos_min_ker,pos_max_ker)]
-    slices_im = [slice(pm,pM) for pm,pM in zip(pos_min_,pos_max_)]
+    slices_ker = tuple(slice(pm,pM) for pm,pM in zip(pos_min_ker,pos_max_ker))
+    slices_im = tuple(slice(pm,pM) for pm,pM in zip(pos_min_,pos_max_))
     im[slices_im] += im_ker[slices_ker]*h
     return im
 
@@ -2455,6 +2469,8 @@ def crop_multi_channel_image(filename, channels, crop_limits=None,
 # visualize fitted spot crops
 def visualize_fitted_spot_crops(im, centers, center_inds, radius=10):
     """Function to visualize fitted spots within a given images and fitted centers"""
+    center_inds = [_id for _id,ct in zip(center_inds, centers) if (np.isnan(ct)==False).all()]
+    centers = [ct for ct in centers if (np.isnan(ct)==False).all()]
     if len(centers) == 0:  # no center given
         return
     if isinstance(im, np.ndarray) and len(im.shape) != 3:
@@ -2465,7 +2481,6 @@ def visualize_fitted_spot_crops(im, centers, center_inds, radius=10):
     cropped_ims = []
     if isinstance(im, np.ndarray):
         # iterate through centers
-        
         for ct in centers:
             if len(ct) != 3:
                 raise ValueError(
@@ -2495,11 +2510,11 @@ def visualize_fitted_spot_crops(im, centers, center_inds, radius=10):
                 crop_r = np.array([np.array(np.shape(_im)), np.round(ct+radius+1)], dtype=np.int).min(0)
                 _cim = _im[crop_l[0]:crop_r[0], crop_l[1]:crop_r[1], crop_l[2]:crop_r[2]]
                 _nim = np.ones([radius*2+1]*3) * np.median(_cim)
-                _im_l = np.round(ct - crop_l + radius).astype(np.int)
+                _im_l = np.round(crop_l - ct + radius).astype(np.int)
                 _im_r = np.round(crop_r - ct + radius).astype(np.int)
-                _nim[_im_l[0],_im_r[0],
-                    _im_l[1],_im_r[1],
-                    _im_l[2],_im_r[2]] = _cim
+                _nim[_im_l[0]:_im_r[0],
+                     _im_l[1]:_im_r[1],
+                     _im_l[2]:_im_r[2]] = _cim
                 cropped_ims.append(_nim)
     else:
         raise TypeError(f"Wrong input type for im")
@@ -2516,8 +2531,39 @@ def visualize_fitted_spot_crops(im, centers, center_inds, radius=10):
             _acim[:_cs[0], :_cs[1], :_cs[2]] += _cim
         return imshow_mark_3d_v2(amended_cropped_ims, image_names=image_names)
 
-def visualize_fitted_spot_images():
-    pass
+def visualize_fitted_spot_images(ims, centers, center_inds, 
+                                 save_folder=None, image_names=None,
+                                 save_name='fitted_image.pkl', 
+                                 overwrite=True, verbose=True):
+    """Visualize fitted spots in original image shape"""
+    ## Inputs
+    # images
+    _ims = list(ims)
+    if len(_ims[0].shape)!= 3:
+        raise ValueError("Input images should be 3D!")
+    # centers
+    center_inds = [_id for _id,_ct in zip(center_inds, centers) if (np.isnan(_ct)==False).all()]
+    centers = [_ct for _ct in centers if (np.isnan(_ct)==False).all()]
+    if len(centers) == 0:  # no center given
+        return
+    if image_names is None:
+        image_names = [str(_i) for _i in range(len(_ims))]
+    _coord_dic = {'coords': [np.flipud(_ct) for _ct,_id in zip(centers, center_inds)],
+                  'class_ids': [int(_id) for _ct,_id in zip(centers, center_inds)],
+                  'pfits':{},
+                  'dec_text':{},
+                  } # initialize _coord_dic for picking
+    if save_folder is None:
+        save_folder = '.'
+    save_filename = os.path.join(save_folder, save_name)
+    if not os.path.isfile(save_filename) or overwrite:
+        if verbose:
+            print(f"--- dump coordinate information into {save_filename}")
+        pickle.dump(_coord_dic, open(save_filename, 'wb'))
+    _im_viewer = imshow_mark_3d_v2(_ims, 
+                                   image_names=image_names,
+                                   save_file=save_filename)
+    return _im_viewer
 
 def Extract_crop_from_segmentation(segmentation_label, extend_dim=20, single_im_size=_image_size):
     """Function to extract a crop matrix from given segmentation label and extend_dim

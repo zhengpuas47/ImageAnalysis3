@@ -279,7 +279,7 @@ def region_genomic_scaling(coordinates, inds,
         if verbose:
             print(f"3d coordinates")
         if gaussian > 0:
-            from domain_tools import interpolate_chr
+            from domain_tools.tools import interpolate_chr
             coordinates = interpolate_chr(coordinates, gaussian=gaussian)
         _mat = squareform(pdist(coordinates))
     else:
@@ -388,7 +388,7 @@ def assign_domain_cluster_to_compartments(coordinates, domain_starts, compartmen
         raise ValueError(
             f"domain_liknage should be a linkage type array from scipy.cluster.hierarchy.linkage")
     elif domain_linkage is None:
-        _dom_pdists = domain_tools.domain_pdists(coordinates, domain_starts,
+        _dom_pdists = domain_tools.distance.domain_pdists(coordinates, domain_starts,
                                                  metric=distance_metric, 
                                                  normalization_mat=normalization)
         _cov_mat = np.corrcoef(squareform(_dom_pdists))

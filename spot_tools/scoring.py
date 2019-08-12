@@ -23,6 +23,9 @@ def distance_score(dist, ref_dist, weight=1.,
         _ref_dist = float(ref_dist)
         # calculate score
         _scores = -1 * _w * (_dist / _ref_dist) # this score mimic log-pval
+        # extra penalty for distance larger than limit
+        _scores[_dist>max(distance_limits)] -= \
+            _w * (_dist[_dist>max(distance_limits)]-max(distance_limits)) / _ref_dist
     elif metric == 'cdf':
         # ref_dist should be an array of numbers
         _ref_dist = np.ravel(np.array(ref_dist))
@@ -177,19 +180,19 @@ def _filter_intensities(spots, intensity_th=0., invalid_dist=np.nan):
 
 
 def generate_ref_from_chromosome(sel_spots, sel_ids=None, distance_zxy=_distance_zxy, 
-                                 ref_center=None, intensity_th=0., 
+                                 chr_center=None, intensity_th=0., 
                                  local_size=5, ref_dist_metric='median', ignore_nan=True):
     """Generate all reference scoring info from pre-selected chromosomes
     Inputs:
         sel_spots: selected spots for one specific chromosome, np.ndarray or list of 1d-array
         sel_ids: selected spot ids for corresponding to sel_ids, np.1d-array or list of ints
         distance_zxy: distance in nm for z,x,y pixels, array of 3 (defualt:[200,106,106])
-        ref_center: reference center of selected spots, array of 3 (default: None, which is current center of sel_spots)
+        chr_center: reference center of selected spots, array of 3 (default: None, which is current center of sel_spots)
         local_size: window size of local distance calculation, int (default:5)
         ref_dist_metric: metric of reference distance, str {'median'|'rg'|'cdf'|...} (default: 'median')
         ignore_nan: whether ignore nan spots in these metrics, bool (default: True)
     Outputs:
-        _ref_center_dist, _ref_local_dist, _ref_neighbor_dist, _ref_intensities
+        _chr_center_dist, _ref_local_dist, _ref_neighbor_dist, _ref_intensities
     """
     # localize spots
     _spots = np.array(sel_spots)
@@ -207,11 +210,12 @@ def generate_ref_from_chromosome(sel_spots, sel_ids=None, distance_zxy=_distance
     ref_dist_metric = ref_dist_metric.lower()
     
     # calculate center distance list
-    if ref_center is None:
-        _ref_center = np.nanmean(_zxys, axis=0)
+    if chr_center is None:
+        _chr_center = np.nanmean(_zxys, axis=0)
     else:
-        _ref_center = ref_center
-    _ct_dist = _center_distance(_zxys, _ref_center)
+        _chr_center = chr_center * distance_zxy
+    _ct_dist = _center_distance(_zxys, _chr_center)
+    #
     if ignore_nan:
         _ct_dist = _ct_dist[np.isnan(_ct_dist)==False]
         if len(_ct_dist) == 0:
