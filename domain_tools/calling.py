@@ -9,7 +9,7 @@ import multiprocessing as mp
 from .. import get_img_info, corrections, visual_tools, alignment_tools, classes
 from ..External import Fitting_v3, DomainTools
 from .. import _correction_folder, _temp_folder, _distance_zxy, _sigma_zxy, _image_size, _allowed_colors
-from ..figure_tools import plot_boundaries
+from ..figure_tools.domain import plot_boundaries
 from .distance import domain_distance, domain_pdists, domain_correlation_pdists
 from . import interpolate_chr
 
@@ -224,7 +224,6 @@ def basic_domain_calling(spots, save_folder=None,
     ## 3. finish up and make plot
     if plot_results and len(cand_bd_starts) > 1:
         from .distance import domain_pdists
-        from ..figure_tools import plot_boundaries
         import matplotlib.gridspec as gridspec
 
         _dm_pdists = domain_pdists(_zxy, cand_bd_starts,

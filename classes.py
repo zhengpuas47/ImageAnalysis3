@@ -2446,6 +2446,43 @@ class Cell_Data():
         return _seg_label, _seg_crop
         #return _seg_label, _dapi_im, _seg_crop
     
+    def _load_dapi_image(self, _segmentation_kwargs={}, 
+                         _save_to_info=True, _force=False, _verbose=True):
+        """Function to load dapi_im for Cell_Data"""
+        if hasattr(self, 'dapi_im') and not _force:
+            _dapi_im = getattr(self, 'dapi_im')
+        else:
+            if not hasattr(self, 'segmentation_crop'):
+                self._load_segmentation(**_segmentation_kwargs)
+            for _fd, _info in self.color_dic.items():
+                if len(_info) >= self.dapi_channel_index+1 and _info[self.dapi_channel_index] == 'DAPI':
+                    _dapi_fd = [_full_fd for _full_fd in self.annotated_folders if os.path.basename(
+                        _full_fd) == _fd]
+                    if len(_dapi_fd) == 1:
+                        if _verbose:
+                            print(f"-- choose dapi images from folder: {_dapi_fd[0]}.")
+                        _dapi_fd = _dapi_fd[0]
+                        _select_dapi = True  # successfully selected dapi
+            _dapi_im = corrections.correct_single_image(os.path.join(
+                _dapi_fd, self.fovs[self.fov_id]), self.channels[self.dapi_channel_index],
+                correction_folder=self.correction_folder,
+                crop_limits=self.segmentation_crop,
+                single_im_size=self.shared_parameters['single_im_size'], 
+                all_channels=self.channels,
+                num_buffer_frames=self.shared_parameters['num_buffer_frames'], 
+                num_empty_frames=self.shared_parameters['num_empty_frames'], 
+                z_shift_corr=self.shared_parameters['corr_Z_shift'], 
+                hot_pixel_remove=self.shared_parameters['corr_hot_pixel'], 
+                illumination_corr=self.shared_parameters['corr_illumination'], 
+                chromatic_corr=self.shared_parameters['corr_chromatic'],
+                )
+            # save attribute
+            setattr(self, 'dapi_im', _dapi_im)
+        if _save_to_info:
+            self._save_to_file('cell_info', _save_dic={'dapi_im':_dapi_im})
+        
+        return _dapi_im
+
     ## check drift info
     def _check_drift(self, _verbose=False):
         """Check whether drift exists and whether all keys required for images exists"""
