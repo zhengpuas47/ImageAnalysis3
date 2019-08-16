@@ -947,6 +947,10 @@ class Reader:
 # Dax reader class. This is a Zhuang lab custom format.
 #
 
+def batch_load_dax(filename):
+    _im = DaxReader(filename).loadAll()
+    return _im
+
 class DaxReader(Reader):
     # dax specific initialization
     def __init__(self, filename, verbose = 0):

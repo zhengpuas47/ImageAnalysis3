@@ -3812,7 +3812,9 @@ class Cell_Data():
 
         # save to info
         if _save_to_info:
-            self._save_to_file('cell_info', _save_dic={_picked_attr: _picked_spot_list}, _verbose=_verbose)
+            self._save_to_file('cell_info', 
+                               _save_dic={_picked_attr: _picked_spot_list}, 
+                               _verbose=_verbose)
 
         # return
         if _return_indices:
