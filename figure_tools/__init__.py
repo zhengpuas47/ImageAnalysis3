@@ -17,3 +17,5 @@ _font_size=8
 from . import domain
 # raw image related plots
 from . import image
+# colors and color maps
+from . import color 
