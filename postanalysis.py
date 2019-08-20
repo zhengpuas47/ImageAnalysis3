@@ -185,7 +185,6 @@ def _bootstrap_region_in_domain(_dm_zxys, _reg_zxy, _sampling_size, _n_iter=100)
             _p.append( is_in_hull(_bt_zxys, _reg_zxy) )
         return np.nanmean(_p)
 
-
 def Bootstrap_regions_in_domain(chrom_zxy_list, region_index, domain_indices, 
                                p_bootstrap=0.25, n_iter=100, num_threads=12,
                                verbose=True):
@@ -232,14 +231,68 @@ def Bootstrap_regions_in_domain(chrom_zxy_list, region_index, domain_indices,
         except:
             raise TypeError(f"Wrong input n_iter:{n_iter}, cannot convert to int.")
     
+    _region_spots = [_zxys[region_index] for _zxys in chrom_zxy_list]
+    _region_probs = Bootstrap_spots_in_domain(chrom_zxy_list, _region_spots, domain_indices,
+                                              p_bootstrap=p_bootstrap, n_iter=n_iter, num_threads=num_threads,
+                                              verbose=False)
+    if verbose:
+        print(f"--- time spent in boostrap: {time.time()-_start_time}")
+    return _region_probs
+
+def Bootstrap_spots_in_domain(chrom_zxy_list, spot_zxy_list, domain_indices, 
+                                p_bootstrap=0.25, n_iter=100, num_threads=12,
+                                verbose=True):
+    """Estimate how much a region is enclosed by domain/compartments,
+        across all chromosomes in chrom_zxy_list
+    Inputs:
+        chrom_zxy_list: list of chromosome zxy coordinates, list of 2darray
+        spot_zxy_list: list of zxy of spots to be calculated in corresponding chromosomes, list of 1darray
+        domain_indices: array-like region indices for a certain domain/compartment, array-like of ints
+        p_bootstrap: subsample percentage for bootstap steps, float (default:0.25)
+        n_iter: number of bootstrap iterations, int (default: 100)
+        verbose: say something!, bool (default: True)
+    Outputs:
+        _region_probs: proabilities of region in domain, np.ndarray (1d)
+        """
+    ## check inputs
+    _start_time = time.time()
+    if not isinstance(chrom_zxy_list, list) and not isinstance(chrom_zxy_list, np.ndarray):
+        raise TypeError(f"Wrong input type for chrom_zxy_list, should be list/array but {type(chrom_zxy_list)} is given.")
+    if not isinstance(spot_zxy_list, list) and not isinstance(spot_zxy_list, np.ndarray):
+        raise TypeError(f"Wrong input type for spot_zxy_list, should be list/array but {type(spot_zxy_list)} is given.")
+    if len(chrom_zxy_list) != len(spot_zxy_list):
+        raise IndexError(f"Length of chrom_zxy_list:{len(chrom_zxy_list)} doesn't match length of spot_zxy_list:{len(spot_zxy_list)}")
+    
+    # convert domain indices into array with ints
+    domain_indices = np.array(domain_indices, dtype=np.int)
+    if np.max(domain_indices) > len(chrom_zxy_list[0]):
+        raise ValueError(f"Wrong input for domain_indices, no indices should be larger than zxy length")
+    if verbose:
+        print(f"-- Start boostrap sample for region among {len(domain_indices)} regions")
+    # check p_bootstrap and n_iter
+    if not isinstance(p_bootstrap, float):
+        p_bootstrap = float(p_bootstrap)
+    elif p_bootstrap <= 0 or p_bootstrap >= 1:
+        raise ValueError(f"Wrong p_bootstrap={p_bootstrap}, should be float between 0 and 1")
+    _sampling_size = int(np.ceil(len(domain_indices)*p_bootstrap))
+    if _sampling_size == len(domain_indices):
+        _sampling_size -= 1
+    if verbose:
+        print(f"--- boostrap sampling p={p_bootstrap}, size={_sampling_size}")
+    if not isinstance(n_iter, int):
+        try:
+            n_iter = int(n_iter)
+        except:
+            raise TypeError(f"Wrong input n_iter:{n_iter}, cannot convert to int.")
+    
     ## Start iteration
     _boostrap_args = []
     
     # loop through chromosomes to get args
-    for _chrom_zxys in chrom_zxy_list:
+    for _chrom_zxys, _spot_zxy in zip(chrom_zxy_list, spot_zxy_list):
         _dm_zxys = np.array(_chrom_zxys)[domain_indices]
-        _reg_zxy = np.array(_chrom_zxys)[region_index]
-        _boostrap_args.append( (_dm_zxys, _reg_zxy, _sampling_size, n_iter))
+        _spot_zxy = np.array(_spot_zxy)
+        _boostrap_args.append( (_dm_zxys, _spot_zxy, _sampling_size, n_iter))
     
         #_p = postanalysis._bootstrap_region_in_domain(_dm_zxys,_reg_zxy,_sampling_size,n_iter)
     # calculate through multi-processing
@@ -254,6 +307,7 @@ def Bootstrap_regions_in_domain(chrom_zxy_list, region_index, domain_indices,
     if verbose:
         print(f"--- time spent in boostrap: {time.time()-_start_time}")
     return _region_probs
+
 
 # calculate region genomic_scaling
 def region_genomic_scaling(coordinates, inds, 
