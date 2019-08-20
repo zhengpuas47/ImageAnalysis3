@@ -88,14 +88,15 @@ def _generate_inter_domain_markers(_coordinates, _domain_starts, _domain_pdists,
     return _marker_map
 
 def _loop_out_metric(_coordinates, _position, _domain_starts, metric='median', 
-                     _loop_out_th=0., _exclude_edges=True):
+                     _loop_out_th=0., _exclude_boundaries=True, _exclude_edges=True):
     _dm_starts = np.array(_domain_starts)
     _dm_ends = np.concatenate([_dm_starts[1:], np.array([len(_coordinates)])])
     # position
     _pos = int(_position)
     # exclude domain boudaries
-    if _pos in _dm_starts:
-        return []
+    if _exclude_boundaries:
+        if _pos in _dm_starts:
+            return []
     # exclude edges if specified
     if _exclude_edges:
         if _pos > _dm_starts[-1] or _pos < _dm_ends[0]:
@@ -191,7 +192,7 @@ def _generate_loop_out_markers(_coordinates, _domain_starts, _loop_regions, _loo
     
 def loop_out_markers(coordinates, domain_starts, norm_mat=None, metric='median',
                      loop_out_th=0., marker_type='center', marker_param=1., keep_triu=False,
-                     exclude_edges=True, verbose=True):
+                     exclude_boundaries=True, exclude_edges=True, verbose=True):
     ## check inputs
     _coordinates = np.array(coordinates)
     _domain_starts = np.array(domain_starts, dtype=np.int)
@@ -208,14 +209,15 @@ def loop_out_markers(coordinates, domain_starts, norm_mat=None, metric='median',
     _loop_domains = []
     for _pos in range(len(_coordinates)):
         _loop_dms = _loop_out_metric(_coordinates, _pos, domain_starts, 
-                          _loop_out_th=loop_out_th, metric=metric, _exclude_edges=exclude_edges)
+                          _loop_out_th=loop_out_th, metric=metric, 
+                          _exclude_boundaries=exclude_boundaries, _exclude_edges=exclude_edges)
         if len(_loop_dms) > 0:
             _loop_regions += [_pos]*len(_loop_dms)
             _loop_domains += _loop_dms
     # generate marker
     _loop_marker = _generate_loop_out_markers(_coordinates, _domain_starts, 
                                               _loop_regions, _loop_domains, _marker_type=marker_type,
-                                              _marker_param=marker_param, _keep_triu=keep_triu)
+                                              _marker_param=marker_param, _keep_triu=keep_triu, _verbose=verbose)
     if verbose:
         print(f"--- {len(_loop_regions)} loops identified, time:{time.time()-_start_time:2.3}")
     
