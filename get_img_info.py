@@ -482,7 +482,8 @@ def find_dapi_channel(__color_dic, __dapi_mark='DAPI'):
         return __unique_channel[0]
     else:
         raise ValueError("-- dapi channel not unique:", __unique_channel)
-        return __unique_channel
+    
+    return __unique_channel
 
 # load encoding scheme for decoding
 def Load_Encoding_Scheme(master_folder, encoding_filename='Encoding_Scheme', encoding_format='csv',

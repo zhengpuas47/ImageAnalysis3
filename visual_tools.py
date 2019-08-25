@@ -3022,16 +3022,23 @@ def normalize_center_spots(spots, distance_zxy=_distance_zxy, center=True,
     _spots = np.array(spots).copy()
     if len(spots.shape) != 2:
         raise ValueError(f"Input spots should be 2d-array like structure, but shape:{spots.shape} is given!")
-    #distance_zxy
-    distance_zxy = np.array(distance_zxy)[:3]
-    _adjust_scaling = distance_zxy / np.min(distance_zxy)
-    # start convert distances
-    _coords = _spots[:,1:4] * _adjust_scaling[np.newaxis,:] 
-    _stds = _spots[:,5:8] * _adjust_scaling[np.newaxis,:] 
+    # case 1, already converted to zxy format
+    if _spots.shape[1] == 3:
+        _coords = _spots
+        _stds = np.ones(np.shape(_coords))
+    # case 2, full spots info
+    else:
+        #distance_zxy
+        distance_zxy = np.array(distance_zxy)[:3]
+        _adjust_scaling = distance_zxy / np.min(distance_zxy)
+        # start convert distances
+        _coords = _spots[:,1:4] * _adjust_scaling[np.newaxis,:] 
+        _stds = _spots[:,5:8] * _adjust_scaling[np.newaxis,:]
 
     # center
     if center:
         _coords = _coords - np.nanmean(_coords, axis=0)
+
     # normalize total variance to 1
     if scale_variance:
         _total_scale = np.sqrt(np.nanvar(_coords,axis=0).sum())    
@@ -3040,6 +3047,7 @@ def normalize_center_spots(spots, distance_zxy=_distance_zxy, center=True,
     else:
         _coords = _coords * scaling
         _stds = _stds * scaling
+
     # pca align
     if pca_align:
         if 'PCA' not in locals():
@@ -3053,10 +3061,15 @@ def normalize_center_spots(spots, distance_zxy=_distance_zxy, center=True,
         _trans_coords = _model.fit_transform(_clean_coords)
         _coords[_clean_inds] = _trans_coords
         #print(_model.explained_variance_ratio_)
-    # save then back to spots
-    _spots[:,1:4] = _coords
-    _spots[:,5:8] = _stds
     
+    # return
+    if _spots.shape[1] == 3:
+        _spots = _coords
+    else:
+        # save then back to spots
+        _spots[:,1:4] = _coords
+        _spots[:,5:8] = _stds
+        
     return _spots
 
 # align chromosome with AB-axis
