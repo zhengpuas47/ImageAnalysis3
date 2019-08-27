@@ -93,7 +93,7 @@ def Calculate_BED_to_Region(data_filename, region_dic, data_format='tagAlign',
                 _start = int(_c[1])
                 _end = int(_c[2])
                 _mid = int((_start+_end)/2)
-                _count = 1
+                _count = float(_c[4])
             elif data_format.lower() == 'wig':
                 if '#' in line:
                     continue
