@@ -37,6 +37,8 @@ from . import classes
 from . import postanalysis
 # functions to generate figures
 from . import figure_tools
+# functions to read and save images
+from . import io_tools
 ## import exteral functions
 from .External import Fitting_v3
 from .External import DomainTools
