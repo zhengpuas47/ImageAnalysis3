@@ -13,7 +13,8 @@ def plot_distance_map(distmap, ax=None, cmap='seismic_r',
                       ticks=None, tick_labels=None, 
                       tick_label_length=_ticklabel_size, tick_label_width=_ticklabel_width, 
                       font_size=_font_size, ax_label=None,
-                      add_colorbar=True, colorbar_labels=None,
+                      add_colorbar=True, colorbar_labels=None, colorbar_kwargs={},
+                      adjust_kwargs={'left':0.15, 'right':0.85, 'bottom':0.15},
                       figure_width=_single_col_width, figure_dpi=_dpi, 
                       save=False, save_folder='.', save_basename='distmap.png', verbose=True):
     """Function to plot distance maps"""
@@ -59,15 +60,23 @@ def plot_distance_map(distmap, ax=None, cmap='seismic_r',
             print(f"tick_labels length:{len(tick_labels)} doesn't match distmap:{len(_distmap)}, skip!")
     # axis labels
     if ax_label is not None:
-        ax.set_xlabel(ax_label, labelpad=2, fontsize=font_size+1)
+        ax.set_xlabel(ax_label, labelpad=2, fontsize=font_size)
+        ax.set_ylabel(ax_label, labelpad=2, fontsize=font_size)
     # colorbar    
     if add_colorbar:
         divider = make_axes_locatable(ax)
         cax = divider.append_axes('right', size='6%', pad="2%")
-        cb = fig.colorbar(_im, cax=cax, orientation='vertical')
+        cb = plt.colorbar(_im, cax=cax, orientation='vertical', **colorbar_kwargs)
         cax.tick_params(labelsize=font_size, width=tick_label_width, length=tick_label_length-1,pad=1)
         # border
         cb.outline.set_linewidth(tick_label_width)
+        if colorbar_labels is not None:
+            cb.set_label(colorbar_labels, fontsize=_font_size, labelpad=5, rotation=270)
+    # adjust size
+    plt.gcf().subplots_adjust(bottom=0.15*bool(ax_label), 
+                              left=0.15*bool(ax_label), 
+                              right=1-(1-0.85)*bool(colorbar_labels))
+
     # save
     if save:
         if not os.path.exists(save_folder):

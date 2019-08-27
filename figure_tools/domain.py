@@ -16,7 +16,7 @@ import multiprocessing as mp
 from sklearn.decomposition import PCA
 
 from . import _distance_zxy,_sigma_zxy,_allowed_colors
-
+from . import _ticklabel_size, _ticklabel_width, _font_size,_dpi, _single_col_width, _single_row_height,_double_col_width
 from scipy.stats import linregress
 #from astropy.convolution import Gaussian2DKernel,convolve
 
@@ -102,3 +102,64 @@ def plot_boundaries(distance_map, boundaries, input_ax=None, plot_limits=[0, 150
 
     return ax
 
+def plot_domain_in_distmap(distmap, domain_starts, ax=None, 
+                           cmap='seismic_r', color_limits=[0,1500], color_norm=None, imshow_kwargs={},
+                           domain_color=[1,1,0], domain_line_width=0.75, ticks=None, tick_labels=None, 
+                           tick_label_length=_ticklabel_size, tick_label_width=_ticklabel_width, 
+                           font_size=_font_size, ax_label=None,
+                           add_colorbar=True, colorbar_labels=None,
+                           figure_width=_single_col_width, figure_dpi=_dpi, 
+                           save=False, save_folder='.', save_basename='', verbose=True):
+    """Function to plot domains in distance map"""
+    
+    ## check inputs
+    # distmap
+    if np.shape(distmap)[0] != np.shape(distmap)[1]:
+        raise IndexError(f"Wrong input dimension for distmap, should be nxn matrix but {distmap.shape} is given")
+    _distmap = distmap.copy()
+    _distmap[_distmap<min(color_limits)] = min(color_limits)
+    # domain starts
+    domain_starts = np.array(domain_starts, dtype=np.int)
+    domain_ends = np.concatenate([domain_starts[1:], np.array([len(distmap)])])
+    if 0 not in domain_starts:
+        domain_starts = np.concatenate([np.zeros(1), domain_starts])
+    
+    ## create image
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(figure_width, figure_width),
+                               dpi=figure_dpi)
+    
+    # plot background distmap
+    from .distmap import plot_distance_map
+    ax = plot_distance_map(_distmap, ax=ax, cmap=cmap, 
+                           color_limits=color_limits, color_norm=color_norm, imshow_kwargs=imshow_kwargs,
+                           ticks=ticks, tick_labels=tick_labels,
+                           tick_label_length=tick_label_length, tick_label_width=tick_label_width,
+                           font_size=font_size, ax_label=ax_label,
+                           add_colorbar=add_colorbar, colorbar_labels=colorbar_labels, 
+                           figure_width=figure_width, figure_dpi=figure_dpi,
+                           save=False, verbose=verbose)
+    for _start, _end in zip(domain_starts, domain_ends):
+        ax.plot(np.arange(_start, _end), _start*np.ones(
+            _end-_start), color=domain_color, linewidth=domain_line_width)
+        ax.plot(_start*np.ones(_end-_start),
+                np.arange(_start, _end), color=domain_color, linewidth=domain_line_width)
+        ax.plot(np.arange(_start, _end), _end*np.ones(
+            _end-_start), color=domain_color, linewidth=domain_line_width)
+        ax.plot(_end*np.ones(_end-_start),
+                np.arange(_start, _end), color=domain_color, linewidth=domain_line_width)
+    ax.set_xlim([0, distmap.shape[0]])
+    ax.set_ylim([distmap.shape[1], 0])
+    
+    if save:
+        if save_folder is not None:
+            if not os.path.exists(save_folder):
+                os.makedirs(save_folder)
+            if save_basename == '':
+                save_basename = 'boundaries.png'
+            else:
+                if '.png' not in save_basename:
+                    save_basename += '_boundaries.png'
+            fig.savefig(os.path.join(save_folder, save_basename), transparent=True)
+
+    return ax

@@ -29,9 +29,11 @@ def inter_domain_markers(coordiantes, domain_starts, norm_mat=None, metric='medi
 
     _dx, _dy = np.where(squareform(_dm_pds) < off_diagonal_th)
     if not keep_triu:
+        _dx, _dy = _dx[_dx!=_dy], _dy[_dx!=_dy]
         _unique_dxy = np.stack([_dx, _dy]).transpose()
+
     else:
-        _dxy = [(min(_x,_y),max(_x,_y)) for _x,_y in zip(_dx, _dy)]
+        _dxy = [(min(_x,_y),max(_x,_y)) for _x,_y in zip(_dx, _dy) if min(_x,_y) != max(_x,_y)]
         _unique_dxy = []
         for _xy in _dxy:
             if _xy not in _unique_dxy:
@@ -66,6 +68,7 @@ def _generate_inter_domain_markers(_coordinates, _domain_starts, _domain_pdists,
     # initialize marker-map
     _marker_map = np.zeros([len(_coordinates), len(_coordinates)])
     if len(_domain_xy) == 0:
+        print("empty_map")
         return _marker_map
     else:
         # get intensities
@@ -73,18 +76,20 @@ def _generate_inter_domain_markers(_coordinates, _domain_starts, _domain_pdists,
             _intensities = np.abs(squareform(_domain_pdists)[_domain_xy[:,0], _domain_xy[:,1]])
         else:
             _intensities = np.ones(len(_domain_xy))
-        if _marker_type is 'center':
+
+        if _marker_type == 'center':
             for _dxy, _int in zip(_domain_xy, _intensities):
                 _marker_map[_dm_centers[_dxy[0]], _dm_centers[_dxy[1]]] = _int
-        elif _marker_type is 'gaussian':      
+        elif _marker_type == 'gaussian':      
             for _dxy, _int in zip(_domain_xy, _intensities):
                 _marker_map = visual_tools.add_source(_marker_map, pos=[_dm_centers[_dxy[0]], _dm_centers[_dxy[1]]], 
                                                       h=_int, sig=[_marker_param,_marker_param])
-        elif _marker_type is 'area':
+        elif _marker_type == 'area':
             for _dxy, _int in zip(_domain_xy, _intensities):
                 _area_slice = tuple(slice(_dm_starts[_d],_dm_ends[_d]) for _d in _dxy)
                 _marker_map[_area_slice] = _int
-                
+        else:
+            raise ValueError(f"Wrong input for _marker_type:{_marker_type}")
     return _marker_map
 
 def _loop_out_metric(_coordinates, _position, _domain_starts, metric='median', 
