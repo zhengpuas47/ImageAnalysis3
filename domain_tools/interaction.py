@@ -154,7 +154,7 @@ def _loop_out_metric(_coordinates, _position, _domain_starts, metric='median',
         return _loop_out_hits
                 
 def _generate_loop_out_markers(_coordinates, _domain_starts, _loop_regions, _loop_domains, 
-                               _marker_type='center', _marker_param=1., _keep_triu=False, 
+                               _marker_type='center', _marker_param=1., _keep_triu=True, 
                                _verbose=True):
     """transform domain_xy into marker format"""
     # get domain features
@@ -196,7 +196,7 @@ def _generate_loop_out_markers(_coordinates, _domain_starts, _loop_regions, _loo
 
     
 def loop_out_markers(coordinates, domain_starts, norm_mat=None, metric='median',
-                     loop_out_th=0., marker_type='center', marker_param=1., keep_triu=False,
+                     loop_out_th=0., marker_type='center', marker_param=1., keep_triu=True,
                      exclude_boundaries=True, exclude_edges=True, verbose=True):
     ## check inputs
     _coordinates = np.array(coordinates)
