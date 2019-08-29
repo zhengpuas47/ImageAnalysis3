@@ -2820,12 +2820,118 @@ def translate_chromosome_coordinates(source_cell_data, target_cell_data, rotatio
     return _tar_coords
 
 
-def translate_spot_coordinates():
-    """Function to translate spot coordnates given cell_data ojbects and translation matrix
-    UNDER CONSTRUCTION
+def translate_spot_coordinates(source_cell_data, target_cell_data, spots, 
+                               rotation_mat=None, rotation_ref_file=None, rotation_order='reverse', 
+                               single_im_size=_image_size, border_lim=10, 
+                               force=True, add_attribute=True, save_attr=None, verbose=True):
+    """Function to translate chromosome coordinate given cell_data object before and after translation
+    Inputs:
+        source_cell_data: cell_data providing chromosome_coordinates, classes.Cell_Data,
+        target_cell_data: cell_data to receive translated spots, classes.Cell_Data, 
+        rotation_mat: rotation matrix, if provided, np.2darray (default:None), 
+        rotation_ref_file file for rotation matrix, string (default:None), 
+        rotation_order: whether rotation_mat is forward or reverse, (default:'reverse')
+        border_lim: limit to judge whether close to border, int (default:10)
+        verbose: say something!, bool (default:True)
+    Outputs:
+        tar_coords: list of translated chromosome coordinates, list of array-3"""
+    ## check input attributes
+    if verbose:
+        print(f"-- start translating chrom_coord for fov:{source_cell_data.fov_id}, cell:{source_cell_data.cell_id}")
+    # check chrom_coords
+    if not hasattr(source_cell_data, 'chrom_coords'):
+        raise AttributeError(f"Cell_Data:{source_cell_data} doesn't have chromosome coordinates, exit!")
+    # load segmentation crop
+    if not hasattr(source_cell_data, 'segmentation_crop'):
+        source_cell_data._load_segmentation(_load_in_ram=True)
+    if not hasattr(target_cell_data, 'segmentation_crop'):
+        target_cell_data._load_segmentation(_load_in_ram=True)   
+    # check rotation matrix
+    if rotation_mat is None and rotation_ref_file is None:
+        raise ValueError(f"rotation_mat and rotation_ref_file should at least be given 1!")
+    # load rotation_mat
+    elif rotation_ref_file is not None:
+        if verbose:
+            print(f"--- loading rotation matrix from file:{rotation_ref_file}")
+        rotation_mat = np.load(rotation_ref_file)
+    if len(rotation_mat.shape) != 2 or (np.array(rotation_mat.shape)!=2).any():
+        raise ValueError(f"Rotation_mat should be 2x2 array, but {rotation_mat.shape} is given!")
+    # check rotation_order
+    rotation_order = str(rotation_order).lower()
+    if rotation_order not in ['forward','reverse']:
+        raise ValueError(f"Wrong input for rotation_order:{rotation_order}, should be forward or reverse!")
+    if rotation_order == 'reverse':
+        rotation_mat = np.transpose(rotation_mat)
+        if verbose:
+            print(f"--- {rotation_order}-ing rotation_mat")
     
-    """
-    pass
+    # if chrom_coord already exist and not force:
+    if not force and save_attr is not None and hasattr(target_cell_data, save_attr):
+        return getattr(target_cell_data, save_attr)
+    
+    ## start rotation!
+    _spots = np.array(spots)
+    _spot_coords = _spots[:, 1:4]
+    
+    ## get rotation centers
+    # extract crop information
+    _src_crop = source_cell_data.segmentation_crop
+    _tar_crop = target_cell_data.segmentation_crop
+    # init centers
+    _src_center = [np.mean(_src_crop[0])]
+    _tar_center = [np.mean(_tar_crop[0])]
+    # get x,y
+    for _fov_lim, _src_lim, _tar_lim in zip(single_im_size[-2:], _src_crop[-2:], _tar_crop[-2:]):
+        # now we are assuming a cell cannot go across the whole fov
+        if _src_lim[0] < border_lim and _tar_lim[0] < border_lim:
+            if verbose:
+                print(f"---- both cells are out of fov")
+            _ct = max(np.mean(_src_lim) - _src_lim[0], np.mean(_tar_lim)- _tar_lim[0])
+            _src_center.append(_src_lim[1] - _src_lim[0] - _ct)
+            _tar_center.append(_tar_lim[1] - _tar_lim[0] - _ct)
+        elif _src_lim[0] < border_lim:
+            _ct = np.mean(_tar_lim) - _tar_lim[0]
+            _src_center.append(_src_lim[1] - _src_lim[0] - _ct)
+            _tar_center.append(_tar_lim[1] - _tar_lim[0] - _ct)
+        elif _tar_lim[0] < border_lim:
+            _ct = np.mean(_src_lim)- _src_lim[0]
+            _src_center.append(_src_lim[1] - _src_lim[0] - _ct)
+            _tar_center.append(_tar_lim[1] - _tar_lim[0] - _ct)
+        elif _src_lim[1] > _fov_lim - border_lim and _tar_lim[1] > _fov_lim - border_lim:
+            if verbose:
+                print(f"---- both cells are out of fov")
+            _ct = max(np.mean(_src_lim) - _src_lim[0], np.mean(_tar_lim) - _tar_lim[0])
+            _src_center.append(_ct)
+            _tar_center.append(_ct)
+        elif _src_lim[1] > _fov_lim - border_lim:
+            _ct = np.mean(_tar_lim) - _tar_lim[0]
+            _src_center.append(_ct)
+            _tar_center.append(_ct)
+        elif _tar_lim[1] > _fov_lim - border_lim:
+            _ct = np.mean(_src_lim) - _src_lim[0]
+            _src_center.append(_ct)
+            _tar_center.append(_ct)
+        else:
+            _src_center.append(np.mean(_src_lim) - _src_lim[0])
+            _tar_center.append(np.mean(_tar_lim) - _tar_lim[0])
+    # transform 
+    _src_center, _tar_center = np.array(_src_center), np.array(_tar_center)
+    _src_ref_coords = [_coord - _src_center for _coord in _spot_coords]
+    _tar_ref_coords = [[_rc[0]]+list(np.dot(rotation_mat, _rc[-2:])) for _rc in _src_ref_coords]
+    # get final coord
+    _tar_coords  = [np.array(_tc) + _tar_center for _tc in _tar_ref_coords]
+
+    if verbose:
+        print(f"--- {len(_tar_coords)} spots translated")
+    if add_attribute and save_attr is not None:
+        setattr(target_cell_data, save_attr, _tar_coords)
+        if verbose:
+            print(f"--- appended translated chromosomes to target_cell_data")
+    # get back to translated spots
+    _trans_spots = _spots.copy()
+    _trans_spots[:,1:4] = np.array(_tar_coords)
+    
+    return _trans_spots
 
 
 # find nearby seeds for given center references, used in bead-drift

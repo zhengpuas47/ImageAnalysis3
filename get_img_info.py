@@ -332,7 +332,7 @@ def Load_RNA_Info(analysis_folder, filename='RNA_Info', table_format='csv',
                     for _d, _v in _dic.items():
                             if _d in ['start', 'end']:
                                 _dic[_d] = int(_v)
-                            if _d == 'midpoint':
+                            if _d in['midpoint', 'fpkm']:
                                 _dic[_d] = float(_v)
                     _rna_info[_hyb] = _dic
     if verbose:
@@ -457,6 +457,19 @@ def match_Gene_to_DNA(gene_dic, region_dic, max_size_th=100000):
                 _updated_dic[_k]['DNA_id'] = _rid
     return _updated_dic 
 
+def match_Enhancer_to_DNA(enhancer_dic, region_dic):
+    """Assign enhancers into regions"""
+    _region_dic = {_k:_v for _k,_v in region_dic.items()}
+    for _k in _region_dic:
+        _region_dic[_k]['enhancer_count'] = 0.
+    for _k, _v in _region_dic.items():
+        for _e, _ed in enhancer_dic.items():
+            if (_ed['start'] >= _v['start'] and _ed['start'] < _v['end']) or (_ed['end'] >= _v['start'] and _ed['end'] < _v['end']):
+                _eh_len = _ed['end'] - _ed['start']
+                _eh_overlap = min(_ed['end'], _v['end']) - max(_ed['start'], _v['start'])
+                _region_dic[_k]['enhancer_count'] += float(_eh_overlap) / float(_eh_len)
+    return _region_dic
+
 # function for finding bead_channel given color_usage profile
 def find_bead_channel(__color_dic, __bead_mark='beads'):
     '''Given a color_dic loaded from Color_Usage file, return bead channel if applicable'''
@@ -468,7 +481,6 @@ def find_bead_channel(__color_dic, __bead_mark='beads'):
         return __unique_channel[0]
     else:
         raise ValueError("-- bead channel not unique:", __unique_channel)
-        return __unique_channel
 
 # function for finding DAPI channel given color_usage profile
 def find_dapi_channel(__color_dic, __dapi_mark='DAPI'):
