@@ -93,7 +93,8 @@ def _generate_inter_domain_markers(_coordinates, _domain_starts, _domain_pdists,
     return _marker_map
 
 def _loop_out_metric(_coordinates, _position, _domain_starts, metric='median', 
-                     _loop_out_th=0., _exclude_boundaries=True, _exclude_edges=True):
+                     _dm_sz=5, _loop_out_th=0., 
+                     _exclude_boundaries=True, _exclude_edges=True):
     _dm_starts = np.array(_domain_starts)
     _dm_ends = np.concatenate([_dm_starts[1:], np.array([len(_coordinates)])])
     # position
@@ -104,7 +105,9 @@ def _loop_out_metric(_coordinates, _position, _domain_starts, metric='median',
             return []
     # exclude edges if specified
     if _exclude_edges:
-        if _pos > _dm_starts[-1] or _pos < _dm_ends[0]:
+        if _pos > _dm_starts[-1] and _dm_starts[-1] > _coordinates - _dm_sz:
+            return []
+        elif _pos < _dm_ends[0] and _dm_ends[0] < _dm_sz:
             return []
     # initialize
     _self_dists = []
