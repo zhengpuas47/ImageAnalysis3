@@ -1,4 +1,4 @@
-from . import get_img_info, visual_tools, alignment_tools, classes
+from . import get_img_info, visual_tools, alignment_tools, classes, io_tools
 from . import _correction_folder,_temp_folder,_distance_zxy,_sigma_zxy,_image_size,_allowed_colors
 from .External import Fitting_v3
 import numpy as np
@@ -276,8 +276,9 @@ def Calculate_Bead_Drift(folders, fovs, fov_id, num_threads=12, drift_size=500, 
 
 # illumination correction for one image
 
-def Illumination_correction(im, correction_channel, crop_limits=None, all_channels=_allowed_colors,
-                            single_im_size=_image_size, correction_folder=_correction_folder,
+def Illumination_correction(im, correction_channel, crop_limits=None, 
+                            all_channels=_allowed_colors, single_im_size=_image_size, 
+                            cropped_profile=None, correction_folder=_correction_folder,
                             profile_dtype=np.float, image_dtype=np.uint16,
                             ic_profile_name='illumination_correction', correction_power=1, verbose=True):
     """Function to do fast illumination correction in a RAM-efficient manner
@@ -348,9 +349,13 @@ def Illumination_correction(im, correction_channel, crop_limits=None, all_channe
             f"Wrong input size for im:{im_shape} compared to crop_limits:{crop_limits}")
 
     ## do correction
-    # get cropped correction profile
-    cropped_profile = visual_tools.slice_2d_image(
-        ic_filename, single_im_size[-2:], crop_limits[1], crop_limits[2], image_dtype=profile_dtype)
+    if cropped_profile is None:
+        # get cropped correction profile
+        cropped_profile = visual_tools.slice_2d_image(
+            ic_filename, single_im_size[-2:], crop_limits[1], crop_limits[2], image_dtype=profile_dtype)
+    else:
+        if (np.array(cropped_profile.shape) - np.array(cim.shape)[1:]).any():
+            raise IndexError(f"Shape of cropped_profile doesnt match cim")
     # correction
     corr_im = (cim / cropped_profile**correction_power).astype(image_dtype)
 
@@ -1791,3 +1796,118 @@ def correct_one_dax(filename, sel_channels=None, crop_limits=None, seg_label=Non
         return _corr_ims, _dft_limits
     else:
         return _corr_ims
+
+def multi_correct_one_dax(filename, sel_channels=None, crop_limit_list=None, 
+                          seg_label=None, extend_dim=20, 
+                          single_im_size=_image_size, all_channels=_allowed_colors,
+                          num_buffer_frames=10, num_empty_frames=0,
+                          drift=np.array([0, 0, 0]), bleed_channels=None, 
+                          correction_folder=_correction_folder, normalization=False, 
+                          bleed_corr=True, z_shift_corr=True, hot_pixel_remove=True, 
+                          illumination_corr=True, chromatic_corr=True,
+                          return_limits=False, verbose=False):
+    """Function to correct multiple-cropped image"""
+    ## check inputs
+    # all_channels:
+    all_channels = [str(_ch) for _ch in all_channels]
+    # bleed_channels
+    if bleed_channels is None:
+        bleed_channels = all_channels[:3]
+    # sel_channels:
+    if sel_channels is None:
+        sel_channels = all_channels[:3]
+    else:
+        sel_channels = [str(_ch) for _ch in sel_channels]
+        for _ch in sel_channels:
+            if _ch not in all_channels:
+                raise ValueError(f"All channels in selected channels should be in all_channels, but {_ch} is given")
+    # all channels requires corrections
+    if bleed_corr:
+        correction_channels = bleed_channels
+    else:
+        correction_channels = []
+    for _ch in sel_channels:
+        if _ch not in correction_channels:
+            correction_channels.append(_ch)
+
+    print(correction_channels)
+
+    # decide crop_limits
+    if crop_limit_list is not None:
+        _limit_list = crop_limit_list
+    elif seg_label is not None:  # if segmentation_label is provided, then use this info
+        _limit_list = []
+        for _l in np.unique(seg_label):
+            if _l > 0:
+                _limits = visual_tools.Extract_crop_from_segmentation((seg_label==_l), 
+                                                                    extend_dim=extend_dim,
+                                                                    single_im_size=single_im_size)
+                _limit_list.append(_limits)
+    else:  # no crop-limit specified, crop the whole image
+        _limit_list = [single_im_size]
+    # check drift
+    if len(drift) != 3:
+        raise ValueError(f"Wrong input drift:{drift}, should be an array of 3")
+
+    ## 1. Crop image based on drift
+    _cropped_im_list, _drift_limit_list = io_tools.load.multi_crop_image_fov(
+        filename, correction_channels, _limit_list, all_channels=all_channels,
+        single_im_size=single_im_size, num_buffer_frames=num_buffer_frames,
+        num_empty_frames=num_empty_frames, drift=drift, 
+        return_limits=True, verbose=verbose
+        )
+
+    ## 2. Corrections
+    if bleed_corr:
+        for _i, _cims in enumerate(_cropped_im_list):
+            _bc_ims = Bleedthrough_correction(
+                _cims[:3], _limits, all_channels=all_channels,
+                correction_channels=correction_channels, 
+                single_im_size=single_im_size,
+                num_buffer_frames=num_buffer_frames, 
+                num_empty_frames=num_empty_frames,
+                drift=drift,
+                correction_folder=correction_folder,
+                normalization=normalization,
+                z_shift_corr=z_shift_corr, hot_pixel_remove=hot_pixel_remove,
+                return_limits=False, verbose=verbose)
+            _cropped_im_list[_i][:3] = _bc_ims
+    
+    # correct for z axis shift
+    if z_shift_corr:
+        for _i, _cims in enumerate(_cropped_im_list):
+            # correct for z axis shift
+            _cropped_im_list[_i] = [Z_Shift_Correction(_cim, normalization=normalization,
+                                    verbose=verbose) for _cim in _cims]
+    elif normalization:
+        for _i, _cims in enumerate(_cropped_im_list):
+            _cropped_im_list[_i] = [_cim/np.median(_cim) for _cim in _cims]
+
+    if hot_pixel_remove:
+        # correct for hot pixels
+        for _i, _cims in enumerate(_cropped_im_list):
+            _cropped_im_list[_i] = [Remove_Hot_Pixels(_cim, hot_th=3, 
+                                    verbose=verbose) for _cim in _cims]
+    # illumination and chromatic correction
+
+########################
+# UNDER CONSTRUCTION
+
+    if illumination_corr:
+        # illumination correction
+        _corr_ims = [Illumination_correction(_cim, _ch,
+                                             crop_limits=_dft_limits,
+                                             correction_folder=correction_folder,
+                                             single_im_size=single_im_size,
+                                             verbose=verbose) for _cim, _ch in zip(_corr_ims, sel_channels)]
+    if chromatic_corr:
+        # chromatic correction
+        _corr_ims = [Chromatic_abbrevation_correction(_cim, _ch,
+                                                      single_im_size=single_im_size,
+                                                      crop_limits=_dft_limits,
+                                                      correction_folder=correction_folder,
+                                                      verbose=verbose) for _cim, _ch in zip(_corr_ims, sel_channels)]
+    if return_limits:
+        return _corr_ims, _dft_limits
+    else:
+        return _corr_ims            
