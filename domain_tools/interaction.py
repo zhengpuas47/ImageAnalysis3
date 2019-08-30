@@ -105,7 +105,7 @@ def _loop_out_metric(_coordinates, _position, _domain_starts, metric='median',
             return []
     # exclude edges if specified
     if _exclude_edges:
-        if _pos > _dm_starts[-1] and _dm_starts[-1] > _coordinates - _dm_sz:
+        if _pos > _dm_starts[-1] and _dm_starts[-1] > len(_coordinates) - _dm_sz:
             return []
         elif _pos < _dm_ends[0] and _dm_ends[0] < _dm_sz:
             return []
