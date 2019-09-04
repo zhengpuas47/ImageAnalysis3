@@ -21,3 +21,4 @@ from . import LibraryDesigner
 from . import LibraryTools
 from . import readouts
 from . import probes
+from . import sequences
