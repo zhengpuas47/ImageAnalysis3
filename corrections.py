@@ -1806,7 +1806,16 @@ def multi_correct_one_dax(filename, sel_channels=None, crop_limit_list=None,
                           bleed_corr=True, z_shift_corr=True, hot_pixel_remove=True, 
                           illumination_corr=True, chromatic_corr=True,
                           return_limits=False, verbose=False):
-    """Function to correct multiple-cropped image"""
+    """Function to correct multiple-cropped image,
+        provided the .dax filename, selected channels, list of 3d-crop limits
+    *******************************************************************************
+    Inputs:
+        filename: image filename of .dax format, string of file path
+        sel_channels: selected channels to be cropped, str or list of str
+        crop_limit_list: 
+    Outputs:
+
+    """
     ## check inputs
     # all_channels:
     all_channels = [str(_ch) for _ch in all_channels]
@@ -1816,11 +1825,15 @@ def multi_correct_one_dax(filename, sel_channels=None, crop_limit_list=None,
     # sel_channels:
     if sel_channels is None:
         sel_channels = all_channels[:3]
-    else:
+    elif isinstance(sel_channels, str) or isinstance(sel_channels, int) or isinstance(sel_channels, np.int):
+        sel_channels = [str(sel_channels)]
+    elif isinstance(sel_channels, list):
         sel_channels = [str(_ch) for _ch in sel_channels]
         for _ch in sel_channels:
             if _ch not in all_channels:
                 raise ValueError(f"All channels in selected channels should be in all_channels, but {_ch} is given")
+    else:
+        raise TypeError(f"Wrong input types for sel_channels, should be a string or int or list, but {type(sel_channels)} is given.")
     # all channels requires corrections
     if bleed_corr:
         correction_channels = bleed_channels
@@ -1844,7 +1857,7 @@ def multi_correct_one_dax(filename, sel_channels=None, crop_limit_list=None,
                                                                     single_im_size=single_im_size)
                 _limit_list.append(_limits)
     else:  # no crop-limit specified, crop the whole image
-        _limit_list = [single_im_size]
+        _limit_list = [np.stack([np.zeros(len(single_im_size)), single_im_size]).T.astype(np.int)]
     # check drift
     if len(drift) != 3:
         raise ValueError(f"Wrong input drift:{drift}, should be an array of 3")
@@ -1888,26 +1901,30 @@ def multi_correct_one_dax(filename, sel_channels=None, crop_limit_list=None,
         for _i, _cims in enumerate(_cropped_im_list):
             _cropped_im_list[_i] = [Remove_Hot_Pixels(_cim, hot_th=3, 
                                     verbose=verbose) for _cim in _cims]
+    
     # illumination and chromatic correction
-
-########################
-# UNDER CONSTRUCTION
-
     if illumination_corr:
         # illumination correction
-        _corr_ims = [Illumination_correction(_cim, _ch,
-                                             crop_limits=_dft_limits,
-                                             correction_folder=correction_folder,
-                                             single_im_size=single_im_size,
-                                             verbose=verbose) for _cim, _ch in zip(_corr_ims, sel_channels)]
+        for _i, (_ims, _dft_limits) in enumerate(zip(_cropped_im_list, _drift_limit_list)):
+            _corr_ims = [Illumination_correction(_cim, _ch,
+                                                crop_limits=_dft_limits,
+                                                correction_folder=correction_folder,
+                                                single_im_size=single_im_size,
+                                                verbose=verbose) for _cim, _ch in zip(_ims, sel_channels)]
+            # append
+            _cropped_im_list[_i] = _corr_ims
     if chromatic_corr:
         # chromatic correction
-        _corr_ims = [Chromatic_abbrevation_correction(_cim, _ch,
-                                                      single_im_size=single_im_size,
-                                                      crop_limits=_dft_limits,
-                                                      correction_folder=correction_folder,
-                                                      verbose=verbose) for _cim, _ch in zip(_corr_ims, sel_channels)]
+        for _i, (_ims, _dft_limits) in enumerate(zip(_cropped_im_list, _drift_limit_list)):
+            _corr_ims = [Chromatic_abbrevation_correction(_cim, _ch,
+                                                        single_im_size=single_im_size,
+                                                        crop_limits=_dft_limits,
+                                                        correction_folder=correction_folder,
+                                                        verbose=verbose) for _cim, _ch in zip(_ims, sel_channels)]
+            # append
+            _cropped_im_list[_i] = _corr_ims
+    
     if return_limits:
-        return _corr_ims, _dft_limits
+        return _cropped_im_list, _drift_limit_list
     else:
-        return _corr_ims            
+        return _cropped_im_list            
