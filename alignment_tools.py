@@ -206,8 +206,7 @@ def align_single_image(_filename, _selected_crops, _ref_filename=None, _ref_ims=
             _dists = pdist(_drifts)
             # check whether any two of drifts are close enough
             if (_dists < _drift_cutoff).any():
-                _inds = list(combinations(range(len(_drifts)), 2))[
-                    np.argmin(_dists)]
+                _inds = list(combinations(range(len(_drifts)), 2))[np.argmin(_dists)]
                 _selected_drifts = np.array(_drifts)[_inds, :]
                 _final_drift = np.mean(_selected_drifts, axis=0)
                 return _final_drift, 0
@@ -215,6 +214,11 @@ def align_single_image(_filename, _selected_crops, _ref_filename=None, _ref_ims=
     # if not exit during loops, pick the optimal one
     if _verbose:
         print(f"Suspecting failure for {_print_name}")
+    if len(_drifts) > 1:
+    # calculate pair-wise distance
+        _dists = pdist(_drifts)
+    else:
+        raise ValueError(f"Less than 2 drifts are calculated, maybe drift is too large or beads are gone?")
     _inds = list(combinations(range(len(_drifts)), 2))[np.argmin(_dists)]
     _selected_drifts = np.array(_drifts)[_inds, :]
     if _verbose:
