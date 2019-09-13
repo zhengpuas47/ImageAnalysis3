@@ -62,7 +62,7 @@ def Calculate_BED_to_Region(data_filename, region_dic, data_format='tagAlign',
         raise ValueError(f"data_format:{stat_type} should be among {_allowed_stats}")
     
     # sort region dic
-    _region_info = sorted(list(region_dic.items()), key=lambda v:int(v[1]['start']))
+    _region_info = list(sorted(region_dic.items(), key=lambda v:int(v[1]['start'])))
     
     # not overwrite?
     _save_filename = data_filename.replace(data_format, f'_{stat_type}_region.pkl')
@@ -74,8 +74,9 @@ def Calculate_BED_to_Region(data_filename, region_dic, data_format='tagAlign',
     # otherwise initialize with 0
     else:
         if verbose:
-            print(f"-- Calculate {os.path.basename(data_filename)} for {len(_region_info)} regions!")
-        _region_stat = {_info[0]:0 for _info in _region_info}
+            print(f"-- Calculate {os.path.basename(data_filename)} for {len(region_dic)} regions!")
+        
+        _region_stat = {_reg:0 for _reg,_info in sorted(region_dic.items())}
 
     # load info
     _content = []
@@ -109,7 +110,17 @@ def Calculate_BED_to_Region(data_filename, region_dic, data_format='tagAlign',
                         max(_start, _region_info[_reg_index][1]['start']))) * _count * 1e-10
                 elif stat_type == 'count':
                     total_stat += _count * 1e-10
+            # directly loop through all possible regions, add region_stats
+            for _reg in _region_stat:
+                
+            
+            
             # go to next region if:
+            if _reg_index >= len(_region_info):
+                break
+
+
+
             if _chr != _region_info[_reg_index][1]['chr']:
                 continue
             if _mid < _region_info[_reg_index][1]['start']:
