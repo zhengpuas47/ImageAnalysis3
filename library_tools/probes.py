@@ -230,7 +230,7 @@ def _assemble_single_probename(_pb_info, _readout_name_list, _pb_id):
     """Assemble one probe name by given probe info
     _pb_info is one of values in pb_designer.pb_reports_keep"""
     _name = [_pb_info['reg_name'].split('_')[0],
-             'gene_'+_pb_info['reg_name'].split('_')[1],
+             'gene_'+_pb_info['reg_name'].split('_')[2],
              'pb_'+str(_pb_id),
              'pos_'+str(_pb_info['pb_index']),
              'readouts_[' + ','.join(_readout_name_list) + ']']
@@ -239,6 +239,7 @@ def _assemble_single_probename(_pb_info, _readout_name_list, _pb_id):
 # function to assemble probes in the whole library
 def Assemble_probes(library_folder, probe_source, gene_readout_dict, readout_dict, primers,
                     rc_targets=False, add_random_gap=0,
+                    primer_len=20, readout_len=20, target_len=42,
                     save=True, save_name='candidate_probes.fasta', save_folder=None,
                     overwrite=True, verbose=True):
     """Function to Assemble_probes by given probe_soruce, gene_readout_dict, readout_dict and primers,
@@ -336,7 +337,8 @@ def Assemble_probes(library_folder, probe_source, gene_readout_dict, readout_dic
                 else:
                     _target = SeqRecord(Seq(_seq), id=_info['name'])
                 _probe = _assemble_single_probe(_target, _reg_readouts, fwd_primer, rev_primer,
-                                                _add_random_gap=add_random_gap)
+                                                _primer_len=primer_len, _readout_len=readout_len, 
+                                                _target_len=target_len, _add_random_gap=add_random_gap)
                 _name = _assemble_single_probename(_info, _reg_readout_names, _i)
                 _probe.id = _name
                 _probe.name, _probe.description = '', ''

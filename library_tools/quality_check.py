@@ -16,6 +16,55 @@ def __init__():
     pass
 
 
+def Screen_probe_by_hit(library_folder, probe_source, num_probes_per_region, 
+                        hit_type='genome', verbose=True):
+    """Function to screen probes by number of one type of hits in probe designer class"""
+    from copy import copy
+    
+    ## Check inputs
+    if verbose:
+        print(f"- Screen probes by {hit_type} counts.")
+    # probe source
+    if isinstance(probe_source, str):
+        if not os.path.isdir(probe_source):
+            report_folder = os.path.join(library_folder, probe_source)
+        else:
+            report_folder = probe_source
+        if not os.path.isdir(report_folder):
+            raise ValueError(
+                f"Wrong input :{report_folder}, should be path to probes")
+        # load probes
+        from .probe import _load_probes_in_folder
+        _pb_dict = _load_probes_in_folder(report_folder)
+    elif isinstance(probe_source, dict):
+        _pb_dict = probe_source
+    # num_probes_per_region
+    n_probes = int(num_probes_per_region)
+    
+    ## start screening
+    _kept_pb_dict = {}
+    for _reg_name, _pb_obj in _pb_dict.items():
+        if verbose:
+            print(f"-- filtering region:{_reg_name}", end=', ')
+        if len(_pb_obj.pb_reports_keep) <= n_probes:
+            if verbose:
+                print(f"directly append {len(_pb_obj.pb_reports_keep)} probes")
+            _kept_pb_dict[_reg_name] = _pb_obj
+        else:
+            if verbose:
+                print(f"screen {hit_type} to keep {n_probes} probes")
+            _hits =  [int(_pb[hit_type]) for _seq, _pb in _pb_obj.pb_reports_keep.items()]
+            _kept_inds = np.argsort(_hits)[:n_probes]
+            _kept_reports_dict = {_seq:_pb for _i, (_seq,_pb) \
+                                  in enumerate(_pb_obj.pb_reports_keep.items()) \
+                                  if _i in _kept_inds}
+            _new_pb_obj = copy(_pb_obj)
+            _new_pb_obj.pb_reports_keep = _kept_reports_dict
+            # append to kept_pb_dict
+            _kept_pb_dict[_reg_name] = _new_pb_obj
+    
+    return _kept_pb_dict
+
 def split_probe_by_gene(pb_records, species_marker='gene_'):
     pb_dic = {}
     for _pb in pb_records:
@@ -27,19 +76,19 @@ def split_probe_by_gene(pb_records, species_marker='gene_'):
     return pb_dic
 
 # check if all probes use the same primer
-def _check_primer_usage(pb_records, fwd_primer, rev_primer, _verbose=True):
+def _check_primer_usage(pb_records, fwd_primer, rev_primer, primer_len=20, _verbose=True):
     '''Check whether forward or reverse primer are used in all probes'''
     if _verbose:
         print("-- Checking primer usage, total probes:", len(pb_records))
     fwd_len = len(fwd_primer.seq)
-    rev_len = len(rev_primer.seq[-20:].reverse_complement())
+    rev_len = len(rev_primer.seq[-primer_len:].reverse_complement())
 
     for record in pb_records:
         if record.seq[:fwd_len] != fwd_primer.seq:
             if _verbose:
                 print("--- Forward primer incorrect!")
             return False
-        if record.seq[-rev_len:] != rev_primer.seq[-20:].reverse_complement():
+        if record.seq[-rev_len:] != rev_primer.seq[-primer_len:].reverse_complement():
             if _verbose:
                 print("--- Forward primer incorrect!")
             return False
@@ -158,20 +207,31 @@ def _finding_readout_name(readout_list, readout_dict, readout_len=20,
 
 def _check_readout_to_region(reg_to_readout, pb_records, readout_dict, 
                              species_marker='gene_', target_len=42,
+                             primer_len=20, probe_readout_num=3,
                              verbose=True):
     '''Generate map from readout id to region id, require a region_to_readout map and probe lists'''
     _readout_to_reg = {}
+    prev_reg_id = ''
+    if verbose:
+        print(f"-- extracting probes from >", end='')
     for record in pb_records:
         reg_id = record.id.split(species_marker)[1].split('_')[0]
+        if verbose:
+            if prev_reg_id != reg_id:
+                print(f"region:{reg_id}", end=', ')
+        prev_reg_id = reg_id
         # extract readouts used in this probe
-        _readout_list = _parsing_probe_sequence(record, target_len=target_len)
-        _name_list = _finding_readout_name(_readout_list, readout_dict)
+        _readout_list = _parsing_probe_sequence(record, target_len=target_len, primer_len=primer_len)
+        _name_list = _finding_readout_name(_readout_list, readout_dict,
+            probe_readout_num=probe_readout_num)
         _names, _name_cts = np.unique(_name_list, return_counts=True)
         for _n, _nct in zip(_names, _name_cts):
             if _n not in list(_readout_to_reg.keys()):  # create if not in dic
                 _readout_to_reg[_n] = [reg_id] * _nct
             elif reg_id not in _readout_to_reg[_n]:  # otherwise, append
                 _readout_to_reg[_n] += [reg_id] * _nct
+    if verbose:
+        print(" > Done.")
     # sort _readout_to_reg
     _readout_keys = sorted([_r for _r in _readout_to_reg if 'Stv' in _r], key=lambda r:int(r.split('_')[-1]) ) + \
                     sorted([_r for _r in _readout_to_reg if 'NDB' in _r], key=lambda r:int(r.split('_')[-1]) )
@@ -180,6 +240,8 @@ def _check_readout_to_region(reg_to_readout, pb_records, readout_dict,
     
     ## check region distribution
     # invert dic from reg_to_readout
+    if verbose:
+        print(f"-- inverting region_to_readout dict")
     _inv_dic = {}
     for reg, readouts in sorted(reg_to_readout.items()):
         for _readout in readouts:
@@ -260,7 +322,9 @@ def _check_readout_in_probes(readout_to_reg, reg_size_dic, int_map,
     return _readout_in_probes, True
 
 # check target-seq between probes
-def _check_between_probes(pb_records, int_map, _max_internal_hits=50, primer_len=20, target_len=30, readout_len=20, add_rand_gap=0,
+def _check_between_probes(pb_records, int_map, _max_internal_hits=50, 
+                          primer_len=20, target_len=30, readout_len=20, 
+                          add_rand_gap=0,
                           _make_plot=False, _verbose=True):
     """Function to check k-mer appreance between probes"""
     def __extract_targeting_sequence(record, primer_len=primer_len, target_len=target_len,
@@ -383,7 +447,7 @@ def Blast_probes(probes, library_folder, blast_subfolder='blast',
                     f"--- total time for blast {_gene}: {time.time()-_start}")
                     
 # screen blast results
-def Screening_Probes_by_Blast(library_folder, probe_per_region, keep_mode='front', 
+def Screening_Probes_by_Blast(library_folder, probe_per_region, keep_mode='center', 
                               blast_subfolder='blast', probe_subfolder='.',                 
                               probe_filename='filtered_full_probes.fasta',
                               hard_thres=40, soft_thres=20, soft_count_th=30,
@@ -463,12 +527,12 @@ def Screening_Probes_by_Blast(library_folder, probe_per_region, keep_mode='front
                 _start, _end = int(_start), int(_end)
                 _reg_len = np.abs(_end - _start)
                 _kept_center_pbs = []
-                for _pb in sorted(_kept_pbs, key=lambda p: np.abs(int(p.id.split('ind_')[1].split('_')[0])-_reg_len/2)):
+                for _pb in sorted(_kept_pbs, key=lambda p: np.abs(int(p.id.split('pb_')[1].split('_')[0])-_reg_len/2)):
                     _kept_center_pbs.append(_pb)
                     if len(_kept_center_pbs) >= probe_per_region:
                         break
                 _kept_pb_dic[_reg] = sorted(_kept_center_pbs, key=lambda p: int(
-                    p.id.split('ind_')[1].split('_')[0]))
+                    p.id.split('pb_')[1].split('_')[0]))
             elif keep_mode == 'front':
                 _kept_pbs = _kept_pbs[:probe_per_region]
                 _kept_pb_dic[_reg] = _kept_pbs
