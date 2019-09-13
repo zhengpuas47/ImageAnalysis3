@@ -148,8 +148,8 @@ def plot_domain_in_distmap(distmap, domain_starts, ax=None,
             _end-_start), color=domain_color, linewidth=domain_line_width)
         ax.plot(_end*np.ones(_end-_start),
                 np.arange(_start, _end), color=domain_color, linewidth=domain_line_width)
-    ax.set_xlim([0, distmap.shape[0]])
-    ax.set_ylim([distmap.shape[1], 0])
+    ax.set_xlim([0, distmap.shape[0]-0.5])
+    ax.set_ylim([distmap.shape[1]-0.5, 0])
     
     if save:
         if save_folder is not None:

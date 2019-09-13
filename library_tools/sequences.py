@@ -3,7 +3,7 @@ import sys, os, glob, time
 from . import LibraryDesigner as ld
 from . import LibraryTools as lt
 def Batch_Extract_Sequences(library_folder, genome_folder,
-                            reg_filename =r'Regions.txt', save_dir='reports',
+                            reg_filename =r'Regions.txt', save_dir='sequences',
                             merge=True, save=True, resolution=50000, flanking=0):
     '''Function to extract sequences for all regions written in a file
     Given:

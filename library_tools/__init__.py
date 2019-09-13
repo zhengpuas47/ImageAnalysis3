@@ -1,7 +1,7 @@
 # shared variables
-_primer_folder = r'E:\Users\puzheng\Documents\Libraries\Primers'
-_readout_folder = r'\\SMIRNOV\Chromatin_NAS_3\Pu\Readouts'
-_genome_folder = r'\\SMIRNOV\Chromatin_NAS_3\Pu\Genomes\hg38'
+_primer_folder = r'\\smirnov\Chromatin_NAS_2\Libraries\Primers'
+_readout_folder = r'\\smirnov\Chromatin_NAS_2\Libraries\Readouts'
+_genome_folder = r'\\SMIRNOV\Chromatin_NAS_2\Libraries\Genomes\human\hg38'
 
 _adaptor_site_names = ['Stv_82', 'Stv_1', 'Stv_79']
 

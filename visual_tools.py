@@ -598,6 +598,9 @@ class imshow_mark_3d_v2:
                         self.draw_y.pop(keep_ind[ind_])
                         self.draw_z.pop(keep_ind[ind_])
                         self.class_ids.pop(keep_ind[ind_])
+                        print(ind_)
+                    else:
+                        print('test')
                 else:
                     if event.xdata is not None and event.ydata is not None:
                         self.draw_x.append(event.xdata)
