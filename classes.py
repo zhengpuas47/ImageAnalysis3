@@ -993,8 +993,210 @@ class Cell_List():
                             print(f"+ unique info exists for fov:{_cell.fov_id}, cell:{_cell.cell_id}, skip")
 
 
+    def _crop_image_by_fov(self, _data_type='unique', _num_threads=None,
+                            _load_in_ram=False, 
+                            _load_annotated_only=True, _sel_folders=None,
+                            _extend_dim=20, _corr_drift=True, _shift_order=1,
+                            _save=True, 
+                            _force=False, _overwrite_cell_info=False, _verbose=True):
+        """Function to crop image for the whole cell_list by field-of-view
+        Inputs:
+        
+        Outputs:
+            """
+        ## check inputs
+        from .corrections import multi_correct_one_dax
+        # check whether cells and segmentation,drift info exists
+        if _verbose:
+            print (f"+ Load images for {len(self.cells)} cells in this cell list")
+        if not hasattr(self, 'cells'):
+            raise ValueError("No cells loaded in cell_list")
+        if len(self.cells) == 0:
+            print("+ cell_list is empty, exit.")
+            return 
+        # check type
+        _data_type = _data_type.lower()
+        if _data_type not in self.shared_parameters['allowed_data_types']:
+            raise ValueError(f"Wrong _data_type kwd, {_data_type} is given, {self.shared_parameters['allowed_data_types']} are expected")
+        else:
+            # generate attribute names
+            _im_attr = _data_type + '_' + 'ims'
+            _id_attr = _data_type + '_' + 'ids'
+            _channel_attr = _data_type + '_' + 'channels'
+            
+        # whether load annotated hybs only
+        if _load_annotated_only:
+            _folders = self.annotated_folders
+        else:
+            _folders = self.folders
+        # if specified selected folders
+        if _sel_folders is not None:
+            if not isinstance(_sel_folders, list):
+                raise TypeError(f"_sel_folders should be a list but {type(_sel_folders)} is given.")
+
+        # collect field of views
+        _used_fov_ids = []
+        for _cell in self.cells:
+            if _cell.fov_id not in _used_fov_ids:
+                _used_fov_ids.append(_cell.fov_id)
+
+        ## Start to loop through field-of-view
+        if _verbose:
+            print(f"++ generating unique images for field-of-view:{_used_fov_ids}")
+            _fov_start = time.time()
+        for _fov_id in _used_fov_ids:
+            # load data_type data for this fov
+            self._load_cells_from_files(_data_type=_data_type, _sel_fovs=[_fov_id])
+            # first get cells
+            _fov_cells = [_cell for _cell in self.cells if _cell.fov_id==_fov_id]
+            print('fov', _fov_id, len(_fov_cells))
+            _fov_name = self.fovs[_fov_cells[0].fov_id]
+            # get segmentation crops for cells
+            for _cell in _fov_cells:
+                if not hasattr(_cell, 'segmentation_crop'): # check segmentation crops
+                    _cell._load_segmentation()
+            _crops = [_cell.segmentation_crop for _cell in _fov_cells]
+            # get corresponding ids for fov_cells
+            _reg_id_list = []
+            for _cell in _fov_cells:
+                _reg_id_list.append(getattr(_cell, _id_attr, []))
+            # for all corresponding folders and colors, pick the ones to be corrected
+            _corr_colors = []
+            _corr_ids = []
+            _corr_folders = []
+            for _fd in _folders:
+                # skip if sel_folders not including this folder
+                if _sel_folders is not None and _fd not in _sel_folders:
+                    continue
+                # loop through colors
+                _base_fd = os.path.basename(_fd)
+                _colors_to_process = []
+                _ids_to_process = []
+                for _c, _info in zip(self.channels, self.color_dic[_base_fd]):
+                    if self.shared_parameters['allowed_data_types'][_data_type] in _info:
+                        _rid = int( _info.split(self.shared_parameters['allowed_data_types'][_data_type])[1] )
+                        # check whether this exist or not in all cells, if not exists in all, append
+                        _exist_in_cells = [_rid in _ids for _ids in _reg_id_list]
+                        if np.sum(_exist_in_cells) < len(_exist_in_cells): # not exist in all cells
+                            _colors_to_process.append(_c)
+                            _ids_to_process.append(_rid)
+                    
+                # after loop through colors, if there's any color to process, append
+                if len(_colors_to_process) > 0:
+                    _corr_folders.append(_fd)
+                    _corr_colors.append(_colors_to_process)
+                    _corr_ids.append(_ids_to_process)
+            
+            # start multi-processing
+            _corr_args = []
+            for _fd, _colors in zip(_corr_folders, _corr_colors):
+                _dft = _fov_cells[0].drift
+                _dft_q = os.path.join(os.path.basename(_fd), _fov_name)
+                if _dft_q not in _dft:
+                    raise KeyError(f"drift for {_dft_q} doesn't exist in fov:{_fov_cells[0].fov_id}")
+                _corr_args.append(
+                    (os.path.join(_fd, _fov_name), _colors, _crops, None, _extend_dim,
+                    self.shared_parameters['single_im_size'],self.channels,
+                    self.shared_parameters['num_buffer_frames'], self.shared_parameters['num_empty_frames'],
+                    _dft[_dft_q], _shift_order,
+                    None, self.correction_folder, 
+                    self.shared_parameters['normalization'], 
+                    self.shared_parameters['corr_bleed'],
+                    self.shared_parameters['corr_Z_shift'],
+                    self.shared_parameters['corr_hot_pixel'], 
+                    self.shared_parameters['corr_illumination'], 
+                    self.shared_parameters['corr_chromatic'],
+                    False, _verbose,)
+                )
+            if _num_threads is None:
+                _num_threads = self.num_threads
+            with mp.Pool(_num_threads) as _corr_pool:
+                if _verbose:
+                    print(f"++ start multi-processing with {_num_threads} threads for {len(_fov_cells)} cells in fov:{_fov_cells[0].fov_id}")
+                    print(f"++ number of jobs: {len(_corr_args)}")
+                    _start_time = time.time()
+                _cropped_ims_for_cells = _corr_pool.starmap(multi_correct_one_dax, _corr_args, chunksize=1)
+                _corr_pool.close()
+                _corr_pool.join()
+                _corr_pool.terminate()
+            if _verbose:
+                print(f"+++ time spent in multiprocessing cropping:{time.time()-_start_time}s")
+            print('result length:', len(_cropped_ims_for_cells))
+            # summarize for each of the cells
+            if _verbose:
+                print(f"++ summarize cropped {_data_type} images for cells in fov:{_fov_id}")
+                _summ_start = time.time()
+            
+            for _cell_id, _cell in enumerate(_fov_cells):
+                # initialize
+                _cell_ims = getattr(_fov_cells[_cell_id], _im_attr, [])
+                _cell_ids = list(getattr(_fov_cells[_cell_id], _id_attr, []))
+                _cell_channels = getattr(_fov_cells[_cell_id], _channel_attr, [])
+                # loop through result and append
+                for _im_cells_list, _id_list, _color_list in zip(_cropped_ims_for_cells, _corr_ids, _corr_colors):
+                    _im_list = _im_cells_list[_cell_id]
+                    # loop through multiple colors
+                    for _im, _id, _color in zip(_im_list, _id_list, _color_list):
+                        # case1, completely new id, append
+                        if _id not in list(_cell_ids):
+                            _cell_ims.append(_im)
+                            _cell_ids.append(_id)
+                            _cell_channels.append(_color)
+                            print("append_id", _id)
+                        # case2, exist and not force, skip
+                        elif _id in list(_cell_ids) and not _force:
+                            print("skip id", _id)
+                            continue
+                            
+                        # case3, exist and force, overwrite
+                        else:
+                            _index = list(_cell_ids).index(_id)
+                            _cell_ims[_index] = _im
+                            _cell_channels[_index] = _color
+                            print("replace_id", _id)
+                print('cell_size', len(_cell_ids), len(_cell_ims), len(_cell_channels))
+                # sort
+                _tp = [(_id, _im, _ch) for _id, _im, _ch in sorted(zip(_cell_ids, _cell_ims, _cell_channels))]
+                _sorted_ids = [_t[0] for _t in _tp]
+                _sorted_ims = [_t[1] for _t in _tp]
+                _sorted_channels = [_t[2] for _t in _tp]
+                print('size', len(_sorted_ids), len(_sorted_ims), len(_sorted_channels))
+                # append to attributes
+                setattr(_fov_cells[_cell_id], _im_attr, _sorted_ims)
+                setattr(_fov_cells[_cell_id], _id_attr, _sorted_ids)
+                setattr(_fov_cells[_cell_id], _channel_attr, _sorted_channels)
+                # replace the one in cell_list
+                for _old_id, _old_cell in enumerate(self.cells):
+                    if _old_cell.fov_id == _fov_cells[_cell_id].fov_id \
+                        and _old_cell.cell_id == _fov_cells[_cell_id].cell_id:
+                        # update cell_list 
+                        self.cells[_old_id] = _fov_cells[_cell_id]
+            if _verbose:
+                print(f"+++ time spent in summarizing: {time.time()-_summ_start}s")
+            # save to file if specified:
+            if _save:
+                if _verbose:
+                    print(f"++ save result to {_data_type} file and cell_info:")
+                    _save_start = time.time()
+                self._save_cells_to_files(_data_type=_data_type, _sel_fovs=[_fov_id],
+                                         _overwrite=_force, _verbose=_verbose)
+                self._save_cells_to_files('cell_info', _sel_fovs=[_fov_id],
+                                         _overwrite=_overwrite_cell_info, _verbose=_verbose)
+                if _verbose:
+                    print(f"+++ time spent in saving:{time.time()-_save_start}s")
+            # remove if load_in_ram is false
+            if not _load_in_ram:
+                for _cell in _fov_cells:
+                    delattr(_cell, _im_attr)
+            if _verbose:
+                print(f"++ time spent for fov:{_fov_id}: {time.time()-_fov_start}s")
+
+
+
+
     # load processed cell info/unique/decoded/merfish from files
-    def _load_cells_from_files(self, _data_type='cell_info', _num_threads=None, _save_folder=None,
+    def _load_cells_from_files(self, _data_type='cell_info', _num_threads=None, 
+                               _sel_fovs=None, _save_folder=None,
                                _decoded_flag=None, _distmap_data='unique', _distmap_pick='EM',
                                _load_attrs=[], _exclude_attrs=[], _overwrite=False, _verbose=True):
         """Function to load cells from existing files"""
@@ -1009,12 +1211,13 @@ class Cell_List():
         _loading_args = []
         # prepare args
         for _cell in self.cells:
-            _loading_args.append((_cell, _data_type, _save_folder,
-                                 _decoded_flag, _distmap_data, _distmap_pick,
-                                 _load_attrs, _exclude_attrs, _overwrite, _verbose))
+            if _sel_fovs is None or (_sel_fovs is not None and _cell.fov_id in _sel_fovs):
+                _loading_args.append((_cell, _data_type, _save_folder,
+                                    _decoded_flag, _distmap_data, _distmap_pick,
+                                    _load_attrs, _exclude_attrs, _overwrite, _verbose))
         if _verbose:
-            print(
-                f"++ {len(_loading_args)} of {_data_type} loading jobs planned.")
+            print(f"++ {len(_loading_args)} of {_data_type} loading jobs planned.")
+            _start_time = time.time()
         # load info by multi-processing!
         with mp.Pool(_num_threads) as _loading_pool:
             # Multi-proessing!
@@ -1025,10 +1228,17 @@ class Cell_List():
             _loading_pool.join()
             _loading_pool.terminate()
         # update
-        self.cells = _updated_cells
+        _updated_cell_infos = [(_cell.fov_id, _cell.cell_id) for _cell in _updated_cells]
+        for _cid, _cell in enumerate(self.cells):
+            if (_cell.fov_id, _cell.cell_id) in _updated_cell_infos:
+                self.cells[_cid] = _updated_cells[_updated_cell_infos.index((_cell.fov_id, _cell.cell_id))]
+
+        if _verbose:
+            print(f"+++ time spent in loading: {time.time()-_start_time}s")
 
     # load processed cell info/unique/decoded/merfish from files
-    def _save_cells_to_files(self, _data_type='cell_info', _num_threads=None, _save_folder=None,
+    def _save_cells_to_files(self, _data_type='cell_info', _num_threads=None, 
+                             _sel_fovs=None, _save_folder=None,
                              _save_list=[], _unsaved_attrs=None, _clear_old_attrs=False,
                              _overwrite=False, _verbose=True):
         """Function to load cells from existing files"""
@@ -1043,15 +1253,15 @@ class Cell_List():
         _saving_args = []
         # prepare args
         for _cell in self.cells:
-            # generate a temp save_dic
-            _save_dic = {_k: getattr(_cell, _k) for _k in _save_list if hasattr(_cell, _k)}
-            # append save_arg
-            _saving_args.append((_cell, _data_type, _save_dic, _save_folder,
-                                 _unsaved_attrs, _clear_old_attrs, 
-                                 _overwrite, _verbose))
+            if _sel_fovs is None or (_sel_fovs is not None and _cell.fov_id in _sel_fovs):
+                # generate a temp save_dic
+                _save_dic = {_k: getattr(_cell, _k) for _k in _save_list if hasattr(_cell, _k)}
+                # append save_arg
+                _saving_args.append((_cell, _data_type, _save_dic, _save_folder,
+                                    _unsaved_attrs, _clear_old_attrs, 
+                                    _overwrite, _verbose))
         if _verbose:
-            print(
-                f"++ {len(_saving_args)} of {_data_type} loading jobs submitted to {_num_threads} threads.")
+            print(f"++ {len(_saving_args)} of {_data_type} loading jobs submitted to {_num_threads} threads.")
         # load info by multi-processing!
         with mp.Pool(_num_threads) as _saving_pool:
             # Multi-proessing!

@@ -156,7 +156,7 @@ def _loop_out_metric(_coordinates, _position, _domain_starts, metric='median',
                 
         return _loop_out_hits
                 
-def _generate_loop_out_markers(_coordinates, _domain_starts, _loop_regions, _loop_domains, 
+def _generate_loop_out_markers(_coordinates, _domain_starts, _loop_region_domain_pairs, 
                                _marker_type='center', _marker_param=1., _keep_triu=True, 
                                _verbose=True):
     """transform domain_xy into marker format"""
@@ -164,32 +164,30 @@ def _generate_loop_out_markers(_coordinates, _domain_starts, _loop_regions, _loo
     _dm_starts = np.array(_domain_starts)
     _dm_ends = np.concatenate([_dm_starts[1:], np.array([len(_coordinates)])])
     _dm_centers = ((_dm_starts + _dm_ends)/2).astype(np.int)
-    _loop_regions = np.array(_loop_regions, dtype=np.int)
-    _loop_domains = np.array(_loop_domains, dtype=np.int)
     # initialize marker-map
     _marker_map = np.zeros([len(_coordinates), len(_coordinates)])
-    if len(_loop_regions) == 0 or len(_loop_domains)==0:
+    if len(_loop_region_domain_pairs) == 0:
         if _verbose:
             print(f"---- no loop given, return empty marker map.")
         return _marker_map
     else:
         if _verbose:
-            print(f"--- generate loop-out marker for {len(_loop_regions)} loops")
+            print(f"--- generate loop-out marker for {len(_loop_region_domain_pairs)} loops")
         
         if _marker_type == 'center':
-            for _reg, _dm in zip(_loop_regions, _loop_domains):
+            for _reg, _dm in _loop_region_domain_pairs:
                 _marker_map[_reg, _dm_centers[_dm]] = 1
                 if not _keep_triu:
                     _marker_map[_dm_centers[_dm], _reg] = 1
         elif _marker_type == 'gaussian':      
-            for _reg, _dm in zip(_loop_regions, _loop_domains):
+            for _reg, _dm in _loop_region_domain_pairs:
                 _marker_map = visual_tools.add_source(_marker_map, pos=[_reg, _dm_centers[_dm]], 
                                                           h=1, sig=[_marker_param,_marker_param])
                 if not _keep_triu:
                     _marker_map = visual_tools.add_source(_marker_map, pos=[_dm_centers[_dm], _reg], 
                                                           h=1, sig=[_marker_param,_marker_param])
         elif _marker_type == 'area':
-            for _reg, _dm in zip(_loop_regions, _loop_domains):
+            for _reg, _dm in _loop_region_domain_pairs:
                 _marker_map[_reg, _dm_starts[_dm]:_dm_ends[_dm]] = 1
                 if not _keep_triu:
                     _marker_map[_dm_starts[_dm]:_dm_ends[_dm], _reg] = 1
@@ -213,20 +211,20 @@ def loop_out_markers(coordinates, domain_starts, norm_mat=None, metric='median',
         _coordinates = squareform(pdist(_coordinates))
     
     # initialze
-    _loop_regions = []
-    _loop_domains = []
+    _loop_region_domain_pairs = []
     for _pos in range(len(_coordinates)):
         _loop_dms = _loop_out_metric(_coordinates, _pos, domain_starts, 
                           _loop_out_th=loop_out_th, metric=metric, 
                           _exclude_boundaries=exclude_boundaries, _exclude_edges=exclude_edges)
         if len(_loop_dms) > 0:
-            _loop_regions += [_pos]*len(_loop_dms)
-            _loop_domains += _loop_dms
+            for _dm in _loop_dms:
+                _loop_region_domain_pairs.append([_pos, _dm])
+
     # generate marker
     _loop_marker = _generate_loop_out_markers(_coordinates, _domain_starts, 
-                                              _loop_regions, _loop_domains, _marker_type=marker_type,
+                                              _loop_region_domain_pairs, _marker_type=marker_type,
                                               _marker_param=marker_param, _keep_triu=keep_triu, _verbose=verbose)
     if verbose:
-        print(f"--- {len(_loop_regions)} loops identified, time:{time.time()-_start_time:2.3}")
+        print(f"--- {len(_loop_region_domain_pairs)} loops identified, time:{time.time()-_start_time:2.3}")
     
-    return _loop_regions, _loop_marker
+    return _loop_region_domain_pairs, _loop_marker

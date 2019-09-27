@@ -2439,8 +2439,7 @@ def crop_multi_channel_image(filename, channels, crop_limits=None,
     for _i, (_d, _lims) in enumerate(zip(drift, crop_limits)):
         # expand drift_limits a bit for shifting
         _drift_limits[_i, 0] = max(_lims[0]-np.ceil(np.abs(_d)), 0)
-        _drift_limits[_i, 1] = min(
-            _lims[1]+np.ceil(np.abs(_d)), single_im_size[_i])
+        _drift_limits[_i, 1] = min(_lims[1]+np.ceil(np.abs(_d)), single_im_size[_i])
 
     ## 1. load image
     # extract image info
