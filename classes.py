@@ -4327,7 +4327,12 @@ class Field_of_View():
             self.fovs = _fovs        
 
         ## shared_parameters
-        # distance from pixel to nm:
+        # initialize
+        if 'shared_parameters' in parameters:
+            self.shared_parameters = parameters['shared_parameters']
+        else:
+            self.shared_parameters = {}
+        # add keys:
         if 'distance_zxy' not in self.shared_parameters:    
             self.shared_parameters['distance_zxy'] = _distance_zxy
         if 'sigma_zxy' not in self.shared_parameters:
