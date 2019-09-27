@@ -2472,6 +2472,106 @@ def crop_multi_channel_image(filename, channels, crop_limits=None,
     else:
         return _crp_ims
 
+def crop_multi_channel_image_v2(filename, channels, crop_limits=None, 
+                             num_buffer_frames=10, num_empty_frames=0, 
+                             all_channels=_allowed_colors, single_im_size=_image_size,
+                             drift=np.array([0, 0, 0]), 
+                             return_limits=False, verbose=False):
+    """Function to crop one image given filename, color_channel and crop_limits
+    Inputs:
+        filename: .dax filename for given image, string of filename
+        channel: color_channel for the specific data, int or str
+        crop_limits: 2x2 or 3x2 array specifying where to crop, 
+            np.ndarray (default: None, i.e. the whole image)
+        num_buffer_frame: number of frames before z-scan starts, int (default:10)
+        all_channels: all allowed colors in given data, list (default: _allowed_colors)
+        single_im_size: image size for single color full image, list/array of 3 (default:[30,2048,2048])
+        drift: drift to ref-frame of this image, np.array of 3 (default:[0,0,0])
+        verbose: say something!, bool (default:False)
+    Output:
+        _crp_im: cropped image
+        """
+    ## 0. check inputs
+    from scipy.ndimage.interpolation import map_coordinates
+    # filename
+    if not os.path.isfile(filename):
+        raise ValueError(f"file {filename} doesn't exist!")
+    # check input channel
+    channels = [str(_ch) for _ch in channels]
+    for _ch in channels:
+        if _ch not in all_channels:
+            raise ValueError(
+                f"Input channel:{_ch} is not included in all_channels{all_channels}, exit!")
+    _channel_ids = [all_channels.index(_ch) for _ch in channels]
+    # drift
+    drift = np.array(drift)
+    if len(drift) != 3:
+        raise ValueError("dimension of drift should be 3!")
+    # crop_limits
+    if crop_limits is None:
+        crop_limits = np.stack([np.zeros(3), single_im_size]).T.astype(np.int)
+    elif len(crop_limits) == 2:
+        crop_limits = np.array(
+            [np.array([0, single_im_size[0]])]+list(crop_limits), dtype=np.int)
+    elif len(crop_limits) == 3:
+        crop_limits = np.array(crop_limits, dtype=np.int)
+    else:
+        raise IndexError(
+            f"Wrong shape for crop_limits:{np.shape(crop_limits)}")
+    # convert negative slices into positives
+    for _lims, _s in zip(crop_limits, single_im_size):
+        if _lims[1] < 0:
+            _lims[1] += _s
+    # convert crop_limits into drift_limits
+    _drift_limits = np.zeros(crop_limits.shape, dtype=np.int)
+    for _i, (_d, _lims) in enumerate(zip(drift, crop_limits)):
+        # expand drift_limits a bit for shifting
+        _drift_limits[_i, 0] = max(_lims[0]-np.ceil(np.abs(_d)), 0)
+        _drift_limits[_i, 1] = min(_lims[1]+np.ceil(np.abs(_d)), single_im_size[_i])
+
+    ## 1. load image
+    # extract image info
+    _full_im_shape, _num_color = get_img_info.get_num_frame(filename,
+                                                            frame_per_color=single_im_size[0],
+                                                            buffer_frame=num_buffer_frames)
+    _zlims = [num_buffer_frames+_drift_limits[0, 0]*_num_color,
+              num_buffer_frames+_drift_limits[0, 1]*_num_color]
+    # slice image
+    _crp_ims = slice_image(filename, _full_im_shape, _zlims, _drift_limits[1],
+                           _drift_limits[2], zstep=_num_color, zstart=_channel_ids,
+                           empty_frame=num_empty_frames)
+    ## 2. do shift if drift exists
+    # get differences between two limits
+    _limit_diffs = (crop_limits - _drift_limits).astype(np.int)
+    if drift.any():    
+        # 2.1 get coordiates to be mapped
+        _coords = np.meshgrid( np.arange(crop_limits[0][1]-crop_limits[0][0]), 
+                               np.arange(crop_limits[1][1]-crop_limits[1][0]), 
+                               np.arange(crop_limits[2][1]-crop_limits[2][0]))
+        _coords = np.stack(_coords).transpose((0, 2, 1, 3)).astype(np.float) # transpose is necessary
+        # 2.2 adjust coordinates based on drift_limits and limits
+        _coords += _limit_diffs[:,0,np.newaxis,np.newaxis,np.newaxis]
+        # 2.3 adjust coordinates based on drift
+        _coords += drift[:, np.newaxis,np.newaxis,np.newaxis]
+        # 2.4 map coordinates
+        _start_shift = time.time()
+        _crp_ims = [
+            map_coordinates(_im, _coords.reshape(_coords.shape[0], -1), mode='nearest').reshape(_coords.shape[1:])
+            for _im in _crp_ims]
+        print(time.time()-_start_shift)
+    else:
+        pass
+    ## 3. determine final limits
+    _final_limits = np.array([_drift_limits[:, 0]+_limit_diffs[:, 0],
+                              _drift_limits[:, 0]+_limit_diffs[:, 0]+crop_limits[:, 1]-crop_limits[:, 0]]).T
+    
+    if return_limits:
+        return _crp_ims, _final_limits
+    else:
+        return _crp_ims
+
+
+
 # visualize fitted spot crops
 def visualize_fitted_spot_crops(im, centers, center_inds, radius=10):
     """Function to visualize fitted spots within a given images and fitted centers"""
