@@ -10,6 +10,7 @@ from scipy.stats import scoreatpercentile
 import multiprocessing as mp
 import ctypes
 from scipy.ndimage.interpolation import map_coordinates
+
 def __init__():
     pass
 
@@ -774,13 +775,13 @@ def generate_chromatic_abbrevation_info(ca_filename, ref_filename, ca_channel, r
     
 
     # fit centers for ref centers
-    ref_centers = visual_tools.get_STD_centers(ref_im, th_seed=th_seed, 
+    ref_centers = visual_tools.get_STD_centers(ref_im, th_seed=th_seed, close_threshold=1., 
                                                save_name=os.path.basename(ref_filename).replace('.dax',f'_{ref_channel}_th{th_seed}.pkl'),
                                                save_folder=os.path.dirname(ref_filename),
                                                verbose=verbose)
     ref_centers = visual_tools.select_sparse_centers(ref_centers, _radius) # pick sparse centers
     # fit centers for chromatic abbreviated centers
-    ca_centers = visual_tools.get_STD_centers(ca_im, th_seed=th_seed, 
+    ca_centers = visual_tools.get_STD_centers(ca_im, th_seed=th_seed, close_threshold=1., 
                                               save_name=os.path.basename(ca_filename).replace('.dax',f'_{ca_channel}_th{th_seed}.pkl'),
                                               save_folder=os.path.dirname(ca_filename),
                                               verbose=verbose)
@@ -789,7 +790,10 @@ def generate_chromatic_abbrevation_info(ca_filename, ref_filename, ca_channel, r
     ca_centers -= drift
     # align images
     aligned_ca_centers, aligned_ref_centers = fast_align_centers(ca_centers, ref_centers, 
-                                                                 cutoff=_radius, keep_unique=True)    
+                                                                 cutoff=_radius, keep_unique=True, return_inds=False)
+    # add drift back for ca_centers
+    aligned_ca_centers += drift 
+        
     ## crop images
     cropped_cas, cropped_refs = [], []
 
@@ -850,7 +854,7 @@ def generate_chromatic_abbrevation_info(ca_filename, ref_filename, ca_channel, r
         _reg = LinearRegression().fit(_x,_y)
         if _reg.score(_x,_y) > rsq_th:
             _pair_dic = {'ref_zxy': _rct,
-                         'ca_zxy': _cct,
+                         'ca_zxy': _cct - drift,
                          'ref_im': _rim,
                          'ca_im': _cim,
                          'rsquare': _reg.score(_x,_y),
@@ -996,8 +1000,8 @@ def generate_chromatic_abbrevation_from_spots(corr_spots, ref_spots, corr_channe
 def Generate_chromatic_abbrevation(target_folder, ref_folder, target_channel, ref_channel='647', 
                                    num_threads=12, start_fov=0, num_image=40,
                                    single_im_size=_image_size, all_channels=_allowed_colors, 
-                                   bead_channel='488', bead_drift_size=300, bead_coord_sel=None,
-                                   num_buffer_frames=10, num_empty_frames=1,
+                                   bead_channel='488', bead_drift_size=500, bead_coord_sel=None,
+                                   num_buffer_frames=10, num_empty_frames=0,
                                    correction_folder=_correction_folder,
                                    normalization=False, illumination_corr=True, 
                                    th_seed=500, crop_window=9,

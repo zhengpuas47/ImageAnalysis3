@@ -113,7 +113,6 @@ def Calculate_BED_to_Region(data_filename, region_dic, data_format='tagAlign',
             # directly loop through all possible regions, add region_stats
             for _reg in _region_stat:
                 pass
-                
             
             
             # go to next region if:
