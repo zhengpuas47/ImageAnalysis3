@@ -21,6 +21,7 @@ _allowed_kwds = {'combo': 'c',
                 'unique': 'u', 
                 'merfish': 'm', 
                 'rna-unique':'r', 
+                'rna': 'r', # long term used label, because "-" is creating issue in python
                 'gene':'g'}
 
 def killtree(pid, including_parent=False, verbose=False):
@@ -4280,4 +4281,94 @@ class Merfish_Group():
         else:
             pass
 
+
+
+class Field_of_View():
+    """Class of field-of-view of a certain sample, which includes all possible files across hybs and parameters"""
+    
+    def __init__(self, parameters, _load_reference_info=True, _load_all_attrs=True):
+        ## Initialize key attributes:
+        #: attributes for unprocessed images:
+        # un-splitted raw images
+        self.raw_im_dict = {}
+        # correction profiles 
+        self.correction_profiles = {}
+        # drifts
+        self.drift = {}
+        # rotations
+        self.rotation = {}
+        # segmentation
+        self.segmentation = None
+
+        #: attributes for processed images:
+        # splitted processed images
+        self.im_dict = {}
+        # channel dict corresponding to im_dict
+        self.channel_dict = {}
+        
+        ## check input datatype
+        if not isinstance(parameters, dict):
+            raise TypeError(f'wrong input type of parameters, should be dict containing essential info, but {type(parameters)} is given!')
+
+        ## required parameters: 
+        # data_folder: str of folder or list of str of folders
+        if 'data_folder' not in parameters:
+            raise KeyError(f"data_folder is required in parameters.")
+        if isinstance(parameters['data_folder'], list):
+            self.data_folder = [str(_fd) for _fd in parameters['data_folder']]
+        else:
+            self.data_folder = [str(parameters['data_folder'])]
+
+        ## extract hybe folders and field-of-view names
+        self.folders = []
+        for _fd in self.data_folder:
+            _hyb_fds, _fovs = get_img_info.get_folders(_fd, feature='H', verbose=True)
+            self.folders += _hyb_fds
+            self.fovs = _fovs        
+
+        ## shared_parameters
+        # distance from pixel to nm:
+        if 'distance_zxy' not in self.shared_parameters:    
+            self.shared_parameters['distance_zxy'] = _distance_zxy
+        if 'sigma_zxy' not in self.shared_parameters:
+            self.shared_parameters['sigma_zxy'] = _sigma_zxy
+        if 'single_im_size' not in self.shared_parameters:
+            self.shared_parameters['single_im_size'] = _image_size
+        if 'num_buffer_frames' not in self.shared_parameters:
+            self.shared_parameters['num_buffer_frames'] = _num_buffer_frames
+        if 'num_empty_frames' not in self.shared_parameters:
+            self.shared_parameters['num_empty_frames'] = _num_empty_frames
+        if 'normalization' not in self.shared_parameters:
+            self.shared_parameters['normalization'] = False
+        if 'corr_bleed' not in self.shared_parameters:
+            self.shared_parameters['corr_bleed'] = True
+        if 'corr_Z_shift' not in self.shared_parameters:
+            self.shared_parameters['corr_Z_shift'] = True
+        if 'corr_hot_pixel' not in self.shared_parameters:
+            self.shared_parameters['corr_hot_pixel'] = True
+        if 'corr_illumination' not in self.shared_parameters:
+            self.shared_parameters['corr_illumination'] = True
+        if 'corr_chromatic' not in self.shared_parameters:
+            self.shared_parameters['corr_chromatic'] = True
+        if 'allowed_kwds' not in self.shared_parameters:
+            self.shared_parameters['allowed_data_types'] = _allowed_kwds
+
+
+    def _correct_splice_images(self, _data_type, _sel_hybs=[], _sel_keys=[],):
+        pass
+
+    def _save_to_file(self, _type):
+        pass
+    
+    def _load_from_file(self, _type):
+        pass
+
+    def _DAPI_segmentation(self):
+        pass
+
+    def _convert_to_cell_list(self):
+        pass
+
+    def _spot_finding(self):
+        pass
 
