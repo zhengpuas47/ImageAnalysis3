@@ -174,7 +174,8 @@ def visualize_2d_gaussian(im, spot, color=[0,0,0], kept_axes=(1,2), ax=None, cro
 
 def chromosome_structure_3d_rendering(spots, ax3d=None, cmap='Spectral', 
                                       distance_zxy=_distance_zxy, image_radius=2000,
-                                      marker_size=6, background_color=[0,0,0], 
+                                      marker_size=6, marker_alpha=1, 
+                                      background_color=[0,0,0], 
                                       line_width=1, line_alpha=1, 
                                       view_elev_angle=90, view_azim_angle=0, 
                                       add_reference_bar=True, reference_bar_length=1000, 
@@ -258,7 +259,8 @@ def chromosome_structure_3d_rendering(spots, ax3d=None, cmap='Spectral',
     # scatter plot
     _sc = ax3d.scatter(_n_zxy[_valid_inds,0], _n_zxy[_valid_inds,1], _n_zxy[_valid_inds,2],
                        c=_colors[_valid_inds], s=marker_size, depthshade=False, 
-                       edgecolors=[0,0,0], linewidth=0.05)
+                       edgecolors=[[0,0,0, _c[-1]] for _c in _colors[_valid_inds]], 
+                       linewidth=0.05)
     # plot lines between spots
     for _i,_coord in enumerate(_n_zxy[:-1]):
         _n_coord = _n_zxy[_i+1]
@@ -267,7 +269,7 @@ def chromosome_structure_3d_rendering(spots, ax3d=None, cmap='Spectral',
             ax3d.plot([_coord[0],_n_coord[0]],
                       [_coord[1],_n_coord[1]],
                       [_coord[2],_n_coord[2]],
-                      color = _colors[_i], alpha=line_alpha, linewidth=line_width)
+                      color = _colors[_i], alpha=_colors[_i][-1], linewidth=line_width)
     # plot reference bar
     if add_reference_bar:
         _bar_starts = np.array([np.sin(view_elev_angle/180*np.pi)*_radius, 

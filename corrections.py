@@ -1481,6 +1481,7 @@ def Bleedthrough_correction(input_im, crop_limits=None, all_channels=_allowed_co
         crop_limits: 2d or 3d crop limits given for this image,
             required if im is already sliced, 2x2 or 3x2 np.ndarray (default: None, no cropping at all)
         all_channels: allowed channels to be corrected, list 
+        correction_channels: 3 channels that is going to be corrected, list of strs
         single_im_size: full image size before any slicing, list of 3 (default:[30,2048,2048])
         num_buffer_frames: number of buffer frame in front and back of image, int (default:10)
         drift: 3d drift vector for this image, 1d-array (default:np.array([0,0,0]))
@@ -1805,11 +1806,12 @@ def multi_correct_one_dax(filename, sel_channels=None, crop_limit_list=None,
                           seg_label=None, extend_dim=20, 
                           single_im_size=_image_size, all_channels=_allowed_colors,
                           num_buffer_frames=10, num_empty_frames=0,
-                          drift=np.array([0, 0, 0]), bleed_channels=None, 
+                          drift=np.array([0, 0, 0]), shift_order=1,
+                          bleed_channels=None, 
                           correction_folder=_correction_folder, normalization=False, 
                           bleed_corr=True, z_shift_corr=True, hot_pixel_remove=True, 
                           illumination_corr=True, chromatic_corr=True,
-                          return_limits=False, verbose=False):
+                          return_limits=False, verbose=True):
     """Function to correct multiple-cropped image,
         provided the .dax filename, selected channels, list of 3d-crop limits
     *******************************************************************************
@@ -1847,8 +1849,6 @@ def multi_correct_one_dax(filename, sel_channels=None, crop_limit_list=None,
         if _ch not in correction_channels:
             correction_channels.append(_ch)
 
-    print(correction_channels)
-
     # decide crop_limits
     if crop_limit_list is not None:
         _limit_list = crop_limit_list
@@ -1870,16 +1870,16 @@ def multi_correct_one_dax(filename, sel_channels=None, crop_limit_list=None,
     _cropped_im_list, _drift_limit_list = io_tools.load.multi_crop_image_fov(
         filename, correction_channels, _limit_list, all_channels=all_channels,
         single_im_size=single_im_size, num_buffer_frames=num_buffer_frames,
-        num_empty_frames=num_empty_frames, drift=drift, 
+        num_empty_frames=num_empty_frames, drift=drift, shift_order=shift_order,
         return_limits=True, verbose=verbose
         )
 
     ## 2. Corrections
     if bleed_corr:
-        for _i, _cims in enumerate(_cropped_im_list):
+        for _i, (_cims, _limits) in enumerate(zip(_cropped_im_list, _drift_limit_list)):
             _bc_ims = Bleedthrough_correction(
                 _cims[:3], _limits, all_channels=all_channels,
-                correction_channels=correction_channels, 
+                correction_channels=bleed_channels, 
                 single_im_size=single_im_size,
                 num_buffer_frames=num_buffer_frames, 
                 num_empty_frames=num_empty_frames,
@@ -1888,7 +1888,17 @@ def multi_correct_one_dax(filename, sel_channels=None, crop_limit_list=None,
                 normalization=normalization,
                 z_shift_corr=z_shift_corr, hot_pixel_remove=hot_pixel_remove,
                 return_limits=False, verbose=verbose)
-            _cropped_im_list[_i][:3] = _bc_ims
+            for _im,_ch in zip(_bc_ims, bleed_channels):
+                if _ch in correction_channels:
+                    _cropped_im_list[_i][correction_channels.index(_ch)] = _im
+                
+    # come back to sel_channels:
+    if verbose:
+        print(f"-- select {sel_channels} from {correction_channels}")
+    for _i, _ims in enumerate(_cropped_im_list):
+        _sel_ims = [_im for _im, _ch in zip(_ims, correction_channels) if _ch in sel_channels]
+        # append
+        _cropped_im_list[_i] = _sel_ims
     
     # correct for z axis shift
     if z_shift_corr:

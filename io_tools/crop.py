@@ -39,8 +39,6 @@ def decide_starting_frames(channels, num_channels=None, all_channels=_allowed_co
     
 
     
-
-
 def translate_crop_by_drift(crop3d, drift3d=np.array([0,0,0]), single_im_size=_image_size):
     
     crop3d = np.array(crop3d, dtype=np.int)

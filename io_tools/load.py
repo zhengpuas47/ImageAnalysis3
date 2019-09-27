@@ -16,8 +16,8 @@ from scipy import ndimage
 def multi_crop_image_fov(filename, channels, crop_limit_list,
                          all_channels=_allowed_colors, single_im_size=_image_size,
                          num_buffer_frames=10, num_empty_frames=0,
-                         drift=np.array([0,0,0]), return_limits=False, 
-                         verbose=False):
+                         drift=np.array([0,0,0]), shift_order=1,
+                         return_limits=False, verbose=False):
     """Function to load images for multiple cells in a fov
     Inputs:
         filename: .dax filename for given image, string of filename
@@ -68,17 +68,20 @@ def multi_crop_image_fov(filename, channels, crop_limit_list,
                                                   buffer_frame=num_buffer_frames)
     # load the whole image
     if verbose:
-        print(f"--- load image from file:{filename}")
+        print(f"--- load image from file:{filename}", end=', ')
+        _load_start = time.time()
     _full_im = DaxReader(filename, verbose=verbose).loadAll()
     # splice buffer frames
     _start_frames = decide_starting_frames(_channels, _num_channels, all_channels=all_channels,
                                            num_buffer_frames=num_buffer_frames, num_empty_frames=num_empty_frames,
                                            verbose=verbose)
     _splitted_ims = [_full_im[_sf:-num_buffer_frames:_num_channels] for _sf in _start_frames]
-
+    if verbose:
+        print(f"in {time.time()-_load_start}s")
     ## 2. Prepare crops
     if verbose:
         print(f"-- start cropping: ", end='')
+        _start_time = time.time()
     _old_crop_list = []
     _drift_crop_list = []
     for _crop in crop_limit_list:
@@ -94,17 +97,19 @@ def multi_crop_image_fov(filename, channels, crop_limit_list,
     # 2.1 Crop image
     _cropped_im_list = []
     _drifted_limits = []
-    for _crop, _n_crop in zip(_old_crop_list, _drift_crop_list):
+    for _old_crop, _n_crop in zip(_old_crop_list, _drift_crop_list):
         _cims = []
         for _ch, _im in zip(_channels, _splitted_ims):
-            # translate
-            _cim = ndimage.interpolation.shift(_im[tuple(slice(_c[0],_c[1]) for _c in _crop)], 
-                                               -drift, mode='nearest')
+            if drift.any():
+                # translate
+                _cim = ndimage.interpolation.shift(_im, -drift, order=shift_order, mode='nearest')
+            else:
+                _cim = _im.copy()
             # revert to original crop size
-            _diffs = (_crop - _n_crop).astype(np.int)
-            _cims.append(_cim[_diffs[0, 0]: _diffs[0, 0]+_crop[0, 1]-_crop[0, 0],
-                              _diffs[1, 0]: _diffs[1, 0]+_crop[1, 1]-_crop[1, 0],
-                              _diffs[2, 0]: _diffs[2, 0]+_crop[2, 1]-_crop[2, 0]])
+            _diffs = (_old_crop - _n_crop).astype(np.int)
+            _cims.append(_cim[_diffs[0, 0]: _diffs[0, 0]+_old_crop[0, 1]-_old_crop[0, 0],
+                              _diffs[1, 0]: _diffs[1, 0]+_old_crop[1, 1]-_old_crop[1, 0],
+                              _diffs[2, 0]: _diffs[2, 0]+_old_crop[2, 1]-_old_crop[2, 0]])
         # save cropped ims
         if isinstance(channels, list):
             _cropped_im_list.append(_cims)
@@ -112,13 +117,13 @@ def multi_crop_image_fov(filename, channels, crop_limit_list,
             _cropped_im_list.append(_cims[0])
         # save drifted limits
         _d_limits = np.array([_n_crop[:, 0]+_diffs[:, 0],
-                              _n_crop[:, 0]+_diffs[:, 0]+_crop[:, 1]-_crop[:, 0]]).T
+                              _n_crop[:, 0]+_diffs[:, 0]+_old_crop[:, 1]-_old_crop[:, 0]]).T
         _drifted_limits.append(_d_limits)
         if verbose:
             print("*", end='')
     
     if verbose:
-        print("done")
+        print(f"done in {time.time()-_start_time}s.")
 
     if return_limits:
         return _cropped_im_list, _drifted_limits
