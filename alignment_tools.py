@@ -210,7 +210,7 @@ def align_single_image(_filename, _selected_crops, _ref_filename=None, _ref_ims=
                 _selected_drifts = np.array(_drifts)[_inds, :]
                 _final_drift = np.mean(_selected_drifts, axis=0)
                 return _final_drift, 0
-
+  
     # if not exit during loops, pick the optimal one
     if _verbose:
         print(f"Suspecting failure for {_print_name}")

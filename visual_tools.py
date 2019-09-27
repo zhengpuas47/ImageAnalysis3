@@ -299,7 +299,7 @@ def get_STD_centers(im, seeds=None, th_seed=150, dynamic=False, th_seed_percenti
         pfits = fitter.ps
         #pfits = visual_tools.fit_seed_points_base_fast(im,seeds.T,width_z=1.8*1.5/2,width_xy=1.,radius_fit=5,n_max_iter=3,max_dist_th=0.25,quiet=not verbose)
         # get coordinates for fitted beads
-        remove = 0
+        
         if len(pfits) > 0:
             if sort_by_h:
                 _intensity_order = np.argsort(np.array(pfits)[:,0])
@@ -308,19 +308,19 @@ def get_STD_centers(im, seeds=None, th_seed=150, dynamic=False, th_seed_percenti
                 beads = np.array(pfits)[:, 1:4]
             # remove very close spots
             if remove_close_pts:
+                remove = np.zeros(len(beads), dtype=np.bool)
                 for i, bead in enumerate(beads):
                     if np.isnan(bead).any() or np.sum(np.sum((beads-bead)**2, axis=1) < close_threshold) > 1:
-                        beads = np.delete(beads, i-remove, 0)
-                        remove += 1
+                        remove[i] = True
                     if (bead < 0).any() or (bead > np.array(im.shape)).any():
-                        beads = np.delete(beads, i-remove, 0)
-                        remove += 1
+                        remove[i] = True
+                beads = beads[remove==False]
         else:
             beads = None
         if verbose:
             print(f"- fitting {len(pfits)} points")
             print(
-                f"-- {remove} points removed given smallest distance {close_threshold}")
+                f"-- {np.sum(remove)} points removed given smallest distance {close_threshold}")
         # make plot if required
         if plt_val:
             plt.figure()
