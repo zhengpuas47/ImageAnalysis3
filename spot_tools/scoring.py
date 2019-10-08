@@ -152,7 +152,8 @@ def _local_distance(spot_zxys, spot_ids, sel_zxys, sel_ids,
     
     return np.array(_local_dists)
 
-def _neighboring_distance(spot_zxys, spot_ids=None, invalid_dist=np.nan):
+def _neighboring_distance(spot_zxys, spot_ids=None, 
+                          neighbor_step=1, invalid_dist=np.nan):
     """Function to calculate neighboring distances between list of spot_zxys"""
     _zxys = np.array(spot_zxys)
     if spot_ids is None:
@@ -162,8 +163,8 @@ def _neighboring_distance(spot_zxys, spot_ids=None, invalid_dist=np.nan):
     
     _nb_dists = []
     for _i, (_zxy, _id) in enumerate(zip(_zxys, _ids)):
-        if _id+1 in _ids:
-            _nzxy = _zxys[np.where(_id+1==_ids)[0]]
+        if _id+neighbor_step in _ids:
+            _nzxy = _zxys[np.where(_id+neighbor_step==_ids)[0]]
             _nb_dists += list(np.linalg.norm(_nzxy-_zxy, axis=1))
         else:
             _nb_dists.append(invalid_dist)

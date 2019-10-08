@@ -5,7 +5,7 @@ import multiprocessing as mp
 import psutil
 
 from . import get_img_info, corrections, visual_tools, spot_tools, domain_tools
-from . import _correction_folder,_temp_folder,_distance_zxy,\
+from . import _correction_folder, _corr_channels, _temp_folder,_distance_zxy,\
     _sigma_zxy,_image_size, _allowed_colors, _num_buffer_frames, _num_empty_frames
 from .External import Fitting_v3
 from scipy import ndimage, stats
@@ -15,6 +15,9 @@ from skimage.segmentation import random_walker
 from functools import partial
 import matplotlib
 import matplotlib.pyplot as plt
+
+import h5py
+import ast
 
 _allowed_kwds = {'combo': 'c', 
                 'decoded':'d',
@@ -33,7 +36,28 @@ def killtree(pid, including_parent=False, verbose=False):
 def killchild(verbose=False):
     _pid = os.getpid()
     killtree(_pid, False, verbose)
-
+def _color_dic_stat(color_dic, channels, _type_dic=_allowed_kwds):
+    """Extract number of targeted datatype images in color_dic"""
+    _include_types = {}
+    for _name, _k in _type_dic.items():
+        for _fd, _infos in color_dic.items():
+            for _ch, _info in zip(channels, _infos):
+                if len(_info) > 0 and _info[0] == _k:
+                    if _name not in _include_types:
+                        _include_types[_name] = {'ids':[], 'channels':[]}
+                    # append
+                    _include_types[_name]['ids'].append(int(_info.split(_k)[1]))
+                    _include_types[_name]['channels'].append(_ch)
+    # sort
+    for _name, _dict in _include_types.items():
+        _ids = _dict['ids']
+        _chs = _dict['channels']
+        _sorted_ids = [_id for _id in sorted(_ids)]
+        _sorted_chs = [_ch for _id,_ch in sorted(zip(_ids, _chs))]
+        _include_types[_name]['ids'] = _sorted_ids
+        _include_types[_name]['channels'] = _sorted_chs
+        
+    return _include_types
 # initialize pool
 init_dic = {}
 def _init_unique_pool(_ic_profile_dic, _cac_profile_dic, _ic_shape, _cac_shape):
@@ -83,7 +107,7 @@ def _pick_spot_in_batch(_cell, _data_type='unique', _pick_type='EM', _use_chrom_
                         _sel_ids=None, _num_iters=10, _terminate_th=0.003, 
                         _intensity_th=1, _hard_intensity_th=True, _spot_num_th=100,
                         _ref_spot_list=None, _ref_spot_ids=None, _ref_pick_type='EM',
-                        _ref_dist_metric='median', _score_metric='linear',
+                        _ignore_ids=False, _ref_dist_metric='median', _score_metric='linear',
                         _local_size=5, _w_ctdist=2, _w_lcdist=1, _w_int=1, _w_nbdist=2,
                         _save_inter_plot=False, _save_to_info=True, _save_plot=True, 
                         _check_spots=True, _check_th=-3.5, _check_percentile=10.,
@@ -102,6 +126,7 @@ def _pick_spot_in_batch(_cell, _data_type='unique', _pick_type='EM', _use_chrom_
                                       _intensity_th=_intensity_th, _hard_intensity_th=_hard_intensity_th,
                                       _spot_num_th=_spot_num_th, _ref_spot_list=_ref_spot_list, 
                                       _ref_spot_ids=_ref_spot_ids, _ref_pick_type=_ref_pick_type,
+                                      _ignore_ids=_ignore_ids, 
                                       _ref_dist_metric=_ref_dist_metric, _score_metric=_score_metric,
                                       _local_size=_local_size, _w_ctdist=_w_ctdist, _w_lcdist=_w_lcdist,  
                                       _w_int=_w_int, _w_nbdist=_w_nbdist, 
@@ -1560,7 +1585,7 @@ class Cell_List():
                               _num_iters=10, _terminate_th=0.0025, 
                               _intensity_th=1., _hard_intensity_th=True,
                               _spot_num_th=100, _ref_spot_list=None, _ref_spot_ids=None, _ref_pick_type='EM',
-                              _ref_dist_metric='median', _score_metric='linear',
+                              _ignore_ids=False, _ref_dist_metric='median', _score_metric='linear',
                               _local_size=5, _w_ctdist=1, _w_lcdist=0.1, _w_int=1, _w_nbdist=3,
                               _save_inter_plot=False, _save_to_info=True, _save_plot=True,
                               _check_spots=True, _check_th=-1.5, 
@@ -1603,6 +1628,7 @@ class Cell_List():
                                _sel_ids, _num_iters, _terminate_th, 
                                _intensity_th, _hard_intensity_th, _spot_num_th,
                                _ref_spots, _ref_ids, _ref_pick_type,
+                               _ignore_ids,
                                _ref_dist_metric, _score_metric,
                                _local_size, _w_ctdist, _w_lcdist, _w_int, _w_nbdist,
                                _save_inter_plot, _save_to_info, _save_plot,
@@ -3738,7 +3764,7 @@ class Cell_Data():
                     _sel_ids=None, _num_iters=10, _terminate_th=0.003, 
                     _intensity_th=0., _hard_intensity_th=True, _spot_num_th=100,
                     _ref_spot_list=None, _ref_spot_ids=None, _ref_pick_type='EM',
-                    _ref_dist_metric='median', _score_metric='linear',
+                    _ignore_ids=False, _ref_dist_metric='median', _score_metric='linear',
                     _local_size=5, _w_ctdist=2, _w_lcdist=1, _w_int=1, _w_nbdist=2,
                     _distance_limits=[0,np.inf], _ignore_nan=True,  
                     _nan_mask=0., _inf_mask=-1000., _chrom_share_spots=False,
@@ -3900,6 +3926,10 @@ class Cell_Data():
                     _gids.append(-1 * _id)
             _ids = _gids
         
+        if _ignore_ids:
+            print("-- ignoring ids")
+            _ids = np.arange(len(_all_spots))
+
         # if not overwrite:
         if not _overwrite:
             if not hasattr(self, _picked_attr):
@@ -4496,7 +4526,11 @@ class Merfish_Group():
 class Field_of_View():
     """Class of field-of-view of a certain sample, which includes all possible files across hybs and parameters"""
     
-    def __init__(self, parameters, _load_reference_info=True, _load_all_attrs=True):
+    def __init__(self, parameters, 
+                 _fov_id=None, _fov_name=None,
+                 _load_references=True, _color_info_kwargs={},
+                 _create_savefile=True, _savefile_kwargs={},
+                 _load_all_attrs=True):
         ## Initialize key attributes:
         #: attributes for unprocessed images:
         # un-splitted raw images
@@ -4508,7 +4542,7 @@ class Field_of_View():
         # rotations
         self.rotation = {}
         # segmentation
-        self.segmentation = None
+        self.segmentation_dim = 2
 
         #: attributes for processed images:
         # splitted processed images
@@ -4528,13 +4562,63 @@ class Field_of_View():
             self.data_folder = [str(_fd) for _fd in parameters['data_folder']]
         else:
             self.data_folder = [str(parameters['data_folder'])]
-
         ## extract hybe folders and field-of-view names
         self.folders = []
         for _fd in self.data_folder:
             _hyb_fds, _fovs = get_img_info.get_folders(_fd, feature='H', verbose=True)
-            self.folders += _hyb_fds
-            self.fovs = _fovs        
+            self.folders += _hyb_fds # here only extract folders not fovs
+
+        if _fov_name is None and _fov_id is None:
+            raise ValueError(f"either _fov_name or _fov_id should be given!")
+        elif _fov_id is not None:
+            _fov_id = int(_fov_id)
+            # define fov_name
+            _fov_name = _fovs[_fov_id]
+        else:
+            _fov_name = str(_fov_name)
+            if _fov_name not in _fovs:
+                raise ValueError(f"_fov_name:{_fov_name} should be within fovs:{_fovs}")
+            _fov_id = _fovs.index(_fov_name)
+        # append fov information 
+        self.fov_id = _fov_id
+        self.fov_name = _fov_name
+
+        # experiment_folder
+        if 'experiment_folder'  in parameters:
+            self.experiment_folder = parameters['experiment_folder']
+        else:
+            self.experiment_folder = os.path.join(self.data_folder[0], 'Experiment')
+        ## analysis_folder, segmentation_folder, save_folder, correction_folder,map_folder
+        if 'analysis_folder'  in parameters:
+            self.analysis_folder = str(parameters['analysis_folder'])
+        else:
+            self.analysis_folder = os.path.join(self.data_folder[0], 'Analysis')
+        if 'segmentation_folder' in parameters:
+            self.segmentation_folder = parameters['segmentation_folder']
+        else:
+            self.segmentation_folder = os.path.join(self.analysis_folder, 'segmentation')
+        # save folder
+        if 'save_folder' in parameters:
+            self.save_folder = parameters['save_folder']
+        else:
+            self.save_folder = os.path.join(self.analysis_folder,'save')
+        if 'correction_folder' in parameters:
+            self.correction_folder = parameters['correction_folder']
+        else:
+            self.correction_folder = _correction_folder
+        if 'drift_folder' in parameters:
+            self.drift_folder = parameters['drift_folder']
+        else:
+            self.drift_folder =  os.path.join(self.analysis_folder, 'drift')
+        if 'map_folder' in parameters:
+            self.map_folder = parameters['map_folder']
+        else:
+            self.map_folder = os.path.join(self.analysis_folder, 'distmap')
+        # number of num_threads
+        if 'num_threads' in parameters:
+            self.num_threads = parameters['num_threads']
+        else:
+            self.num_threads = int(os.cpu_count() / 4) # default: use one third of cpus.
 
         ## shared_parameters
         # initialize
@@ -4555,6 +4639,8 @@ class Field_of_View():
             self.shared_parameters['num_empty_frames'] = _num_empty_frames
         if 'normalization' not in self.shared_parameters:
             self.shared_parameters['normalization'] = False
+        if 'corr_channels' not in self.shared_parameters:
+            self.shared_parameters['corr_channels'] = _corr_channels
         if 'corr_bleed' not in self.shared_parameters:
             self.shared_parameters['corr_bleed'] = True
         if 'corr_Z_shift' not in self.shared_parameters:
@@ -4568,8 +4654,191 @@ class Field_of_View():
         if 'allowed_kwds' not in self.shared_parameters:
             self.shared_parameters['allowed_data_types'] = _allowed_kwds
 
+        ## load experimental info
+        if _load_references:
+            _color_dic = self._load_color_info(**_color_info_kwargs)
 
-    def _correct_splice_images(self, _data_type, _sel_hybs=[], _sel_keys=[],):
+        ## create savefile
+        if _create_savefile:
+            self._init_save_file(**_savefile_kwargs)
+
+
+
+    ## Load basic info
+    def _load_color_info(self, _color_filename='Color_Usage', _color_format='csv', _save_color_dic=True):
+        _color_dic, _use_dapi, _channels = get_img_info.Load_Color_Usage(self.analysis_folder,
+                                                            color_filename=_color_filename,
+                                                            color_format=_color_format,
+                                                            return_color=True)
+        # need-based store color_dic
+        if _save_color_dic:
+            self.color_dic = _color_dic
+        # store other info
+        self.use_dapi = _use_dapi
+        self.channels = [str(ch) for ch in _channels]
+        # channel for beads
+        _bead_channel = get_img_info.find_bead_channel(_color_dic)
+        self.bead_channel_index = _bead_channel
+        _dapi_channel = get_img_info.find_dapi_channel(_color_dic)
+        self.dapi_channel_index = _dapi_channel
+
+        return _color_dic
+    
+    ### Here are some initialization functions
+    def _init_save_file(self, _save_filename=None, 
+                        _overwrite=False, _verbose=True):
+        """Function to initialize save file for FOV object"""
+        if _save_filename is None:
+            _save_filename = os.path.join(self.save_folder, f"{self.fov_name.split('.')[0]}.hdf5")
+        if _verbose and not os.path.exists(_save_filename):
+                print(f"- Creating save file for fov:{self.fov_name}: {_save_filename}")
+        with h5py.File(_save_filename, "a", libver='latest') as _f:
+            if _verbose:
+                print(f"- Updating info for fov:{self.fov_name}: {_save_filename}")
+            ## self specific attributes stored directly in attributes:
+            _base_attrs = []
+            for _attr_name in dir(self):
+                # exclude all default attrs and functions
+                if _attr_name[0] != '_' and getattr(self, _attr_name) is not None:
+                    # set default to be save
+                    _info_attr_flag = True
+                    # if included into data_type, not save here
+                    for _name in self.shared_parameters['allowed_data_types'].keys():
+                        # give some criteria
+                        if _name in _attr_name:
+                            _info_attr_flag = False
+                            break
+                    # if its image dict, exclude
+                    if 'im_dict' in _attr_name:
+                        _info_attr_flag = False
+                    # if its segmentation, exclude
+                    if 'segmentation' in _attr_name:
+                        _info_attr_flag = False
+                    # if its related to correction, exclude
+                    if 'correction' in _attr_name:
+                        _info_attr_flag = False
+                    # save here:
+                    if _info_attr_flag:
+                        # extract the attribute
+                        _attr = getattr(self, _attr_name)
+                        # convert dict if necessary
+                        if isinstance(_attr, dict):
+                            _attr = str(_attr)
+                        # save
+                        if _attr_name not in _f.attrs or _overwrite:
+                            _f.attrs[_attr_name] = _attr
+                            _base_attrs.append(_attr_name)
+            if _verbose:
+                print(f"-- base attributes updated:{_base_attrs}")
+                        
+            ## segmentation
+            if 'segmentation' not in _f.keys():
+                _grp = _f.create_group('segmentation') # create segmentation group
+            else:
+                _grp = _f['segmentation']
+            
+            # directly create segmentation label dataset
+            if 'segmentation_label' not in _grp:
+                _seg = _grp.create_dataset('segmentation_label', 
+                                        self.shared_parameters['single_im_size'][-self.segmentation_dim:], 
+                                        dtype='i8')
+                if hasattr(self, 'segmentation_label'):
+                    _grp['segmentation_label'] = getattr(self, 'segmentation_label')
+            # create other segmentation related datasets
+            for _attr_name in dir(self):
+                if _attr_name[0] != '_' and 'segmentation' in _attr_name and _attr_name not in _grp.keys():
+                    _grp[_attr_name] = getattr(self, _attr_name)
+            
+            # create label for each datatype
+            _type_dic = _color_dic_stat(self.color_dic, self.channels, self.shared_parameters['allowed_data_types'])
+            for _data_type, _dict in _type_dic.items():
+                if _data_type not in _f.keys():
+                    _grp = _f.create_group(_data_type) # create data_type group
+                else:
+                    _grp = _f[_data_type]
+                # record updated data_type related attrs
+                _data_attrs = []
+                # save images, ids, channels
+                # calculate image shape and chunk shape
+                _im_shape = np.concatenate([np.array([len(_dict['ids'])]), 
+                                            self.shared_parameters['single_im_size']])
+                _chunk_shape = np.concatenate([np.array([1]), 
+                                            self.shared_parameters['single_im_size']])                              
+                # change size
+                _change_size_flag = False
+                # if missing any of these features, create new ones
+                # ids
+                if 'ids' not in _grp:
+                    _ids = _grp.create_dataset('ids', (len(_dict['ids']),), dtype='i', data=_dict['ids'])
+                    _data_attrs.append('ids')
+                elif len(_dict['ids']) != len(_grp['ids']):
+                    _change_size_flag = True
+                    _old_size=len(_grp['ids'])
+                # channels
+                if 'channels' not in _grp:
+                    _channels = [_ch.encode('utf8') for _ch in _dict['channels']]
+                    _chs = _grp.create_dataset('channels', (len(_dict['channels']),), dtype='S3', data=_channels)
+                    _data_attrs.append('channels')
+                elif len(_dict['channels']) != len(_grp['channels']):
+                    _change_size_flag = True
+                    _old_size=len(_grp['channels'])
+                # images
+                if 'ims' not in _grp:
+                    _ims = _grp.create_dataset('ims', tuple(_im_shape), dtype='u8', chunks=tuple(_chunk_shape))
+                    _data_attrs.append('ims')
+                elif len(_im_shape) != len(_grp['ims']) or (_im_shape != (_grp['ims']).shape).any():
+                    _change_size_flag = True
+                    _old_size=len(_grp['ims'])
+                
+                # if change size, update these features:
+                if _change_size_flag:
+                    print(f"* data size of {_data_type} is changing from {_old_size} to {len(_dict['ids'])}!")
+                    ###UNDER CONSTRUCTION################
+                    pass
+                # elsif size don't change, also load other related dtypes
+                else:
+                    for _attr_name in dir(self):
+                        if _attr_name[0] != '_' and _data_type in _attr_name:
+                            if _attr_name not in _grp.keys() or _overwrite:
+                                _grp[_attr_name] = getattr(self, _attr_name)
+                                _data_attrs.append(_attr_name)
+                # summarize
+                if _verbose:
+                    print(f"-- {_data_type} attributes updated:{_data_attrs}")
+
+    def _DAPI_segmentation(self):
+        pass
+
+    def _load_correction_profiles(self, _correction_folder=None, _corr_channels=['750','647','561'],
+                                  _chromatic_target='647',
+                                  _profile_postfix='.npy', _verbose=True):
+        """Function to laod correction profiles in RAM"""
+        from .io_tools.load import load_correction_profile
+        # determine correction folder
+        if _correction_folder is None:
+            _correction_folder = self.correction_folder
+        # loading bleedthrough
+        if self.shared_parameters['corr_bleed']:
+            self.bleed_correction = load_correction_profile('bleedthrough', self.shared_parameters['corr_channels'], 
+                                        self.correction_folder, all_channels=self.channels, 
+                                        im_size=self.shared_parameters['single_im_size'],
+                                        verbose=_verbose)
+        # loading chromatic
+        if self.shared_parameters['corr_chromatic']:
+            self.chromatic_correction = load_correction_profile('chromatic', self.shared_parameters['corr_channels'], 
+                                        self.correction_folder, all_channels=self.channels, 
+                                        im_size=self.shared_parameters['single_im_size'],
+                                        verbose=_verbose)
+        # load illumination
+        if self.shared_parameters['corr_illumination']:
+            self.illumination_correction = load_correction_profile('illumination', self.shared_parameters['corr_channels'], 
+                                                self.correction_folder, all_channels=self.channels, 
+                                                im_size=self.shared_parameters['single_im_size'],
+                                                verbose=_verbose)
+
+        
+
+    def _correct_splice_images(self, _data_type, _sel_hybs=[], _sel_keys=[], _verbose=True):
         pass
 
     def _save_to_file(self, _type):
@@ -4578,7 +4847,7 @@ class Field_of_View():
     def _load_from_file(self, _type):
         pass
 
-    def _DAPI_segmentation(self):
+    def _delete_save_file(self, _type):
         pass
 
     def _convert_to_cell_list(self):

@@ -1,4 +1,4 @@
-import sys,os,re,time,glob
+import os,re,time,glob
 import numpy as np
 import pickle as pickle
 import matplotlib.pylab as plt
@@ -956,7 +956,7 @@ def batch_load_dax(filename):
 
 class DaxReader(Reader):
     # dax specific initialization
-    def __init__(self, filename, verbose = 0):
+    def __init__(self, filename, swap_axis=False, verbose = 0):
         import os,re
         # save the filenames
         self.filename = filename
@@ -964,6 +964,8 @@ class DaxReader(Reader):
         if (len(dirname) > 0):
             dirname = dirname + "/"
         self.inf_filename = dirname + os.path.splitext(os.path.basename(filename))[0] + ".inf"
+        # swap_axis
+        self.swap_axis = swap_axis
 
         # defaults
         self.image_height = None
@@ -1045,14 +1047,20 @@ class DaxReader(Reader):
             assert frame_number < self.number_frames, "frame number must be less than " + str(self.number_frames)
             self.fileptr.seek(frame_number * self.image_height * self.image_width * 2)
             image_data = np.fromfile(self.fileptr, dtype='uint16', count = self.image_height * self.image_width)
-            image_data = np.transpose(np.reshape(image_data, [self.image_width, self.image_height]))
+            if self.swap_axis:
+                image_data = np.transpose(np.reshape(image_data, [self.image_width, self.image_height]))
+            else:
+                image_data = np.reshape(image_data, [self.image_width, self.image_height])
             if self.bigendian:
                 image_data.byteswap(True)
             return image_data
     # load full movie and retun it as a np array
     def loadAll(self):
         image_data = np.fromfile(self.fileptr, dtype='uint16', count = -1)
-        image_data = np.swapaxes(np.reshape(image_data, [self.number_frames,self.image_width, self.image_height]),1,2)
+        if self.swap_axis:
+            image_data = np.swapaxes(np.reshape(image_data, [self.number_frames,self.image_width, self.image_height]),1,2)
+        else:
+            image_data = np.reshape(image_data, [self.number_frames,self.image_width, self.image_height])
         if self.bigendian:
             image_data.byteswap(True)
         return image_data
@@ -3352,7 +3360,7 @@ def convert_spots_to_cloud(spots, comp_dict, im_radius=30, distance_zxy=_distanc
         spots
        """
     ## check inputs
-    from ImageAnalysis3.visual_tools import add_source
+    #from ImageAnalysis3.visual_tools import add_source
     # spots
     _spots = np.array(spots).copy()
     if len(spots.shape) != 2:
