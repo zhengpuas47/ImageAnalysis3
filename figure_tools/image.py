@@ -214,7 +214,7 @@ def chromosome_structure_3d_rendering(spots, ax3d=None, cmap='Spectral',
     # cmap
     if isinstance(cmap, str):
         _cmap = matplotlib.cm.get_cmap(cmap)
-        _colors = np.array([np.array(_cmap(_i)[:3]) for _i in np.linspace(0,1,len(_spots))])
+        _colors = np.array([np.array(_cmap(_i)[:4]) for _i in np.linspace(0,1,len(_spots))])
     elif isinstance(cmap, np.ndarray) or isinstance(cmap, list):
         if len(cmap) == len(_spots):
             # create cmap
