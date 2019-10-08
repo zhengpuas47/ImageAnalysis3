@@ -546,7 +546,6 @@ def assign_domain_cluster_to_compartments(coordinates, domain_starts, compartmen
     else:
         return _assigned_dict
 
-
 def Batch_Assign_Domain_Clusters_To_Compartments(coordinate_list, domain_start_list, compartment_dict,
                                                  num_threads=12, linkage_list=None,
                                                  linkage_method='complete', distance_metric='median',

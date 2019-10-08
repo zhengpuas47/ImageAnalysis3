@@ -365,7 +365,7 @@ def Illumination_correction(im, correction_channel, crop_limits=None,
 
 def Chromatic_abbrevation_correction(im, correction_channel, target_channel='647', crop_limits=None, 
                                      all_channels=_allowed_colors, single_im_size=_image_size,
-                                     correction_folder=_correction_folder, 
+                                     drift=np.array([0,0,0]), correction_folder=_correction_folder, 
                                      profile_dtype=np.float, image_dtype=np.uint16,
                                      cc_profile_name='chromatic_correction', verbose=True):
     """Chromatic abbrevation correction for given image and crop
@@ -376,6 +376,7 @@ def Chromatic_abbrevation_correction(im, correction_channel, target_channel='647
             required if im is already sliced, 2x2 or 3x2 np.ndarray (default: None, no cropping at all)
         all_channels: allowed channels to be corrected, list 
         single_im_size: full image size before any slicing, list of 3 (default:[30,2048,2048])
+        drift: 3d drift of the image, which could be corrected at the same time, list/array of 3
         correction_folder: correction folder to find correction profile, string of path (default: Z://Corrections/)
         profile_dtype: data type for correction profile, numpy datatype (default: np.float)
         image_dtype: image data type, numpy datatype (default: np.uint16)
@@ -447,7 +448,9 @@ def Chromatic_abbrevation_correction(im, correction_channel, target_channel='647
         cim = im
     else:
         raise IndexError(f"Wrong input size for im:{im_shape} compared to crop_limits:{crop_limits}")
-    
+    # check drift
+    _drift = np.array(drift[:3])
+
     ## do correction
     # 1. get coordiates to be mapped
     _coords = np.meshgrid( np.arange(crop_limits[0][1]-crop_limits[0][0]), 
@@ -460,6 +463,9 @@ def Chromatic_abbrevation_correction(im, correction_channel, target_channel='647
                                                    [crop_limits[2][0],crop_limits[2][1]], image_dtype=profile_dtype)
     # 3. calculate corrected coordinates as a reference
     _corr_coords = _coords + _cropped_cc_profile[:,np.newaxis]
+    # 4. add drift if applied
+    if _drift.any():
+        _corr_coords += _drift[:, np.newaxis,np.newaxis,np.newaxis]
     # 4. map coordinates
     _corr_im = map_coordinates(cim, _corr_coords.reshape(_corr_coords.shape[0], -1), mode='nearest')
     _corr_im = _corr_im.reshape(np.shape(cim))
@@ -671,7 +677,7 @@ def generate_illumination_correction(color, data_folder, correction_folder, num_
 
     return _ic_profile
 
-# generate bleedthrough 
+# generate chromatic 
 def generate_chromatic_abbrevation_info(ca_filename, ref_filename, ca_channel, ref_channel='647',
                                         single_im_size=_image_size, all_channels=_allowed_colors, 
                                         bead_channel='488', bead_drift_size=300, 
@@ -700,7 +706,7 @@ def generate_chromatic_abbrevation_info(ca_filename, ref_filename, ca_channel, r
         rsq_th: threshold for rsquare from linear regression between bldthrough and ref image, float (default: 0.81)
         verbose: say something!, bool (default: True)
     Outputs:
-        picked_list: list of dictionary containing all info for bleedthrough correction"""
+        picked_list: list of dictionary containing all info for chromatic correction"""
     from sklearn.linear_model import LinearRegression
     from .alignment_tools import fast_align_centers
     ## generate ref-image and bleed-through-image
@@ -1113,9 +1119,9 @@ def _generate_bleedthrough_info_per_image(filename, ref_channel, bld_channel,
                                num_buffer_frames=10, num_empty_frames=1,
                                correction_folder=_correction_folder,
                                normalization=False, illumination_corr=True, 
-                               th_seed=2000, crop_window=9,
-                               remove_boundary_pts=True, rsq_th=0.81, 
-                               save_temp=True, verbose=True):
+                               th_seed=1500, crop_window=9,
+                               remove_boundary_pts=True, rsq_th=0.9, 
+                               save_temp=True, force=False, verbose=True):
     """Generate bleedthrough coefficient
     Inputs:
         filename: full filename for image, str
@@ -1135,6 +1141,8 @@ def _generate_bleedthrough_info_per_image(filename, ref_channel, bld_channel,
     Outputs:
         picked_list: list of dictionary containing all info for bleedthrough correction"""
     from sklearn.linear_model import LinearRegression
+    if verbose:
+        print(f"- find bleedthrough pairs for image: {filename}")
     ## generate ref-image and bleed-through-image
     ref_channel = str(ref_channel)
     bld_channel = str(bld_channel)
@@ -1143,7 +1151,14 @@ def _generate_bleedthrough_info_per_image(filename, ref_channel, bld_channel,
         raise ValueError(f"ref_channel:{ref_channel} should be in all_channels:{all_channels}")
     if bld_channel not in all_channels:
         raise ValueError(f"bld_channel:{bld_channel} should be in all_channels:{all_channels}")
-
+    # if not force and temp file exist, continue
+    save_filename = filename.replace('.dax', 
+        f'_bleedthrough_{ref_channel}_{bld_channel}_{th_seed}.pkl')
+    if not force and os.path.isfile(save_filename):
+        if verbose:
+            print(f"-- directly load picked list for image: {filename}")
+        picked_list = pickle.load(open(save_filename, 'rb'))
+    
     if verbose:
         print(f"-- acquiring ref_im and bld_im from file:{filename}")
     ref_im, bld_im = correct_one_dax(filename, [ref_channel, bld_channel], single_im_size=single_im_size, 
@@ -1207,8 +1222,15 @@ def _generate_bleedthrough_info_per_image(filename, ref_channel, bld_channel,
                          'intercept': _reg.intercept_,
                          'input_file':filename}
             picked_list.append(_pair_dic)
+    
+    if save_temp:
+        if verbose:
+            print(f"-- save temp file: {save_filename}")
+        pickle.dump(picked_list, open(save_filename, 'wb'))
+
     if verbose:
         print(f"-- {len(picked_list)} pairs are saved.")
+    
 
     return picked_list
 
@@ -1219,8 +1241,8 @@ def generate_bleedthrough_correction_channel(data_folder, target_channel, ref_ch
                                              num_buffer_frames=10, num_empty_frames=1,
                                              correction_folder=_correction_folder,
                                              normalization=False, illumination_corr=True, 
-                                             th_seed=500, crop_window=9,
-                                             remove_boundary_pts=True, rsq_th=0.81, 
+                                             th_seed=1500, crop_window=9,
+                                             remove_boundary_pts=True, rsq_th=0.9, 
                                              fitting_order=2, 
                                              save_temp=True, save_profile=True,
                                              save_name='bleedthrough_correction_',
@@ -1260,7 +1282,7 @@ def generate_bleedthrough_correction_channel(data_folder, target_channel, ref_ch
                 (_bc_file, ref_channel, target_channel, single_im_size, all_channels, 
                 num_buffer_frames, num_empty_frames, correction_folder, normalization, 
                 illumination_corr, th_seed, crop_window, remove_boundary_pts, rsq_th, 
-                save_temp, verbose)
+                save_temp, overwrite, verbose)
             )
         # multi-processing
         with mp.Pool(num_threads) as _bc_pool:
@@ -1421,7 +1443,9 @@ def Generate_bleedthrough_correction(folder_list, channel_list,
     if save_folder is None:
         save_folder = correction_folder
     # profile name
-    _profile_basename = save_name + 'matrix_' + '_'.join(sorted(channel_list, key=lambda v:-int(v)))
+    _profile_basename = save_name \
+                        + '_'.join(sorted(channel_list, key=lambda v:-int(v))) \
+                        + f"_{single_im_size[-2]}x{single_im_size[-1]}"
     _profile_filename = os.path.join(save_folder, _profile_basename+'.npy')
     if os.path.isfile(_profile_filename):
         if verbose:
@@ -1452,7 +1476,7 @@ def Generate_bleedthrough_correction(folder_list, channel_list,
 
         # transpose first two axes
         bld_corr_profile = bld_corr_profile.transpose((1,0,2,3))
-        inv_corr_profile = np.zeros(np.shape(bld_corr_profile))
+        inv_corr_profile = np.zeros(np.shape(bld_corr_profile), dtype=np.float)
         for _i in range(np.shape(bld_corr_profile)[-2]):
             for _j in range(np.shape(bld_corr_profile)[-1]):
                 inv_corr_profile[:,:,_i,_j] = np.linalg.inv(bld_corr_profile[:,:,_i,_j])
@@ -1472,7 +1496,7 @@ def Bleedthrough_correction(input_im, crop_limits=None, all_channels=_allowed_co
                             correction_folder=_correction_folder,
                             normalization=False,
                             z_shift_corr=True, hot_pixel_remove=True,
-                            profile_basename='bleedthrough_correction_matrix',
+                            profile_basename='bleedthrough_correction_',
                             profile_dtype=np.float, image_dtype=np.uint16,
                             return_limits=False, verbose=True):
     """Bleedthrough correction for a composite image
@@ -1520,10 +1544,10 @@ def Bleedthrough_correction(input_im, crop_limits=None, all_channels=_allowed_co
     elif len(correction_channels) != 3:
         raise ValueError("correction_channels should have 3 elements!")
     # correction profile
-    _basename = profile_basename
-    for _ch in correction_channels:
-        _basename += '_'+str(_ch)
-    profile_filename = os.path.join(correction_folder, _basename+'.npy')
+    _profile_basename = profile_basename \
+                        + '_'.join(sorted(correction_channels, key=lambda v:-int(v))) \
+                        + f"_{single_im_size[-2]}x{single_im_size[-1]}"
+    profile_filename = os.path.join(correction_folder, _profile_basename+'.npy')
     if not os.path.isfile(profile_filename):
         raise IOError(f"Bleedthrough correction profile:{profile_filename} doesn't exist, exit!")\
 
