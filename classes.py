@@ -4529,7 +4529,8 @@ class Field_of_View():
     def __init__(self, parameters, 
                  _fov_id=None, _fov_name=None,
                  _load_references=True, _color_info_kwargs={},
-                 _create_savefile=True, _savefile_kwargs={},
+                 _create_savefile=True, _save_filename=None,
+                 _savefile_kwargs={},
                  _load_all_attrs=True):
         ## Initialize key attributes:
         #: attributes for unprocessed images:
@@ -4549,7 +4550,7 @@ class Field_of_View():
         self.im_dict = {}
         # channel dict corresponding to im_dict
         self.channel_dict = {}
-        
+
         ## check input datatype
         if not isinstance(parameters, dict):
             raise TypeError(f'wrong input type of parameters, should be dict containing essential info, but {type(parameters)} is given!')
@@ -4659,8 +4660,13 @@ class Field_of_View():
             _color_dic = self._load_color_info(**_color_info_kwargs)
 
         ## create savefile
+        # save filename
+        if _save_filename is None:
+            _save_filename = os.path.join(self.save_folder, self.fov_name.replace('.dax', '.hdf5'))
+        # initialize save file
         if _create_savefile:
-            self._init_save_file(**_savefile_kwargs)
+            self._init_save_file(_save_filename=_save_filename, 
+                                 **_savefile_kwargs)
 
 
 
@@ -4765,14 +4771,15 @@ class Field_of_View():
                 _chunk_shape = np.concatenate([np.array([1]), 
                                             self.shared_parameters['single_im_size']])                              
                 # change size
-                _change_size_flag = False
+                _change_size_flag = None
                 # if missing any of these features, create new ones
                 # ids
                 if 'ids' not in _grp:
                     _ids = _grp.create_dataset('ids', (len(_dict['ids']),), dtype='i', data=_dict['ids'])
                     _data_attrs.append('ids')
                 elif len(_dict['ids']) != len(_grp['ids']):
-                    _change_size_flag = True
+                    _change_size_flag = 'id'
+                    print('id')
                     _old_size=len(_grp['ids'])
                 # channels
                 if 'channels' not in _grp:
@@ -4780,19 +4787,26 @@ class Field_of_View():
                     _chs = _grp.create_dataset('channels', (len(_dict['channels']),), dtype='S3', data=_channels)
                     _data_attrs.append('channels')
                 elif len(_dict['channels']) != len(_grp['channels']):
-                    _change_size_flag = True
+                    _change_size_flag = 'channels'
                     _old_size=len(_grp['channels'])
                 # images
                 if 'ims' not in _grp:
                     _ims = _grp.create_dataset('ims', tuple(_im_shape), dtype='u8', chunks=tuple(_chunk_shape))
                     _data_attrs.append('ims')
-                elif len(_im_shape) != len(_grp['ims']) or (_im_shape != (_grp['ims']).shape).any():
-                    _change_size_flag = True
+                elif len(_im_shape) != len(_grp['ims'].shape) or (_im_shape != (_grp['ims']).shape).any():
+                    _change_size_flag = 'ims'
                     _old_size=len(_grp['ims'])
-                
+                # spots
+                if 'spots' not in _grp:
+                    _spots = _grp.create_dataset('spots', (_im_shape[0],), dtype='f')
+                    _data_attrs.append('spots')
+                elif _im_shape[0] != len(_grp['spots']):
+                    _change_size_flag = 'spots'
+                    _old_size=len(_grp['spots'])
+            
                 # if change size, update these features:
-                if _change_size_flag:
-                    print(f"* data size of {_data_type} is changing from {_old_size} to {len(_dict['ids'])}!")
+                if _change_size_flag is not None:
+                    print(f"* data size of {_data_type} is changing from {_old_size} to {len(_dict['ids'])} because {_change_size_flag}")
                     ###UNDER CONSTRUCTION################
                     pass
                 # elsif size don't change, also load other related dtypes
@@ -4835,11 +4849,15 @@ class Field_of_View():
                                                 self.correction_folder, all_channels=self.channels, 
                                                 im_size=self.shared_parameters['single_im_size'],
                                                 verbose=_verbose)
+        return
 
-        
+    def _bead_drift(self, _bead_channel=None):
+        pass
 
     def _correct_splice_images(self, _data_type, _sel_hybs=[], _sel_keys=[], _verbose=True):
-        pass
+        ## check inputs
+        if _data_type not in self.shared_parameters['allowed_data_types']:
+            raise ValueError(f"Wrong input for _data_type:{_data_type}, should be within {self.shared_parameters['allowed_data_types'].keys()}")
 
     def _save_to_file(self, _type):
         pass

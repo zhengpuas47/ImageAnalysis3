@@ -159,16 +159,23 @@ def Calculate_BED_to_Region(data_filename, region_dic, data_format='tagAlign',
     
 ## Compartment Analysis
 #-----------------------------------------------------------------------------------
-def is_in_hull(ref_zxys, zxy):
+def is_in_hull(ref_zxys, zxy, remove_self=True):
     """Check if point zxy in ref_zxys
     either zxy or ref_zxys should be 3d ZXY coordinates"""
     if 'ConvexHull' not in locals():
         from scipy.spatial import ConvexHull
     if len(np.shape(zxy)) != 1:
         raise ValueError(f"Wrong input dimension for p, should be 1d")
+
     # Remove Nan in ref_zxys
     ref_zxys = np.array(ref_zxys) # convert to array
     _kept_rows = np.isnan(ref_zxys).sum(axis=1) == 0
+    # remove itself
+    if remove_self:
+        for _i, _ref_zxy in enumerate(ref_zxys):
+            if (_ref_zxy == np.array(zxy)).all():
+                _kept_rows[_i] = False
+    # apply remove
     _kept_ref_zxys = ref_zxys[_kept_rows]
     if len(_kept_ref_zxys) <= 3:
         print('Not enough points to create convex hull.')
