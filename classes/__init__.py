@@ -2,12 +2,11 @@ import sys,glob,os,time,copy
 import numpy as np
 import pickle as pickle
 import multiprocessing as mp
-import psutil
 
-from . import get_img_info, corrections, visual_tools, spot_tools, domain_tools
-from . import _correction_folder, _corr_channels, _temp_folder,_distance_zxy,\
+from .. import get_img_info, corrections, visual_tools, spot_tools, domain_tools
+from .. import _correction_folder, _corr_channels, _temp_folder,_distance_zxy,\
     _sigma_zxy,_image_size, _allowed_colors, _num_buffer_frames, _num_empty_frames
-from .External import Fitting_v3
+from ..External import Fitting_v3
 from scipy import ndimage, stats
 from scipy.spatial.distance import pdist,cdist,squareform
 from skimage import morphology
@@ -19,6 +18,8 @@ import matplotlib.pyplot as plt
 import h5py
 import ast
 
+from . import batch_functions
+
 _allowed_kwds = {'combo': 'c', 
                 'decoded':'d',
                 'unique': 'u', 
@@ -27,15 +28,6 @@ _allowed_kwds = {'combo': 'c',
                 'rna': 'r', # long term used label, because "-" is creating issue in python
                 'gene':'g'}
 
-def killtree(pid, including_parent=False, verbose=False):
-    parent = psutil.Process(pid)
-    for child in parent.children(recursive=True):
-        if verbose:
-            print ("child", child)
-        child.kill()
-def killchild(verbose=False):
-    _pid = os.getpid()
-    killtree(_pid, False, verbose)
 def _color_dic_stat(color_dic, channels, _type_dic=_allowed_kwds):
     """Extract number of targeted datatype images in color_dic"""
     _include_types = {}
@@ -213,6 +205,11 @@ class Cell_List():
             self.experiment_folder = parameters['experiment_folder']
         else:
             self.experiment_folder = os.path.join(self.data_folder[0], 'Experiment')
+        # experiment type
+        if 'experiment_type'  in parameters:
+            self.experiment_type = parameters['experiment_type']
+        else:
+            self.experiment_type = 'DNA'
         ## analysis_folder, segmentation_folder, save_folder, correction_folder,map_folder
         if 'analysis_folder'  in parameters:
             self.analysis_folder = str(parameters['analysis_folder'])
@@ -761,7 +758,7 @@ class Cell_List():
             _seg_pool.join()
             _seg_pool.terminate()
         # clear
-        killchild()
+        batch_functions.killchild()
         del(_seg_args) 
         # extract result
         _new_filenames += _seg_fls # filenames
@@ -951,7 +948,7 @@ class Cell_List():
         _cell_pool.terminate()
         _cell_pool.join()
         # clear
-        killchild()
+        batch_functions.killchild()
         del(_args, _cell_pool)
         # load
         self.cells += _cells
@@ -1031,7 +1028,7 @@ class Cell_List():
         Outputs:
             """
         ## check inputs
-        from .corrections import multi_correct_one_dax
+        from ..corrections import multi_correct_one_dax
         # check whether cells and segmentation,drift info exists
         if _verbose:
             print (f"+ Load images for {len(self.cells)} cells in this cell list")
@@ -1479,7 +1476,7 @@ class Cell_List():
             _trans_pool.close()
             _trans_pool.join()
             _trans_pool.terminate()
-        killchild()
+        batch_functions.killchild()
 
         # save
         for _i, _cell in enumerate(self.cells):
@@ -1656,7 +1653,7 @@ class Cell_List():
             _pick_pool.join()
             _pick_pool.terminate()
         # clear
-        killchild()
+        batch_functions.killchild()
         del(_pick_args)
         if not _release_ram or not _save_to_info:
             if _verbose:
@@ -1759,7 +1756,7 @@ class Cell_List():
         # acquire total map
         _total_map = np.array(_cand_distmaps, dtype=np.float)
         _region_failure_rate = np.sum(np.sum(np.isnan(_total_map),axis=1) >= \
-                                 _total_map.shape[2]-1, axis=0) / len(_total_map)
+                                 np.shape(_total_map)[2]-1, axis=0) / len(_total_map)
         # calculate averaged map
         if _stat_type == 'median':
             _averaged_map = np.nanmedian(_total_map, axis=0)
@@ -2377,7 +2374,7 @@ class Cell_List():
             _domain_pool.terminate()
         # clear
         if __name__ == '__main__':
-            killchild()
+            batch_functions.killchild()
 
         ## save attr
         if _verbose:
@@ -2436,6 +2433,11 @@ class Cell_Data():
             self.experiment_folder = parameters['experiment_folder']
         else:
             self.experiment_folder = os.path.join(self.data_folder[0], 'Experiment')
+        # experiment type
+        if 'experiment_type'  in parameters:
+            self.experiment_type = parameters['experiment_type']
+        else:
+            self.experiment_type = 'DNA'
         # extract hybe folders and field-of-view names
         if 'folders' in parameters and 'fovs' in parameters:
             self.folders = parameters['folders']
@@ -2958,7 +2960,7 @@ class Cell_Data():
                     _crop_pool.join()
                     _crop_pool.terminate()
                 # clear
-                killchild()
+                batch_functions.killchild()
                 # append (Notice: unique_ids and unique_channels has been appended)
                 for _uims in _cropped_results:
                     _ims += _uims
@@ -3993,7 +3995,7 @@ class Cell_Data():
             os.makedirs(_plot_folder)
         # pick spots according to types
         if _pick_type == 'naive':
-            from .spot_tools.picking import naive_pick_spots_for_chromosomes
+            from ..spot_tools.picking import naive_pick_spots_for_chromosomes
             # loop through chromosomes and pick
             _picked_spot_list, _picked_ind_list = naive_pick_spots_for_chromosomes(
                 _all_spots, _ids, chrom_coords=_chrom_coords, intensity_th=_intensity_th,
@@ -4004,7 +4006,7 @@ class Cell_Data():
         elif _pick_type == 'dynamic':
             # directly do dynamic picking
             # note: by running this allows default Naive picking as initial condition
-            from .spot_tools.picking import dynamic_pick_spots_for_chromosomes
+            from ..spot_tools.picking import dynamic_pick_spots_for_chromosomes
             _picked_spot_list, _picked_ind_list = dynamic_pick_spots_for_chromosomes(
                 _all_spots, _ids, chrom_coords=_chrom_coords, sel_spot_list=None,
                 intensity_th=_intensity_th, hard_intensity_th=_hard_intensity_th,
@@ -4022,7 +4024,7 @@ class Cell_Data():
         elif _pick_type == 'EM':
             # dirctly do EM
             # note: by running this allows default Naive picking as initial condition
-            from .spot_tools.picking import EM_pick_spots_for_chromosomes
+            from ..spot_tools.picking import EM_pick_spots_for_chromosomes
             _picked_spot_list, _picked_ind_list = EM_pick_spots_for_chromosomes(
                 _all_spots, _ids, chrom_coords=_chrom_coords, sel_spot_list=None,
                 num_iters=_num_iters, terminate_th=_terminate_th,
@@ -4657,7 +4659,17 @@ class Field_of_View():
 
         ## load experimental info
         if _load_references:
-            _color_dic = self._load_color_info(**_color_info_kwargs)
+            if '_color_filename' not in _color_info_kwargs:
+                self.color_filename = 'Color_Usage'
+                _color_info_kwargs['_color_filename'] = self.color_filename
+            else:
+                self.color_filename = _color_info_kwargs['_color_filename']
+            if '_color_format' not in _color_info_kwargs:
+                self.color_format = 'csv'
+                _color_info_kwargs['_color_format'] = self.color_format
+            else:
+                self.color_format = _color_info_kwargs['_color_format']
+            _color_dic = self._load_color_info(_annotate_folders=True, **_color_info_kwargs)
 
         ## create savefile
         # save filename
@@ -4671,7 +4683,14 @@ class Field_of_View():
 
 
     ## Load basic info
-    def _load_color_info(self, _color_filename='Color_Usage', _color_format='csv', _save_color_dic=True):
+    def _load_color_info(self, _color_filename=None, _color_format=None, 
+                         _save_color_dic=True, _annotate_folders=False):
+        """Function to load color usage representing experimental info"""
+        ## check inputs
+        if _color_filename is None:
+            _color_filename = self.color_filename
+        if _color_format is None:
+            _color_format = self.color_format
         _color_dic, _use_dapi, _channels = get_img_info.Load_Color_Usage(self.analysis_folder,
                                                             color_filename=_color_filename,
                                                             color_format=_color_format,
@@ -4687,6 +4706,15 @@ class Field_of_View():
         self.bead_channel_index = _bead_channel
         _dapi_channel = get_img_info.find_dapi_channel(_color_dic)
         self.dapi_channel_index = _dapi_channel
+
+        # get annotated folders by color usage
+        if _annotate_folders:
+            self.annotated_folders = []
+            for _hyb_fd, _info in self.color_dic.items():
+                _matches = [_fd for _fd in self.folders if _hyb_fd == _fd.split(os.sep)[-1]]
+                if len(_matches)==1:
+                    self.annotated_folders.append(_matches[0])
+            print(f"- {len(self.annotated_folders)} folders are found according to color-usage annotation.")
 
         return _color_dic
     
@@ -4771,14 +4799,14 @@ class Field_of_View():
                 _chunk_shape = np.concatenate([np.array([1]), 
                                             self.shared_parameters['single_im_size']])                              
                 # change size
-                _change_size_flag = None
+                _change_size_flag = []
                 # if missing any of these features, create new ones
                 # ids
                 if 'ids' not in _grp:
                     _ids = _grp.create_dataset('ids', (len(_dict['ids']),), dtype='i', data=_dict['ids'])
                     _data_attrs.append('ids')
                 elif len(_dict['ids']) != len(_grp['ids']):
-                    _change_size_flag = 'id'
+                    _change_size_flag.append('id')
                     print('id')
                     _old_size=len(_grp['ids'])
                 # channels
@@ -4787,26 +4815,41 @@ class Field_of_View():
                     _chs = _grp.create_dataset('channels', (len(_dict['channels']),), dtype='S3', data=_channels)
                     _data_attrs.append('channels')
                 elif len(_dict['channels']) != len(_grp['channels']):
-                    _change_size_flag = 'channels'
+                    _change_size_flag.append('channels')
                     _old_size=len(_grp['channels'])
                 # images
                 if 'ims' not in _grp:
                     _ims = _grp.create_dataset('ims', tuple(_im_shape), dtype='u8', chunks=tuple(_chunk_shape))
                     _data_attrs.append('ims')
                 elif len(_im_shape) != len(_grp['ims'].shape) or (_im_shape != (_grp['ims']).shape).any():
-                    _change_size_flag = 'ims'
+                    _change_size_flag.append('ims')
                     _old_size=len(_grp['ims'])
+
                 # spots
                 if 'spots' not in _grp:
                     _spots = _grp.create_dataset('spots', (_im_shape[0],), dtype='f')
                     _data_attrs.append('spots')
                 elif _im_shape[0] != len(_grp['spots']):
-                    _change_size_flag = 'spots'
+                    _change_size_flag.append('spots')
                     _old_size=len(_grp['spots'])
-            
+                # drift
+                if 'drift' not in _grp:
+                    _drift = _grp.create_dataset('drift', (_im_shape[0], 3), dtype='f')
+                    _data_attrs.append('drift')
+                elif _im_shape[0] != len(_grp['drift']):
+                    _change_size_flag.append('drift')
+                    _old_size=len(_grp['drift'])
+                # filenames
+                if 'filenames' not in _grp:
+                    _filenames = _grp.create_dataset('filenames', (_im_shape[0], 3), dtype='f')
+                    _data_attrs.append('filenames')
+                elif _im_shape[0] != len(_grp['filenames']):
+                    _change_size_flag.append('filenames')
+                    _old_size=len(_grp['filenames'])
+
                 # if change size, update these features:
-                if _change_size_flag is not None:
-                    print(f"* data size of {_data_type} is changing from {_old_size} to {len(_dict['ids'])} because {_change_size_flag}")
+                if len(_change_size_flag) > 0:
+                    print(f"* data size of {_data_type} is changing from {_old_size} to {len(_dict['ids'])} because of {_change_size_flag}")
                     ###UNDER CONSTRUCTION################
                     pass
                 # elsif size don't change, also load other related dtypes
@@ -4827,7 +4870,7 @@ class Field_of_View():
                                   _chromatic_target='647',
                                   _profile_postfix='.npy', _verbose=True):
         """Function to laod correction profiles in RAM"""
-        from .io_tools.load import load_correction_profile
+        from ..io_tools.load import load_correction_profile
         # determine correction folder
         if _correction_folder is None:
             _correction_folder = self.correction_folder
@@ -4850,16 +4893,141 @@ class Field_of_View():
                                                 im_size=self.shared_parameters['single_im_size'],
                                                 verbose=_verbose)
         return
+    
+    ## check drift info
+    def _load_drift_file(self , _drift_basename=None, _drift_postfix='_current_cor.pkl', 
+                         _sequential_mode=False, _verbose=False):
+        """Function to simply load drift file"""
+        if _verbose:
+            print(f"-- loading drift for fov: {self.fov_name}")
+        if _drift_basename is None:
+            _postfix = _drift_postfix
+            if _sequential_mode:
+                _postfix = '_sequential' + _postfix
+            _drift_basename = self.fov_name.replace('.dax', _postfix)
+        # get filename
+        _drift_filename = os.path.join(self.drift_folder, _drift_basename)
+        if os.path.isfile(_drift_filename):
+            if _verbose:
+                print(f"--- from file: {_drift_filename}")
+            self.drift = pickle.load(open(_drift_filename, 'rb'))
+            return True
+        else:
+            if _verbose:
+                print(f"--- file {_drift_filename} not exist, exit.")
+            return False
 
-    def _bead_drift(self, _bead_channel=None):
-        pass
 
-    def _correct_splice_images(self, _data_type, _sel_hybs=[], _sel_keys=[], _verbose=True):
+    def _check_drift(self, _load_drift_kwargs={}, 
+                     _load_info_kwargs={}, _verbose=False):
+        """Check whether drift exists and whether all keys required for images exists"""
+        ## try to load drift if not exist
+        if not hasattr(self, 'drift') or len(self.drift) == 0:
+            if _verbose:
+                print("-- No drift attribute detected, try to load from file")
+            _flag = self._load_drift_file(_verbose=_verbose, **_load_drift_kwargs)
+            if not _flag:
+                return False
+        ## drift exist, do check
+        # load color_dic as a reference
+        if not hasattr(self, 'color_dic'):
+            self._load_color_info(**_load_info_kwargs)
+            # check every folder in color_dic whether exists in drift
+            for _hyb_fd, _info in self.color_dic.items():
+                _drift_query = os.path.join(_hyb_fd, self.fov_name)
+                if _drift_query not in self.drift:
+                    if _verbose:
+                        print(f"-- drift info for {_drift_query} was not found")
+                    return False
+        # if everything is fine return True
+        return True
+
+    def _bead_drift(self, _sequential_mode=True, _load_annotated_only=True, 
+                    _size=500, _ref_id=0, _drift_postfix='_current_cor.pkl', 
+                    _num_threads=12, _coord_sel=None, _force=False, _dynamic=True, 
+                    _stringent=True, _verbose=True):
+        # num-threads
+        if hasattr(self, 'num_threads'):
+            _num_threads = min(_num_threads, self.num_threads)
+        # if drift meets requirements:
+        if self._check_drift(_verbose=False) and not _force:
+            if _verbose:
+                print(f"- drift already exists for fov:{self.fov_name}, skip")
+            return getattr(self,'drift')
+        else:
+            # load color usage if not given
+            if not hasattr(self, 'channels'):
+                self._load_color_info()
+            # check whether load annotated only
+            if _load_annotated_only:
+                _folders = self.annotated_folders
+            else:
+                _folders = self.folders
+            # load existing drift file 
+            _drift_filename = os.path.join(self.drift_folder, self.fov_name.replace('.dax', _drift_postfix))
+            _sequential_drift_filename = os.path.join(self.drift_folder, self.fov_name.replace('.dax', '_sequential'+_drift_postfix))
+            # check drift filename and sequential file name:
+            # whether with sequential mode determines the order to load files
+            if _sequential_mode:
+                _check_dft_files = [_sequential_drift_filename, _drift_filename]
+            else:
+                _check_dft_files = [_drift_filename, _sequential_drift_filename]
+            for _dft_filename in _check_dft_files:
+                # check one drift file
+                if os.path.isfile(_dft_filename):
+                    _drift = pickle.load(open(_dft_filename, 'rb'))
+                    _exist = [os.path.join(os.path.basename(_fd),self.fov_name) for _fd in _folders \
+                            if os.path.join(os.path.basename(_fd),self.fov_name) in _drift]
+                    if len(_exist) == len(_folders):
+                        if _verbose:
+                            print(f"- directly load drift from file:{_dft_filename}")
+                        self.drift = _drift
+                        return self.drift
+            # if non-of existing files fulfills requirements, initialize
+            if _verbose:
+                print("- start a new drift correction!")
+
+            ## proceed to amend drift correction
+            _drift, _failed_count = corrections.Calculate_Bead_Drift(_folders, [self.fov_name], 0, 
+                                        num_threads=_num_threads,sequential_mode=_sequential_mode, 
+                                        ref_id=_ref_id, drift_size=_size, coord_sel=_coord_sel,
+                                        single_im_size=self.shared_parameters['single_im_size'], 
+                                        all_channels=self.channels,
+                                        num_buffer_frames=self.shared_parameters['num_buffer_frames'], 
+                                        num_empty_frames=self.shared_parameters['num_empty_frames'], 
+                                        illumination_corr=self.shared_parameters['corr_illumination'],
+                                        save_postfix=_drift_postfix,
+                                        save_folder=self.drift_folder, stringent=_stringent,
+                                        overwrite=_force, verbose=_verbose)
+            if _verbose:
+                print(f"- drift correction for {len(_drift)} frames has been generated.")
+            _exist = [os.path.join(os.path.basename(_fd),self.fov_name) for _fd in _folders \
+                if os.path.join(os.path.basename(_fd),self.fov_name) in _drift]
+            # print if some are failed
+            if _failed_count > 0:
+                print(f"-- failed number: {_failed_count}"
+                )
+            if len(_exist) == len(_folders):
+                self.drift = _drift
+                return self.drift
+            else:
+                raise ValueError("length of _drift doesn't match _folders!")
+
+
+
+    def _correct_splice_images(self, _data_type, _sel_folders=[], _sel_ids=[], _verbose=True):
         ## check inputs
         if _data_type not in self.shared_parameters['allowed_data_types']:
             raise ValueError(f"Wrong input for _data_type:{_data_type}, should be within {self.shared_parameters['allowed_data_types'].keys()}")
+        # select folders
+
+
 
     def _save_to_file(self, _type):
+        _type = str(_type).lower()
+        if _type != 'info' and _type not in self.shared_parameters['allowed_data_types']:
+            raise ValueError(f"Wrong input for _type:{_type}, \
+                should be within {self.shared_parameters['allowed_data_types'].keys()} and 'info'.")
         pass
     
     def _load_from_file(self, _type):
