@@ -159,16 +159,23 @@ def Calculate_BED_to_Region(data_filename, region_dic, data_format='tagAlign',
     
 ## Compartment Analysis
 #-----------------------------------------------------------------------------------
-def is_in_hull(ref_zxys, zxy):
+def is_in_hull(ref_zxys, zxy, remove_self=True):
     """Check if point zxy in ref_zxys
     either zxy or ref_zxys should be 3d ZXY coordinates"""
     if 'ConvexHull' not in locals():
         from scipy.spatial import ConvexHull
     if len(np.shape(zxy)) != 1:
         raise ValueError(f"Wrong input dimension for p, should be 1d")
+
     # Remove Nan in ref_zxys
     ref_zxys = np.array(ref_zxys) # convert to array
     _kept_rows = np.isnan(ref_zxys).sum(axis=1) == 0
+    # remove itself
+    if remove_self:
+        for _i, _ref_zxy in enumerate(ref_zxys):
+            if (_ref_zxy == np.array(zxy)).all():
+                _kept_rows[_i] = False
+    # apply remove
     _kept_ref_zxys = ref_zxys[_kept_rows]
     if len(_kept_ref_zxys) <= 3:
         print('Not enough points to create convex hull.')
@@ -184,7 +191,8 @@ def is_in_hull(ref_zxys, zxy):
         return False
 
 # basic function to wrap is_in_hull to do bootstrap
-def _bootstrap_region_in_domain(_dm_zxys, _reg_zxy, _sampling_size, _n_iter=100):
+def _bootstrap_region_in_domain(_dm_zxys, _reg_zxy, _sampling_size, 
+                                _n_iter=100, _remove_self=True):
     if np.isnan(_reg_zxy).any():
         return np.nan
     else:
@@ -251,8 +259,9 @@ def Bootstrap_regions_in_domain(chrom_zxy_list, region_index, domain_indices,
     return _region_probs
 
 def Bootstrap_spots_in_domain(chrom_zxy_list, spot_zxy_list, domain_indices, 
-                                p_bootstrap=0.25, n_iter=100, num_threads=12,
-                                verbose=True):
+                              num_threads=12,
+                              p_bootstrap=0.25, n_iter=100, remove_self=True,
+                              verbose=True):
     """Estimate how much a region is enclosed by domain/compartments,
         across all chromosomes in chrom_zxy_list
     Inputs:
@@ -261,6 +270,7 @@ def Bootstrap_spots_in_domain(chrom_zxy_list, spot_zxy_list, domain_indices,
         domain_indices: array-like region indices for a certain domain/compartment, array-like of ints
         p_bootstrap: subsample percentage for bootstap steps, float (default:0.25)
         n_iter: number of bootstrap iterations, int (default: 100)
+        remove_self: whether remove itself, bool (default: True)
         verbose: say something!, bool (default: True)
     Outputs:
         _region_probs: proabilities of region in domain, np.ndarray (1d)
@@ -303,7 +313,7 @@ def Bootstrap_spots_in_domain(chrom_zxy_list, spot_zxy_list, domain_indices,
     for _chrom_zxys, _spot_zxy in zip(chrom_zxy_list, spot_zxy_list):
         _dm_zxys = np.array(_chrom_zxys)[domain_indices]
         _spot_zxy = np.array(_spot_zxy)
-        _boostrap_args.append( (_dm_zxys, _spot_zxy, _sampling_size, n_iter))
+        _boostrap_args.append( (_dm_zxys, _spot_zxy, _sampling_size, n_iter, remove_self))
     
         #_p = postanalysis._bootstrap_region_in_domain(_dm_zxys,_reg_zxy,_sampling_size,n_iter)
     # calculate through multi-processing
@@ -344,7 +354,7 @@ def region_genomic_scaling(coordinates, inds,
         if verbose:
             print(f"3d coordinates")
         if gaussian > 0:
-            from domain_tools.tools import interpolate_chr
+            from domain_tools import interpolate_chr
             coordinates = interpolate_chr(coordinates, gaussian=gaussian)
         _mat = squareform(pdist(coordinates))
     else:

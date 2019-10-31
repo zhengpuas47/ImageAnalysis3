@@ -5,7 +5,8 @@ import numpy as np
 import scipy
 import pickle
 import matplotlib.pylab as plt
-import os, glob, sys, time
+import os, glob 
+import sys, time
 from scipy.stats import scoreatpercentile
 import multiprocessing as mp
 import ctypes
