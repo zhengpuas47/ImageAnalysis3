@@ -101,7 +101,7 @@ def _loop_out_metric(_coordinates, _position, _domain_starts, metric='median',
     _pos = int(_position)
     # exclude domain boudaries
     if _exclude_boundaries:
-        if _pos in _dm_starts:
+        if _pos in _dm_starts or _pos in _dm_ends-1:
             return []
     # exclude edges if specified
     if _exclude_edges:
@@ -152,13 +152,23 @@ def _loop_out_metric(_coordinates, _position, _domain_starts, metric='median',
                     raise ValueError(f"unsupported metric:{metric}")
             # decide if its a hit
             if _d < _loop_out_th:
+                ## totally skip first domain
+                #if _i == 0:
+                #    continue
+
+                if _exclude_edges:
+                    if _i == 0 and _dm_ends[0] < _dm_sz:
+                        continue
+                    elif _i==len(_dm_starts)-1 and _dm_starts[-1] > len(_coordinates) - _dm_sz:
+                        continue
+
                 _loop_out_hits.append(_i)
                 
         return _loop_out_hits
                 
 def _generate_loop_out_markers(_coordinates, _domain_starts, _loop_region_domain_pairs, 
                                _marker_type='center', _marker_param=1., _keep_triu=True, 
-                               _verbose=True):
+                               _normalize=True, _verbose=True):
     """transform domain_xy into marker format"""
     # get domain features
     _dm_starts = np.array(_domain_starts)
@@ -174,31 +184,42 @@ def _generate_loop_out_markers(_coordinates, _domain_starts, _loop_region_domain
         if _verbose:
             print(f"--- generate loop-out marker for {len(_loop_region_domain_pairs)} loops")
         
+
         if _marker_type == 'center':
             for _reg, _dm in _loop_region_domain_pairs:
                 _marker_map[_reg, _dm_centers[_dm]] = 1
                 if not _keep_triu:
                     _marker_map[_dm_centers[_dm], _reg] = 1
         elif _marker_type == 'gaussian':      
+            if _normalize:
+                _intensity = 1/_marker_param
+            else:
+                _intensity = 1 
             for _reg, _dm in _loop_region_domain_pairs:
                 _marker_map = visual_tools.add_source(_marker_map, pos=[_reg, _dm_centers[_dm]], 
-                                                          h=1, sig=[_marker_param,_marker_param])
+                                                          h=_intensity, sig=[_marker_param,_marker_param])
                 if not _keep_triu:
                     _marker_map = visual_tools.add_source(_marker_map, pos=[_dm_centers[_dm], _reg], 
-                                                          h=1, sig=[_marker_param,_marker_param])
+                                                          h=_intensity, sig=[_marker_param,_marker_param])
         elif _marker_type == 'area':
             for _reg, _dm in _loop_region_domain_pairs:
-                _marker_map[_reg, _dm_starts[_dm]:_dm_ends[_dm]] = 1
+                if _normalize:
+                    _intensity =  1 / (_dm_ends[_dm] - _dm_starts[_dm])
+                else:
+                    _intensity = 1 
+                _marker_map[_reg, _dm_starts[_dm]:_dm_ends[_dm]] = _intensity
                 if not _keep_triu:
-                    _marker_map[_dm_starts[_dm]:_dm_ends[_dm], _reg] = 1
+                    _marker_map[_dm_starts[_dm]:_dm_ends[_dm], _reg] = _intensity
         else:
             raise ValueError(f"Wrong input _marker_type:{_marker_type}")
     return _marker_map
 
     
 def loop_out_markers(coordinates, domain_starts, norm_mat=None, metric='median',
-                     loop_out_th=0., marker_type='center', marker_param=1., keep_triu=True,
-                     exclude_boundaries=True, exclude_edges=True, verbose=True):
+                     loop_out_th=0., domain_size=5, marker_type='center', 
+                     marker_param=1., keep_triu=True,
+                     exclude_boundaries=True, exclude_edges=True, 
+                     normalize=True, verbose=True):
     ## check inputs
     _coordinates = np.array(coordinates)
     _domain_starts = np.array(domain_starts, dtype=np.int)
@@ -214,7 +235,7 @@ def loop_out_markers(coordinates, domain_starts, norm_mat=None, metric='median',
     _loop_region_domain_pairs = []
     for _pos in range(len(_coordinates)):
         _loop_dms = _loop_out_metric(_coordinates, _pos, domain_starts, 
-                          _loop_out_th=loop_out_th, metric=metric, 
+                          _loop_out_th=loop_out_th, metric=metric, _dm_sz=domain_size,
                           _exclude_boundaries=exclude_boundaries, _exclude_edges=exclude_edges)
         if len(_loop_dms) > 0:
             for _dm in _loop_dms:
@@ -223,7 +244,8 @@ def loop_out_markers(coordinates, domain_starts, norm_mat=None, metric='median',
     # generate marker
     _loop_marker = _generate_loop_out_markers(_coordinates, _domain_starts, 
                                               _loop_region_domain_pairs, _marker_type=marker_type,
-                                              _marker_param=marker_param, _keep_triu=keep_triu, _verbose=verbose)
+                                              _marker_param=marker_param, _keep_triu=keep_triu, 
+                                              _normalize=normalize, _verbose=verbose)
     if verbose:
         print(f"--- {len(_loop_region_domain_pairs)} loops identified, time:{time.time()-_start_time:2.3}")
     
