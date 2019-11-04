@@ -2948,7 +2948,7 @@ def translate_spot_coordinates(source_cell_data, target_cell_data, spots,
         tar_coords: list of translated chromosome coordinates, list of array-3"""
     ## check input attributes
     if verbose:
-        print(f"-- start translating chrom_coord for fov:{source_cell_data.fov_id}, cell:{source_cell_data.cell_id}")
+        print(f"-- start translating spots for fov:{source_cell_data.fov_id}, cell:{source_cell_data.cell_id}")
     # check chrom_coords
     if not hasattr(source_cell_data, 'chrom_coords'):
         raise AttributeError(f"Cell_Data:{source_cell_data} doesn't have chromosome coordinates, exit!")
@@ -3488,7 +3488,7 @@ def Batch_Convert_Spots_to_Cloud(spot_list, comp_dict, im_radius=30,
     with mp.Pool(num_threads) as _convert_pool:
         if verbose:
             print(f"-- {len(_convert_args)} chromosomes processing by {num_threads} threads.")
-        _results = _convert_pool.starmap(convert_spots_to_cloud, _convert_args)
+        _results = _convert_pool.starmap(convert_spots_to_cloud, _convert_args, chunksize=1)
         _convert_pool.close()
         _convert_pool.join()
         _convert_pool.terminate()
