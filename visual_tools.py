@@ -13,6 +13,7 @@ from scipy.ndimage import gaussian_laplace
 import cv2
 import multiprocessing as mp
 from sklearn.decomposition import PCA
+from scipy.ndimage.interpolation import map_coordinates
 
 from . import get_img_info, corrections, alignment_tools, classes
 from .External import Fitting_v3
@@ -3349,9 +3350,11 @@ def max_project_AB_compartment(spots, comp_dict, pca_other_2d=True):
 
 # convert spots to 3d cloud by replacing spots with gaussians
 def convert_spots_to_cloud(spots, comp_dict, im_radius=30, distance_zxy=_distance_zxy,
+                           spot_variance=None, expand_ratio=1., 
                            scale_variance=True, pca_align=True, 
-                           max_project_AB=True, use_intensity=True,
-                           return_plot=False, ax=None, return_spots=False, 
+                           max_project_AB=True, use_intensity=False, 
+                           normalize_pdf=True,
+                           return_plot=False, ax=None, return_scores=True, 
                            verbose=False):
     """Convert spots (have to be centered to zero with correct scaling, 
                       better to be max_projected if only 2 compartment specified)
@@ -3369,6 +3372,10 @@ def convert_spots_to_cloud(spots, comp_dict, im_radius=30, distance_zxy=_distanc
     if not isinstance(comp_dict, dict):
         print(f"Wrong input type of comp_dict, should be dict but {type(comp_dict)} is given")
         return None
+    # spot_variance
+    if spot_variance is not None:
+        if len(spot_variance) < 3:
+            raise ValueError(f"variance should be given for 3d")
     if scale_variance:
         # assume there are very few points 3-sigma away
         _default_scaling = im_radius / 4
@@ -3383,20 +3390,34 @@ def convert_spots_to_cloud(spots, comp_dict, im_radius=30, distance_zxy=_distanc
     
     # create density map dict
     _density_dict = {_k:np.zeros([im_radius*2]*3) for _k in comp_dict.keys()}
+    _spot_ct = {_k:0 for _k in comp_dict.keys()}
     for _k, _v in comp_dict.items():
         for _spot in _norm_spots[np.array(_v, dtype=np.int)]:
+            if spot_variance is not None:
+                _var = np.array(spot_variance[:3]) 
+            else:
+                _var = _spot[5:8] * expand_ratio
+            
+            if use_intensity:
+                _int = _spot[0]
+            else:
+                _int = 1
+
             if not np.isnan(_spot).any():
-                if not use_intensity: #(default)
-                    _density_dict[_k] = add_source(_density_dict[_k], pos=im_radius+_spot[1:4],
-                                                   h=1, sig=_spot[5:8], 
-                                                   size_fold=im_radius)
-                else:
-                    _density_dict[_k] = add_source(_density_dict[_k], pos=im_radius+_spot[1:4],
-                                                   h=_spot[0], sig=_spot[5:8], 
-                                                   size_fold=im_radius)
+                _density_dict[_k] = add_source(_density_dict[_k], pos=im_radius+_spot[1:4],
+                                                h=_int, sig=_var, 
+                                                size_fold=im_radius)
+                _spot_ct[_k] += 1
         # normalize density
-        if use_intensity:
+        _density_dict[_k] = _density_dict[_k] / _spot_ct[_k]
+        # normalize as pdf if specified
+        if normalize_pdf:
             _density_dict[_k] = _density_dict[_k] / np.sum(_density_dict[_k])
+    # calculate scores
+    if return_scores:
+        _score_dict = {_k:map_coordinates(_density_dict[_k], 
+                                          _norm_spots[:,1:4].transpose()+im_radius)
+                        for _k in comp_dict.keys()}
 
     if return_plot:
         if ax is None:
@@ -3433,19 +3454,21 @@ def convert_spots_to_cloud(spots, comp_dict, im_radius=30, distance_zxy=_distanc
             ax.set_ylabel(f"Y")        
     
     # return
-    if return_spots and return_plot:
-        return _density_dict, _norm_spots, ax
-    elif return_spots and not return_plot:
-        return _density_dict, _norm_spots
-    elif not return_spots and return_plot:
+    if return_scores and return_plot:
+        return _density_dict, _score_dict, ax
+    elif return_scores and not return_plot:
+        return _density_dict, _score_dict
+    elif not return_scores and return_plot:
         return _density_dict, ax
     else:
         return _density_dict
 
 
 # batch convert spots to clouds
-def Batch_Convert_Spots_to_Cloud(spot_list, comp_dict, im_radius=30, num_threads=12, 
-                                 distance_zxy=_distance_zxy, verbose=True):
+def Batch_Convert_Spots_to_Cloud(spot_list, comp_dict, im_radius=30, 
+                                 num_threads=12, distance_zxy=_distance_zxy, 
+                                 spot_variance=None, expand_ratio=1.,
+                                 verbose=True):
     """Function to batch convert spot list to cloud dict list"""
     _start_time = time.time()
     _convert_args = []
@@ -3459,21 +3482,23 @@ def Batch_Convert_Spots_to_Cloud(spot_list, comp_dict, im_radius=30, num_threads
         raise TypeError(f"Wrong input type of comp_dict, should be dict / list of dict")
     for _spots, _cdict in zip(spot_list, comp_dict):
         _convert_args.append(
-            (_spots, _cdict, im_radius, distance_zxy)
+            (_spots, _cdict, im_radius, distance_zxy, 
+             spot_variance, expand_ratio)
         )
     with mp.Pool(num_threads) as _convert_pool:
         if verbose:
             print(f"-- {len(_convert_args)} chromosomes processing by {num_threads} threads.")
-        _density_dict_list = _convert_pool.starmap(convert_spots_to_cloud, _convert_args)
+        _results = _convert_pool.starmap(convert_spots_to_cloud, _convert_args)
         _convert_pool.close()
         _convert_pool.join()
         _convert_pool.terminate()
-    
+    # extract
+    _density_dicts = [_r[0] for _r in _results]
+    _score_dicts = [_r[1] for _r in _results]
     if verbose:
         print(f"--- time spent in converting to cloud: {time.time()-_start_time}")
     
-    return _density_dict_list
-
+    return _density_dicts, _score_dicts
 
 
 

@@ -129,11 +129,15 @@ def Load_Color_Usage(master_folder, color_filename='Color_Usage', color_format='
                 _hyb = _content.pop(0)
                 _color_usage[_hyb] = _content
     # detect dapi
+    dapi_hyb_name = []
+    for _hyb_name, _info in _color_usage.items():
+        if 'DAPI' in _info:
+            dapi_hyb_name.append(_hyb_name)
     if DAPI_hyb_name in _color_usage:
         print(f"-- Hyb {DAPI_hyb_name} exists in this data")
         if 'dapi' in _color_usage[DAPI_hyb_name] or 'DAPI' in _color_usage[DAPI_hyb_name]:
             print("-- DAPI exists in hyb:", DAPI_hyb_name)
-            _dapi = True
+            _dapi_folder = True
         else:
             _dapi = False
     else:
