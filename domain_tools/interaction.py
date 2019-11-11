@@ -23,34 +23,35 @@ def inter_domain_markers(coordiantes, domain_starts, norm_mat=None, metric='medi
     if len(_coordinates.shape) != 2:
         raise IndexError(f"Wrong input shape for coordinates, it should be 2d-array but shape:{_coordinates.shape} is given.")
     
+    if len(_domain_starts) > 1:
+        _dm_pds = domain_pdists(_coordinates, _domain_starts, metric=metric, 
+                                normalization_mat=norm_mat, allow_minus_dist=True)
+
+        _dx, _dy = np.where(squareform(_dm_pds) < off_diagonal_th)
+        if not keep_triu:
+            _dx, _dy = _dx[_dx!=_dy], _dy[_dx!=_dy]
+            _unique_dxy = np.stack([_dx, _dy]).transpose()
+
+        else:
+            _dxy = [(min(_x,_y),max(_x,_y)) for _x,_y in zip(_dx, _dy) if min(_x,_y) != max(_x,_y)]
+            _unique_dxy = []
+            for _xy in _dxy:
+                if _xy not in _unique_dxy:
+                    _unique_dxy.append(_xy)
+            _unique_dxy = np.array(_unique_dxy)
+        if exclude_neighbors:
+            _kept_dxy = []
+            for _dxy in _unique_dxy:
+                if np.abs(_dxy[0] - _dxy[1]) > 1:
+                    _kept_dxy.append(_dxy)
+            _unique_dxy = np.array(_kept_dxy)
+        if exclude_edges:
+            _kept_dxy = []
+            for _dxy in _unique_dxy:
+                if 0 not in _dxy and len(_domain_starts)-1 not in _dxy:
+                    _kept_dxy.append(_dxy)
+            _unique_dxy = np.array(_kept_dxy)
     
-    _dm_pds = domain_pdists(_coordinates, _domain_starts, metric=metric, 
-                            normalization_mat=norm_mat, allow_minus_dist=True)
-
-    _dx, _dy = np.where(squareform(_dm_pds) < off_diagonal_th)
-    if not keep_triu:
-        _dx, _dy = _dx[_dx!=_dy], _dy[_dx!=_dy]
-        _unique_dxy = np.stack([_dx, _dy]).transpose()
-
-    else:
-        _dxy = [(min(_x,_y),max(_x,_y)) for _x,_y in zip(_dx, _dy) if min(_x,_y) != max(_x,_y)]
-        _unique_dxy = []
-        for _xy in _dxy:
-            if _xy not in _unique_dxy:
-                _unique_dxy.append(_xy)
-        _unique_dxy = np.array(_unique_dxy)
-    if exclude_neighbors:
-        _kept_dxy = []
-        for _dxy in _unique_dxy:
-            if np.abs(_dxy[0] - _dxy[1]) > 1:
-                _kept_dxy.append(_dxy)
-        _unique_dxy = np.array(_kept_dxy)
-    if exclude_edges:
-        _kept_dxy = []
-        for _dxy in _unique_dxy:
-            if 0 not in _dxy and len(_domain_starts)-1 not in _dxy:
-                _kept_dxy.append(_dxy)
-        _unique_dxy = np.array(_kept_dxy)
     # generate markers  
     _marker_map = _generate_inter_domain_markers(_coordinates, _domain_starts, _dm_pds, _unique_dxy,
                                                  _marker_type=marker_type, _marker_param=marker_param, 

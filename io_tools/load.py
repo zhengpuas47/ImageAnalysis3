@@ -291,38 +291,40 @@ def correct_fov_image(dax_filename, sel_channels,
             print(f"in {time.time()-_bleed_time:.3f}s")
 
     ## chromatic abbrevation
-    if chromatic_corr:
+    if chromatic_corr and sum([_ch in corr_channels for _ch in _load_channels]):
+
         if verbose:
             print(f"-- chromatic correction for channels: {corr_channels}", end=' ')
             _chromatic_time = time.time()
-        for _i, _ch in enumerate(corr_channels):
-            if _ch == ref_channel and not drift.any():
-                if verbose:
-                    print(f"{_ch}-skipped", end=', ')
-                continue
-            else:
-                if verbose:
-                    print(f"{_ch}", end=', ')
-                # 0. get old image
-                _im = _ims[_load_channels.index(_ch)].copy().astype(np.float)
-                # 1. get coordiates to be mapped
-                _coords = np.meshgrid( np.arange(single_im_size[0]), 
-                        np.arange(single_im_size[1]), 
-                        np.arange(single_im_size[2]), )
-                _coords = np.stack(_coords).transpose((0, 2, 1, 3)) # transpose is necessary
-                # 2. calculate corrected coordinates as a reference
-                if _ch != ref_channel:
-                    _coords = _coords + chromatic_profile[_ch][:,np.newaxis,:,:]
-                # 3. apply drift if necessary
-                if drift.any():
-                    _coords += drift[:, np.newaxis,np.newaxis,np.newaxis]
-                # 4. map coordinates
-                _corr_im = map_coordinates(_im, _coords.reshape(_coords.shape[0], -1), mode='nearest')
-                _corr_im = _corr_im.reshape(np.shape(_im))
-                # append 
-                _ims[_load_channels.index(_ch)] = _corr_im.astype(output_dtype)
-                # local clear
-                del(_coords, _im)
+        for _i, _ch in enumerate(_load_channels):
+            if _ch in corr_channels:
+                if _ch == ref_channel and not drift.any():
+                    if verbose:
+                        print(f"{_ch}-skipped", end=', ')
+                    continue
+                else:
+                    if verbose:
+                        print(f"{_ch}", end=', ')
+                    # 0. get old image
+                    _im = _ims[_load_channels.index(_ch)].copy().astype(np.float)
+                    # 1. get coordiates to be mapped
+                    _coords = np.meshgrid( np.arange(single_im_size[0]), 
+                            np.arange(single_im_size[1]), 
+                            np.arange(single_im_size[2]), )
+                    _coords = np.stack(_coords).transpose((0, 2, 1, 3)) # transpose is necessary
+                    # 2. calculate corrected coordinates as a reference
+                    if _ch != ref_channel:
+                        _coords = _coords + chromatic_profile[_ch][:,np.newaxis,:,:]
+                    # 3. apply drift if necessary
+                    if drift.any():
+                        _coords += drift[:, np.newaxis,np.newaxis,np.newaxis]
+                    # 4. map coordinates
+                    _corr_im = map_coordinates(_im, _coords.reshape(_coords.shape[0], -1), mode='nearest')
+                    _corr_im = _corr_im.reshape(np.shape(_im))
+                    # append 
+                    _ims[_load_channels.index(_ch)] = _corr_im.astype(output_dtype)
+                    # local clear
+                    del(_coords, _im)
         # clear
         del(_corr_im, chromatic_profile)
         if verbose:
