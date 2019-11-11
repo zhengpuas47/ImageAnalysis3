@@ -24,7 +24,9 @@ from itertools import combinations
 
 import matplotlib
 import matplotlib.pyplot as plt
-from matplotlib.cm import seismic_r
+
+def __init__():
+    pass
 
 ## Function for alignment between consequtive experiments
 
@@ -97,7 +99,7 @@ def align_manual_points(pos_file_before, pos_file_after,
 # align single pair of bead images
 def align_single_image(_filename, _selected_crops, _ref_filename=None, _ref_ims=None, _ref_centers=None,
                         _bead_channel='488', _all_channels=_allowed_colors, _single_im_size=_image_size,
-                        _num_buffer_frames=10, _num_empty_frames=1, 
+                        _num_buffer_frames=10, _num_empty_frames=0, 
                         _ref_seed_per=95, _illumination_corr=True,
                         _correction_folder=_correction_folder, 
                         _match_distance=3, _match_unique=True,
@@ -123,8 +125,8 @@ def align_single_image(_filename, _selected_crops, _ref_filename=None, _ref_ims=
     """
     ## check inputs
     # check filename file type
-    if '.dax' not in _filename:
-        raise IOError(f"Wrong input file type, {_filename} should be .dax file")
+    if '.dax' not in _filename and not isinstance(_filename, np.ndarray):
+        raise IOError(f"Wrong input file type, {_filename} should be .dax file or np.ndarray")
     # check ref_filename
     if _ref_filename is not None and '.dax' not in _ref_filename:
         raise IOError(f"Wrong input reference file type, {_ref_filename} should be .dax file")

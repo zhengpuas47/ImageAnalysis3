@@ -7,3 +7,5 @@ from . import picking
 from . import scoring
 # sub-package for checking spots
 from . import checking
+# matching DNA RNA
+from . import matching

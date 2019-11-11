@@ -1,17 +1,18 @@
+## load packages
+import numpy as np
+import scipy
+import os, sys, glob, time
+from scipy.ndimage.interpolation import shift, map_coordinates
+
 ## Load other sub-packages
-from .. import visual_tools, get_img_info, corrections
+from .. import visual_tools, get_img_info, corrections, alignment_tools
 
 ## Load shared parameters
 from . import _distance_zxy, _image_size, _allowed_colors, _corr_channels, _correction_folder
 from . import _num_buffer_frames, _num_empty_frames
 from .crop import decide_starting_frames, translate_crop_by_drift
 
-## load packages
-import numpy as np
-import scipy
-import os, sys, glob, time
 
-from scipy.ndimage.interpolation import shift, map_coordinates
 
 def multi_crop_image_fov(filename, channels, crop_limit_list,
                          all_channels=_allowed_colors, single_im_size=_image_size,
@@ -130,9 +131,34 @@ def multi_crop_image_fov(filename, channels, crop_limit_list,
     else:
         return _cropped_im_list
 
+
+def _generate_drift_crops(coord_sel=None, drift_size=500, single_im_size=_image_size):
+    """Function to generate drift crop from a selected center and given drift size"""
+    if coord_sel is None:
+        coord_sel = np.int(single_im_size/2)
+    if drift_size is None:
+        drift_size = int(np.max(single_im_size)/4)
+    crop0 = np.array([[0, single_im_size[0]],
+                      [max(coord_sel[-2]-drift_size, 0), coord_sel[-2]],
+                      [max(coord_sel[-1]-drift_size, 0), coord_sel[-1]]], dtype=np.int)
+    crop1 = np.array([[0, single_im_size[0]],
+                      [coord_sel[-2], min(coord_sel[-2] +
+                                          drift_size, single_im_size[-2])],
+                      [coord_sel[-1], min(coord_sel[-1]+drift_size, single_im_size[-1])]], dtype=np.int)
+    crop2 = np.array([[0, single_im_size[0]],
+                      [coord_sel[-2], min(coord_sel[-2] +
+                                          drift_size, single_im_size[-2])],
+                      [max(coord_sel[-1]-drift_size, 0), coord_sel[-1]]], dtype=np.int)
+    # merge into one array which is easier to feed into function
+    selected_crops = np.stack([crop0, crop1, crop2])
+    return selected_crops
+
+
 def correct_fov_image(dax_filename, sel_channels, 
                       single_im_size=_image_size, all_channels=_allowed_colors,
-                      num_buffer_frames=10, num_empty_frames=0, drift=np.array([0,0,0]),
+                      num_buffer_frames=10, num_empty_frames=0, drift=np.array([0,0,0]), 
+                      calculate_drift=False, bead_channel='488', drift_crops=None,
+                      ref_filename=None, ref_beads=None,
                       corr_channels=_corr_channels, correction_folder=_correction_folder,
                       hot_pixel_corr=True, hot_pixel_th=4, z_shift_corr=False,
                       illumination_corr=True, illumination_profile=None, 
@@ -174,7 +200,12 @@ def correct_fov_image(dax_filename, sel_channels,
     for _ch in sel_channels:
         if _ch not in _load_channels:
             _load_channels.append(_ch)
-
+    # append bead_image if going to do drift corr
+    _bead_channel = str(bead_channel)
+    if _bead_channel not in all_channels:
+        raise ValueError(f"Wrong input of bead_channel:{_bead_channel}, should be among {all_channels}")
+    if calculate_drift and bead_channel not in _load_channels:
+        _load_channels.append(bead_channel)
     ## check profiles
     if illumination_corr:
         if illumination_profile is None:
@@ -268,6 +299,28 @@ def correct_fov_image(dax_filename, sel_channels,
         if verbose:
             print(f"in {time.time()-_illumination_time:.3f}s")
 
+    ## calculate bead drift if required
+    if calculate_drift:
+        if verbose:
+            print(f"-- apply bead_drift calculate for channel: {_bead_channel}", end=' ')
+            _drift_time = time.time()
+        # get required parameters
+        if drift_crops is None:
+            drift_crops = _generate_drift_crops()
+        _drift = alignment_tools.align_single_image(
+                    _ims[_load_channels.index(_bead_channel)],
+                    drift_crops, _ref_filename=ref_filename, _ref_centers=ref_beads,
+                    _bead_channel=_bead_channel, _all_channels=all_channels,
+                    _single_im_size=single_im_size, _num_buffer_frames=num_buffer_frames,
+                    _num_empty_frames=num_empty_frames, _illumination_corr=False, 
+                    _correction_folder=correction_folder, _verbose=verbose,
+                    )
+        if verbose:
+            print(f"in {time.time()-_drift_time:.3f}s")
+            print(f"-- drift: {_drift}")
+    else:
+        _drift = drift.copy()
+        
     ## bleedthrough correction
     if len(_overlap) > 0 and bleed_corr:
         if verbose:
@@ -296,6 +349,7 @@ def correct_fov_image(dax_filename, sel_channels,
         if verbose:
             print(f"-- chromatic correction for channels: {corr_channels}", end=' ')
             _chromatic_time = time.time()
+<<<<<<< HEAD
         for _i, _ch in enumerate(_load_channels):
             if _ch in corr_channels:
                 if _ch == ref_channel and not drift.any():
@@ -325,6 +379,36 @@ def correct_fov_image(dax_filename, sel_channels,
                     _ims[_load_channels.index(_ch)] = _corr_im.astype(output_dtype)
                     # local clear
                     del(_coords, _im)
+=======
+        for _i, _ch in enumerate(corr_channels):
+            if _ch == ref_channel and not drift.any():
+                if verbose:
+                    print(f"{_ch}-skipped", end=', ')
+                continue
+            else:
+                if verbose:
+                    print(f"{_ch}", end=', ')
+                # 0. get old image
+                _im = _ims[_load_channels.index(_ch)].copy().astype(np.float)
+                # 1. get coordiates to be mapped
+                _coords = np.meshgrid( np.arange(single_im_size[0]), 
+                        np.arange(single_im_size[1]), 
+                        np.arange(single_im_size[2]), )
+                _coords = np.stack(_coords).transpose((0, 2, 1, 3)) # transpose is necessary
+                # 2. calculate corrected coordinates as a reference
+                if _ch != ref_channel:
+                    _coords = _coords + chromatic_profile[_ch][:,np.newaxis,:,:]
+                # 3. apply drift if necessary
+                if _drift.any():
+                    _coords += _drift[:, np.newaxis,np.newaxis,np.newaxis]
+                # 4. map coordinates
+                _corr_im = map_coordinates(_im, _coords.reshape(_coords.shape[0], -1), mode='nearest')
+                _corr_im = _corr_im.reshape(np.shape(_im))
+                # append 
+                _ims[_load_channels.index(_ch)] = _corr_im.astype(output_dtype)
+                # local clear
+                del(_coords, _im)
+>>>>>>> 3ad8bb1697d928e5e6d6a2013b5ecda9cd6292e8
         # clear
         del(_corr_im, chromatic_profile)
         if verbose:

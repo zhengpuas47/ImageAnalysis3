@@ -18,8 +18,6 @@ import matplotlib.pyplot as plt
 import h5py
 import ast
 
-from . import batch_functions
-
 _allowed_kwds = {'combo': 'c', 
                 'decoded':'d',
                 'unique': 'u', 
@@ -28,28 +26,8 @@ _allowed_kwds = {'combo': 'c',
                 'rna': 'r', # long term used label, because "-" is creating issue in python
                 'gene':'g'}
 
-def _color_dic_stat(color_dic, channels, _type_dic=_allowed_kwds):
-    """Extract number of targeted datatype images in color_dic"""
-    _include_types = {}
-    for _name, _k in _type_dic.items():
-        for _fd, _infos in color_dic.items():
-            for _ch, _info in zip(channels, _infos):
-                if len(_info) > 0 and _info[0] == _k:
-                    if _name not in _include_types:
-                        _include_types[_name] = {'ids':[], 'channels':[]}
-                    # append
-                    _include_types[_name]['ids'].append(int(_info.split(_k)[1]))
-                    _include_types[_name]['channels'].append(_ch)
-    # sort
-    for _name, _dict in _include_types.items():
-        _ids = _dict['ids']
-        _chs = _dict['channels']
-        _sorted_ids = [_id for _id in sorted(_ids)]
-        _sorted_chs = [_ch for _id,_ch in sorted(zip(_ids, _chs))]
-        _include_types[_name]['ids'] = _sorted_ids
-        _include_types[_name]['channels'] = _sorted_chs
-        
-    return _include_types
+from . import batch_functions
+
 # initialize pool
 init_dic = {}
 def _init_unique_pool(_ic_profile_dic, _cac_profile_dic, _ic_shape, _cac_shape):
@@ -4629,7 +4607,7 @@ class Field_of_View():
             self.shared_parameters = parameters['shared_parameters']
         else:
             self.shared_parameters = {}
-        # add keys:
+        # add parameter keys:
         if 'distance_zxy' not in self.shared_parameters:    
             self.shared_parameters['distance_zxy'] = _distance_zxy
         if 'sigma_zxy' not in self.shared_parameters:
@@ -4695,6 +4673,7 @@ class Field_of_View():
                                                             color_filename=_color_filename,
                                                             color_format=_color_format,
                                                             return_color=True)
+        
         # need-based store color_dic
         if _save_color_dic:
             self.color_dic = _color_dic
@@ -4784,7 +4763,7 @@ class Field_of_View():
                     _grp[_attr_name] = getattr(self, _attr_name)
             
             # create label for each datatype
-            _type_dic = _color_dic_stat(self.color_dic, self.channels, self.shared_parameters['allowed_data_types'])
+            _type_dic = batch_functions._color_dic_stat(self.color_dic, self.channels, self.shared_parameters['allowed_data_types'])
             for _data_type, _dict in _type_dic.items():
                 if _data_type not in _f.keys():
                     _grp = _f.create_group(_data_type) # create data_type group
@@ -5015,11 +4994,38 @@ class Field_of_View():
 
 
 
-    def _correct_splice_images(self, _data_type, _sel_folders=[], _sel_ids=[], _verbose=True):
+    def _process_image_to_spots(self, _data_type, _sel_folders=[], _sel_ids=[], 
+                                _warpping_images=True, _save_images=True, 
+                                _save_fitted_spots=True, 
+                                splicing_args={}, _verbose=True):
         ## check inputs
         if _data_type not in self.shared_parameters['allowed_data_types']:
             raise ValueError(f"Wrong input for _data_type:{_data_type}, should be within {self.shared_parameters['allowed_data_types'].keys()}")
+        # get color_dic data-type
+        _type_dic = batch_functions._color_dic_stat(self.color_dic, 
+                                                    self.channels, 
+                                                    self.shared_parameters['allowed_data_types'])
         # select folders
+        _input_fds = []
+        if _sel_folders is not None and len(_sel_folders) > 0:
+            # load folders
+            for _fd in _sel_folders:
+                if _fd in self.annotated_folders:
+                    _input_fds.append(_fd)
+            if _verbose:
+                print(f"-- {len(_sel_folders)} folders given, {len(_input_fds)} folders selected.")
+        else:
+            if _verbose:
+                print(f"-- No folder selected, allow processing all {len(self.annotated_folders)} folders")
+        # check selected ids
+        if _sel_ids is not None and len(_sel_ids) > 0:
+            _sel_ids = [int(_id) for _id in _sel_ids]
+            for _id in _sel_ids:
+                if _id not in _type_dic[_data_type]['ids']:
+                    print(f"id: {_id} not allowed in color_dic!")
+            _sel_ids = [_id for _id in _sel_ids if _id not in _type_dic[_data_type]['ids']]
+
+        # multi-processing for correct_splice_images
 
 
 
