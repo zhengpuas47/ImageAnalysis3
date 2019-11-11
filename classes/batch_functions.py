@@ -1,7 +1,7 @@
 # Functions used in batch processing
 import os
 import psutil
-
+import numpy as np
 from . import _allowed_kwds
 from ..io_tools.load import correct_fov_image
 
