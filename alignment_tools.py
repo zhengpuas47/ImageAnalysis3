@@ -123,9 +123,9 @@ def align_single_image(_filename, _selected_crops, _ref_filename=None, _ref_ims=
     Output:
         _final_drift: 3d drift as target_im - ref_im, array of 3
     """
-    ## check inputs
+    ## check inputs 
     # check filename file type
-    if '.dax' not in _filename and not isinstance(_filename, np.ndarray):
+    if (isinstance(_filename, str) and '.dax' not in _filename) and not isinstance(_filename, np.ndarray):
         raise IOError(f"Wrong input file type, {_filename} should be .dax file or np.ndarray")
     # check ref_filename
     if _ref_filename is not None and '.dax' not in _ref_filename:
@@ -136,7 +136,10 @@ def align_single_image(_filename, _selected_crops, _ref_filename=None, _ref_ims=
     if _ref_ims is None and _ref_filename is None:
         raise ValueError(f"Either _ref_ims or ref_filename should be given!")
     # printing info
-    _print_name = os.path.join(_filename.split(os.sep)[-2], _filename.split(os.sep)[-1])
+    if isinstance(_filename, str):
+        _print_name = os.path.join(_filename.split(os.sep)[-2], _filename.split(os.sep)[-1])
+    else:
+        _print_name = 'image'
     if _verbose:
         if _ref_filename is not None:
             _ref_print_name = os.path.join(_ref_filename.split(os.sep)[-2], 
@@ -149,14 +152,19 @@ def align_single_image(_filename, _selected_crops, _ref_filename=None, _ref_ims=
     _drifts = []
     # for each target and reference pair, do alignment:
     for _i, _crop in enumerate(_selected_crops):
-        # load target images
-        _tar_im = corrections.correct_single_image(_filename, _bead_channel, crop_limits=_crop,
-                                                   single_im_size=_single_im_size,
-                                                   all_channels=_all_channels, 
-                                                   num_buffer_frames=_num_buffer_frames,
-                                                   num_empty_frames=_num_empty_frames,
-                                                   correction_folder=_correction_folder,
-                                                   illumination_corr=_illumination_corr)
+        if isinstance(_filename, str):
+            # load target images
+            _tar_im = corrections.correct_single_image(_filename, _bead_channel, crop_limits=_crop,
+                                                    single_im_size=_single_im_size,
+                                                    all_channels=_all_channels, 
+                                                    num_buffer_frames=_num_buffer_frames,
+                                                    num_empty_frames=_num_empty_frames,
+                                                    correction_folder=_correction_folder,
+                                                    illumination_corr=_illumination_corr)
+        elif isinstance(_filename, np.ndarray):
+            _tar_im = _filename[(slice(_single_im_size[0]),slice(*_crop[-2]),slice(*_crop[-1]) )]
+        else:
+            raise TypeError(f"Wrong input type for _filename")
         # get reference images
         if _ref_ims is None:
             _ref_im = corrections.correct_single_image(_ref_filename, _bead_channel, crop_limits=_crop,

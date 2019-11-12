@@ -4600,7 +4600,11 @@ class Field_of_View():
             self.num_threads = parameters['num_threads']
         else:
             self.num_threads = int(os.cpu_count() / 4) # default: use one third of cpus.
-
+        # ref_id
+        if 'ref_id' in parameters:
+            self.ref_id = int(parameters['ref_id'])
+        else:
+            self.ref_id = 0
         ## shared_parameters
         # initialize
         if 'shared_parameters' in parameters:
@@ -4649,10 +4653,16 @@ class Field_of_View():
                 self.color_format = _color_info_kwargs['_color_format']
             _color_dic = self._load_color_info(_annotate_folders=True, **_color_info_kwargs)
 
+        # update ref_filename
+        self.ref_filename = os.path.join(self.annotated_folders[self.ref_id], self.fov_name)
+        
         ## create savefile
         # save filename
         if _save_filename is None:
             _save_filename = os.path.join(self.save_folder, self.fov_name.replace('.dax', '.hdf5'))
+        # set save_filename attr
+        self.save_filename = _save_filename
+
         # initialize save file
         if _create_savefile:
             self._init_save_file(_save_filename=_save_filename, 
@@ -4702,7 +4712,9 @@ class Field_of_View():
                         _overwrite=False, _verbose=True):
         """Function to initialize save file for FOV object"""
         if _save_filename is None:
-            _save_filename = os.path.join(self.save_folder, f"{self.fov_name.split('.')[0]}.hdf5")
+            _save_filename = getattr(self, 'save_filename')
+        # set save_filename attr
+        setattr(self, 'save_filename', _save_filename)
         if _verbose and not os.path.exists(_save_filename):
                 print(f"- Creating save file for fov:{self.fov_name}: {_save_filename}")
         with h5py.File(_save_filename, "a", libver='latest') as _f:
@@ -4783,15 +4795,16 @@ class Field_of_View():
                 # ids
                 if 'ids' not in _grp:
                     _ids = _grp.create_dataset('ids', (len(_dict['ids']),), dtype='i', data=_dict['ids'])
+                    _ids = np.array(_dict['ids'], dtype=np.int) # save ids
                     _data_attrs.append('ids')
                 elif len(_dict['ids']) != len(_grp['ids']):
                     _change_size_flag.append('id')
-                    print('id')
                     _old_size=len(_grp['ids'])
                 # channels
                 if 'channels' not in _grp:
                     _channels = [_ch.encode('utf8') for _ch in _dict['channels']]
                     _chs = _grp.create_dataset('channels', (len(_dict['channels']),), dtype='S3', data=_channels)
+                    _chs = np.array(_dict['channels'], dtype=str) # save ids
                     _data_attrs.append('channels')
                 elif len(_dict['channels']) != len(_grp['channels']):
                     _change_size_flag.append('channels')
@@ -4812,19 +4825,19 @@ class Field_of_View():
                     _change_size_flag.append('spots')
                     _old_size=len(_grp['spots'])
                 # drift
-                if 'drift' not in _grp:
-                    _drift = _grp.create_dataset('drift', (_im_shape[0], 3), dtype='f')
-                    _data_attrs.append('drift')
-                elif _im_shape[0] != len(_grp['drift']):
-                    _change_size_flag.append('drift')
-                    _old_size=len(_grp['drift'])
-                # filenames
-                if 'filenames' not in _grp:
-                    _filenames = _grp.create_dataset('filenames', (_im_shape[0], 3), dtype='f')
-                    _data_attrs.append('filenames')
-                elif _im_shape[0] != len(_grp['filenames']):
-                    _change_size_flag.append('filenames')
-                    _old_size=len(_grp['filenames'])
+                if 'drifts' not in _grp:
+                    _drift = _grp.create_dataset('drifts', (_im_shape[0], 3), dtype='f')
+                    _data_attrs.append('drifts')
+                elif _im_shape[0] != len(_grp['drifts']):
+                    _change_size_flag.append('drifts')
+                    _old_size=len(_grp['drifts'])
+                # flags for whether it's been written
+                if 'flags' not in _grp:
+                    _filenames = _grp.create_dataset('flags', (_im_shape[0], ), dtype='u1')
+                    _data_attrs.append('flags')
+                elif _im_shape[0] != len(_grp['flags']):
+                    _change_size_flag.append('flags')
+                    _old_size=len(_grp['flags'])
 
                 # if change size, update these features:
                 if len(_change_size_flag) > 0:
@@ -4993,7 +5006,6 @@ class Field_of_View():
                 raise ValueError("length of _drift doesn't match _folders!")
 
 
-
     def _process_image_to_spots(self, _data_type, _sel_folders=[], _sel_ids=[], 
                                 _warpping_images=True, _save_images=True, 
                                 _save_fitted_spots=True, 
@@ -5034,7 +5046,10 @@ class Field_of_View():
         if _type != 'info' and _type not in self.shared_parameters['allowed_data_types']:
             raise ValueError(f"Wrong input for _type:{_type}, \
                 should be within {self.shared_parameters['allowed_data_types'].keys()} and 'info'.")
-        pass
+        with h5py.File(self.save_filename, "a", libver='latest') as _f:
+            if _type in _allowed_kwds:
+                _grp = _f[_type]
+                print(_grp['ids'][:])
     
     def _load_from_file(self, _type):
         pass

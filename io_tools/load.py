@@ -135,7 +135,7 @@ def multi_crop_image_fov(filename, channels, crop_limit_list,
 def _generate_drift_crops(coord_sel=None, drift_size=500, single_im_size=_image_size):
     """Function to generate drift crop from a selected center and given drift size"""
     if coord_sel is None:
-        coord_sel = np.int(single_im_size/2)
+        coord_sel = np.array(single_im_size/2, dtype=np.int)
     if drift_size is None:
         drift_size = int(np.max(single_im_size)/4)
     crop0 = np.array([[0, single_im_size[0]],
@@ -156,7 +156,7 @@ def _generate_drift_crops(coord_sel=None, drift_size=500, single_im_size=_image_
 
 def correct_fov_image(dax_filename, sel_channels, 
                       single_im_size=_image_size, all_channels=_allowed_colors,
-                      num_buffer_frames=10, num_empty_frames=0, drift=np.array([0,0,0]), 
+                      num_buffer_frames=10, num_empty_frames=0, drift=np.array([0.,0.,0.]), 
                       calculate_drift=False, bead_channel='488', drift_crops=None,
                       ref_filename=None, ref_beads=None,
                       corr_channels=_corr_channels, correction_folder=_correction_folder,
@@ -165,7 +165,7 @@ def correct_fov_image(dax_filename, sel_channels,
                       bleed_corr=True, bleed_profile=None, ref_channel='647',
                       chromatic_corr=True, chromatic_profile=None, 
                       normalization=False, output_dtype=np.uint16,
-                      verbose=True):
+                      return_drift=False, verbose=True):
     """Function to correct one whole field-of-view image in proper manner"""
     ## check inputs
     # dax_filename
@@ -175,6 +175,7 @@ def correct_fov_image(dax_filename, sel_channels,
         raise IOError(f"Dax file: {dax_filename} has wrong data type, exit!")
     if verbose:
         print(f"- correct the whole fov for image: {dax_filename}")
+        _total_start = time.time()
     # selected channels
     sel_channels = [str(ch) for ch in sel_channels]
     # image size etc
@@ -216,7 +217,7 @@ def correct_fov_image(dax_filename, sel_channels,
             illumination_profile = np.array(illumination_profile, dtype=np.float)
             if (illumination_profile.shape != (single_im_size[-2], single_im_size[-1])).any():
                 raise IndexError(f"Wrong input shape for chromatic_profile: {illumination_profile.shape}")
-    if bleed_corr:
+    if bleed_corr and len(_overlap) > 0:
         if bleed_profile is None:
             bleed_profile = load_correction_profile('bleedthrough', corr_channels=corr_channels, 
                                 correction_folder=correction_folder, all_channels=all_channels,
@@ -225,7 +226,7 @@ def correct_fov_image(dax_filename, sel_channels,
             bleed_profile = np.array(bleed_profile, dtype=np.float)
             if (bleed_profile.shape != (len(corr_channels),len(corr_channels),single_im_size[-2], single_im_size[-1])).any():
                 raise IndexError(f"Wrong input shape for bleed_profile: {bleed_profile.shape}")
-    if chromatic_corr:
+    if chromatic_corr and len(_overlap) > 0:
         if chromatic_profile is None:
             chromatic_profile = load_correction_profile('chromatic', corr_channels=corr_channels, 
                                 correction_folder=correction_folder, all_channels=all_channels,
@@ -302,21 +303,21 @@ def correct_fov_image(dax_filename, sel_channels,
     ## calculate bead drift if required
     if calculate_drift:
         if verbose:
-            print(f"-- apply bead_drift calculate for channel: {_bead_channel}", end=' ')
+            print(f"-- apply bead_drift calculate for channel: {_bead_channel}")
             _drift_time = time.time()
         # get required parameters
         if drift_crops is None:
             drift_crops = _generate_drift_crops()
-        _drift = alignment_tools.align_single_image(
-                    _ims[_load_channels.index(_bead_channel)],
-                    drift_crops, _ref_filename=ref_filename, _ref_centers=ref_beads,
-                    _bead_channel=_bead_channel, _all_channels=all_channels,
-                    _single_im_size=single_im_size, _num_buffer_frames=num_buffer_frames,
-                    _num_empty_frames=num_empty_frames, _illumination_corr=False, 
-                    _correction_folder=correction_folder, _verbose=verbose,
-                    )
+        _drift, _drift_success = alignment_tools.align_single_image(
+                                _ims[_load_channels.index(_bead_channel)],
+                                drift_crops, _ref_filename=ref_filename, _ref_centers=ref_beads,
+                                _bead_channel=_bead_channel, _all_channels=all_channels,
+                                _single_im_size=single_im_size, _num_buffer_frames=num_buffer_frames,
+                                _num_empty_frames=num_empty_frames, _illumination_corr=False, 
+                                _correction_folder=correction_folder, _verbose=verbose,
+                                )
         if verbose:
-            print(f"in {time.time()-_drift_time:.3f}s")
+            print(f"--- finish drift in {time.time()-_drift_time:.3f}s")
             print(f"-- drift: {_drift}")
     else:
         _drift = drift.copy()
@@ -345,14 +346,13 @@ def correct_fov_image(dax_filename, sel_channels,
 
     ## chromatic abbrevation
     if chromatic_corr and sum([_ch in corr_channels for _ch in _load_channels]):
-
+        _chromatic_channels = [_ch for _ch in corr_channels if _ch in sel_channels]
         if verbose:
-            print(f"-- chromatic correction for channels: {corr_channels}", end=' ')
+            print(f"-- chromatic correction for channels: {_chromatic_channels}", end=' ')
             _chromatic_time = time.time()
-<<<<<<< HEAD
-        for _i, _ch in enumerate(_load_channels):
+        for _i, _ch in enumerate(sel_channels):
             if _ch in corr_channels:
-                if _ch == ref_channel and not drift.any():
+                if _ch == ref_channel and not _drift.any():
                     if verbose:
                         print(f"{_ch}-skipped", end=', ')
                     continue
@@ -370,47 +370,17 @@ def correct_fov_image(dax_filename, sel_channels,
                     if _ch != ref_channel:
                         _coords = _coords + chromatic_profile[_ch][:,np.newaxis,:,:]
                     # 3. apply drift if necessary
-                    if drift.any():
-                        _coords += drift[:, np.newaxis,np.newaxis,np.newaxis]
+                    if _drift.any():
+                        _coords = _coords + _drift[:, np.newaxis,np.newaxis,np.newaxis]
                     # 4. map coordinates
                     _corr_im = map_coordinates(_im, _coords.reshape(_coords.shape[0], -1), mode='nearest')
                     _corr_im = _corr_im.reshape(np.shape(_im))
                     # append 
-                    _ims[_load_channels.index(_ch)] = _corr_im.astype(output_dtype)
+                    _ims[_load_channels.index(_ch)] = _corr_im.astype(output_dtype).copy()
                     # local clear
-                    del(_coords, _im)
-=======
-        for _i, _ch in enumerate(corr_channels):
-            if _ch == ref_channel and not drift.any():
-                if verbose:
-                    print(f"{_ch}-skipped", end=', ')
-                continue
-            else:
-                if verbose:
-                    print(f"{_ch}", end=', ')
-                # 0. get old image
-                _im = _ims[_load_channels.index(_ch)].copy().astype(np.float)
-                # 1. get coordiates to be mapped
-                _coords = np.meshgrid( np.arange(single_im_size[0]), 
-                        np.arange(single_im_size[1]), 
-                        np.arange(single_im_size[2]), )
-                _coords = np.stack(_coords).transpose((0, 2, 1, 3)) # transpose is necessary
-                # 2. calculate corrected coordinates as a reference
-                if _ch != ref_channel:
-                    _coords = _coords + chromatic_profile[_ch][:,np.newaxis,:,:]
-                # 3. apply drift if necessary
-                if _drift.any():
-                    _coords += _drift[:, np.newaxis,np.newaxis,np.newaxis]
-                # 4. map coordinates
-                _corr_im = map_coordinates(_im, _coords.reshape(_coords.shape[0], -1), mode='nearest')
-                _corr_im = _corr_im.reshape(np.shape(_im))
-                # append 
-                _ims[_load_channels.index(_ch)] = _corr_im.astype(output_dtype)
-                # local clear
-                del(_coords, _im)
->>>>>>> 3ad8bb1697d928e5e6d6a2013b5ecda9cd6292e8
+                    del(_coords, _im, _corr_im)
         # clear
-        del(_corr_im, chromatic_profile)
+        del(chromatic_profile)
         if verbose:
             print(f"in {time.time()-_chromatic_time:.3f}s")
 
@@ -425,8 +395,13 @@ def correct_fov_image(dax_filename, sel_channels,
         _sel_ims.append(_ims[_load_channels.index(_ch)].astype(output_dtype).copy())
     # clear
     del(_ims)
-
-    return _sel_ims
+    if verbose:
+        print(f"-- finish correction in {time.time()-_total_start:.3f}s")
+    # return
+    if return_drift:
+        return _sel_ims, _drift
+    else:
+        return _sel_ims
 
 
 def split_im_by_channels(im, sel_channels, all_channels, single_im_size=_image_size,
