@@ -1,4 +1,18 @@
+# import packages
 import numpy as np
+import glob,sys,os,time
+import matplotlib.pylab as plt
+import pickle as pickle
+import multiprocessing as mp
+# import functions
+from sklearn.decomposition import PCA
+from scipy.ndimage.interpolation import map_coordinates
+from scipy.stats import scoreatpercentile
+# from ImageAnalysis3 import constants
+from .. import _distance_zxy
+from ..visual_tools import _myCmaps
+# from ImageAnalysis3 import functions
+from ..visual_tools import normalize_center_spots, add_source
 
 def randomize_index_dict(index_dict, key1='A', key2='B'):
     """Function to randomize indices for two keys in a dict
@@ -93,7 +107,7 @@ def max_project_AB_compartment(spots, comp_dict, pca_other_2d=True):
     return _spots
 
 # convert spots to 3d cloud by replacing spots with gaussians
-def convert_spots_to_cloud(spots, comp_dict, im_radius=30,                                                 distance_zxy=_distance_zxy,
+def convert_spots_to_cloud(spots, comp_dict, im_radius=30,                                                  distance_zxy=_distance_zxy,
                            spot_variance=None, expand_ratio=1., 
                            scale_variance=False, pca_align=False, 
                            max_project_AB=False, use_intensity=False, 
@@ -138,19 +152,19 @@ def convert_spots_to_cloud(spots, comp_dict, im_radius=30,                      
     for _k, _v in comp_dict.items():
         for _spot in _norm_spots[np.array(_v, dtype=np.int)]:
             if spot_variance is not None:
-                _var = np.array(spot_variance[:3]) 
+                _var = np.array(spot_variance[:3]).reshape(-1)
             else:
                 _var = _spot[5:8] * expand_ratio
-            
             if use_intensity:
                 _int = _spot[0]
             else:
                 _int = 1
 
             if not np.isnan(_spot).any():
-                _density_dict[_k] = add_source(_density_dict[_k], pos=im_radius+_spot[1:4],
-                                                h=_int, sig=_var, 
-                                                size_fold=im_radius)
+                _density_dict[_k] = add_source(_density_dict[_k], 
+                                               pos=im_radius+_spot[1:4],
+                                               h=_int, sig=_var, 
+                                               size_fold=im_radius)
                 _spot_ct[_k] += 1
         # normalize spot counts if specified
         if normalize_count:
@@ -169,8 +183,7 @@ def convert_spots_to_cloud(spots, comp_dict, im_radius=30,                      
             _fig = plt.figure(figsize=(8,6),dpi=200)
             ax = _fig.add_subplot(111)
         # estimate limits
-        _vmax = min(stats.scoreatpercentile(list(_density_dict.values())[0].sum(2), 98),
-                    stats.scoreatpercentile(list(_density_dict.values())[1].sum(2), 98) )
+        _vmax = min(scoreatpercentile(list(_density_dict.values())[0].sum(2), 98), scoreatpercentile(list(_density_dict.values())[1].sum(2), 98))
 
         # make density plot
         for _i, (_k,_v) in enumerate(list(_density_dict.items())[:2]):
@@ -214,7 +227,11 @@ def Batch_Convert_Spots_to_Cloud(spot_list, comp_dict, im_radius=30,
                                  num_threads=12, distance_zxy=_distance_zxy, 
                                  spot_variance=None, expand_ratio=1.,
                                  verbose=True):
-    """Function to batch convert spot list to cloud dict list"""
+    """Function to batch convert spot list to cloud dict list
+    Inputs:
+        spot_list: list of fitted spots of chromosomes, list of 2d-array
+        comp_dict: compartment index dictionary, marking identities of indices in spots, dict or list of dicts
+        im_radius: image radius calculated by """
     _start_time = time.time()
     _convert_args = []
     if isinstance(comp_dict, list):
@@ -244,3 +261,17 @@ def Batch_Convert_Spots_to_Cloud(spot_list, comp_dict, im_radius=30,
         print(f"--- time spent in converting to cloud: {time.time()-_start_time}")
     
     return _density_dicts, _score_dicts
+
+def Batch_Convert_Control_to_Cloud()
+
+def density_overlaps(d1, d2, method='geometric'):
+    """Function to calculate overlaps based on densities
+    Inputs: 
+        d1: density array 1
+        d2: density array 2, same shape as d1S
+        method: type of method to calculate density overlap
+    Output:
+        overlap_score, a float
+    """
+    if method == 'geometric':
+        return np.nansum(np.sqrt(d1*d2)) / np.sqrt(np.sum(d1) * np.sum(d2))

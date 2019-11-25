@@ -197,13 +197,13 @@ def chromosome_structure_3d_rendering(spots, ax3d=None, cmap='Spectral',
     # spots
     _spots = np.array(spots)
     if len(np.shape(_spots)) != 2:
-        raise IndexError(f"Wrong _spots dimension, should be 2d array but {_spot.shape} is given")
+        raise IndexError(f"Wrong _spots dimension, should be 2d array but {_spots.shape} is given")
     # prepare spots
     if _spots.shape[1] == 3:
         _zxy = _spots 
     else:
         _zxy = _spots[:,1:4] * distance_zxy[np.newaxis,:]
-    _n_zxy = visual_tools.normalize_center_spots(_zxy, distance_zxy=distance_zxy, 
+    _n_zxy = visual_tools.normalize_center_spots(_zxy, distance_zxy=distance_zxy,
                                                  center=True, scale_variance=False, 
                                                  pca_align=pca_align, scaling=1)
     _valid_inds = (np.isnan(_n_zxy).sum(1) == 0)
@@ -325,6 +325,6 @@ def chromosome_structure_3d_rendering(spots, ax3d=None, cmap='Spectral',
             save_basename += '.png'
         save_filename = os.path.join(save_folder, save_basename)
         print(save_filename)
-        plt.savefig(save_filename, transparent=False)
+        plt.savefig(save_filename, transparent=True)
 
     return ax3d
