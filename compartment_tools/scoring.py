@@ -262,7 +262,8 @@ def Batch_Convert_Spots_to_Cloud(spot_list, comp_dict, im_radius=30,
     
     return _density_dicts, _score_dicts
 
-def Batch_Convert_Control_to_Cloud()
+def Batch_Convert_Control_to_Cloud():
+    pass
 
 def density_overlaps(d1, d2, method='geometric'):
     """Function to calculate overlaps based on densities
