@@ -325,6 +325,6 @@ def chromosome_structure_3d_rendering(spots, ax3d=None, cmap='Spectral',
             save_basename += '.png'
         save_filename = os.path.join(save_folder, save_basename)
         print(save_filename)
-        plt.savefig(save_filename, transparent=True)
+        plt.savefig(save_filename, transparent=False)
 
     return ax3d
