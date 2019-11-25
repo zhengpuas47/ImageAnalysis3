@@ -259,8 +259,8 @@ def chromosome_structure_3d_rendering(spots, ax3d=None, cmap='Spectral',
    
     # scatter plot
     _sc = ax3d.scatter(_n_zxy[_valid_inds,0], _n_zxy[_valid_inds,1], _n_zxy                              [_valid_inds,2],
-                       c=_colors[_valid_inds], s=marker_size, depthshade=depthshade, 
-                       edgecolors=[[0,0,0, _c[-1]] for _c in _colors[_valid_inds]], 
+                       c=_colors[_valid_inds], s=marker_size, depthshade=depthshade, alpha=marker_alpha,
+                       edgecolors=[[0,0,0, marker_alpha] for _c in _colors[_valid_inds]], 
                        linewidth=0.05)
     # plot lines between spots
     for _i,_coord in enumerate(_n_zxy[:-1]):
