@@ -107,7 +107,7 @@ def max_project_AB_compartment(spots, comp_dict, pca_other_2d=True):
     return _spots
 
 # convert spots to 3d cloud by replacing spots with gaussians
-def convert_spots_to_cloud(spots, comp_dict, im_radius=30,                                                  distance_zxy=_distance_zxy,
+def convert_spots_to_cloud(spots, comp_dict, im_radius=30,                                                                                                                   distance_zxy=_distance_zxy,
                            spot_variance=None, expand_ratio=1., 
                            scale_variance=False, pca_align=False, 
                            max_project_AB=False, use_intensity=False, 
@@ -145,7 +145,7 @@ def convert_spots_to_cloud(spots, comp_dict, im_radius=30,                      
                                          scaling=_default_scaling)
     if max_project_AB:
         _norm_spots = max_project_AB_compartment(_norm_spots, comp_dict, pca_other_2d=True)
-    
+    print(_norm_spots[:,1:4])
     # create density map dict
     _density_dict = {_k:np.zeros([im_radius*2]*3) for _k in comp_dict.keys()}
     _spot_ct = {_k:0 for _k in comp_dict.keys()}
@@ -174,9 +174,11 @@ def convert_spots_to_cloud(spots, comp_dict, im_radius=30,                      
             _density_dict[_k] = _density_dict[_k] / np.sum(_density_dict[_k])
     # calculate scores
     if return_scores:
-        _score_dict = {_k:map_coordinates(_density_dict[_k], 
-                                          _norm_spots[:,1:4].transpose()+im_radius)
-                        for _k in comp_dict.keys()}
+        _score_dict = spot_cloud_scores(_spots, _spots, comp_dict, 
+                                        spot_variance=spot_variance,
+                                        normalize_spots=True, 
+                                        distance_zxy=distance_zxy,
+                                        )
 
     if return_plot:
         if ax is None:
@@ -221,6 +223,45 @@ def convert_spots_to_cloud(spots, comp_dict, im_radius=30,                      
     else:
         return _density_dict
 
+def spot_cloud_scores(spots, ref_spots, comp_dict, 
+                      spot_variance=None, normalize_spots=True,
+                      distance_zxy=_distance_zxy):
+    # spot_variance
+    if spot_variance is not None:
+        if len(spot_variance) < 3:
+            raise ValueError(f"variance should be given for 3d")
+        else:
+            spot_variance=np.array(spot_variance[:3],dtype=np.float).reshape(-1)
+    if normalize_spots:
+        _ref_spots = normalize_center_spots(ref_spots, 
+                                            distance_zxy=distance_zxy,
+                                            center=True, pca_align=False,
+                                            scale_variance=False,scaling=1.
+                                            )
+        _zxys = spots[:,1:4] - np.nanmean(ref_spots[:,1:4], axis=0)
+    else:
+        _ref_spots = np.array(ref_spots).copy()
+        _zxys = spots[:,1:4]
+    
+    _score_dict = {}
+    for _key, _inds in comp_dict.items():
+        # extract indices
+        _inds = np.array(_inds, dtype=np.int)
+        # extract coordinates
+        _ref_cts = _ref_spots[_inds,1:4]
+        _scores = np.zeros(len(_zxys), dtype=np.float)
+        for _i, _ct in enumerate(_ref_cts):
+            if not np.isnan(_ct).any():
+                if spot_variance is None:
+                    _std = _ref_spots[_i,5:8]
+                else:
+                    _std = spot_variance
+                _gpdfs = calculate_gaussian_density(_zxys, _ct, _std)
+                _scores += _gpdfs
+        # append
+        _score_dict[_key] = _scores
+
+    return _score_dict
 
 # batch convert spots to clouds
 def Batch_Convert_Spots_to_Cloud(spot_list, comp_dict, im_radius=30, 
@@ -231,7 +272,8 @@ def Batch_Convert_Spots_to_Cloud(spot_list, comp_dict, im_radius=30,
     Inputs:
         spot_list: list of fitted spots of chromosomes, list of 2d-array
         comp_dict: compartment index dictionary, marking identities of indices in spots, dict or list of dicts
-        im_radius: image radius calculated by """
+        im_radius: image radius in pixel, int (default: 30)
+        num_threads: number of threads """
     _start_time = time.time()
     _convert_args = []
     if isinstance(comp_dict, list):
@@ -276,3 +318,10 @@ def density_overlaps(d1, d2, method='geometric'):
     """
     if method == 'geometric':
         return np.nansum(np.sqrt(d1*d2)) / np.sqrt(np.sum(d1) * np.sum(d2))
+
+def calculate_gaussian_density(centers, ref_center, sigma, 
+                               intensity=1, background=0):
+    sigma = np.array(sigma, dtype=np.float)
+    g_pdf = np.exp(-0.5 * np.sum((centers - ref_center)**2 / sigma**2, axis=-1))
+    g_pdf = float(intensity) * g_pdf + float(background)
+    return g_pdf
