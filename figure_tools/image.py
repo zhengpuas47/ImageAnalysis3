@@ -174,17 +174,17 @@ def visualize_2d_gaussian(im, spot, color=[0,0,0], kept_axes=(1,2), ax=None, cro
 
 def chromosome_structure_3d_rendering(spots, ax3d=None, cmap='Spectral', 
                                       distance_zxy=_distance_zxy, 
-                                      pca_align=False, image_radius=2000,
+                                      center=True, pca_align=False, image_radius=2000,
                                       marker_size=6, marker_alpha=1, 
                                       background_color=[0,0,0], 
                                       line_width=1, line_alpha=1, depthshade=True,
                                       view_elev_angle=90, view_azim_angle=0, 
                                       add_reference_bar=True, reference_bar_length=1000, 
-                                      reference_bar_width=2, 
-                                      reference_bar_color=[1,1,1],
+                                      reference_bar_width=2, reference_bar_color=[1,1,1],
+                                      add_colorbar=True, cbar_shrink=1.0,
+                                      cbar_label=None, cbar_tick_labels=None,
                                       tick_label_length=_ticklabel_size, tick_label_width=_ticklabel_width, 
-                                      font_size=_font_size, add_colorbar=True,
-                                      figure_width=_single_col_width, figure_dpi=_dpi,
+                                      font_size=_font_size, figure_width=_single_col_width, figure_dpi=_dpi,
                                       save=False, save_folder='.', save_basename='3d-projection.png', verbose=True):
     """Function to visualize 3d rendering of chromosome structure
     Inputs:
@@ -204,14 +204,14 @@ def chromosome_structure_3d_rendering(spots, ax3d=None, cmap='Spectral',
     else:
         _zxy = _spots[:,1:4] * distance_zxy[np.newaxis,:]
     _n_zxy = visual_tools.normalize_center_spots(_zxy, distance_zxy=distance_zxy,
-                                                 center=True, scale_variance=False, 
+                                                 center=center, scale_variance=False, 
                                                  pca_align=pca_align, scaling=1)
     _valid_inds = (np.isnan(_n_zxy).sum(1) == 0)
     # set dimension
     if image_radius is None:
-        _radius = np.nanmax(np.abs(_n_zxy)) + reference_bar_length/2 
+        _radius = np.nanmax(np.abs(_n_zxy)) + reference_bar_length
     else:
-        _radius = image_radius
+        _radius = image_radius + reference_bar_length 
     # cmap
     if isinstance(cmap, str):
         _cmap = matplotlib.cm.get_cmap(cmap)
@@ -251,8 +251,10 @@ def chromosome_structure_3d_rendering(spots, ax3d=None, cmap='Spectral',
     if ax3d is None:
         fig = plt.figure(figsize=(figure_width, figure_width), dpi=figure_dpi)
         ax3d = fig.gca(projection='3d')
+        ax3d.set_aspect('equal')
     else:
-        if not isinstance(ax3d, matplotlib.axes._subplots.Axes3DSubplot):
+        from mpl_toolkits.mplot3d import Axes3D
+        if ax3d.__module__ != 'matplotlib.axes._subplots':
             raise TypeError(f"Wrong input type for ax3d:{type(ax3d)}, it should be Axec3DsSubplot object.")
     # background color
     ax3d.set_facecolor(_back_color)
@@ -277,8 +279,8 @@ def chromosome_structure_3d_rendering(spots, ax3d=None, cmap='Spectral',
                     break
     # plot reference bar
     if add_reference_bar:
-        _bar_starts = np.array([np.sin(view_elev_angle/180*np.pi)*_radius, 
-                                np.sin(view_elev_angle/180*np.pi)*_radius, 
+        _bar_starts = np.array([np.sin(view_elev_angle/180*np.pi)*_radius + 0.5*_radius, 
+                                np.sin(view_elev_angle/180*np.pi)*_radius + 0.5*_radius, 
                                 - np.cos(view_elev_angle/180*np.pi)*_radius])
         _bar_ends = _bar_starts  -  reference_bar_length * \
                       np.array([np.sin(view_azim_angle/180*np.pi) * np.sin(view_elev_angle/180*np.pi),
@@ -301,11 +303,19 @@ def chromosome_structure_3d_rendering(spots, ax3d=None, cmap='Spectral',
         m.set_array(_color_inds)
         #divider = make_axes_locatable(ax3d)
         #cax = divider.append_axes('bottom', size='6%', pad="2%")
-        cb = plt.colorbar(m, ax=ax3d, orientation='horizontal', pad=0.01)
+        cb = plt.colorbar(m, ax=ax3d, orientation='horizontal', pad=0.01, shrink=cbar_shrink)
         cb.ax.tick_params(labelsize=font_size, width=tick_label_width, length=tick_label_length-1,pad=1)
+        # set ticklabel
+        if cbar_tick_labels is not None:
+            _tick_coords = np.arange(0, len(_spots), int(len(_spots)/5))
+            cb.set_ticks(_tick_coords)
+            cb.set_ticklabels(np.array(cbar_tick_labels)[_tick_coords])
+        if cbar_label is not None:
+            cb.set_label(cbar_label, fontsize=font_size, labelpad=1)
         # border
         cb.outline.set_linewidth(tick_label_width)
-
+    else:
+        cb = None
     # axis view angle
     ax3d.grid(False)
     ax3d.set_xlabel('X')
@@ -326,5 +336,5 @@ def chromosome_structure_3d_rendering(spots, ax3d=None, cmap='Spectral',
         save_filename = os.path.join(save_folder, save_basename)
         print(save_filename)
         plt.savefig(save_filename, transparent=False)
-
-    return ax3d
+    
+    return ax3d, cb

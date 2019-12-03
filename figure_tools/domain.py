@@ -120,9 +120,11 @@ def plot_domain_in_distmap(distmap, domain_starts, ax=None,
     _distmap[_distmap<min(color_limits)] = min(color_limits)
     # domain starts
     domain_starts = np.array(domain_starts, dtype=np.int)
-    domain_ends = np.concatenate([domain_starts[1:], np.array([len(distmap)])])
     if 0 not in domain_starts:
-        domain_starts = np.concatenate([np.zeros(1), domain_starts])
+        domain_starts = np.concatenate([np.array([0]), domain_starts]).astype(np.int)
+    # domain ends
+    domain_ends = np.concatenate([domain_starts[1:], np.array([len(distmap)])]).astype(np.int)
+
     
     ## create image
     if ax is None:

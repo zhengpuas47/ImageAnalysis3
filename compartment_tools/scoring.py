@@ -8,6 +8,7 @@ import multiprocessing as mp
 from sklearn.decomposition import PCA
 from scipy.ndimage.interpolation import map_coordinates
 from scipy.stats import scoreatpercentile
+from scipy.spatial.distance import cdist
 # from ImageAnalysis3 import constants
 from .. import _distance_zxy
 from ..visual_tools import _myCmaps
@@ -145,7 +146,6 @@ def convert_spots_to_cloud(spots, comp_dict, im_radius=30,                      
                                          scaling=_default_scaling)
     if max_project_AB:
         _norm_spots = max_project_AB_compartment(_norm_spots, comp_dict, pca_other_2d=True)
-    print(_norm_spots[:,1:4])
     # create density map dict
     _density_dict = {_k:np.zeros([im_radius*2]*3) for _k in comp_dict.keys()}
     _spot_ct = {_k:0 for _k in comp_dict.keys()}
@@ -225,7 +225,7 @@ def convert_spots_to_cloud(spots, comp_dict, im_radius=30,                      
 
 def spot_cloud_scores(spots, ref_spots, comp_dict, 
                       spot_variance=None, normalize_spots=True,
-                      distance_zxy=_distance_zxy):
+                      distance_zxy=_distance_zxy, exclude_self=True, dist_th=0.01):
     # spot_variance
     if spot_variance is not None:
         if len(spot_variance) < 3:
@@ -238,11 +238,13 @@ def spot_cloud_scores(spots, ref_spots, comp_dict,
                                             center=True, pca_align=False,
                                             scale_variance=False,scaling=1.
                                             )
+        # adjust zxys
         _zxys = spots[:,1:4] - np.nanmean(ref_spots[:,1:4], axis=0)
+        _zxys = _zxys * np.array(distance_zxy) / np.min(distance_zxy)
     else:
         _ref_spots = np.array(ref_spots).copy()
         _zxys = spots[:,1:4]
-    
+        _zxys = _zxys * np.array(distance_zxy) / np.min(distance_zxy)
     _score_dict = {}
     for _key, _inds in comp_dict.items():
         # extract indices
@@ -252,11 +254,15 @@ def spot_cloud_scores(spots, ref_spots, comp_dict,
         _scores = np.zeros(len(_zxys), dtype=np.float)
         for _i, _ct in enumerate(_ref_cts):
             if not np.isnan(_ct).any():
+                # exclude itself flag
+                _ex_flag = cdist(_zxys, _ct[np.newaxis,:]).reshape(-1) < dist_th
                 if spot_variance is None:
                     _std = _ref_spots[_i,5:8]
                 else:
                     _std = spot_variance
                 _gpdfs = calculate_gaussian_density(_zxys, _ct, _std)
+                if exclude_self:
+                    _gpdfs[_ex_flag] = 0 # excluded don't contribute density
                 _scores += _gpdfs
         # append
         _score_dict[_key] = _scores
@@ -325,3 +331,14 @@ def calculate_gaussian_density(centers, ref_center, sigma,
     g_pdf = np.exp(-0.5 * np.sum((centers - ref_center)**2 / sigma**2, axis=-1))
     g_pdf = float(intensity) * g_pdf + float(background)
     return g_pdf
+
+
+def winsorize(scores, l_per=5, u_per=5, normalize=False):
+    _scores = np.array(scores, dtype=np.float)
+    _llim = scoreatpercentile(_scores, l_per)
+    _ulim = scoreatpercentile(_scores, 100-u_per)
+    _scores[_scores < _llim] = _llim
+    _scores[_scores > _ulim] = _ulim
+    if normalize:
+        _scores = (_scores - np.nanmin(_scores)) / (np.nanmax(_scores) - np.nanmin(_scores))
+    return _scores
