@@ -1,4 +1,5 @@
-from . import get_img_info, visual_tools, alignment_tools, classes, io_tools
+from . import get_img_info, visual_tools, alignment_tools, io_tools
+#from .classes.batch_functions import killchild
 from . import _correction_folder,_temp_folder,_distance_zxy,_sigma_zxy,_image_size,_allowed_colors
 from .External import Fitting_v3
 import numpy as np
@@ -229,7 +230,7 @@ def Calculate_Bead_Drift(folders, fovs, fov_id, num_threads=12, drift_size=500, 
         drift_pool.terminate()
     # clear
     del(args)
-    classes.killchild()
+    #killchild()
     # convert to dict
     if not sequential_mode:
         if stringent:
@@ -1294,7 +1295,7 @@ def generate_bleedthrough_correction_channel(data_folder, target_channel, ref_ch
             _bc_pool.close()
             _bc_pool.join()
             _bc_pool.terminate()
-        classes.killchild()  
+        #killchild()  
         # summarize results  
         _spot_lst = []
         for _lst in align_results:

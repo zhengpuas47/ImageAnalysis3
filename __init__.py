@@ -40,6 +40,8 @@ from . import postanalysis
 from . import figure_tools
 # functions to read and save images
 from . import io_tools
+# function to load compartment tools
+from . import compartment_tools
 ## import exteral functions
 from .External import Fitting_v3
 from .External import DomainTools

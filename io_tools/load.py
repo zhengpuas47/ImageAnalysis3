@@ -158,7 +158,7 @@ def correct_fov_image(dax_filename, sel_channels,
                       single_im_size=_image_size, all_channels=_allowed_colors,
                       num_buffer_frames=10, num_empty_frames=0, drift=np.array([0.,0.,0.]), 
                       calculate_drift=False, bead_channel='488', drift_crops=None,
-                      ref_filename=None, ref_beads=None,
+                      drift_size=600, ref_filename=None, ref_beads=None,
                       corr_channels=_corr_channels, correction_folder=_correction_folder,
                       hot_pixel_corr=True, hot_pixel_th=4, z_shift_corr=False,
                       illumination_corr=True, illumination_profile=None, 
@@ -307,7 +307,7 @@ def correct_fov_image(dax_filename, sel_channels,
             _drift_time = time.time()
         # get required parameters
         if drift_crops is None:
-            drift_crops = _generate_drift_crops()
+            drift_crops = _generate_drift_crops(drift_size=drift_size, single_im_size=single_im_size)
         _drift, _drift_success = alignment_tools.align_single_image(
                                 _ims[_load_channels.index(_bead_channel)],
                                 drift_crops, _ref_filename=ref_filename, _ref_centers=ref_beads,

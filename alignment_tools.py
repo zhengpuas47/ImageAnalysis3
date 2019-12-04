@@ -10,7 +10,7 @@ import pickle as pickle
 import multiprocessing as mp
 import psutil
 
-from . import get_img_info, corrections, visual_tools, classes
+from . import get_img_info, corrections, visual_tools
 from . import _correction_folder, _temp_folder, _distance_zxy, _sigma_zxy, _image_size, _allowed_colors
 from .External import Fitting_v3
 
@@ -165,6 +165,7 @@ def align_single_image(_filename, _selected_crops, _ref_filename=None, _ref_ims=
             _tar_im = _filename[(slice(_single_im_size[0]),slice(*_crop[-2]),slice(*_crop[-1]) )]
         else:
             raise TypeError(f"Wrong input type for _filename")
+        print(_tar_im.shape)
         # get reference images
         if _ref_ims is None:
             _ref_im = corrections.correct_single_image(_ref_filename, _bead_channel, crop_limits=_crop,
@@ -176,6 +177,7 @@ def align_single_image(_filename, _selected_crops, _ref_filename=None, _ref_ims=
                                                        illumination_corr=_illumination_corr,)
         else:
             _ref_im = _ref_ims[_i].copy()
+        print(_ref_im.shape)
         # get ref center
         if _ref_centers is None:
             _ref_center = visual_tools.get_STD_centers(
@@ -184,6 +186,7 @@ def align_single_image(_filename, _selected_crops, _ref_filename=None, _ref_ims=
             _ref_center = np.array(_ref_centers[_i]).copy()
         # rough align ref_im and target_im
         _rough_drift = fft3d_from2d(_ref_im, _tar_im, gb=_rough_drift_gb)
+        print(f"rough drift:{_rough_drift}")
         # based on ref_center and rough_drift, find matched_ref_center
         _matched_tar_seeds, _find_pair = visual_tools.find_matched_seeds(_tar_im, 
                                                             _ref_center-_rough_drift,
@@ -192,6 +195,7 @@ def align_single_image(_filename, _selected_crops, _ref_filename=None, _ref_ims=
                                                             search_distance=_match_distance, 
                                                             keep_unique=_match_unique,
                                                             verbose=_verbose)
+        print(len(_matched_tar_seeds), _ref_center.shape)
         if len(_matched_tar_seeds) < len(_ref_center) * 0.2:
             _matched_tar_seeds, _find_pair = visual_tools.find_matched_seeds(_tar_im,
                                                                             _ref_center-_rough_drift,

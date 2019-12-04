@@ -25,7 +25,7 @@ _allowed_kwds = {'combo': 'c',
                 'rna-unique':'r', 
                 'rna': 'r', # long term used label, because "-" is creating issue in python
                 'gene':'g'}
-
+_max_num_seeds = 500 
 from . import batch_functions
 
 # initialize pool
@@ -4638,7 +4638,8 @@ class Field_of_View():
             self.shared_parameters['corr_chromatic'] = True
         if 'allowed_kwds' not in self.shared_parameters:
             self.shared_parameters['allowed_data_types'] = _allowed_kwds
-
+        if 'max_num_seeds' not in self.shared_parameters:
+            self.shared_parameters['max_num_seeds'] = _max_num_seeds
         ## load experimental info
         if _load_references:
             if '_color_filename' not in _color_info_kwargs:
@@ -4819,7 +4820,9 @@ class Field_of_View():
 
                 # spots
                 if 'spots' not in _grp:
-                    _spots = _grp.create_dataset('spots', (_im_shape[0],), dtype='f')
+                    _spots = _grp.create_dataset('spots', 
+                                (_im_shape[0], self.shared_parameters['max_num_seeds'], 11), 
+                                dtype='f')
                     _data_attrs.append('spots')
                 elif _im_shape[0] != len(_grp['spots']):
                     _change_size_flag.append('spots')
@@ -5038,7 +5041,6 @@ class Field_of_View():
             _sel_ids = [_id for _id in _sel_ids if _id not in _type_dic[_data_type]['ids']]
 
         # multi-processing for correct_splice_images
-
 
 
     def _save_to_file(self, _type):
