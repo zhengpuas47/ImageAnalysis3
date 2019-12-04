@@ -51,10 +51,12 @@ def _sliding_window_dist(_mat, _wd, _dist_metric='median'):
                 m_inter, m_intra = np.mean(_inter_dist), np.mean(_intra_dist)
                 v_inter, v_intra = np.var(_inter_dist), np.var(_intra_dist)
                 dists[_i] = (m_inter-m_intra) / np.sqrt(v_inter+v_intra)
+            elif _dist_metric == 'insulation':
+                dists[_i] = (np.nanmean(_intra_dist) - np.nanmean(_inter_dist)) / (np.nanmean(_intra_dist) + np.nanmean(_inter_dist))
             else:
                 raise ValueError(f"Wrong input _dist_metric")
 
-    dists[dists<0] = 0
+    #dists[dists<0] = 0
 
     return dists
 

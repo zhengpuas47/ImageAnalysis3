@@ -3349,11 +3349,11 @@ def max_project_AB_compartment(spots, comp_dict, pca_other_2d=True):
     return _spots
 
 # convert spots to 3d cloud by replacing spots with gaussians
-def convert_spots_to_cloud(spots, comp_dict, im_radius=30, distance_zxy=_distance_zxy,
+def convert_spots_to_cloud(spots, comp_dict, im_radius=30,                                                 distance_zxy=_distance_zxy,
                            spot_variance=None, expand_ratio=1., 
-                           scale_variance=True, pca_align=True, 
-                           max_project_AB=True, use_intensity=False, 
-                           normalize_pdf=True,
+                           scale_variance=False, pca_align=False, 
+                           max_project_AB=False, use_intensity=False, 
+                           normalize_count=False, normalize_pdf=False, 
                            return_plot=False, ax=None, return_scores=True, 
                            verbose=False):
     """Convert spots (have to be centered to zero with correct scaling, 
@@ -3408,8 +3408,9 @@ def convert_spots_to_cloud(spots, comp_dict, im_radius=30, distance_zxy=_distanc
                                                 h=_int, sig=_var, 
                                                 size_fold=im_radius)
                 _spot_ct[_k] += 1
-        # normalize density
-        _density_dict[_k] = _density_dict[_k] / _spot_ct[_k]
+        # normalize spot counts if specified
+        if normalize_count:
+            _density_dict[_k] = _density_dict[_k] / _spot_ct[_k]
         # normalize as pdf if specified
         if normalize_pdf:
             _density_dict[_k] = _density_dict[_k] / np.sum(_density_dict[_k])
@@ -3483,11 +3484,11 @@ def Batch_Convert_Spots_to_Cloud(spot_list, comp_dict, im_radius=30,
     for _spots, _cdict in zip(spot_list, comp_dict):
         _convert_args.append(
             (_spots, _cdict, im_radius, distance_zxy, 
-             spot_variance, expand_ratio)
+             spot_variance, expand_ratio, False, False)
         )
     with mp.Pool(num_threads) as _convert_pool:
         if verbose:
-            print(f"-- {len(_convert_args)} chromosomes processing by {num_threads} threads.")
+            print(f"-- {len(_convert_args)} chromos,omes processing by {num_threads} threads.")
         _results = _convert_pool.starmap(convert_spots_to_cloud, _convert_args, chunksize=1)
         _convert_pool.close()
         _convert_pool.join()
