@@ -8,7 +8,6 @@ import numpy as np
 import pickle as pickle
 
 import matplotlib.pyplot as plt
-from .. import domain_tools
 
 ## Plotting tools
 def fig_no_axis(**kwargs):

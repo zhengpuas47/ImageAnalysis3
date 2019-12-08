@@ -1,6 +1,15 @@
 # global variables
 from .. import _correction_folder, _temp_folder, _distance_zxy, _sigma_zxy, _allowed_colors
+# some shared parameters
+_seed_th={
+    '750': 400,
+    '647': 1200,
+    '561': 800,
+}
+
 ## load sub packages
+# sub-package for fitting spots
+from . import fitting 
 # sub-package for picking spots
 from . import picking
 # sub-package for scoring spots

@@ -1,9 +1,9 @@
 # Functions used in batch processing
-import os, h5py, pickle, psutil
+import os, h5py, pickle, psutil, time
 import numpy as np
 from . import _allowed_kwds
 from ..io_tools.load import correct_fov_image
-
+from ..spot_tools.fitting import fit_fov_image
 ## Process managing
 def killtree(pid, including_parent=False, verbose=False):
     """Function to kill all children of a given process"""
@@ -85,13 +85,15 @@ def batch_process_image_to_spots(dax_filename, sel_channels, ref_filename,
                         os.path.basename(dax_filename).replace('.dax', '_current_cor.pkl'))
     _key = os.path.join(os.path.basename(os.path.dirname(dax_filename)),
                         os.path.basename(dax_filename))
-    # try to load drift                 
-    _drift_dict = pickle.load(open(_drift_filename, 'rb'))
+    # try to load drift
+    if os.path.isfile(_drift_filename):
+        _drift_dict = pickle.load(open(_drift_filename, 'rb'))
+    else:
+        _drift_dict = {}
     if _key in _drift_dict and not overwrite_drift:
         if verbose:
             print(f"-- load drift from drift_dict: {_drift_filename}")
         _drift = _drift_dict[_key]
-        print(_drift)
         _corr_drift = False 
     else:
         if verbose:
@@ -118,7 +120,6 @@ def batch_process_image_to_spots(dax_filename, sel_channels, ref_filename,
                             ref_filename=ref_filename, 
                             return_drift=True, verbose=verbose, 
                             **correction_args, **drift_args)
-    
     ## save image if specified
     # initiate lock
     if image_file_lock is not None:
@@ -126,8 +127,7 @@ def batch_process_image_to_spots(dax_filename, sel_channels, ref_filename,
     # run saving
     _save_img_success = save_image_to_fov_file(
         save_filename, _sel_ims, data_type, region_ids, 
-        _drift, image_file_lock,
-        overwrite_image, verbose)
+        _drift, overwrite_image, verbose)
     # release lock
     if image_file_lock is not None:
         image_file_lock.release()
@@ -145,15 +145,27 @@ def batch_process_image_to_spots(dax_filename, sel_channels, ref_filename,
         drift_file_lock.release()
 
     ## multi-fitting
-
-    ## save fitted_spots if specified
     _spot_list = []
+    for _im, _ch in zip(_sel_ims, sel_channels):
+        _spots = fit_fov_image(_im, _ch, verbose=verbose, **fitting_args)
+        _spot_list.append(_spots)
+    ## save fitted_spots if specified
+    # initiate lock
+    if spot_file_lock is not None:
+        spot_file_lock.acquire()
+    # run saving
+    _save_spt_success = save_spots_to_fov_file(
+        save_filename, _spot_list, data_type, region_ids, 
+        overwrite_spot, verbose)
+    # release lock
+    if spot_file_lock is not None:
+        spot_file_lock.release()
 
     return _spot_list
     
 # save image to fov file
 def save_image_to_fov_file(filename, ims, data_type, region_ids, drift=None,
-                           lock=None, overwrite=False, verbose=True):
+                           overwrite=False, verbose=True):
     """Function to save image to fov-standard savefile(hdf5)
     Inputs:
     
@@ -175,6 +187,7 @@ def save_image_to_fov_file(filename, ims, data_type, region_ids, drift=None,
             raise IndexError(f"Length of drift should match ims")
     if verbose:
         print(f"- writting {data_type} info to file:{filename}")
+        _save_start = time.time()
     _updated_ims = []
     _updated_drifts = []
     ## start saving
@@ -191,7 +204,41 @@ def save_image_to_fov_file(filename, ims, data_type, region_ids, drift=None,
                     _grp['drifts'][_index] = _all_drifts[_i]
                     _updated_drifts.append(_id)
     if verbose:
-        print(f"-- updated ims for id:{_updated_ims}, drifts for id:{_updated_drifts}")
+        print(f"-- updated ims for id:{_updated_ims}, drifts for id:{_updated_drifts} in {time.time()-_save_start:.3f}s")
+    # return success flag    
+    return True
+
+# save image to fov file
+def save_spots_to_fov_file(filename, spot_list, data_type, region_ids, 
+                           overwrite=False, verbose=True):
+    """Function to save image to fov-standard savefile(hdf5)
+    Inputs:
+    
+    Outputs:
+    """
+    ## check inputs
+    if not os.path.isfile(filename):
+        raise IOError(f"save file: {filename} doesn't exist!")
+    if data_type not in _allowed_kwds:
+        raise ValueError(f"Wrong input data_type:{data_type}, should be among {_allowed_kwds}.")
+    if len(spot_list) != len(region_ids):
+        raise ValueError(f"Wrong input region_ids:{region_ids}, should of same length as spots, len={len(spot_list)}.")
+
+    if verbose:
+        print(f"- writting {data_type} spots into file:{filename}")
+        _save_start = time.time()
+    _updated_spots = []
+    ## start saving
+    with h5py.File(filename, "a", libver='latest') as _f:
+        _grp = _f[data_type]
+        for _i, (_id, _spots) in enumerate(zip(region_ids, spot_list)):
+            _index = list(_grp['ids'][:]).index(_id)
+            if np.sum(_grp['spots'][_index])==0 or overwrite:
+                _grp['spots'][_index, :len(_spots), :] = _spots
+                _updated_spots.append(_id)
+
+    if verbose:
+        print(f"-- updated spots for id:{_updated_spots} in {time.time()-_save_start:.3f}s")
     # return success flag    
     return True
 
