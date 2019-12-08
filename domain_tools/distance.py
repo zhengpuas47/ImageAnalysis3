@@ -141,7 +141,7 @@ def domain_distance(coordinates, _dom1_bds, _dom2_bds,
         m_inter, m_intra = np.nanmedian(_inter_dist), np.nanmedian(_intra_dist)
         _final_dist = (m_inter-m_intra)
     else:
-        raise ValueError(f"Wrong input _metric type")
+        raise ValueError(f"Wrong input _metric type:{_metric}")
     
     if _allow_minus_distance:
         return _final_dist

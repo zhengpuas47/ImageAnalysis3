@@ -757,6 +757,61 @@ def Batch_Domain_Calling_Sliding_Window(coordinate_list, window_size=5, distance
         return domain_start_list
 
 
-
+def insulation_domain_calling(distmap, min_domain_size=5, window_size=None, 
+                              use_distance=None, peak_kwargs={'prominence':0.03}, 
+                              make_plot=False, verbose=True):
+    """Function to use insulation to call domains, 
+        * specifically designed for chr2 250kb DNA-FISH, probably called sub-compartments for these data
+    Inputs:
+        distmap: distance map for a chromosomal region, could be either distance or contact, np.ndarray(2d, symetrical)
+        min_domain_size: minimal domain size in calling, int (default: 5)
+        window_size: window size for sliding-window domain calling, int or None (if None, 2x min_domain_size)
+        use_distance: whether using distance map or contact, bool or None (if None, automatically determined by insulation calculated)
+        
+    Outputs:
+    """
+    from .distance import _sliding_window_dist
+    
+    ## initalize parameters
+    _dm_sz = int(min_domain_size)
+    # window size should be 2xdomain-size
+    if window_size is None:
+        _wd_size = 2 * _dm_sz
+    else:
+        _wd_size = int(window_size)
+    # peak key args defaults
+    if 'distance' not in peak_kwargs:
+        peak_kwargs['distance'] = _dm_sz-1
+    if 'width' not in peak_kwargs:
+        peak_kwargs['width'] = 1
+    ## call local distances
+    _dists = _sliding_window_dist(distmap, _wd=_wd_size, _dist_metric='insulation')
+    # judge whether this is a distance matrix use_distance
+    if use_distance is None:
+        if np.nanmedian(_dists) < 0:
+            use_distance = True
+        else:
+            use_distance = False
+    # then call peaks
+    if use_distance:
+        _peaks = find_peaks(-_dists, **peak_kwargs)
+    else:
+        _peaks = find_peaks(_dists, **peak_kwargs)
+    # extract peak locations and append a zero
+    _domain_starts = np.concatenate([np.array([0]), _peaks[0]]).astype(np.int)
+    # make plot
+    if make_plot:
+        from ..figure_tools import _dpi, _double_col_width, _single_col_width
+        fig, ax = plt.subplots(figsize=(_double_col_width, _single_col_width),dpi=_dpi)
+        if use_distance:
+            ax.plot(-_dists, linewidth=1, color='b')
+            ax.plot(_peaks[0], -_dists[_peaks[0]], 'r.')
+        else:
+            ax.plot(_dists, linewidth=1, color='b')
+            ax.plot(_peaks[0], _dists[_peaks[0]], 'r.')
+        ax.set_xlim([0, len(_dists)])
+        plt.show()
+    
+    return _domain_starts
 
 
