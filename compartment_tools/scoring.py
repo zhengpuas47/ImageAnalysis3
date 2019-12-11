@@ -13,7 +13,8 @@ from scipy.spatial.distance import cdist
 from .. import _distance_zxy
 from ..visual_tools import _myCmaps
 # from ImageAnalysis3 import functions
-from ..visual_tools import normalize_center_spots, add_source
+from ..visual_tools import add_source
+from ..spot_tools.translating import normalize_center_spots
 
 def randomize_index_dict(index_dict, key1='A', key2='B'):
     """Function to randomize indices for two keys in a dict
@@ -108,9 +109,9 @@ def max_project_AB_compartment(spots, comp_dict, pca_other_2d=True):
     return _spots
 
 # convert spots to 3d cloud by replacing spots with gaussians
-def convert_spots_to_cloud(spots, comp_dict, im_radius=30,                                                                                                                   distance_zxy=_distance_zxy,
-                           spot_variance=None, expand_ratio=1., 
-                           scale_variance=False, pca_align=False, 
+def convert_spots_to_cloud(spots, comp_dict, im_radius=30, distance_zxy=_distance_zxy,
+                           spot_variance=None, scaling=1., 
+                           center=True, pca_align=False, 
                            max_project_AB=False, use_intensity=False, 
                            normalize_count=False, normalize_pdf=False, 
                            return_plot=False, ax=None, return_scores=True, 
@@ -135,15 +136,10 @@ def convert_spots_to_cloud(spots, comp_dict, im_radius=30,                      
     if spot_variance is not None:
         if len(spot_variance) < 3:
             raise ValueError(f"variance should be given for 3d")
-    if scale_variance:
-        # assume there are very few points 3-sigma away
-        _default_scaling = im_radius / 4
-    else:
-        _default_scaling = 1.
+
     _norm_spots = normalize_center_spots(_spots, distance_zxy=distance_zxy, 
-                                         center=True, pca_align=pca_align, 
-                                         scale_variance=scale_variance,
-                                         scaling=_default_scaling)
+                                         center=center, pca_align=pca_align, 
+                                         scaling=scaling)
     if max_project_AB:
         _norm_spots = max_project_AB_compartment(_norm_spots, comp_dict, pca_other_2d=True)
     # create density map dict
@@ -154,7 +150,7 @@ def convert_spots_to_cloud(spots, comp_dict, im_radius=30,                      
             if spot_variance is not None:
                 _var = np.array(spot_variance[:3]).reshape(-1)
             else:
-                _var = _spot[5:8] * expand_ratio
+                _var = _spot[5:8] * scaling
             if use_intensity:
                 _int = _spot[0]
             else:
@@ -293,7 +289,7 @@ def Batch_Convert_Spots_to_Cloud(spot_list, comp_dict, im_radius=30,
     for _spots, _cdict in zip(spot_list, comp_dict):
         _convert_args.append(
             (_spots, _cdict, im_radius, distance_zxy, 
-             spot_variance, expand_ratio, False, False)
+             spot_variance, expand_ratio, True, False)
         )
     with mp.Pool(num_threads) as _convert_pool:
         if verbose:

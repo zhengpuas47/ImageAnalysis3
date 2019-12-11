@@ -35,3 +35,16 @@ def transparent_gradient(color, num_colors=256, max_alpha=1):
     _colors[:, -1] = np.linspace(0, max_alpha, num_colors)
 
     return ListedColormap(_colors)
+
+def normlize_color(mat, vmin=None, vmax=None):
+    """linearly Normalize extreme colors"""
+    _mat = np.array(mat).copy()
+    if vmin is None:
+        vmin = np.nanmin(_mat)
+    if vmax is None:
+        vmax = np.nanmax(_mat)
+    # based on vmin vmax, do thresholding
+    _mat[_mat < vmin] = vmin
+    _mat[_mat > vmax] = vmax
+    _mat = (_mat - np.nanmin(_mat)) / (np.nanmax(_mat) - np.nanmin(_mat))
+    return _mat
