@@ -2,6 +2,31 @@
 from matplotlib.colors import ListedColormap
 import numpy as np
 
+# generate my colors
+from matplotlib.colors import ListedColormap
+# red
+Red_colors = np.ones([256,4])
+Red_colors[:,1] = np.linspace(1,0,256)
+Red_colors[:,2] = np.linspace(1,0,256)
+myReds = ListedColormap(Red_colors)
+myReds_r = ListedColormap(np.flipud(Red_colors))
+# blue
+Blue_colors = np.ones([256,4])
+Blue_colors[:,0] = np.linspace(1,0,256)
+Blue_colors[:,1] = np.linspace(1,0,256)
+myBlues = ListedColormap(Blue_colors)
+myBlues_r = ListedColormap(np.flipud(Blue_colors))
+# green
+Green_colors = np.ones([256,4])
+Green_colors[:,0] = np.linspace(1,0,256)
+Green_colors[:,2] = np.linspace(1,0,256)
+myGreens = ListedColormap(Green_colors)
+myGreens_r = ListedColormap(np.flipud(Green_colors))
+# cmaps
+_myCmaps = [myReds, myReds_r, 
+            myBlues, myBlues_r, 
+            myGreens, myGreens_r]
+
 def transparent_cmap(cmap, increasing_alpha=True, N=255, max_alpha=1):
     "Copy colormap and set a gradually changing alpha values"
     mycmap = cmap
@@ -48,3 +73,4 @@ def normlize_color(mat, vmin=None, vmax=None):
     _mat[_mat > vmax] = vmax
     _mat = (_mat - np.nanmin(_mat)) / (np.nanmax(_mat) - np.nanmin(_mat))
     return _mat
+

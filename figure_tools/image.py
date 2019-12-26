@@ -379,6 +379,7 @@ def visualize_chromosome_3d_cloud(_spots, comp_dict, density_dict=None,
                                   set_title=None, 
                                   save=False, save_folder='.', 
                                   save_basename='3d_surface', 
+                                  return_density=False, 
                                   verbose=True):
     """Function to visualize chromosomal 3d cloud and its 2d projection"""
     ## check inputs
@@ -546,5 +547,8 @@ def visualize_chromosome_3d_cloud(_spots, comp_dict, density_dict=None,
         plt.savefig(save_filename, transparent=True)
         
     # return
-    return ax3d
+    if return_density:
+        return ax3d, _den
+    else:
+        return ax3d
 

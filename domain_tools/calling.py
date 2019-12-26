@@ -798,7 +798,8 @@ def insulation_domain_calling(distmap, min_domain_size=5, window_size=None,
     else:
         _peaks = find_peaks(_dists, **peak_kwargs)
     # extract peak locations and append a zero
-    _domain_starts = np.concatenate([np.array([0]), _peaks[0]]).astype(np.int)
+    _domain_starts = np.concatenate([np.array([0]), _peaks[0]])
+    _domain_starts = np.array(_domain_starts, dtype=np.int)
     # make plot
     if make_plot:
         from ..figure_tools import _dpi, _double_col_width, _single_col_width

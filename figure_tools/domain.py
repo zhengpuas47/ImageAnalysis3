@@ -51,7 +51,7 @@ def plot_boundary_probability(region_ids, domain_start_list, figure_kwargs={}, p
     return _ax
 
 def plot_boundaries(distance_map, boundaries, input_ax=None, plot_limits=[0, 1500],
-                    line_width=1.5, figure_dpi=200, figure_fontsize=20, figure_cmap='seismic_r',
+                    line_width=1.5, figure_dpi=200, figure_fontsize=20, figure_cmap='seismic_r', title='',
                     save=False, save_folder=None, save_name=''):
     boundaries = list(boundaries)
     if 0 not in boundaries:
@@ -88,7 +88,8 @@ def plot_boundaries(distance_map, boundaries, input_ax=None, plot_limits=[0, 150
                 np.arange(boundaries[_i], boundaries[_i+1]), 'y', linewidth=line_width)
     ax.set_xlim([0, distance_map.shape[0]])
     ax.set_ylim([distance_map.shape[1], 0])
-
+    if title != '':
+        ax.set_title(title, pad=1)
     if save:
         if save_folder is not None:
             if not os.path.exists(save_folder):
