@@ -816,3 +816,66 @@ def insulation_domain_calling(distmap, min_domain_size=5, window_size=None,
     return _domain_starts
 
 
+def merge_domain_by_contact_correlation(coordinates, domain_starts, contact_th=500, corr_th=0.8,
+                                        plot_steps=False,):
+    """Function to iteratively merge domains by contact correlation"""
+    ## check inputs
+    from .distance import _domain_contact_freq
+    # convert _coordinates into matrix
+    _coordinates = np.array(coordinates)
+    if _coordinates.shape[0] != _coordinates.shape[1]:
+        _coordinates = squareform(pdist(_coordinates))
+    # _domain_starts
+    _domain_starts = np.sort(domain_starts).astype(np.int)
+    if 0 not in _domain_starts:
+        _domain_starts = np.concatenate([np.array([0]), _domain_starts])
+    if len(_coordinates) in _domain_starts:
+        _domain_starts = np.setdiff1d(_domain_starts, [len(_coordinates)])
+    ## merge domains
+    
+    _dm_cfreq = _domain_contact_freq(_coordinates, _domain_starts, contact_th)
+    _dm_corrs = np.diag(_dm_cfreq,1)
+    _ct = 0
+    
+    while (_dm_corrs>corr_th).any():
+        _ct += 1
+        _sel_id = np.argmax(_dm_corrs)+1
+        _domain_starts = np.delete(_domain_starts, _sel_id)
+        # update domain contact correlation
+        _dm_cfreq = _domain_contact_freq(_coordinates, _domain_starts, contact_th)
+        _dm_corrs = np.diag(_dm_cfreq,1)
+        if plot_steps:
+            plt.figure(figsize=(4,3),dpi=100)
+            plt.imshow(_dm_cfreq, cmap='seismic')
+            plt.colorbar()
+            plt.title(f"i={_ct}")
+            plt.show()
+    return _domain_starts
+
+def contact_correlation_domain_calling(zxys, remove_outlier_th=750, domain_size=5, 
+                                       cand_domain_th=0.3, contact_th=500, corr_th=0.5):
+    """"""
+    ## check inputs
+    from .distance import _neighboring_distance, _sliding_window_dist      
+    _zxys = np.array(zxys)
+    # remove nans
+    _good_inds = np.where(np.isnan(_zxys).sum(1)==0)[0]
+    _good_zxys = _zxys[_good_inds]
+    # remove outliers
+    _neighboring_dists = _neighboring_distance(_good_zxys)
+    _outlier_inds = scipy.signal.find_peaks(_neighboring_dists, prominence=remove_outlier_th)[0]
+    _kept_inds = np.setdiff1d(np.arange(len(_good_zxys)), _outlier_inds)
+    _kept_zxys = _good_zxys[_kept_inds]
+    
+    # call candidate domains
+    _med_dists = _sliding_window_dist(squareform(pdist(_kept_zxys)), domain_size)
+    _cand_dm_starts = scipy.signal.find_peaks(_med_dists, prominence=cand_domain_th,
+                                              distance=domain_size/2)[0]
+    # merge domain with contact correlation
+    
+    _kept_starts = merge_domain_by_contact_correlation(_kept_zxys, _cand_dm_starts, 
+                                                       contact_th=contact_th, corr_th=corr_th)
+    _good_starts = _kept_inds[_kept_starts]
+    _dm_starts = _good_inds[_good_starts]
+    
+    return _dm_starts

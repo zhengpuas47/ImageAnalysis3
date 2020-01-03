@@ -20,17 +20,20 @@ def _sliding_window_dist(_mat, _wd, _dist_metric='median'):
     """Function to calculate sliding-window distance across one distance-map of chromosome"""
     dists = np.zeros(len(_mat))
     for _i in range(len(_mat)):
-        if _i - _wd < 0 or _i + _wd > len(_mat):
+        if _i - int(_wd/2) < 0 or _i + int(_wd/2) >= len(_mat):
             dists[_i] = 0
         else:
-            _crop_mat = _mat[_i-_wd:_i+_wd, _i-_wd:_i+_wd]
-            _intra1 = np.triu(_crop_mat[:_wd, :_wd], 1)
+            # get slices
+            _left_slice = slice(max(0, _i-_wd), _i)
+            _right_slice = slice(_i, min(_i+_wd, len(_mat)))
+            # slice matrix
+            _intra1 = np.triu(_mat[_left_slice,_left_slice], 1)
             _intra1 = _intra1[np.isnan(_intra1)==False]
-            _intra2 = np.triu(_crop_mat[_wd:, _wd:], 1)
+            _intra2 = np.triu(_mat[_right_slice,_right_slice], 1)
             _intra2 = _intra2[np.isnan(_intra2)==False]
             _intra_dist = np.concatenate([_intra1[_intra1 > 0],
                                           _intra2[_intra2 > 0]])
-            _inter_dist = _crop_mat[_wd:, :_wd]
+            _inter_dist = _mat[_left_slice,_right_slice]
             _inter_dist = _inter_dist[np.isnan(_inter_dist) == False]
             if len(_intra_dist) == 0 or len(_inter_dist) == 0:
                 # return zero distance if one dist list is empty
@@ -430,3 +433,52 @@ def domain_neighboring_stats(coordinates, domain_starts, method='ks',
         return _stats, _pvals
     else:
         return np.array(_neighboring_stats)
+
+
+def _neighboring_distance(zxys, spot_ids=None, radius=5):
+    # zxys
+    zxys = np.array(zxys)
+    # spot_ids
+    if spot_ids is None:
+        spot_ids = np.arange(len(zxys))
+    else:
+        spot_ids = np.array(spot_ids, dtype=np.int)
+    # radius
+    _radius = int(radius)
+    # init local dists
+    _neighboring_dists = []
+    for _i, _zxy in enumerate(zxys):
+        _neighbor_inds = np.intersect1d(np.delete(np.arange(_i-_radius, _i+_radius+1),_radius), spot_ids)
+        if len(_neighbor_inds) == 0:
+            _neighboring_dists.append(np.nan)
+        else:
+            _neighboring_dists.append(np.linalg.norm(np.nanmean(zxys[_neighbor_inds], axis=0) - _zxy))
+    return np.array(_neighboring_dists)
+
+
+def _domain_contact_freq(_coordinates, _domain_starts, _contact_th=400):
+    """Function to convert spot coordinates and domain starts into domain interaction frequency matrix"""
+    ## check inputs
+    # convert _coordinates into matrix
+    _coordinates = np.array(_coordinates)
+    if _coordinates.shape[0] != _coordinates.shape[1]:
+        _coordinates = squareform(pdist(_coordinates))
+    # _domain_starts
+    _domain_starts = np.sort(_domain_starts).astype(np.int)
+    if 0 not in _domain_starts:
+        _domain_starts = np.concatenate([np.array([0]), _domain_starts])
+    if len(_coordinates) in _domain_starts:
+        _domain_starts = np.setdiff1d(_domain_starts, [len(_coordinates)])
+    ## start conversion
+    # get contact map
+    _concact = _coordinates <= _contact_th
+    # initialize contact mat
+    _dm_contact_mat = np.zeros([len(_domain_starts), len(_domain_starts)])
+    # slice
+    _domain_ends = np.concatenate([_domain_starts[1:], np.array([len(_coordinates)])])
+    _dm_slices = [slice(_s,_e) for _s,_e in zip(_domain_starts, _domain_ends)]
+    for _i, _si in enumerate(_dm_slices):
+        for _j, _sj in enumerate(_dm_slices[:_i+1]):
+            _dm_contact_mat[_i,_j] = np.mean(_concact[_si,_sj])
+            _dm_contact_mat[_j,_i] = np.mean(_concact[_si,_sj])
+    return _dm_contact_mat
