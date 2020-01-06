@@ -421,6 +421,7 @@ class Cell_List():
             all_channels=self.channels,
             num_buffer_frames=self.shared_parameters['num_buffer_frames'], 
             num_empty_frames=self.shared_parameters['num_empty_frames'], 
+            correction_folder=self.correction_folder, 
             illumination_correction=self.shared_parameters['corr_illumination'],
             min_shape_ratio=_min_shape_ratio, signal_cap_ratio=_signal_cap_ratio,
             denoise_window=_denoise_window, shrink_percent=_shrink_percent,
@@ -4517,7 +4518,9 @@ class Field_of_View():
         # un-splitted raw images
         self.raw_im_dict = {}
         # correction profiles 
-        self.correction_profiles = {}
+        self.correction_profiles = {'bleed':None,
+                                    'chromatic':None,
+                                    'illumination':None,}
         # drifts
         self.drift = {}
         # rotations
@@ -4640,6 +4643,8 @@ class Field_of_View():
             self.shared_parameters['allowed_data_types'] = _allowed_kwds
         if 'max_num_seeds' not in self.shared_parameters:
             self.shared_parameters['max_num_seeds'] = _max_num_seeds
+        if 'drift_size' not in self.shared_parameters:
+            self.shared_parameters['drift_size'] = 600
         ## load experimental info
         if _load_references:
             if '_color_filename' not in _color_info_kwargs:
@@ -4656,7 +4661,11 @@ class Field_of_View():
 
         # update ref_filename
         self.ref_filename = os.path.join(self.annotated_folders[self.ref_id], self.fov_name)
-        
+        # generate drift crops
+        from ..io_tools.load import _generate_drift_crops
+        self.drift_crops = _generate_drift_crops(drift_size=self.shared_parameters['drift_size'],
+                                                 single_im_size=self.shared_parameters['single_im_size'],)
+
         ## create savefile
         # save filename
         if _save_filename is None:
@@ -4871,19 +4880,20 @@ class Field_of_View():
             _correction_folder = self.correction_folder
         # loading bleedthrough
         if self.shared_parameters['corr_bleed']:
-            self.bleed_correction = load_correction_profile('bleedthrough', self.shared_parameters['corr_channels'], 
+            self.correction_profiles['bleed'] = load_correction_profile('bleedthrough', self.shared_parameters['corr_channels'], 
                                         self.correction_folder, all_channels=self.channels, 
                                         im_size=self.shared_parameters['single_im_size'],
                                         verbose=_verbose)
         # loading chromatic
         if self.shared_parameters['corr_chromatic']:
-            self.chromatic_correction = load_correction_profile('chromatic', self.shared_parameters['corr_channels'], 
+            self.correction_profiles['chromatic']= load_correction_profile('chromatic', self.shared_parameters['corr_channels'], 
                                         self.correction_folder, all_channels=self.channels, 
                                         im_size=self.shared_parameters['single_im_size'],
                                         verbose=_verbose)
         # load illumination
         if self.shared_parameters['corr_illumination']:
-            self.illumination_correction = load_correction_profile('illumination', self.shared_parameters['corr_channels'], 
+            bead_channel = str(self.channels[self.bead_channel_index])
+            self.correction_profiles['illumination'] = load_correction_profile('illumination', self.shared_parameters['corr_channels']+[bead_channel], 
                                                 self.correction_folder, all_channels=self.channels, 
                                                 im_size=self.shared_parameters['single_im_size'],
                                                 verbose=_verbose)
@@ -5012,15 +5022,17 @@ class Field_of_View():
     def _process_image_to_spots(self, _data_type, _sel_folders=[], _sel_ids=[], 
                                 _warpping_images=True, _save_images=True, 
                                 _save_fitted_spots=True, 
-                                splicing_args={}, _verbose=True):
+                                splicing_args={}, _overwrite=False, _verbose=True):
         ## check inputs
         if _data_type not in self.shared_parameters['allowed_data_types']:
             raise ValueError(f"Wrong input for _data_type:{_data_type}, should be within {self.shared_parameters['allowed_data_types'].keys()}")
+        # extract datatype marker
+        _dtype_mk = self.shared_parameters['allowed_data_types'][_data_type]
         # get color_dic data-type
         _type_dic = batch_functions._color_dic_stat(self.color_dic, 
                                                     self.channels, 
                                                     self.shared_parameters['allowed_data_types'])
-        # select folders
+        ## select folders
         _input_fds = []
         if _sel_folders is not None and len(_sel_folders) > 0:
             # load folders
@@ -5030,17 +5042,107 @@ class Field_of_View():
             if _verbose:
                 print(f"-- {len(_sel_folders)} folders given, {len(_input_fds)} folders selected.")
         else:
+            _sel_folders = self.annotated_folders
             if _verbose:
                 print(f"-- No folder selected, allow processing all {len(self.annotated_folders)} folders")
         # check selected ids
         if _sel_ids is not None and len(_sel_ids) > 0:
-            _sel_ids = [int(_id) for _id in _sel_ids]
+            _sel_ids = [int(_id) for _id in _sel_ids] # convert to list of ints
             for _id in _sel_ids:
                 if _id not in _type_dic[_data_type]['ids']:
                     print(f"id: {_id} not allowed in color_dic!")
-            _sel_ids = [_id for _id in _sel_ids if _id not in _type_dic[_data_type]['ids']]
+            _sel_ids = [_id for _id in _sel_ids if _id in _type_dic[_data_type]['ids']]
+        else:
+            # if not given, process all ids for this
+            _sel_ids = [int(_id) for _id in _type_dic[_data_type]['ids']]
 
-        # multi-processing for correct_splice_images
+        ## multi-processing for correct_splice_images
+        # prepare common params
+        _correction_args = {
+            'single_im_size': self.shared_parameters['single_im_size'],
+            'all_channels':self.channels,
+            'num_buffer_frames':self.shared_parameters['num_buffer_frames'],
+            'num_empty_frames':self.shared_parameters['num_empty_frames'],
+            'bead_channel': self.channels[self.bead_channel_index],
+            'correction_folder':self.correction_folder,
+            'hot_pixel_corr':self.shared_parameters['corr_hot_pixel'], 
+            'z_shift_corr':self.shared_parameters['corr_Z_shift'], 
+            'bleed_corr':self.shared_parameters['corr_bleed'],
+            'bleed_profile':self.correction_profiles['bleed'],
+            'illumination_corr':self.shared_parameters['corr_illumination'],
+            'illumination_profile':self.correction_profiles['illumination'],
+            'chromatic_corr':self.shared_parameters['corr_chromatic'],
+            'chromatic_profile':self.correction_profiles['chromatic'],
+            'normalization':self.shared_parameters['normalization'],
+        }
+        _drift_args= {
+            'drift_size':self.shared_parameters['drift_size'],
+            'drift_crops':self.drift_crops,
+            'ref_beads':None,
+        }
+        _fitting_args = {}
+        # initiate locks
+        _manager = mp.Manager()
+        _image_file_lock = _manager.RLock() # recursive lock so each thread can acquire multiple times
+        _drift_file_lock = _manager.RLock() # drift file
+
+        # prepare kwargs
+        _preprocess_arglist = []
+        _processing_ids = []
+        # loop through annotated folders
+        
+        
+        for _fd in _sel_folders:
+            _dax_filename = os.path.join(_fd, self.fov_name)
+            # get selected channels
+            _info = self.color_dic[os.path.basename(_fd)]
+            _sel_channels = []
+            _reg_ids = []
+            # loop through color_dic to collect selected channels and ids
+            for _mk, _ch in zip(_info, self.channels):
+                if _dtype_mk in _mk:
+                    _id = int(_mk.split(_dtype_mk)[1])
+                    if _id in _sel_ids:
+                        _sel_channels.append(_ch)
+                        _reg_ids.append(_id)
+                        _processing_ids.append(_id)
+            # append if any channels selected
+            if len(_sel_channels) > 0:
+                _args = (_dax_filename, _sel_channels, self.ref_filename,
+                        _correction_args, 
+                        _save_images, self.save_filename,
+                        _data_type, _reg_ids, 
+                        _warpping_images,
+                        _image_file_lock, _overwrite, 
+                        _drift_args, True, self.drift_folder,
+                        _drift_file_lock, _overwrite,
+                        _fitting_args, _save_fitted_spots,
+                        _image_file_lock, _overwrite,
+                        _verbose,)
+                _preprocess_arglist.append(_args)
+
+        # multi-processing
+        ## multi-processing for translating segmentation
+        with mp.Pool(self.num_threads, ) as _preprocess_pool:
+            if _verbose:
+                print(f"+ Start multi-processing of pre-processing for {len(_preprocess_arglist)} images!")
+                print(f"++ processed {_data_type} ids: {_processing_ids}")
+            # Multi-proessing!
+            _spot_results = _preprocess_pool.starmap(batch_functions.batch_process_image_to_spots,
+                                                     _preprocess_arglist, chunksize=1)
+            # close multiprocessing
+            _preprocess_pool.close()
+            _preprocess_pool.join()
+            _preprocess_pool.terminate()
+        # clear
+        batch_functions.killchild()        
+
+
+        return _spot_results
+
+        
+
+
 
 
     def _save_to_file(self, _type):

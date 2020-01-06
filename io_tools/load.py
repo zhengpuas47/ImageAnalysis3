@@ -134,20 +134,22 @@ def multi_crop_image_fov(filename, channels, crop_limit_list,
 
 def _generate_drift_crops(coord_sel=None, drift_size=500, single_im_size=_image_size):
     """Function to generate drift crop from a selected center and given drift size"""
+    _single_im_size = np.array(single_im_size)
     if coord_sel is None:
-        coord_sel = np.array(single_im_size/2, dtype=np.int)
+        coord_sel = np.array(_single_im_size/2, dtype=np.int)
     if drift_size is None:
-        drift_size = int(np.max(single_im_size)/4)
-    crop0 = np.array([[0, single_im_size[0]],
+        drift_size = int(np.max(_single_im_size)/4)
+    # generate crops
+    crop0 = np.array([[0, _single_im_size[0]],
                       [max(coord_sel[-2]-drift_size, 0), coord_sel[-2]],
                       [max(coord_sel[-1]-drift_size, 0), coord_sel[-1]]], dtype=np.int)
-    crop1 = np.array([[0, single_im_size[0]],
+    crop1 = np.array([[0, _single_im_size[0]],
                       [coord_sel[-2], min(coord_sel[-2] +
-                                          drift_size, single_im_size[-2])],
-                      [coord_sel[-1], min(coord_sel[-1]+drift_size, single_im_size[-1])]], dtype=np.int)
-    crop2 = np.array([[0, single_im_size[0]],
+                                          drift_size, _single_im_size[-2])],
+                      [coord_sel[-1], min(coord_sel[-1]+drift_size, _single_im_size[-1])]], dtype=np.int)
+    crop2 = np.array([[0, _single_im_size[0]],
                       [coord_sel[-2], min(coord_sel[-2] +
-                                          drift_size, single_im_size[-2])],
+                                          drift_size, _single_im_size[-2])],
                       [max(coord_sel[-1]-drift_size, 0), coord_sel[-1]]], dtype=np.int)
     # merge into one array which is easier to feed into function
     selected_crops = np.stack([crop0, crop1, crop2])
@@ -214,9 +216,12 @@ def correct_fov_image(dax_filename, sel_channels,
                                 correction_folder=correction_folder, all_channels=all_channels,
                                 ref_channel=ref_channel, im_size=single_im_size, verbose=verbose)
         else:
-            illumination_profile = np.array(illumination_profile, dtype=np.float)
-            if (illumination_profile.shape != (single_im_size[-2], single_im_size[-1])).any():
-                raise IndexError(f"Wrong input shape for chromatic_profile: {illumination_profile.shape}")
+            if not isinstance(illumination_profile, dict):
+                raise TypeError(f"Wrong input type of illumination_profile, should be dict!")
+            for _ch in _load_channels:
+                if _ch not in illumination_profile:
+                    raise KeyError(f"channel:{_ch} not given in illumination_profile")
+
     if bleed_corr and len(_overlap) > 0:
         if bleed_profile is None:
             bleed_profile = load_correction_profile('bleedthrough', corr_channels=corr_channels, 
@@ -224,7 +229,7 @@ def correct_fov_image(dax_filename, sel_channels,
                                 ref_channel=ref_channel, im_size=single_im_size, verbose=verbose)
         else:
             bleed_profile = np.array(bleed_profile, dtype=np.float)
-            if (bleed_profile.shape != (len(corr_channels),len(corr_channels),single_im_size[-2], single_im_size[-1])).any():
+            if bleed_profile.shape != (len(corr_channels),len(corr_channels),single_im_size[-2], single_im_size[-1]):
                 raise IndexError(f"Wrong input shape for bleed_profile: {bleed_profile.shape}")
     if chromatic_corr and len(_overlap) > 0:
         if chromatic_profile is None:
@@ -232,10 +237,11 @@ def correct_fov_image(dax_filename, sel_channels,
                                 correction_folder=correction_folder, all_channels=all_channels,
                                 ref_channel=ref_channel, im_size=single_im_size, verbose=verbose)
         else:
-            chromatic_profile = np.array(chromatic_profile, dtype=np.float)
-            if (chromatic_profile.shape != (len(single_im_size), single_im_size[-2], single_im_size[-1])).any():
-                raise IndexError(f"Wrong input shape for chromatic_profile: {chromatic_profile.shape}")
-
+            if not isinstance(chromatic_profile, dict):
+                raise TypeError(f"Wrong input type of chromatic_profile, should be dict!")
+            for _ch in _load_channels:
+                if _ch in corr_channels and _ch not in chromatic_profile:
+                    raise KeyError(f"channel:{_ch} not given in chromatic_profile")
     ## check output data-type
     # if normalization, output should be float
     if normalization and output_dtype==np.uint16:
@@ -281,8 +287,9 @@ def correct_fov_image(dax_filename, sel_channels,
         if verbose:
             print(f"-- correct Z-shifts for channels:{_load_channels}", end=' ')
             _z_time = time.time()
-        _ims[_i] = corrections.Z_Shift_Correction(_im.astype(np.float),
-            dtype=output_dtype, normalization=False)
+        for _i, (_ch, _im) in enumerate(zip(_load_channels, _ims)):
+            _ims[_i] = corrections.Z_Shift_Correction(_im.astype(np.float),
+                dtype=output_dtype, normalization=False)
         if verbose:
             print(f"in {time.time()-_z_time:.3f}s")
 
@@ -408,7 +415,11 @@ def split_im_by_channels(im, sel_channels, all_channels, single_im_size=_image_s
                          num_buffer_frames=10, num_empty_frames=0, skip_frame0=True):
     """Function to split a full image by channels"""
     _num_colors = len(all_channels)
+    if isinstance(sel_channels, str) or isinstance(sel_channels, int):
+        sel_channels = [sel_channels]
     _sel_channels = [str(_ch) for _ch in sel_channels]
+    if isinstance(all_channels, str) or isinstance(all_channels, int):
+        all_channels = [all_channels]
     _all_channels = [str(_ch) for _ch in all_channels]
     for _ch in _sel_channels:
         if _ch not in _all_channels:

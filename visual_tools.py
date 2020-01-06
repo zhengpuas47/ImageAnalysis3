@@ -450,7 +450,7 @@ def beads_alignment_fast(beads, ref_beads, unique_cutoff=2., check_outlier=True,
     _paired_ref_beads = np.array(_paired_ref_beads)
     _shifts = np.array(_shifts)
     # remove suspicious shifts
-    for _j in range(_shifts.shape[1]):
+    for _j in range(np.shape(_shifts)[1]):
         _shift_keeps = np.abs(_shifts)[:,_j] < np.mean(np.abs(_shifts)[:,_j])+outlier_sigma*np.std(np.abs(_shifts)[:,_j])
         # filter beads and shifts
         _paired_beads = _paired_beads[_shift_keeps]
@@ -1328,7 +1328,8 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405,
                 print(f"- loading {len(filenames)} images for output")
             _load_args = [(_fl, correction_channel, None, None, 20,
                            single_im_size, all_channels, 
-                           num_buffer_frames,num_empty_frames) for _fl in filenames]
+                           num_buffer_frames,num_empty_frames,
+                           np.zeros(3), correction_folder) for _fl in filenames]
             _load_pool = mp.Pool(num_threads)
             _ims = _load_pool.starmap(corrections.correct_single_image, _load_args, chunksize=1)
             _load_pool.close()
@@ -1782,6 +1783,7 @@ def get_seed_in_distance(im, center=None, num_seeds=0, seed_radius=30,
         _im_ints = _im[np.isnan(_im)==False].astype(np.float)
         _th_seed = scoreatpercentile(_im_ints, th_seed_percentile) - \
                     scoreatpercentile(_im_ints, 0.5)
+        print(_th_seed)
     else:
         _th_seed = th_seed
     # start seeding 
