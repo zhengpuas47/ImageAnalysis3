@@ -82,7 +82,9 @@ def _interdomain_likelihood(_distmap, _domain_starts, _inter_pairs,
                                       for _p in _inter_pairs if _dm_id in _p ]).astype(np.int)
         _intra = _distmap[_dm_starts[_dm_id]:_dm_ends[_dm_id], _dm_starts[_dm_id]:_dm_ends[_dm_id]]
         # if there are interactions, compare called and nocalled pairs and calculate likelihood ratios
-        if len(_called_partners) >= 1 and np.sum(np.isnan(_intra)==False) > valid_count:
+        if len(_called_partners) >= 1 \
+            and len(_called_partners) < len(_dm_starts)- 1 \
+            and np.sum(np.isnan(_intra)==False) > valid_count:
             _inters = [_distmap[_dm_starts[_i]:_dm_ends[_i], _dm_starts[_dm_id]:_dm_ends[_dm_id]]
                       for _i in range(len(_dm_starts))]
             _pos_inters = [_distmap[_dm_starts[_i]:_dm_ends[_i], _dm_starts[_dm_id]:_dm_ends[_dm_id]]
