@@ -63,7 +63,7 @@ def inter_domain_markers(coordiantes, domain_starts, norm_mat=None, metric='medi
 
 
 def _interdomain_likelihood(_distmap, _domain_starts, _inter_pairs,
-                            _w_sel=1, _w_intra=1,
+                            _w_sel=1, _w_intra=1, valid_count=5, 
                             _normalize=True, _exclude_neighbors=True):
     """Function to evaluate likelihood ratio for interdomain interaction pairs, 
         given contact map, domain starts, called interaction pairs (of domain-ids)"""
@@ -82,7 +82,7 @@ def _interdomain_likelihood(_distmap, _domain_starts, _inter_pairs,
                                       for _p in _inter_pairs if _dm_id in _p ]).astype(np.int)
         _intra = _distmap[_dm_starts[_dm_id]:_dm_ends[_dm_id], _dm_starts[_dm_id]:_dm_ends[_dm_id]]
         # if there are interactions, compare called and nocalled pairs and calculate likelihood ratios
-        if len(_called_partners) >= 1 and np.sum(np.isnan(_intra)==False) > 10:
+        if len(_called_partners) >= 1 and np.sum(np.isnan(_intra)==False) > valid_count:
             _inters = [_distmap[_dm_starts[_i]:_dm_ends[_i], _dm_starts[_dm_id]:_dm_ends[_dm_id]]
                       for _i in range(len(_dm_starts))]
             _pos_inters = [_distmap[_dm_starts[_i]:_dm_ends[_i], _dm_starts[_dm_id]:_dm_ends[_dm_id]]
@@ -146,8 +146,39 @@ def _interdomain_likelihood(_distmap, _domain_starts, _inter_pairs,
 
     return _dm_inter_lks
 
+def _exclude_interdomain_by_contact(_coordinates, _domain_starts, _inter_pairs, 
+                                    _mean_contact_ratio=0.2, 
+                                    _contact_th=400):
+    """Function to adjust interdomain by freqency of contacts"""
+    # check coordinates
+    _coordinates = np.array(_coordinates)
+    if len(np.shape(_coordinates)) != 2:
+        raise IndexError
+    elif np.shape(_coordinates)[0] != np.shape(_coordinates)[1]:
+        _coordinates = squareform(pdist(_coordinates))
+    # check domain starts
+    _domain_starts = np.array(_domain_starts, dtype=np.int)
+    if 0 not in _domain_starts:
+        _domain_starts = np.concatenate([np.array([0]), _domain_starts])
+    # domain ends
+    _domain_ends = np.concatenate([_domain_starts[1:], np.array([len(_coordinates)])])
+    # loop through inter-pairs and check 
+    _contact = _coordinates < _contact_th
+    _kept_pairs = []
+    for _pair in _inter_pairs:
+        _slice0 = slice(_domain_starts[_pair[0]], _domain_ends[_pair[0]])
+        _slice1 = slice(_domain_starts[_pair[1]], _domain_ends[_pair[1]])
+        _arr = _contact[_slice0, _slice1]
+        _freq = np.nansum(_arr) / np.sum(np.isnan(_arr)==False)
+        if _freq > _mean_contact_ratio:
+            _kept_pairs.append(_pair)
+    
+    return np.array(_kept_pairs, dtype=np.int)
+
+
 def _adjust_interdomain_by_likelihood(_inter_pairs, _inter_dm_lk_mat, 
                                       _percentage_th=5, _learning_rate=0.1, 
+
                                       _make_histogram=False, _verbose=True):
     """Adjust inter-domain pairs by domain interaction likelihood ratio matrix,
     Inputs:
@@ -228,6 +259,7 @@ def iterative_interdomain_calling(distmap, domain_starts,
                                   init_metric='ks', init_th=0.55,
                                   w_sel=1., w_intra=0.05, max_num_iter=10, learning_rate=0.3,
                                   normalize_likelihood=True, adjust_percent_th=1., 
+                                  mean_contact_ratio=0.1, contact_th=700, 
                                   keep_triu=False, keep_intensity=False, 
                                   marker_type='area', marker_param=1.,
                                   plot_process=False, plot_kwargs={'plot_limits':[0,2000]}, verbose=True):
@@ -256,9 +288,11 @@ def iterative_interdomain_calling(distmap, domain_starts,
     _n_iter = 0
     # start loop, exit when no points removed or added
     while (_removed_num > 0 or _added_num > 0):
+        if _n_iter >= max_num_iter:
+            break
         # calculate interdomain likelihood based on current calling
         _interdomain_lks = _interdomain_likelihood(distmap, domain_starts, _pairs, 
-                                                   _w_sel=w_sel, _w_intra=0.05,
+                                                   _w_sel=w_sel, _w_intra=w_intra,
                                                    _normalize=normalize_likelihood, 
                                                    _exclude_neighbors=exclude_neighbors)
         # adjust calling by threshold
@@ -268,6 +302,12 @@ def iterative_interdomain_calling(distmap, domain_starts,
                                                 _percentage_th=adjust_percent_th, 
                                                 _learning_rate=learning_rate, 
                                                 _verbose=verbose)
+        # exclude by contacts
+        _pairs = _exclude_interdomain_by_contact(distmap, domain_starts, _pairs, 
+                                                _mean_contact_ratio=mean_contact_ratio, 
+                                                _contact_th=contact_th, )
+        # add counter
+        _n_iter += 1
         # plot process if specified
         if plot_process:
             if keep_intensity:
@@ -284,10 +324,7 @@ def iterative_interdomain_calling(distmap, domain_starts,
             ax.imshow(_new_mk, cmap=transparent_gradient([1,1,0]), vmin=0, vmax=2) # plot marker
             ax.set_title(f'domain interaction iter={_n_iter}')
             plt.show()
-        # add counter
-        _n_iter += 1
-        if _n_iter >= max_num_iter:
-            break
+
     # finally, calculate final marker
     if not keep_triu:
         _new_pairs = []
@@ -304,7 +341,8 @@ def iterative_interdomain_calling(distmap, domain_starts,
         from ImageAnalysis3.domain_tools.distance import domain_pdists
         _dps = domain_pdists(distmap, domain_starts, metric=init_metric)
     else:
-        _dps = None            
+        _dps = None
+    # re-generate mk            
     _new_mk = _generate_inter_domain_markers(distmap, domain_starts, _dps, _new_pairs, 
                                              _marker_type=marker_type, 
                                              _keep_intensity=keep_intensity)
@@ -350,13 +388,15 @@ def _generate_inter_domain_markers(_coordinates, _domain_starts, _domain_pdists,
 def batch_iterative_interdomain(distmap_list, domain_start_list, num_threads=12,
                                 exclude_neighbors=True, exclude_edges=False,
                                 init_kwargs={'init_metric':'ks',
-                                             'init_th':0.45,},
+                                             'init_th':0.5,},
                                 iter_kwargs={'w_sel':1.,
-                                             'w_intra':0.05,
+                                             'w_intra':0.01,
                                              'max_num_iter':10,
                                              'learning_rate':0.3,
                                              'normalize_likelihood':True,
-                                             'adjust_percent_th':1.,},
+                                             'adjust_percent_th':1.,
+                                             'mean_contact_ratio':0.1, 
+                                             'contact_th':700,},
                                 marker_kwargs={'keep_triu':False,
                                                'keep_intensity':False,
                                                'marker_type':'area',
