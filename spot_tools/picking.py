@@ -224,7 +224,7 @@ def _local_distance(spot_zxys, spot_ids, ref_zxys,
     _half_size = int((size-1)/2)
     _inds = []
     for _id in spot_ids:
-        _cand_ids = [_i for _i in range(_id-_half_size, _id+_half_dize+1) if _i != _id and _i in _ref_ids]
+        _cand_ids = [_i for _i in range(_id-_half_size, _id+_half_size+1) if _i != _id and _i in _ref_ids]
         _inds.append(np.array(_cand_ids, dtype=np.int))
     _local_dists = []
     for _zxy, _ind in zip(_spot_zxys,_inds):
