@@ -432,7 +432,7 @@ def batch_iterative_interdomain(distmap_list, domain_start_list, num_threads=12,
                    for _arg in _args]
 
     with mp.Pool(num_threads) as _inter_pool:
-        _results = _inter_pool.starmap(apply_kwargs, _inter_args)
+        _results = _inter_pool.starmap(apply_kwargs, _inter_args, chunksize=1)
         _inter_pool.close()
         _inter_pool.join()
         _inter_pool.terminate()
