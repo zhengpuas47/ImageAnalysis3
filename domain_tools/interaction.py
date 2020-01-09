@@ -26,7 +26,7 @@ def inter_domain_markers(coordiantes, domain_starts, norm_mat=None, metric='medi
     if len(_coordinates.shape) != 2:
         raise IndexError(f"Wrong input shape for coordinates, it should be 2d-array but shape:{_coordinates.shape} is given.")
     
-    if len(_domain_starts) > 1:
+    if len(_domain_starts) >= 1:
         _dm_pds = domain_pdists(_coordinates, _domain_starts, metric=metric, 
                                 normalization_mat=norm_mat, allow_minus_dist=True)
 
@@ -54,7 +54,9 @@ def inter_domain_markers(coordiantes, domain_starts, norm_mat=None, metric='medi
                 if 0 not in _dxy and len(_domain_starts)-1 not in _dxy:
                     _kept_dxy.append(_dxy)
             _unique_dxy = np.array(_kept_dxy)
-    
+    # re-calculate domain pdists
+    _dm_pds = domain_pdists(_coordinates, _domain_starts, metric=metric, 
+                            normalization_mat=norm_mat, allow_minus_dist=True)
     # generate markers  
     _marker_map = _generate_inter_domain_markers(_coordinates, _domain_starts, _dm_pds, _unique_dxy,
                                                  _marker_type=marker_type, _marker_param=marker_param, 
