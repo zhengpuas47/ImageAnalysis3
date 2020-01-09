@@ -140,6 +140,9 @@ def domain_distance(coordinates, _dom1_bds, _dom2_bds,
         _f = np.sign(np.nanmedian(_inter_dist) - np.nanmedian(_intra_dist))
         _dist, _pval =  ks_2samp(_kept_inter, _kept_intra)
         _final_dist =  _f * _dist
+    elif _metric == 'insulation':
+        m_inter, m_intra = np.nanmedian(_inter_dist), np.nanmedian(_intra_dist)
+        _final_dist = m_inter / m_intra
     elif _metric == 'absolute_median':
         m_inter, m_intra = np.nanmedian(_inter_dist), np.nanmedian(_intra_dist)
         _final_dist = (m_inter-m_intra)
@@ -153,7 +156,7 @@ def domain_distance(coordinates, _dom1_bds, _dom2_bds,
     
 # function to call domain pairwise distance as scipy.spatial.distance.pdist
 def domain_pdists(coordinates, domain_starts, metric='median', 
-                  normalization_mat=None, allow_minus_dist=True):
+                  normalization_mat=None, allow_minus_dist=False):
     """Calculate domain pair-wise distances, return a vector as the same order as
     scipy.spatial.distance.pdist 
     Inputs:

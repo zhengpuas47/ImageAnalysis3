@@ -10,10 +10,13 @@ from .distance import domain_pdists
 from .. import visual_tools
 
 # mark off-diagonal features
-def inter_domain_markers(coordiantes, domain_starts, norm_mat=None, metric='median', 
-                         off_diagonal_th=-0.5, keep_triu=False, 
-                         marker_type='center', marker_param=1., keep_intensity=True, 
-                         exclude_neighbors=True, exclude_edges=True, verbose=True):
+def inter_domain_markers(coordiantes, domain_starts, 
+                         norm_mat=None, metric='median', 
+                         off_diagonal_th=0.4, allow_minus_dist=False,
+                         keep_triu=False, 
+                         marker_type='center', marker_param=1., keep_intensity=False, 
+                         exclude_neighbors=False, exclude_edges=False, 
+                         verbose=True):
     """Get off-diagonal markers for a given coordinates
     Inputs:
         
@@ -28,10 +31,13 @@ def inter_domain_markers(coordiantes, domain_starts, norm_mat=None, metric='medi
     
     if len(_domain_starts) >= 1:
         _dm_pds = domain_pdists(_coordinates, _domain_starts, metric=metric, 
-                                normalization_mat=norm_mat, allow_minus_dist=True)
+                                normalization_mat=norm_mat, 
+                                allow_minus_dist=allow_minus_dist)
 
         _dx, _dy = np.where(squareform(_dm_pds) < off_diagonal_th)
+        _dists = squareform(_dm_pds)[_dx,_dy]
         if not keep_triu:
+            _dists = _dists[_dx!=_dy]
             _dx, _dy = _dx[_dx!=_dy], _dy[_dx!=_dy]
             _unique_dxy = np.stack([_dx, _dy]).transpose()
 
@@ -264,7 +270,7 @@ def iterative_interdomain_calling(distmap, domain_starts,
                                   w_sel=1., w_intra=0.05, max_num_iter=10, learning_rate=0.3,
                                   normalize_likelihood=True, adjust_percent_th=1., 
                                   mean_contact_ratio=0.1, contact_th=700, 
-                                  keep_triu=False, keep_intensity=False, 
+                                  keep_triu=True, keep_intensity=False, 
                                   marker_type='area', marker_param=1.,
                                   plot_process=False, plot_kwargs={'plot_limits':[0,2000]}, verbose=True):
     """Function to iteratively call interdomain"""
@@ -272,7 +278,7 @@ def iterative_interdomain_calling(distmap, domain_starts,
     _init_pairs, _mk = inter_domain_markers(distmap, domain_starts, off_diagonal_th=init_th,
                                            metric=init_metric, marker_type=marker_type, 
                                            keep_intensity=keep_intensity,
-                                           keep_triu=True,
+                                           keep_triu=False,
                                            exclude_neighbors=exclude_neighbors,
                                            exclude_edges=exclude_edges, 
                                            marker_param=marker_param, verbose=verbose)
@@ -282,7 +288,7 @@ def iterative_interdomain_calling(distmap, domain_starts,
         from ..figure_tools.domain import plot_boundaries
         import matplotlib.pyplot as plt 
         # plot
-        ax = plot_boundaries(distmap, domain_starts, figure_dpi=200, **plot_kwargs)
+        ax = plot_boundaries(distmap, domain_starts, figure_dpi=600, **plot_kwargs)
         ax.imshow(_mk, cmap=transparent_gradient([1,1,0]), vmin=0, vmax=2) # plot marker
         ax.set_title(f'initial calling by {init_metric}, th={init_th}')
         plt.show()
@@ -324,7 +330,7 @@ def iterative_interdomain_calling(distmap, domain_starts,
                                                      _marker_type=marker_type, 
                                                      _keep_intensity=keep_intensity)
             # plot 
-            ax = plot_boundaries(distmap, domain_starts, figure_dpi=200, **plot_kwargs)
+            ax = plot_boundaries(distmap, domain_starts, figure_dpi=600, **plot_kwargs)
             ax.imshow(_new_mk, cmap=transparent_gradient([1,1,0]), vmin=0, vmax=2) # plot marker
             ax.set_title(f'domain interaction iter={_n_iter}')
             plt.show()
@@ -390,7 +396,7 @@ def _generate_inter_domain_markers(_coordinates, _domain_starts, _domain_pdists,
     return _marker_map
 
 def batch_iterative_interdomain(distmap_list, domain_start_list, num_threads=12,
-                                exclude_neighbors=True, exclude_edges=False,
+                                exclude_neighbors=False, exclude_edges=False,
                                 init_kwargs={'init_metric':'ks',
                                              'init_th':0.5,},
                                 iter_kwargs={'w_sel':1.,
