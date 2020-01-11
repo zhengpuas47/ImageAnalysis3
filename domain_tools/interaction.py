@@ -276,7 +276,7 @@ def iterative_interdomain_calling(distmap, domain_starts,
     _init_pairs, _mk = inter_domain_markers(distmap, domain_starts, off_diagonal_th=init_th,
                                            metric=init_metric, marker_type=marker_type, 
                                            keep_intensity=keep_intensity,
-                                           keep_triu=False,
+                                           keep_triu=keep_triu,
                                            exclude_neighbors=exclude_neighbors,
                                            exclude_edges=exclude_edges, 
                                            marker_param=marker_param, verbose=verbose)
