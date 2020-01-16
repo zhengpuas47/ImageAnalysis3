@@ -598,6 +598,7 @@ def generate_illumination_correction(color, data_folder, correction_folder, num_
         ic_profile: 2d illumination correction profile 
         """
     ## check inputs
+    from astropy.convolution import Gaussian2DKernel, convolve
     if verbose:
         print(f"- Generate illumination correction profile for {color}")
     # color
@@ -662,7 +663,6 @@ def generate_illumination_correction(color, data_folder, correction_folder, num_
         if verbose:
             print("-- applying gaussian filter to averaged profile")
         # convolution, which will interpolate any NaN numbers
-        from astropy.convolution import Gaussian2DKernel, convolve
         _ic_profile = convolve(_ic_profile, Gaussian2DKernel(x_stddev=gaussian_sigma), boundary='extend')
         _ic_profile = _ic_profile / np.max(_ic_profile)
         if save:
@@ -779,6 +779,7 @@ def generate_chromatic_abbrevation_info(ca_filename, ref_filename, ca_channel, r
                             _all_channels=all_channels, _single_im_size=single_im_size,
                             _num_buffer_frames=num_buffer_frames,
                             _num_empty_frames=num_empty_frames,
+                            _correction_folder=correction_folder,
                             _illumination_corr=illumination_corr, _verbose=verbose)
     
 
@@ -1166,6 +1167,7 @@ def _generate_bleedthrough_info_per_image(filename, ref_channel, bld_channel,
     ref_im, bld_im = correct_one_dax(filename, [ref_channel, bld_channel], single_im_size=single_im_size, 
                                      all_channels=all_channels, num_buffer_frames=num_buffer_frames,
                                      num_empty_frames=num_empty_frames,
+                                     correction_folder=correction_folder,
                                      normalization=normalization, bleed_corr=False, 
                                      z_shift_corr=True, hot_pixel_remove=True,
                                      illumination_corr=illumination_corr, chromatic_corr=False,
