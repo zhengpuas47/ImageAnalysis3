@@ -1784,7 +1784,7 @@ def get_seed_in_distance(im, center=None, num_seeds=0, seed_radius=30,
         _im_ints = _im[np.isnan(_im)==False].astype(np.float)
         _th_seed = scoreatpercentile(_im_ints, th_seed_percentile) - \
                     scoreatpercentile(_im_ints, 0.5)
-        print(_th_seed)
+
     else:
         _th_seed = th_seed
     # start seeding 
