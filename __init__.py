@@ -32,6 +32,7 @@ from . import domain_tools
 from . import get_img_info
 # Drift and illumination correction
 from . import corrections
+from . import correction_tools
 # Defined class
 from . import classes
 # functions for post analysis, including compartment, epigenomics

@@ -113,7 +113,9 @@ def visualize_2d_gaussian(im, spot, color=[0,0,0], kept_axes=(1,2), ax=None, cro
                           plot_im=True, im_cmap='gray', im_background='black', color_limits=None, figure_alpha=1, 
                           add_colorbar=False, add_reference_bar=True, 
                           reference_bar_length=_ref_bar_length,
-                          figure_width=_single_col_width, figure_dpi=_dpi, projection_kwargs={},
+                          figure_width=_single_col_width, figure_dpi=_dpi, 
+                          figure_title='',
+                          projection_kwargs={},
                           ticklabel_size=_ticklabel_size, ticklabel_width=_ticklabel_width, font_size=_font_size,
                           save=False, save_folder='.', save_basename='2d-projection.png', verbose=True):
     """Function to visualize a 2d-gaussian in given spot object
@@ -151,7 +153,8 @@ def visualize_2d_gaussian(im, spot, color=[0,0,0], kept_axes=(1,2), ax=None, cro
                                      color_limits=color_limits, figure_alpha=figure_alpha,
                                      add_colorbar=add_colorbar, add_reference_bar=add_reference_bar,
                                      reference_bar_length=reference_bar_length, figure_width=figure_width,
-                                     figure_dpi=figure_dpi, imshow_kwargs=projection_kwargs, 
+                                     figure_dpi=figure_dpi, 
+                                     imshow_kwargs=projection_kwargs, 
                                      ticklabel_size=ticklabel_size, ticklabel_width=ticklabel_width,
                                      save=False, save_folder=save_folder, save_basename=save_basename,
                                      verbose=verbose)
@@ -192,6 +195,7 @@ def chromosome_structure_3d_rendering(spots, ax3d=None, cmap='Spectral',
                                       cbar_label=None, cbar_tick_labels=None,
                                       tick_label_length=_ticklabel_size, tick_label_width=_ticklabel_width, 
                                       font_size=_font_size, figure_width=_single_col_width, figure_dpi=_dpi,
+                                      figure_title='',
                                       save=False, save_folder='.', save_basename='3d-projection.png', verbose=True):
     """Function to visualize 3d rendering of chromosome structure
     Inputs:
@@ -264,13 +268,21 @@ def chromosome_structure_3d_rendering(spots, ax3d=None, cmap='Spectral',
             raise TypeError(f"Wrong input type for ax3d:{type(ax3d)}, it should be Axec3DsSubplot object.")
     # background color
     ax3d.set_facecolor(_back_color)
-   
+    if _colors.shape[1] == 3:
+        _edge_colors = [[0,0,0, marker_alpha] for _c in _colors[_valid_inds]]
+    else:
+        _edge_colors = _colors[_valid_inds].copy()
+        _edge_colors[:,:3] = 0
     # scatter plot
     _sc = ax3d.scatter(_n_zxy[_valid_inds,1], _n_zxy[_valid_inds,2], _n_zxy                              [_valid_inds,0],
                        c=_colors[_valid_inds], s=marker_size, depthshade=depthshade, #alpha=marker_alpha,
-                       edgecolors=[[0,0,0, marker_alpha] for _c in _colors[_valid_inds]], 
+                       edgecolors=_edge_colors, 
                        linewidth=0.05)
     # plot lines between spots
+    if _colors.shape[1] == 3:
+        _line_alphas = [line_alpha for _c in _colors]
+    else:
+        _line_alphas = _colors[:,-1]
     for _i,_coord in enumerate(_n_zxy[:-1]):
         for _j in range(line_search_dist):
             if len(_n_zxy) > _i+_j+1:
@@ -283,11 +295,11 @@ def chromosome_structure_3d_rendering(spots, ax3d=None, cmap='Spectral',
                     ax3d.plot([_coord[1],_mid_coord[1]],
                             [_coord[2],_mid_coord[2]],
                             [_coord[0],_mid_coord[0]],
-                            color = _colors[_i], alpha=line_alpha, linewidth=line_width)
+                            color = _colors[_i], alpha=_line_alphas[_i], linewidth=line_width)
                     ax3d.plot([_mid_coord[1],_n_coord[1]],
                             [_mid_coord[2],_n_coord[2]],
                             [_mid_coord[0],_n_coord[0]],
-                            color = _colors[_i+_j+1], alpha=line_alpha, linewidth=line_width)
+                            color = _colors[_i+_j+1], alpha=_line_alphas[_i+_j+1], linewidth=line_width)
                     break
     # plot reference bar
     if add_reference_bar:
@@ -341,6 +353,9 @@ def chromosome_structure_3d_rendering(spots, ax3d=None, cmap='Spectral',
     ax3d.set_xlabel('X')
     ax3d.set_ylabel('Y')
     ax3d.axis('off')
+    # title
+    if figure_title is not None and figure_title != '':
+        ax3d.set_title(figure_title, fontsize=font_size, pad=font_size*1.5)
     # view angle
     ax3d.view_init(elev=view_elev_angle, azim=view_azim_angle)
     # set limits

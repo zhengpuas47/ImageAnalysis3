@@ -143,14 +143,14 @@ def plot_domain_in_distmap(distmap, domain_starts, ax=None,
                            figure_width=figure_width, figure_dpi=figure_dpi,
                            save=False, verbose=verbose)
     for _start, _end in zip(domain_starts, domain_ends):
-        ax.plot(np.arange(_start, _end), _start*np.ones(
-            _end-_start), color=domain_color, linewidth=domain_line_width)
-        ax.plot(_start*np.ones(_end-_start),
-                np.arange(_start, _end), color=domain_color, linewidth=domain_line_width)
-        ax.plot(np.arange(_start, _end), _end*np.ones(
-            _end-_start), color=domain_color, linewidth=domain_line_width)
-        ax.plot(_end*np.ones(_end-_start),
-                np.arange(_start, _end), color=domain_color, linewidth=domain_line_width)
+        ax.plot(np.arange(_start, _end+1), _start*np.ones(
+            _end+1-_start), color=domain_color, linewidth=domain_line_width)
+        ax.plot(_start*np.ones(_end+1-_start),
+                np.arange(_start, _end+1), color=domain_color, linewidth=domain_line_width)
+        ax.plot(np.arange(_start, _end+1), _end*np.ones(
+            _end+1-_start), color=domain_color, linewidth=domain_line_width)
+        ax.plot(_end*np.ones(_end+1-_start),
+                np.arange(_start, _end+1), color=domain_color, linewidth=domain_line_width)
     ax.set_xlim([0, distmap.shape[0]-0.5])
     ax.set_ylim([distmap.shape[1]-0.5, 0])
     

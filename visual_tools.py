@@ -1343,7 +1343,8 @@ def DAPI_convoluted_segmentation(filenames, correction_channel=405,
             print(f"- loading {len(filenames)} images for segmentation")
         _load_args = [(_fl, correction_channel, None, None, 20,
                        single_im_size, all_channels, 
-                       num_buffer_frames,num_empty_frames) for _fl in filenames]        
+                       num_buffer_frames,num_empty_frames,
+                       np.zeros(3), correction_folder) for _fl in filenames]        
         _load_pool = mp.Pool(num_threads)
         _ims = _load_pool.starmap(corrections.correct_single_image, _load_args, chunksize=1)
         _load_pool.close()
