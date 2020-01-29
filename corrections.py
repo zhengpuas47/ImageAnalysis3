@@ -193,7 +193,7 @@ def Calculate_Bead_Drift(folders, fovs, fov_id, num_threads=12, drift_size=500, 
                 args.append((_filename, selected_crops, None, _ref_ims, _ref_centers,
                              bead_channel, all_channels, single_im_size,
                              num_buffer_frames, num_empty_frames,
-                             ref_seed_per * 0.99**_i, illumination_corr,
+                             ref_seed_per * 0.999**_i, illumination_corr,
                              correction_folder, match_distance, match_unique, 
                              rough_drift_gb, drift_cutoff, verbose))
     

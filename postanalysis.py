@@ -115,15 +115,14 @@ def Calculate_BED_to_Region(data_filename, region_dic, data_format='tagAlign',
                 pass
             
             # go to next region if:
-            if _reg_index >= len(_region_info):
-                break
-
             if _chr != _region_info[_reg_index][1]['chr']:
                 continue
             if _mid < _region_info[_reg_index][1]['start']:
                 continue
             if _mid > _region_info[_reg_index][1]['end'] and _chr == _region_info[_reg_index][1]['chr']:
                 _reg_index += 1
+            if _reg_index >= len(_region_info):
+                break
             # really calculate stats here                
             if _mid >= _region_info[_reg_index][1]['start'] \
                 and _mid < _region_info[_reg_index][1]['end'] \

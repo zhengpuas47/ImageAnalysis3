@@ -157,14 +157,21 @@ def _generate_drift_crops(coord_sel=None, drift_size=500, single_im_size=_image_
 
 
 def correct_fov_image(dax_filename, sel_channels, 
+                      load_file_lock=None,
                       single_im_size=_image_size, all_channels=_allowed_colors,
-                      num_buffer_frames=10, num_empty_frames=0, drift=np.array([0.,0.,0.]), 
+                      num_buffer_frames=10, num_empty_frames=0, 
+                      drift=np.array([0.,0.,0.]), 
                       calculate_drift=False, bead_channel='488', drift_crops=None,
-                      drift_size=600, ref_filename=None, ref_beads=None,
-                      corr_channels=_corr_channels, correction_folder=_correction_folder,
+                      drift_size=600, ref_filename=None, 
+                      ref_ims=None, ref_beads=None,
+                      use_fft=True, alignment_args={},
+                      corr_channels=_corr_channels, 
+                      correction_folder=_correction_folder,
+                      warp_image=True, 
                       hot_pixel_corr=True, hot_pixel_th=4, z_shift_corr=False,
                       illumination_corr=True, illumination_profile=None, 
-                      bleed_corr=True, bleed_profile=None, ref_channel='647',
+                      bleed_corr=True, bleed_profile=None, 
+                      chromatic_ref_channel='647',
                       chromatic_corr=True, chromatic_profile=None, 
                       normalization=False, output_dtype=np.uint16,
                       return_drift=False, verbose=True):
@@ -179,7 +186,10 @@ def correct_fov_image(dax_filename, sel_channels,
         print(f"- correct the whole fov for image: {dax_filename}")
         _total_start = time.time()
     # selected channels
-    sel_channels = [str(ch) for ch in sel_channels]
+    if isinstance(sel_channels, str) or isinstance(sel_channels, int):
+        sel_channels = [str(sel_channels)]
+    else:
+        sel_channels = [str(ch) for ch in sel_channels]
     # image size etc
     single_im_size = np.array(single_im_size, dtype=np.int)
     all_channels = [str(ch) for ch in all_channels]
@@ -212,9 +222,12 @@ def correct_fov_image(dax_filename, sel_channels,
     ## check profiles
     if illumination_corr:
         if illumination_profile is None:
-            illumination_profile = load_correction_profile('illumination', corr_channels=_load_channels, 
-                                correction_folder=correction_folder, all_channels=all_channels,
-                                ref_channel=ref_channel, im_size=single_im_size, verbose=verbose)
+            illumination_profile = load_correction_profile('illumination', 
+                                    corr_channels=_load_channels, 
+                                    correction_folder=correction_folder, all_channels=all_channels,
+                                    ref_channel=chromatic_ref_channel, 
+                                    im_size=single_im_size, 
+                                    verbose=verbose)
         else:
             if not isinstance(illumination_profile, dict):
                 raise TypeError(f"Wrong input type of illumination_profile, should be dict!")
@@ -224,24 +237,38 @@ def correct_fov_image(dax_filename, sel_channels,
 
     if bleed_corr and len(_overlap) > 0:
         if bleed_profile is None:
-            bleed_profile = load_correction_profile('bleedthrough', corr_channels=corr_channels, 
+            bleed_profile = load_correction_profile('bleedthrough', 
+                                corr_channels=corr_channels, 
                                 correction_folder=correction_folder, all_channels=all_channels,
-                                ref_channel=ref_channel, im_size=single_im_size, verbose=verbose)
+                                ref_channel=chromatic_ref_channel, im_size=single_im_size, verbose=verbose)
         else:
             bleed_profile = np.array(bleed_profile, dtype=np.float)
             if bleed_profile.shape != (len(corr_channels),len(corr_channels),single_im_size[-2], single_im_size[-1]):
                 raise IndexError(f"Wrong input shape for bleed_profile: {bleed_profile.shape}")
+    # load chromatic or chromatic_constants depends on whether do warpping
     if chromatic_corr and len(_overlap) > 0:
         if chromatic_profile is None:
-            chromatic_profile = load_correction_profile('chromatic', corr_channels=corr_channels, 
-                                correction_folder=correction_folder, all_channels=all_channels,
-                                ref_channel=ref_channel, im_size=single_im_size, verbose=verbose)
+            if warp_image:
+                chromatic_profile = load_correction_profile('chromatic', 
+                                        corr_channels=corr_channels, 
+                                        correction_folder=correction_folder, all_channels=all_channels,
+                                        ref_channel=chromatic_ref_channel, 
+                                        im_size=single_im_size, 
+                                        verbose=verbose)
+            else:
+                chromatic_profile = load_correction_profile('chromatic_constants',      
+                                        corr_channels=corr_channels, 
+                                        correction_folder=correction_folder, all_channels=all_channels,
+                                        ref_channel=chromatic_ref_channel, 
+                                        im_size=single_im_size, 
+                                        verbose=verbose)
         else:
             if not isinstance(chromatic_profile, dict):
                 raise TypeError(f"Wrong input type of chromatic_profile, should be dict!")
             for _ch in _load_channels:
                 if _ch in corr_channels and _ch not in chromatic_profile:
                     raise KeyError(f"channel:{_ch} not given in chromatic_profile")
+
     ## check output data-type
     # if normalization, output should be float
     if normalization and output_dtype==np.uint16:
@@ -249,13 +276,18 @@ def correct_fov_image(dax_filename, sel_channels,
     # otherwise keep original dtype
     else:
         pass
-
     ## Load image
     if verbose:
         print(f"-- loading image from file:{dax_filename}", end=' ')
         _load_time = time.time()
     from ..visual_tools import DaxReader
-    _im = DaxReader(dax_filename).loadAll()
+    if 'load_file_lock' in locals() and load_file_lock is not None:
+        load_file_lock.acquire()
+    _reader = DaxReader(dax_filename, verbose=verbose)
+    _im = _reader.loadAll()
+    _reader.close()
+    if 'load_file_lock' in locals() and load_file_lock is not None:
+        load_file_lock.release()
     # get number of colors and frames
     from ..get_img_info import get_num_frame, split_channels
     _full_im_shape, _num_color = get_num_frame(dax_filename,
@@ -315,19 +347,32 @@ def correct_fov_image(dax_filename, sel_channels,
         # get required parameters
         if drift_crops is None:
             drift_crops = _generate_drift_crops(drift_size=drift_size, single_im_size=single_im_size)
-        _drift, _drift_success = alignment_tools.align_single_image(
+        from ..correction_tools.alignment import align_single_image
+        _drift, _drift_success = align_single_image(
                                 _ims[_load_channels.index(_bead_channel)],
-                                drift_crops, _ref_filename=ref_filename, _ref_centers=ref_beads,
-                                _bead_channel=_bead_channel, _all_channels=all_channels,
-                                _single_im_size=single_im_size, _num_buffer_frames=num_buffer_frames,
-                                _num_empty_frames=num_empty_frames, _illumination_corr=False, 
-                                _correction_folder=correction_folder, _verbose=verbose,
+                                drift_crops,
+                                bead_channel=_bead_channel,  
+                                all_channels=all_channels,
+                                single_im_size=single_im_size, 
+                                num_buffer_frames=num_buffer_frames,
+                                num_empty_frames=num_empty_frames, 
+                                ref_filename=ref_filename, ref_centers=ref_beads,
+                                ref_ims=ref_ims,
+                                use_fft=use_fft,
+                                illumination_corr=False, 
+                                correction_folder=correction_folder, 
+                                return_paired_cts=False,
+                                verbose=verbose,
+                                **alignment_args,
                                 )
         if verbose:
             print(f"--- finish drift in {time.time()-_drift_time:.3f}s")
             print(f"-- drift: {_drift}")
     else:
-        _drift = drift.copy()
+        if drift is None:
+            _drift = np.zeros(3)
+        else:
+            _drift = drift.copy()
         
     ## bleedthrough correction
     if len(_overlap) > 0 and bleed_corr:
@@ -352,44 +397,50 @@ def correct_fov_image(dax_filename, sel_channels,
             print(f"in {time.time()-_bleed_time:.3f}s")
 
     ## chromatic abbrevation
-    if chromatic_corr and sum([_ch in corr_channels for _ch in _load_channels]):
-        _chromatic_channels = [_ch for _ch in corr_channels if _ch in sel_channels]
+    _chromatic_channels = [_ch for _ch in corr_channels 
+                            if _ch in sel_channels and _ch != chromatic_ref_channel]
+    if warp_image:
         if verbose:
-            print(f"-- chromatic correction for channels: {_chromatic_channels}", end=' ')
-            _chromatic_time = time.time()
+            print(f"-- warp image with chromatic correction for channels: {_chromatic_channels} and drift:{np.round(_drift, 2)}", end=' ')
+            _warp_time = time.time()
         for _i, _ch in enumerate(sel_channels):
-            if _ch in corr_channels:
-                if _ch == ref_channel and not _drift.any():
-                    if verbose:
-                        print(f"{_ch}-skipped", end=', ')
-                    continue
-                else:
-                    if verbose:
-                        print(f"{_ch}", end=', ')
+            if (chromatic_corr and _ch in _chromatic_channels) or _drift.any():
+                if verbose:
+                    print(f"{_ch}", end=', ')
                     # 0. get old image
                     _im = _ims[_load_channels.index(_ch)].copy().astype(np.float)
                     # 1. get coordiates to be mapped
                     _coords = np.meshgrid( np.arange(single_im_size[0]), 
                             np.arange(single_im_size[1]), 
                             np.arange(single_im_size[2]), )
-                    _coords = np.stack(_coords).transpose((0, 2, 1, 3)) # transpose is necessary
-                    # 2. calculate corrected coordinates as a reference
-                    if _ch != ref_channel:
+                    # transpose is necessary  
+                    _coords = np.stack(_coords).transpose((0, 2, 1, 3)) 
+                    # 2. calculate corrected coordinates if chormatic abbrev.
+                    if chromatic_corr and _ch in _chromatic_channels:
                         _coords = _coords + chromatic_profile[_ch][:,np.newaxis,:,:]
                     # 3. apply drift if necessary
                     if _drift.any():
                         _coords = _coords + _drift[:, np.newaxis,np.newaxis,np.newaxis]
                     # 4. map coordinates
-                    _corr_im = map_coordinates(_im, _coords.reshape(_coords.shape[0], -1), mode='nearest')
+                    _corr_im = map_coordinates(_im, 
+                                                _coords.reshape(_coords.shape[0], -1),
+                                                mode='nearest')
                     _corr_im = _corr_im.reshape(np.shape(_im))
                     # append 
                     _ims[_load_channels.index(_ch)] = _corr_im.astype(output_dtype).copy()
                     # local clear
                     del(_coords, _im, _corr_im)
         # clear
-        del(chromatic_profile)
         if verbose:
-            print(f"in {time.time()-_chromatic_time:.3f}s")
+            print(f"in {time.time()-_warp_time:.3f}s")
+    else:
+        if verbose:
+            print(f"-- generate translation function for chromatic channels: {_chromatic_channels} and drift:{_drift}", end=' ')
+            _warp_time = time.time()
+
+        # clear
+        if verbose:
+            print(f"in {time.time()-_warp_time:.3f}s")
 
     ## normalization
     if normalization:
@@ -450,7 +501,7 @@ def load_correction_profile(corr_type, corr_channels=_corr_channels,
     """
     ## check inputs
     # type
-    _allowed_types = ['chromatic', 'illumination', 'bleedthrough']
+    _allowed_types = ['chromatic', 'illumination', 'bleedthrough', 'chromatic_constants']
     _type = str(corr_type).lower()
     if _type not in _allowed_types:
         raise ValueError(f"Wrong input corr_type, should be one of {_allowed_types}")
@@ -484,6 +535,22 @@ def load_correction_profile(corr_type, corr_channels=_corr_channels,
                 _basename = _type+'_correction' \
                 + '_' + str(_channel) + '_' + str(_ref_channel) \
                 + '_' + str(im_size[-2])+'x'+str(im_size[-1])+'.npy'
+                if verbose:
+                    print('\t',_channel,_basename)
+                _pf[_channel] = np.load(os.path.join(correction_folder, _basename))
+            else:
+                if verbose:
+                    print('\t',_channel, None)
+                _pf[_channel] = None
+    elif _type == 'chromatic_constants':
+        if verbose:
+            print('')
+        _pf = {}
+        for _channel in _corr_channels:
+            if _channel != _ref_channel:
+                _basename = _type.split('_')[0]+'_correction' \
+                + '_' + str(_channel) + '_' + str(_ref_channel) \
+                + '_' + str(im_size[-2])+'x'+str(im_size[-1])+'_const.npy'
                 if verbose:
                     print('\t',_channel,_basename)
                 _pf[_channel] = np.load(os.path.join(correction_folder, _basename))

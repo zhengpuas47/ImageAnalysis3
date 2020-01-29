@@ -3,8 +3,8 @@ from .. import _correction_folder, _temp_folder, _distance_zxy, _sigma_zxy, _all
 # some shared parameters
 _seed_th={
     '750': 400,
-    '647': 1200,
-    '561': 800,
+    '647': 800,
+    '561': 600,
 }
 
 ## load sub packages
