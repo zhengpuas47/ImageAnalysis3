@@ -401,7 +401,10 @@ def correct_fov_image(dax_filename, sel_channels,
                             if _ch in sel_channels and _ch != chromatic_ref_channel]
     if warp_image:
         if verbose:
-            print(f"-- warp image with chromatic correction for channels: {_chromatic_channels} and drift:{np.round(_drift, 2)}", end=' ')
+            if chromatic_corr:
+                print(f"-- warp image with chromatic correction for channels: {_chromatic_channels} and drift:{np.round(_drift, 2)}", end=' ')
+            else:
+                print(f"-- warp image with drift:{np.round(_drift, 2)}", end=' ')
             _warp_time = time.time()
         for _i, _ch in enumerate(sel_channels):
             if (chromatic_corr and _ch in _chromatic_channels) or _drift.any():
@@ -435,9 +438,22 @@ def correct_fov_image(dax_filename, sel_channels,
             print(f"in {time.time()-_warp_time:.3f}s")
     else:
         if verbose:
-            print(f"-- generate translation function for chromatic channels: {_chromatic_channels} and drift:{_drift}", end=' ')
+            if chromatic_corr:
+                print(f"-- generate translation function for chromatic correction for channels: {_chromatic_channels} and drift:{np.round(_drift, 2)}", end=' ')
+            else:
+                print(f"-- -- generate translation function with drift:{np.round(_drift, 2)}", end=' ')
             _warp_time = time.time()
-
+        # generate mapping function for spot coordinates
+        from ..correction_tools.chromatic import generate_warp_function
+        # init corr functions
+        _warp_functions = []
+        for _i, _ch in enumerate(sel_channels):
+            if (chromatic_corr and _ch in _chromatic_channels) or _drift.any():
+                if chromatic_corr and _ch in _chromatic_channels:
+                    _func = generate_warp_function(chromatic_profile[_ch], _drift)
+                else:
+                    _func = generate_warp_function(None, _drift)
+            _warp_functions.append(_func)
         # clear
         if verbose:
             print(f"in {time.time()-_warp_time:.3f}s")
@@ -456,10 +472,13 @@ def correct_fov_image(dax_filename, sel_channels,
     if verbose:
         print(f"-- finish correction in {time.time()-_total_start:.3f}s")
     # return
+    _return_args = [_sel_ims]
+    if not warp_image:
+        _return_args.append(_warp_functions)
     if return_drift:
-        return _sel_ims, _drift
-    else:
-        return _sel_ims
+        _return_args.append(_drift)
+    
+    return tuple(_return_args)
 
 
 def split_im_by_channels(im, sel_channels, all_channels, single_im_size=_image_size,

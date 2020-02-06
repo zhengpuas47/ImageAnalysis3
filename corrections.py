@@ -141,6 +141,7 @@ def Calculate_Bead_Drift(folders, fovs, fov_id, num_threads=12, drift_size=500, 
         if len(old_ref_frames) > 1 or len(old_ref_frames) == 0:
             print("-- ref frame not unique, start over!")
             old_drift_dic = {}
+            old_ref_frame = None
         else:
             old_ref_frame = old_ref_frames[0]
             # if ref-frame not overlapping, remove the old one for now
@@ -881,7 +882,8 @@ def generate_chromatic_abbrevation_info(ca_filename, ref_filename, ca_channel, r
     
     return picked_list
 
-def generate_chromatic_abbrevation_from_spots(corr_spots, ref_spots, corr_channel, ref_channel, 
+def generate_chromatic_abbrevation_from_spots(corr_spots, ref_spots, 
+                                              corr_channel, ref_channel, 
                                               image_size=_image_size, fitting_order=2,
                                               correction_folder=_correction_folder, make_plot=False, 
                                               save=True, save_name='chromatic_correction_',force=False, verbose=True):

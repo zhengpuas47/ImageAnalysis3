@@ -690,7 +690,10 @@ class Field_of_View():
                                 _correction_args={},
                                 _drift_args={}, 
                                 _fitting_args={},
-                                _overwrite=False, _verbose=True):
+                                _overwrite_drift=False, 
+                                _overwrite_image=False, 
+                                _overwrite_spot=False,
+                                _verbose=True):
         ## check inputs
         if _data_type not in self.shared_parameters['allowed_data_types']:
             raise ValueError(f"Wrong input for _data_type:{_data_type}, should be within {self.shared_parameters['allowed_data_types'].keys()}")
@@ -741,9 +744,15 @@ class Field_of_View():
             'illumination_corr':self.shared_parameters['corr_illumination'],
             'illumination_profile':self.correction_profiles['illumination'],
             'chromatic_corr':self.shared_parameters['corr_chromatic'],
-            'chromatic_profile':self.correction_profiles['chromatic'],
             'normalization':self.shared_parameters['normalization'],
         })
+        # specifically, chromatic profile loaded is based on whether warp image
+        if _warp_images:
+            _correction_args.update({
+                'chromatic_profile':self.correction_profiles['chromatic'],})
+        else:
+            _correction_args.update({
+                'chromatic_profile':self.correction_profiles['chromatic_constants'],})
         _drift_args.update({
             'drift_size':self.shared_parameters['drift_size'],
             'use_fft': self.shared_parameters['drift_use_fft'],
@@ -768,11 +777,14 @@ class Field_of_View():
         # lock to write to drift file
         _drift_file_lock = _manager.RLock() 
 
-        # prepare kwargs
-        _preprocess_arg_list = []
-        _preprocess_id_list = []
-        # loop through annotated folders
+        ## initialize reported ids and spots
+        _final_ids = []
+        _final_spots = []
+        # prepare kwargs to be processed.
+        _processing_arg_list = []
+        _processing_id_list = []
         
+        # loop through annotated folders
         for _fd in _sel_folders:
             _dax_filename = os.path.join(_fd, self.fov_name)
             # get selected channels
@@ -784,16 +796,25 @@ class Field_of_View():
                 if _dtype_mk in _mk:
                     _id = int(_mk.split(_dtype_mk)[1])
                     if _id in _sel_ids:
+                        # init a flag to determine whether process this im and spot
+                        _process_flag = True
                         # check whether this id already exist
-                        if not _overwrite:
-                            _exist_im, _exist_spots,_exist_drift,_exist_flag =  self._check_exist_data(_data_type, _id, )
-                            if (_save_images and not _exist_im) \
-                                or (_save_fitted_spots and not _exist_spots):
-                                _sel_channels.append(_ch)
-                                _reg_ids.append(_id)                                
-                        else:    
+                        _exist_im, _exist_spots,_exist_drift,_exist_flag =  self._check_exist_data(_data_type, _id, )
+                        # process if missing image and save image reuqired
+                        if (_save_images and not _exist_im) or _overwrite_image:
                             _sel_channels.append(_ch)
-                            _reg_ids.append(_id)
+                            _reg_ids.append(_id)  
+                        # image exists but spot doesn't
+                        ### this could be modified to remove cropping part ###
+                        elif not _exist_spots or _overwrite_spot:
+                            _sel_channels.append(_ch)
+                            _reg_ids.append(_id)  
+                        # image and spots all exist without overwrite, direct load 
+                        else:
+                            # load id an spots
+
+                            continue 
+
             # append if any channels selected
             if len(_sel_channels) > 0:
                 _args = (_dax_filename, _sel_channels, self.ref_filename,
@@ -803,52 +824,51 @@ class Field_of_View():
                         _data_type, _reg_ids, 
                         _warp_images,
                         _image_file_lock, 
-                        _overwrite, 
+                        _overwrite_image, 
                         _drift_args, 
                         _save_drift, 
                         self.drift_filename,
                         _drift_file_lock, 
-                        _overwrite,
+                        _overwrite_drift,
                         _fitting_args, _save_fitted_spots,
-                        _image_file_lock, _overwrite,
+                        _image_file_lock, _overwrite_spot, 
+                        False, 
                         _verbose,)
-                _preprocess_arg_list.append(_args)
-                _preprocess_id_list.append(_reg_ids)
+                _processing_arg_list.append(_args)
+                _processing_id_list.append(_reg_ids)
 
         # multi-processing
         ## multi-processing for translating segmentation
         from .batch_functions import batch_process_image_to_spots, killchild
-        with mp.Pool(self.num_threads,) as _preprocess_pool:
+        with mp.Pool(self.num_threads,) as _processing_pool:
             if _verbose:
-                print(f"+ Start multi-processing of pre-processing for {len(_preprocess_arg_list)} images!")
-                print(f"++ processed {_data_type} ids: {np.sort(np.concatenate(_preprocess_id_list))}")
+                print(f"+ Start multi-processing of pre-processing for {len(_processing_arg_list)} images!")
+                print(f"++ processed {_data_type} ids: {np.sort(np.concatenate(_processing_id_list))}", end=' ')
+                _start_time = time.time()
             # Multi-proessing!
-            _spot_results = _preprocess_pool.starmap(batch_process_image_to_spots,
-                                                     _preprocess_arg_list, 
+            _spot_results = _processing_pool.starmap(batch_process_image_to_spots,
+                                                     _processing_arg_list, 
                                                      chunksize=1)
             # close multiprocessing
-            _preprocess_pool.close()
-            _preprocess_pool.join()
-            _preprocess_pool.terminate()
+            _processing_pool.close()
+            _processing_pool.join()
+            _processing_pool.terminate()
         # clear
         killchild()        
+        if _verbose:
+            print(f"in {time.time()-_start_time:.2f}s.")
+        # unravel and append process
 
-        # unravel process
-        _processed_ids = []
-        _processed_spots = []
-        for _ids, _spot_list in zip(_preprocess_id_list, _spot_results):
-            _processed_ids += list(_ids)
-            _processed_spots += list(_spot_list)
+        for _ids, _spot_list in zip(_processing_id_list, _spot_results):
+            _final_ids += list(_ids)
+            _final_spots += list(_spot_list)
         # sort
-        _ps_ids = [_id for _id,_spots in sorted(zip(_processed_ids, _processed_spots))]
-        _ps_spots = [_spots for _id,_spots in sorted(zip(_processed_ids, _processed_spots))]
-
+        _ps_ids = [_id for _id,_spots in sorted(zip(_final_ids, _final_spots))]
+        _ps_spots = [_spots for _id,_spots in sorted(zip(_final_ids, _final_spots))]
+  
         return _ps_ids, _ps_spots
 
         
-
-
-
 
     def _save_to_file(self, _type):
         _type = str(_type).lower()
@@ -859,6 +879,10 @@ class Field_of_View():
             if _type in _allowed_kwds:
                 _grp = _f[_type]
                 print(_grp['ids'][:])
+
+            elif _type == 'info':
+                pass
+            
 
     def _check_exist_data(self, _data_type, _region_id,
                         empty_value=0):

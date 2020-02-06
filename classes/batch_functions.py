@@ -68,6 +68,7 @@ def batch_process_image_to_spots(dax_filename, sel_channels, ref_filename,
                                  overwrite_drift=False, 
                                  fitting_args={}, save_spots=True, 
                                  spot_file_lock=None, overwrite_spot=False, 
+                                 return_drift=False,
                                  verbose=False):
     """run by multi-processing to batch process images to spots
     Inputs:
@@ -128,13 +129,27 @@ def batch_process_image_to_spots(dax_filename, sel_channels, ref_filename,
             raise ValueError(f"Wrong input region_ids:{region_ids}, should of same length as sel_channels:{sel_channels}.")
         region_ids = [int(_id) for _id in region_ids] # convert to ints
     ## correct images
-    _sel_ims, _drift = correct_fov_image(dax_filename, sel_channels, 
-                            load_file_lock=load_file_lock,
-                            calculate_drift=_corr_drift, drift=_drift,
-                            ref_filename=ref_filename, 
-                            warp_image=warp_image,
-                            return_drift=True, verbose=verbose, 
-                            **correction_args, **drift_args)
+    if warp_image:
+        _sel_ims, _drift = correct_fov_image(dax_filename, 
+                                sel_channels, 
+                                load_file_lock=load_file_lock,
+                                calculate_drift=_corr_drift, 
+                                drift=_drift,
+                                ref_filename=ref_filename, 
+                                warp_image=warp_image,
+                                return_drift=True, verbose=verbose, 
+                                **correction_args, **drift_args)
+    else:
+        _sel_ims, _warp_funcs, _drift = correct_fov_image(
+                                dax_filename, 
+                                sel_channels, 
+                                load_file_lock=load_file_lock,
+                                calculate_drift=_corr_drift, 
+                                drift=_drift,
+                                ref_filename=ref_filename, 
+                                warp_image=warp_image,
+                                return_drift=True, verbose=verbose, 
+                                **correction_args, **drift_args)                
     ## save image if specified
     if save_image:
         # initiate lock
@@ -163,12 +178,17 @@ def batch_process_image_to_spots(dax_filename, sel_channels, ref_filename,
 
     ## multi-fitting
     _spot_list = []
-    for _im, _ch in zip(_sel_ims, sel_channels):
+    for _ich, (_im, _ch) in enumerate(zip(_sel_ims, sel_channels)):
         _spots = fit_fov_image(
             _im, _ch, 
             th_seed=_seed_th[str(_ch)],
             verbose=verbose, **fitting_args
         )
+        if not warp_image:
+            # update spot coordinates given warp functions, if image was not warpped.
+            _func = _warp_funcs[_ich]
+            _spots = _func(_spots)
+        # append 
         _spot_list.append(_spots)
     ## save fitted_spots if specified
     if save_spots:
@@ -182,8 +202,10 @@ def batch_process_image_to_spots(dax_filename, sel_channels, ref_filename,
         # release lock
         if spot_file_lock is not None:
             spot_file_lock.release()
-
-    return _spot_list
+    if return_drift:
+        return _spot_list, _drift
+    else:
+        return _spot_list
     
 # save image to fov file
 def save_image_to_fov_file(filename, ims, data_type, region_ids, drift=None,
