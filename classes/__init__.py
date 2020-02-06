@@ -74,7 +74,8 @@ def _fit_single_image(_im, _id, _chrom_coords, _seeding_args, _fitting_args, _ch
     return _spots_for_chrom
 
 # function to allow multi-processing pick spots
-def _pick_spot_in_batch(_cell, _data_type='unique', _pick_type='EM', _use_chrom_coords=True,
+def _pick_spot_in_batch(_cell, _data_type='unique', _pick_type='EM', 
+                        _use_chrom_coords=True,
                         _sel_ids=None, _num_iters=10, _terminate_th=0.003, 
                         _intensity_th=1, _hard_intensity_th=True, _spot_num_th=100,
                         _ref_spot_list=None, _ref_spot_ids=None, _ref_pick_type='EM',
@@ -91,7 +92,8 @@ def _pick_spot_in_batch(_cell, _data_type='unique', _pick_type='EM', _use_chrom_
         print(f"-- {_pick_type} pick spots for fov:{_cell.fov_id}, cell:{_cell.cell_id}")
 
     # notice: always load in attributes, never return indices in batch format
-    _picked_spots = _cell._pick_spots(_data_type=_data_type, _pick_type=_pick_type, 
+    _picked_spots = _cell._pick_spots(_data_type=_data_type, 
+                                      _pick_type=_pick_type, 
                                       _use_chrom_coords=_use_chrom_coords, _sel_ids=_sel_ids, 
                                       _num_iters=_num_iters, _terminate_th=_terminate_th, 
                                       _intensity_th=_intensity_th, _hard_intensity_th=_hard_intensity_th,
@@ -106,9 +108,11 @@ def _pick_spot_in_batch(_cell, _data_type='unique', _pick_type='EM', _use_chrom_
                                       _check_spots=_check_spots, _check_th=_check_th, 
                                       _check_percentile=_check_percentile, _hard_dist_th=_hard_dist_th,
                                       _save_inter_plot=_save_inter_plot, _save_to_attr=True, _save_to_info=_save_to_info,
-                                      _return_indices=False, _overwrite=_overwrite, _verbose=_verbose)
+                                      _return_indices=False, _overwrite=_overwrite, 
+                                      _verbose=_verbose)
 
-    _distmaps = _cell._generate_distance_map(_data_type=_data_type, _pick_type=_pick_type, 
+    _distmaps = _cell._generate_distance_map(_data_type=_data_type, 
+                                             _pick_type=_pick_type, 
                                              _sel_ids=_sel_ids, _save_info=_save_to_info, _save_plot=_save_plot,
                                              _limits=_plot_limits, _cmap=_cmap, 
                                              _fig_dpi=_fig_dpi, _fig_size=_fig_size, 
@@ -1506,59 +1510,9 @@ class Cell_List():
                     print(f"++ clear images for {_data_type} in fov:{_cell.fov_id}, cell:{_cell.cell_id}")
                 delattr(_cell, _im_attr)
 
-    def _old_pick_spots_for_cells(self, _data_type='unique', _decoded_flag='diff', _pick_type='dynamic', 
-                                  _use_chrom_coords=True, _w_dist=2, _dist_ref=None, 
-                                  _penalty_type='trapezoidal', _penalty_factor=5,
-                                  _gen_distmap=True, _save_plot=True, _plot_limits=[0,1500],
-                                  _save=True, _verbose=True):
-        """Function to pick spots given candidates."""
-        ## Check attributes
-        if _verbose:
-            print("+ Pick spots and convert to distmap.")
-        if _pick_type not in ['dynamic', 'naive']:
-            raise ValueError(f"Wrong _pick_type kwd given ({_pick_type}), should be dynamic or naive.")
-        for _cell in self.cells:
-            if _data_type == 'unique':
-                if not hasattr(_cell, 'unique_ids'):
-                    try:
-                        _cell._load_from_file('unique')
-                    except:
-                        _cell._load_images('unique', _load_in_ram=True)
-                elif not hasattr(_cell, 'unique_spots'):
-                    _cell._load_from_file('cell_info')
-                    if not hasattr(_cell, 'unique_spots'):
-                        raise ValueError(f"No unique spots info detected for cell:{_cell.cell_id}")
-            elif _data_type == 'combo' or _data_type == 'decoded':
-                if not hasattr(_cell, 'decoded_ids'):
-                    try:
-                        _cell._load_from_file('decoded', _decoded_flag='diff')
-                    except:
-                        raise IOError("Cannot load decoded files!")
-            else:
-                raise ValueError(f"Wrong _data_type kwd given ({_data_type}), should be unique or decoded.")
-        ## start pick chromosome
-        for _cell in self.cells:
-            if _verbose:
-                print(f"++ picking spots for cell:{_cell.cell_id} by {_pick_type} method:")
-            # pick spots
-            if _pick_type == 'dynamic':
-                _cell._dynamic_picking_spots(_data_type=_data_type, _use_chrom_coords=_use_chrom_coords,
-                                             _w_int=1, _w_dist=_w_dist,
-                                             _dist_ref=_dist_ref, _penalty_type=_penalty_type, _penalty_factor=_penalty_factor,
-                                             _save=_save, _verbose=_verbose)
-            elif _pick_type == 'naive':
-                _cell._naive_picking_spots(_data_type=_data_type, _use_chrom_coords=_use_chrom_coords,
-                                           _save=_save, _verbose=_verbose)
-            # make map:
-            if _gen_distmap:
-                if _verbose:
-                    print(f"+++ generating distance map for cell:{_cell.cell_id}")
-                _cell._generate_distance_map(_data_type=_data_type, _save_info=_save,
-                                             _save_plot=_save_plot, _limits=_plot_limits, 
-                                             _verbose=_verbose)
-
     # new version for batch pick spots
-    def _pick_spots_for_cells(self, _data_type='unique', _pick_type='EM', decoded_flag='diff',
+    def _pick_spots_for_cells(self, _data_type='unique', 
+                              _pick_type='EM', decoded_flag='diff',
                               _num_threads=12, _use_chrom_coords=True,  _sel_ids=None, 
                               _num_iters=10, _terminate_th=0.0025, 
                               _intensity_th=1., _hard_intensity_th=True,
@@ -1576,6 +1530,7 @@ class Cell_List():
         ## Check Inputs
         if _verbose:
             print(f"+ Pick spots and convert to distmap, use_chrom_coords:{_use_chrom_coords}")
+            _start_time = time.time()
         if _pick_type not in ['dynamic', 'naive', 'EM']:
             raise ValueError(
                 f"Wrong _pick_type kwd given ({_pick_type}), should be dynamic or naive.")
@@ -1646,13 +1601,18 @@ class Cell_List():
                     if _attr[0] != '_' and 'distance_map' in _attr:
                         delattr(_cell, _attr)
             self.cells = _updated_cells
+        
+        if _verbose:
+            print(f"+++ finish in {time.time()-_start_time:.2f}s.")
 
     # Calculate population median / contact map
-    def _calculate_population_map(self, _data_type='unique', _pick_type='EM', _stat_type='median',
+    def _calculate_population_map(self, _data_type='unique', 
+                                  _pick_type='EM', _stat_type='median',
                                   _max_loss_prob=0.2, _pick_flag=None, _contact_th=200,
                                   _make_plot=True, _save_plot=True, _save_name='distance_map',
                                   _cmap='seismic', _fig_dpi=300, 
-                                  _fig_size=4, _gfilt_size=0.75, _plot_limits=[0,2000],
+                                  _fig_size=4, _gfilt_size=0.75, 
+                                  _plot_limits=[0,2000],
                                   _release_ram=False, _return_all_maps=False, _verbose=True):
         """Calculate 'averaged' map for all cells in this list
         Inputs:
@@ -3743,7 +3703,8 @@ class Cell_Data():
         return _spots
 
     # an integrated function to pick spots
-    def _pick_spots(self, _data_type='unique', _pick_type='EM', _use_chrom_coords=True,
+    def _pick_spots(self, _data_type='unique', _pick_type='EM', 
+                    _use_chrom_coords=True,
                     _sel_ids=None, _num_iters=10, _terminate_th=0.003, 
                     _intensity_th=0., _hard_intensity_th=True, _spot_num_th=100,
                     _ref_spot_list=None, _ref_spot_ids=None, _ref_pick_type='EM',
@@ -3873,8 +3834,9 @@ class Cell_Data():
             raise ValueError(f"fov:{self.fov_id}, cell:{self.cell_id} doesnt have attribute: {_id_attr}")
 
         if _sel_ids is not None:
-            _ids = [_i for _i in _ids if _i in _sel_ids]
+            # order matters, change spot candidates first, then change ids
             _all_spots = [_pts for _i, _pts in zip(_ids, _all_spots) if _i in _sel_ids]
+            _ids = [_i for _i in _ids if _i in _sel_ids]
 
         if _use_chrom_coords and not hasattr(self, 'chrom_coords'):
             self._load_from_file('cell_info', _load_attrs=['chrom_coords'])
@@ -3908,7 +3870,7 @@ class Cell_Data():
                 else:
                     _gids.append(-1 * _id)
             _ids = _gids
-        
+        # if ignore ids, directly convert into continuous ids
         if _ignore_ids:
             print("-- ignoring ids")
             _ids = np.arange(len(_all_spots))
@@ -4131,7 +4093,8 @@ class Cell_Data():
         return tuple(_vis_objs)
 
 
-    def _generate_distance_map(self, _data_type='unique', _pick_type='EM', _sel_ids=None,
+    def _generate_distance_map(self, _data_type='unique', 
+                               _pick_type='EM', _sel_ids=None,
                                _save_info=True, _save_plot=True, _limits=[0, 2000], _cmap='seismic_r',
                                _fig_dpi=300, _fig_size=4, _overwrite=False, _verbose=True):
         """Function to generate distance map"""
@@ -4155,9 +4118,11 @@ class Cell_Data():
         _save_attr = str(_pick_type) + '_' + str(_data_type) + '_' + 'distance_map'
         if not hasattr(self, _id_attr):
             self._load_from_file('cell_info', _load_attrs=[_id_attr])
+
+        ## get ids
         _ids = getattr(self, _id_attr)
         # special ids for RNA, corresponding to DNA regions
-        if _data_type == 'rna-unique':
+        if _data_type == 'rna-unique' or _data_type == 'rna':
             _gids = []
             if hasattr(self, 'rna-info_dic'):
                 _rna_dic = getattr(self, 'rna-info_dic')
@@ -4170,7 +4135,7 @@ class Cell_Data():
                 else:
                     _gids.append(-1 * _id)
             _ids = _gids
-        if _data_type == 'gene':
+        elif _data_type == 'gene':
             _gids = []
             if hasattr(self, 'gene_dic'):
                 _rna_dic = getattr(self, 'gene_dic')
@@ -4183,16 +4148,32 @@ class Cell_Data():
                 else:
                     _gids.append(-1 * _id)
             _ids = _gids
-
+        else:
+            pass 
+        
+        ## get picked spots
         # check loading of necessary
         if not hasattr(self, _key_attr):
             self._load_from_file('cell_info', _load_attrs=[_key_attr])
             if not hasattr(self, _key_attr):
                 raise AttributeError(f"No {_key_attr} info found in cell-data and saved cell_info.")
         _picked_spots = getattr(self, _key_attr)
-
         if not _use_chrom_coords: 
             _picked_spots = [_picked_spots]  # convert to same order list if not use_chrom_coords
+        
+        # filter ids and spots given selected ids
+        if _sel_ids is not None:
+            # order matters, change picked_spots first, then change ids
+            if len(_picked_spots) > 0 and len(_picked_spots[0]) != len(_sel_ids):
+                _picked_spots = [
+                    np.array([_spt for _id, _spt in zip(_ids, _spots) if _id in _sel_ids ]) 
+                    for _spots in _picked_spots]
+            else:
+                if _verbose:
+                    print(f"--- spots already picked by given _sel_ids.")
+            # screen ids 
+            _ids = [_id for _id in _ids if _id in _sel_ids]
+
         # check existing saved attr
         if not hasattr(self, _save_attr):
             self._load_from_file('distance_map', _distmap_data=_data_type, _distmap_pick=_pick_type)
@@ -4214,14 +4195,13 @@ class Cell_Data():
             for _chrom_id, _spots in enumerate(_picked_spots):
                 if _verbose:
                     print(f"-- generate {_data_type} dist-map for fov:{self.fov_id}, cell:{self.cell_id}, chrom:{_chrom_id}")
-                
                 # get zxy coordinates
-                _zxy = np.array(_spots)[:,1:4] * self.shared_parameters['distance_zxy'][np.newaxis,:]
+                _zxys = np.array(_spots)[:,1:4] * self.shared_parameters['distance_zxy'][np.newaxis,:]
                 # sort 
                 _order =np.argsort(_ids)
-                _zxy = _zxy[_order]
+                _zxys = _zxys[_order]
                 # generate distmap
-                _distmap = squareform(pdist(_zxy))
+                _distmap = squareform(pdist(_zxys))
                 # transform inf into NaN
                 _distmap[_distmap == np.inf] = np.nan
                 # append 
@@ -4231,9 +4211,9 @@ class Cell_Data():
                 self._save_to_file('distance_map', _save_dic={_save_attr: _distmaps}, _verbose=_verbose)
         
         ## make plot         
-        for _id, _distmap in enumerate(_distmaps):
+        for _chrom_id, _distmap in enumerate(_distmaps):
             plt.figure(figsize=(1.25*_fig_size, _fig_size), dpi=_fig_dpi)
-            plt.title(f"{_data_type} dist-map for fov:{self.fov_id}, cell:{self.cell_id}, chrom:{_id}")
+            plt.title(f"{_data_type} dist-map for fov:{self.fov_id}, cell:{self.cell_id}, chrom:{_chrom_id}")
             plt.imshow(_distmap, interpolation='nearest', cmap=_cmap, vmin=np.min(_limits), vmax=np.max(_limits))
             plt.colorbar(ticks=range(np.min(_limits),np.max(_limits)+200,200), label='distance (nm)')
             if len(_distmap) > 300:
@@ -4252,7 +4232,7 @@ class Cell_Data():
                     if _verbose:
                         print(f"++ Make directory: {_distmap_fd}")
                     os.makedirs(_distmap_fd)
-                _save_fl = os.path.join(_distmap_fd, f"{_pick_type}_distance-map_{_data_type}_{self.cell_id}_{_id}.png")
+                _save_fl = os.path.join(_distmap_fd, f"{_pick_type}_distance-map_{_data_type}_{self.cell_id}_{_chrom_id}.png")
                 plt.savefig(_save_fl, transparent=True)
             if __name__ == "__main__":
                 plt.show()

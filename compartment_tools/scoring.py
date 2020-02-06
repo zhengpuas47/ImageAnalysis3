@@ -109,7 +109,8 @@ def max_project_AB_compartment(spots, comp_dict, pca_other_2d=True):
     return _spots
 
 # convert spots to 3d cloud by replacing spots with gaussians
-def convert_spots_to_cloud(spots, comp_dict, im_radius=30, distance_zxy=_distance_zxy,
+def convert_spots_to_cloud(spots, comp_dict, im_radius=30,
+                           distance_zxy=_distance_zxy,
                            spot_variance=None, scaling=1., 
                            center=True, pca_align=False, 
                            max_project_AB=False, use_intensity=False, 
