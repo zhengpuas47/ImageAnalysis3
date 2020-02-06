@@ -64,11 +64,11 @@ def align_manual_points(pos_file_before, pos_file_after,
     c_before = np.mean(ps_before, axis=0)
     c_after = np.mean(ps_after, axis=0)
     H = np.dot((ps_before - c_before).T, (ps_after - c_after))
-    U, S, V = np.linalg.svd(H)  # do SVD
+    U, _, V = np.linalg.svd(H)  # do SVD
     # calcluate rotation
     R = np.dot(V, U.T).T
     if np.linalg.det(R) < 0:
-        R[:, -1] *= -1
+        R[:, -1] = -1 * R[:, -1]
     # calculate translation
     t = - np.dot(c_before, R) + c_after
     # here's example for how to translate points
@@ -197,13 +197,14 @@ def align_single_image(_filename, _selected_crops, _ref_filename=None, _ref_ims=
                                                             verbose=_verbose)
         print(len(_matched_tar_seeds), _ref_center.shape)
         if len(_matched_tar_seeds) < len(_ref_center) * 0.2:
-            _matched_tar_seeds, _find_pair = visual_tools.find_matched_seeds(_tar_im,
-                                                                            _ref_center-_rough_drift,
-                                                                            dynamic=False,
-                                                                            th_seed_percentile=_ref_seed_per,
-                                                                            search_distance=_match_distance,
-                                                                            keep_unique=_match_unique,
-                                                                            verbose=_verbose)
+            _matched_tar_seeds, _find_pair = visual_tools.find_matched_seeds(
+                                        _tar_im,
+                                        _ref_center-_rough_drift,
+                                        dynamic=False,
+                                        th_seed_percentile=_ref_seed_per,
+                                        search_distance=_match_distance,
+                                        keep_unique=_match_unique,
+                                        verbose=_verbose)
         #print(len(_matched_tar_seeds), _rough_drift, _print_name)
         _matched_ref_center = _ref_center[_find_pair]
         if len(_matched_ref_center) == 0:
@@ -275,6 +276,7 @@ def translate_points(position_file, rotation=None, translation=None, profile_fol
 # function to do 2d-gaussian blur
 def blurnorm2d(im, gb):
     """Normalize an input 2d image <im> by dividing by a cv2 gaussian filter of the image"""
+    import cv2
     im_ = im.astype(np.float32)
     blurred = cv2.blur(im_, (gb, gb))
     return im_/blurred
@@ -287,9 +289,10 @@ def fftalign_2d(im1, im2, center=[0, 0], max_disp=150, plt_val=False):
     """
     from scipy.signal import fftconvolve
     im2_ = np.array(im2[::-1, ::-1], dtype=float)
+    #im2_ = np.array(im2[:,:], dtype=np.float)
     im2_ -= np.mean(im2_)
     im2_ /= np.std(im2_)
-    im1_ = np.array(im1, dtype=float)
+    im1_ = np.array(im1, dtype=np.float)
     im1_ -= np.mean(im1_)
     im1_ /= np.std(im1_)
     im_cor = fftconvolve(im1_, im2_, mode='full')
@@ -310,6 +313,12 @@ def fftalign_2d(im1, im2, center=[0, 0], max_disp=150, plt_val=False):
     else:
         im_cor[im_cor == 0] = 0
     if plt_val:
+        plt.figure()
+        plt.imshow(im1_, interpolation='nearest')
+        plt.show()
+        plt.figure()
+        plt.imshow(im2_, interpolation='nearest')
+        plt.show()
         plt.figure()
         plt.plot([x], [y], 'k+')
         plt.imshow(im_cor, interpolation='nearest')

@@ -257,7 +257,9 @@ def fit_seed_points_base(im, centers, width_z=_sigma_zxy[0], width_xy=_sigma_zxy
 
 
 ## Fit bead centers
-def get_STD_centers(im, seeds=None, th_seed=150, dynamic=False, th_seed_percentile=95,
+def get_STD_centers(im, seeds=None, th_seed=150, 
+                    dynamic=False, seed_by_per=False, th_seed_percentile=95,
+                    min_num_seeds=1,
                     remove_close_pts=True, close_threshold=0.1, fit_radius=5,
                     sort_by_h=False, save=False, save_folder='', save_name='',
                     plt_val=False, force=False, verbose=False):
@@ -293,7 +295,10 @@ def get_STD_centers(im, seeds=None, th_seed=150, dynamic=False, th_seed_percenti
         if seeds is None:
             seeds = get_seed_in_distance(im, center=None, dynamic=dynamic,
                                         th_seed_percentile=th_seed_percentile,
-                                        gfilt_size=0.75, filt_size=3, th_seed=th_seed, hot_pix_th=4)
+                                        seed_by_per=seed_by_per,
+                                        min_dynamic_seeds=min_num_seeds,
+                                        gfilt_size=0.75, filt_size=3, 
+                                        th_seed=th_seed, hot_pix_th=4, verbose=verbose)
         # fitting
         fitter = Fitting_v3.iter_fit_seed_points(im, seeds.T, radius_fit=5)
         fitter.firstfit()
@@ -492,7 +497,7 @@ def beads_alignment_fast(beads, ref_beads, unique_cutoff=2., check_outlier=True,
         # differences between shifts and alternative shifts
         _diff = [np.linalg.norm(_shift-_alter_shift) for _shift,_alter_shift in zip(_shifts, _alter_shifts)]
         # determine whether keep this:
-        print('-- differences in original drift and neighboring dirft:', np.mean(_diff), np.std(_diff))
+        print('-- differences in original drift and neighboring dirft:', _diff, np.mean(_diff), np.std(_diff))
         _keeps = np.array(_diff < np.mean(_diff)+np.std(_diff)*outlier_sigma, dtype=np.bool)
         # filter beads and shifts
         _paired_beads = _paired_beads[_keeps]
@@ -1065,6 +1070,12 @@ class DaxReader(Reader):
         if self.bigendian:
             image_data.byteswap(True)
         return image_data
+    
+    def close(self):
+        if self.fileptr.closed:
+            print(f"file {self.filename} has been closed.")
+        else:
+            self.fileptr.close()
 
 ## segmentation with DAPI
 def DAPI_segmentation(ims, names,
@@ -1752,9 +1763,11 @@ def crop_cell(im, segmentation_label, drift=None, extend_dim=20, overlap_thresho
 # get limitied points of seed within radius of a center
 def get_seed_in_distance(im, center=None, num_seeds=0, seed_radius=30,
                          gfilt_size=0.75, background_gfilt_size=10, filt_size=3, 
-                         th_seed_percentile=95, th_seed=300,
+                         seed_by_per=False, th_seed_percentile=95, 
+                         th_seed=300,
                          dynamic=True, dynamic_iters=10, min_dynamic_seeds=2, 
-                         distance_to_edge=1, hot_pix_th=4, return_h=False):
+                         distance_to_edge=1, hot_pix_th=4, 
+                         return_h=False, verbose=False):
     '''Get seed points with in a distance to a center coordinate
     Inputs:
         im: image, 3D-array
@@ -1780,13 +1793,15 @@ def get_seed_in_distance(im, center=None, num_seeds=0, seed_radius=30,
     _dim = np.shape(im)
     _im = im.copy()
     # seeding threshold
-    if dynamic:
+    if seed_by_per:
         _im_ints = _im[np.isnan(_im)==False].astype(np.float)
         _th_seed = scoreatpercentile(_im_ints, th_seed_percentile) - \
-                    scoreatpercentile(_im_ints, 0.5)
-
+                    scoreatpercentile(_im_ints, 100-th_seed_percentile)
     else:
         _th_seed = th_seed
+
+    if verbose:
+        print(f"-- seeding with threshold: {_th_seed}, per={th_seed_percentile}")
     # start seeding 
     if center is not None:
         _center = np.array(center, dtype=np.float)
@@ -1806,6 +1821,7 @@ def get_seed_in_distance(im, center=None, num_seeds=0, seed_radius=30,
             _dynamic_range = np.linspace(1, 1 / dynamic_iters, dynamic_iters)
             for _dy_ratio in _dynamic_range:
                 _dynamic_th = _th_seed * _dy_ratio
+                print(_dynamic_th)
                 # get candidate seeds
                 _cand_seeds = get_seed_points_base(_cim, gfilt_size=gfilt_size, background_gfilt_size=background_gfilt_size,
                                                    filt_size=filt_size, th_seed=_dynamic_th, hot_pix_th=hot_pix_th, return_h=True)

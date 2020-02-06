@@ -1,9 +1,17 @@
 # Functions used in batch processing
 import os, h5py, pickle, psutil, time
 import numpy as np
+
 from . import _allowed_kwds
 from ..io_tools.load import correct_fov_image
-from ..spot_tools.fitting import fit_fov_image
+from ..spot_tools.fitting import fit_fov_image, get_centers
+
+_seed_th={
+    '750': 400,
+    '647': 800,
+    '561': 600,
+}
+
 ## Process managing
 def killtree(pid, including_parent=False, verbose=False):
     """Function to kill all children of a given process"""
@@ -47,14 +55,18 @@ def _color_dic_stat(color_dic, channels, _type_dic=_allowed_kwds):
 
 
 def batch_process_image_to_spots(dax_filename, sel_channels, ref_filename, 
+                                 load_file_lock=None, 
                                  correction_args={}, 
                                  save_image=False, save_filename=None, 
                                  data_type=None, region_ids=None,
-                                 warpping_image=True,
-                                 image_file_lock=None, overwrite_image=False, 
-                                 drift_args={}, save_drift=True, drift_folder=None, 
-                                 drift_file_lock=None, overwrite_drift=False, 
-                                 fitting_args={}, save_spot=True, 
+                                 warp_image=True,
+                                 image_file_lock=None, 
+                                 overwrite_image=False, 
+                                 drift_args={}, save_drift=True, 
+                                 drift_filename=None, 
+                                 drift_file_lock=None, 
+                                 overwrite_drift=False, 
+                                 fitting_args={}, save_spots=True, 
                                  spot_file_lock=None, overwrite_spot=False, 
                                  verbose=False):
     """run by multi-processing to batch process images to spots
@@ -79,21 +91,21 @@ def batch_process_image_to_spots(dax_filename, sel_channels, ref_filename,
     if not isinstance(ref_filename, str) or ref_filename[-4:] != '.dax':
         raise IOError(f"Dax file: {ref_filename} has wrong data type, exit!")
     ## judge if drift correction is required
-    if drift_folder is None:
+    if drift_filename is None:
         drift_folder = os.path.join(os.path.dirname(os.path.dirname(dax_filename)),
                             'Analysis', 'drift')
-    _drift_filename = os.path.join(drift_folder, 
-                        os.path.basename(dax_filename).replace('.dax', '_current_cor.pkl'))
+        drift_filename = os.path.join(drift_folder, 
+                            os.path.basename(dax_filename).replace('.dax', '_current_cor.pkl'))
     _key = os.path.join(os.path.basename(os.path.dirname(dax_filename)),
                         os.path.basename(dax_filename))
     # try to load drift
-    if os.path.isfile(_drift_filename):
-        _drift_dict = pickle.load(open(_drift_filename, 'rb'))
+    if os.path.isfile(drift_filename):
+        _drift_dict = pickle.load(open(drift_filename, 'rb'))
     else:
         _drift_dict = {}
     if _key in _drift_dict and not overwrite_drift:
         if verbose:
-            print(f"-- load drift from drift_dict: {_drift_filename}")
+            print(f"-- load drift from drift_dict: {drift_filename}")
         _drift = _drift_dict[_key]
         _corr_drift = False 
     else:
@@ -117,50 +129,59 @@ def batch_process_image_to_spots(dax_filename, sel_channels, ref_filename,
         region_ids = [int(_id) for _id in region_ids] # convert to ints
     ## correct images
     _sel_ims, _drift = correct_fov_image(dax_filename, sel_channels, 
+                            load_file_lock=load_file_lock,
                             calculate_drift=_corr_drift, drift=_drift,
                             ref_filename=ref_filename, 
+                            warp_image=warp_image,
                             return_drift=True, verbose=verbose, 
                             **correction_args, **drift_args)
     ## save image if specified
-    # initiate lock
-    if image_file_lock is not None:
-        image_file_lock.acquire()
-    # run saving
-    _save_img_success = save_image_to_fov_file(
-        save_filename, _sel_ims, data_type, region_ids, 
-        _drift, overwrite_image, verbose)
-    # release lock
-    if image_file_lock is not None:
-        image_file_lock.release()
+    if save_image:
+        # initiate lock
+        if 'image_file_lock' in locals() and image_file_lock is not None:
+            image_file_lock.acquire()
+        # run saving
+        _save_img_success = save_image_to_fov_file(
+            save_filename, _sel_ims, data_type, region_ids, 
+            _drift, overwrite_image, verbose)
+        # release lock
+        if 'image_file_lock' in locals() and image_file_lock is not None:
+            image_file_lock.release()
 
     ## save drift if specified
-    # initiate lock
-    if drift_file_lock is not None:
-        drift_file_lock.acquire()
-    # run saving
-    _save_drift_success = save_drift_to_file(_drift_filename,
-                                             dax_filename, _drift, 
-                                             overwrite_drift, verbose)
-    # release lock
-    if drift_file_lock is not None:
-        drift_file_lock.release()
+    if save_drift:
+        # initiate lock
+        if 'drift_file_lock' in locals() and drift_file_lock is not None:
+            drift_file_lock.acquire()
+        # run saving
+        _save_drift_success = save_drift_to_file(drift_filename,
+                                                dax_filename, _drift, 
+                                                overwrite_drift, verbose)
+        # release lock
+        if 'drift_file_lock' in locals() and drift_file_lock is not None:
+            drift_file_lock.release()
 
     ## multi-fitting
     _spot_list = []
     for _im, _ch in zip(_sel_ims, sel_channels):
-        _spots = fit_fov_image(_im, _ch, verbose=verbose, **fitting_args)
+        _spots = fit_fov_image(
+            _im, _ch, 
+            th_seed=_seed_th[str(_ch)],
+            verbose=verbose, **fitting_args
+        )
         _spot_list.append(_spots)
     ## save fitted_spots if specified
-    # initiate lock
-    if spot_file_lock is not None:
-        spot_file_lock.acquire()
-    # run saving
-    _save_spt_success = save_spots_to_fov_file(
-        save_filename, _spot_list, data_type, region_ids, 
-        overwrite_spot, verbose)
-    # release lock
-    if spot_file_lock is not None:
-        spot_file_lock.release()
+    if save_spots:
+        # initiate lock
+        if spot_file_lock is not None:
+            spot_file_lock.acquire()
+        # run saving
+        _save_spt_success = save_spots_to_fov_file(
+            save_filename, _spot_list, data_type, region_ids, 
+            overwrite_spot, verbose)
+        # release lock
+        if spot_file_lock is not None:
+            spot_file_lock.release()
 
     return _spot_list
     

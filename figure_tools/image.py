@@ -187,7 +187,7 @@ def chromosome_structure_3d_rendering(spots, ax3d=None, cmap='Spectral',
                                       marker_size=6, marker_alpha=1, 
                                       background_color=[0,0,0], 
                                       line_search_dist=3, 
-                                      line_width=1, line_alpha=1, depthshade=True,
+                                      line_width=1, line_alpha=1, depthshade=False,
                                       view_elev_angle=0, view_azim_angle=90, 
                                       add_reference_bar=True, reference_bar_length=1000, 
                                       reference_bar_width=2, reference_bar_color=[1,1,1],
@@ -208,9 +208,9 @@ def chromosome_structure_3d_rendering(spots, ax3d=None, cmap='Spectral',
     # spots
     _spots = np.array(spots)
     if len(np.shape(_spots)) != 2:
-        raise IndexError(f"Wrong _spots dimension, should be 2d array but {_spots.shape} is given")
+        raise IndexError(f"Wrong _spots dimension, should be 2d array but {np.shape(_spots)} is given")
     # prepare spots
-    if _spots.shape[1] == 3:
+    if np.shape(_spots)[1] == 3:
         _zxy = _spots 
     else:
         _zxy = _spots[:,1:4] * distance_zxy[np.newaxis,:]
@@ -262,7 +262,10 @@ def chromosome_structure_3d_rendering(spots, ax3d=None, cmap='Spectral',
     if ax3d is None:
         fig = plt.figure(figsize=(figure_width, figure_width), dpi=figure_dpi)
         ax3d = fig.gca(projection='3d')
-        ax3d.set_aspect('equal')
+        try:
+            ax3d.set_aspect('equal')
+        except:
+            pass
     else:
         if ax3d.__module__ != 'matplotlib.axes._subplots':
             raise TypeError(f"Wrong input type for ax3d:{type(ax3d)}, it should be Axec3DsSubplot object.")
