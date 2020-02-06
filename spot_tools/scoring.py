@@ -373,6 +373,6 @@ def spot_score_in_chromosome(spots, spot_ids, sel_spots, sel_ids=None, chr_cente
 def radius_of_gyration(zxys):
     zxys = np.array(zxys)
     _rs = np.linalg.norm(zxys - np.nanmean(zxys, axis=0), axis=1)
-    _rg = np.nanmean(_rs)
+    _rg = np.sqrt(np.nanmean(_rs**2))
     return _rg
 

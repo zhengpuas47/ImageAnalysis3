@@ -82,7 +82,7 @@ def plot_distance_map(distmap, ax=None, cmap='seismic_r',
         if not os.path.exists(save_folder):
             os.makedirs(save_folder)
         save_filename = os.path.join(save_folder, save_basename)
-        if '.png' not in save_filename:
+        if '.png' not in save_filename and '.pdf' not in save_filename:
             save_filename += '.png'
         plt.savefig(save_filename, transparent=True)
 

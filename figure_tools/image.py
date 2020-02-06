@@ -366,7 +366,7 @@ def chromosome_structure_3d_rendering(spots, ax3d=None, cmap='Spectral',
     if save:
         if not os.path.exists(save_folder):
             os.makedirs(save_folder)
-        if '.png' not in save_basename:
+        if '.png' not in save_basename and '.pdf' not in save_basename:
             save_basename += '.png'
         save_filename = os.path.join(save_folder, save_basename)
         if verbose:

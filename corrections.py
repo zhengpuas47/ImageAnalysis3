@@ -24,7 +24,7 @@ def Calculate_Bead_Drift(folders, fovs, fov_id, num_threads=12, drift_size=500, 
                          coord_sel=None, single_im_size=_image_size, 
                          num_buffer_frames=10, num_empty_frames=1, 
                          match_distance=3, match_unique=True, rough_drift_gb=0,
-                         max_ref_points=500, ref_seed_per=95, drift_cutoff=1,
+                         max_ref_points=500, ref_seed_per=90, drift_cutoff=1,
                          save=True, save_folder=None, save_postfix='_current_cor.pkl',
                          stringent=True, overwrite=False, verbose=True):
     """Function to generate drift profile given a list of corrected bead files
