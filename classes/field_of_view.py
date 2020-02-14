@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 # import package parameters
 from .. import _correction_folder, _corr_channels, _temp_folder,_distance_zxy,\
     _sigma_zxy,_image_size, _allowed_colors, _num_buffer_frames, _num_empty_frames
-from . import _allowed_kwds, _max_num_seeds
+from . import _allowed_kwds, _max_num_seeds, _min_num_seeds
 
 def __init__():
     print(f"Loading field of view class")
@@ -161,14 +161,20 @@ class Field_of_View():
             self.shared_parameters['corr_chromatic'] = True
         if 'allowed_kwds' not in self.shared_parameters:
             self.shared_parameters['allowed_data_types'] = _allowed_kwds
+        # params for drift
         if 'max_num_seeds' not in self.shared_parameters:
             self.shared_parameters['max_num_seeds'] = _max_num_seeds
+        if 'min_num_seeds' not in self.shared_parameters:
+            self.shared_parameters['min_num_seeds'] = _min_num_seeds
         if 'drift_size' not in self.shared_parameters:
             self.shared_parameters['drift_size'] = 600
         if 'drift_use_fft' not in self.shared_parameters:
             self.shared_parameters['drift_use_fft'] = True 
         if 'drift_sequential' not in self.shared_parameters:
             self.shared_parameters['drift_sequential'] = False 
+        if 'good_drift_th' not in self.shared_parameters:
+            self.shared_parameters['good_drift_th'] = 1. 
+        
         ## load experimental info
         if _load_references:
             if '_color_filename' not in _color_info_kwargs:
@@ -198,8 +204,6 @@ class Field_of_View():
                                 drift_size=self.shared_parameters['drift_size'],
                                 single_im_size=self.shared_parameters['single_im_size'],
                             )
-        self.ref_cts = None
-        self.ref_ims = None
 
         ## Create savefile
         # save filename
@@ -507,7 +511,11 @@ class Field_of_View():
             print(f"++ acquire reference images and centers from file:{_ref_filename}")
         if '.dax' not in _ref_filename:
             raise TypeError(f"Wrong ref_filename type, should be .dax file!")
-        
+        # Check drift file
+        if not os.path.isfile(self.drift_filename):
+            from .batch_functions import create_drift_file
+            create_drift_file(self.drift_filename, self.ref_filename,
+                              overwrite=_overwrite, verbose=_verbose)
         # check drift_crops
         if not hasattr(self, 'drift_crops') or _overwrite:
             if _drift_crops is not None:
@@ -522,7 +530,7 @@ class Field_of_View():
             _drift_crops = getattr(self, 'drift_crops')
 
         # first check if attribute already exists:
-        _reload_im = _overwrite
+        _load_ref_flag = _overwrite
         if hasattr(self, 'ref_ims') and hasattr(self, 'ref_cts') and not _overwrite:
             #
             _ref_cts = getattr(self, 'ref_cts')
@@ -531,15 +539,17 @@ class Field_of_View():
                 if _im.shape != tuple(_crop[:,1]-_crop[:,0]):
                     if _verbose:
                         print(f"+++ image shape:{np.shape(_im)} doesn't match crop:{_crop}, reload ref_ims!")
-                    _reload_im = True 
+                    _load_ref_flag = True 
                     break
-                if len(_ct) < _min_num_seeds:
+                if len(_ct) < self.shared_parameters['min_num_seeds']:
                     if _verbose:
-                        print(f"+++ not enough reference centers, {len(_ct)} given, {_min_num_seeds} expected, reload ref_ims!")
-                    _reload_im = True 
+                        print(f"+++ not enough reference centers, {len(_ct)} given, {self.shared_parameters['min_num_seeds']} expected, reload ref_ims!")
+                    _load_ref_flag = True 
                     break
+        else:
+            _load_ref_flag = True 
         # if reload im, do loading here:
-        if _reload_im:
+        if _load_ref_flag:
             # load image
             if _verbose:
                 print(f"+++ loading image from .dax file")
@@ -571,7 +581,7 @@ class Field_of_View():
                                         th_seed_per=_seeding_percentile, 
                                         use_percentile=_dynamic_seeding,
                                         max_num_seeds=self.shared_parameters['max_num_seeds'],
-                                        min_num_seeds=_min_num_seeds,
+                                        min_num_seeds=self.shared_parameters['min_num_seeds'],
                                         verbose=_verbose,
                                         )
                 _ref_cts.append(select_sparse_centers(_cand_cts, 
@@ -580,6 +590,12 @@ class Field_of_View():
             # append
             self.ref_ims = _ref_ims
             self.ref_cts = _ref_cts
+        # direct load if not necesary
+        else:
+            if _verbose:
+                print(f"+++ direct load from attributes.")
+            _ref_ims = getattr(self, 'ref_ims')
+            _ref_cts = getattr(self, 'ref_cts')
         # return
         return _ref_ims, _ref_cts
     
@@ -759,9 +775,12 @@ class Field_of_View():
             'drift_crops':self.drift_crops,
             'ref_beads':self.ref_cts,
             'ref_ims':self.ref_ims,
+            'max_num_seeds' : self.shared_parameters['max_num_seeds'],
+            'min_num_seeds' : self.shared_parameters['min_num_seeds'],
+            'good_drift_th': self.shared_parameters['good_drift_th'],
         })
         _fitting_args.update({
-            'max_num_seeds' : _max_num_seeds,
+            'max_num_seeds' : self.shared_parameters['max_num_seeds'],
         })
         
         # initiate locks
@@ -814,7 +833,6 @@ class Field_of_View():
                             # load id an spots
 
                             continue 
-
             # append if any channels selected
             if len(_sel_channels) > 0:
                 _args = (_dax_filename, _sel_channels, self.ref_filename,
@@ -839,24 +857,25 @@ class Field_of_View():
 
         # multi-processing
         ## multi-processing for translating segmentation
-        from .batch_functions import batch_process_image_to_spots, killchild
-        with mp.Pool(self.num_threads,) as _processing_pool:
+        if len(_processing_arg_list) > 0:
+            from .batch_functions import batch_process_image_to_spots, killchild
+            with mp.Pool(self.num_threads,) as _processing_pool:
+                if _verbose:
+                    print(f"+ Start multi-processing of pre-processing for {len(_processing_arg_list)} images!")
+                    print(f"++ processed {_data_type} ids: {np.sort(np.concatenate(_processing_id_list))}", end=' ')
+                    _start_time = time.time()
+                # Multi-proessing!
+                _spot_results = _processing_pool.starmap(batch_process_image_to_spots,
+                                                        _processing_arg_list, 
+                                                        chunksize=1)
+                # close multiprocessing
+                _processing_pool.close()
+                _processing_pool.join()
+                _processing_pool.terminate()
+            # clear
+            killchild()        
             if _verbose:
-                print(f"+ Start multi-processing of pre-processing for {len(_processing_arg_list)} images!")
-                print(f"++ processed {_data_type} ids: {np.sort(np.concatenate(_processing_id_list))}", end=' ')
-                _start_time = time.time()
-            # Multi-proessing!
-            _spot_results = _processing_pool.starmap(batch_process_image_to_spots,
-                                                     _processing_arg_list, 
-                                                     chunksize=1)
-            # close multiprocessing
-            _processing_pool.close()
-            _processing_pool.join()
-            _processing_pool.terminate()
-        # clear
-        killchild()        
-        if _verbose:
-            print(f"in {time.time()-_start_time:.2f}s.")
+                print(f"in {time.time()-_start_time:.2f}s.")
         # unravel and append process
 
         for _ids, _spot_list in zip(_processing_id_list, _spot_results):

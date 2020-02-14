@@ -74,7 +74,10 @@ def get_seeds(im, max_num_seeds=None, th_seed=150,
         _th_seed = th_seed
     if verbose:
         _start_time = time.time()
-        print(f"-- start seeding image with threshold: {_th_seed:.2f}", end='; ')
+        if not use_dynamic_th:
+            print(f"-- start seeding image with threshold: {_th_seed:.2f}", end='; ')
+        else:
+            print(f"-- start seeding image, th={_th_seed:.2f}", end='')
     ## do seeding
     if not use_dynamic_th:
         dynamic_niters = 1 # setting only do seeding once
@@ -107,6 +110,9 @@ def get_seeds(im, max_num_seeds=None, th_seed=150,
             _coords = tuple(_cs[_keep_flags] for _cs in _coords)
         if len(_coords[0]) >= min_dynamic_seeds:
             break
+    # print current th
+    if verbose and use_dynamic_th:
+        print(f"->{_current_seed_th:.2f}")
 
     # get heights
     _hs = (_max_ft - _min_ft)[_coords]
@@ -208,7 +214,8 @@ def get_centers(im, seeds=None, th_seed=150,
                           sel_center=sel_center, seed_radius=seed_radius,
                           use_dynamic_th=use_dynamic_th,
                           min_dynamic_seeds=min_num_seeds,
-                          return_h=False, verbose=verbose, **seed_kwargs)
+                          return_h=False, verbose=verbose, 
+                          **seed_kwargs)
     # fitting
     fitter = iter_fit_seed_points(im, seeds.T, radius_fit=fit_radius)
     fitter.firstfit()

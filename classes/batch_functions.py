@@ -312,3 +312,37 @@ def save_drift_to_file(drift_filename, image_filename, drift, overwrite=False, v
     # return success flag
     return True
     
+
+# create drift file
+def create_drift_file(drift_filename, ref_filename, 
+                      n_dim=3,
+                      overwrite=False, verbose=True):
+    """Function to create drift save file"""
+    ## check inputs
+    if os.path.isfile(drift_filename) and not overwrite:
+        drift_dict = pickle.load(open(drift_filename, 'rb'))
+    else:
+        drift_dict = {}
+    _ref_key = os.path.join(os.path.basename(os.path.dirname(ref_filename)),
+                            os.path.basename(ref_filename))
+    if _ref_key not in drift_dict:
+        drift_dict[_ref_key] = np.zeros(n_dim)
+        _update = True
+    else:
+        _update = False
+    if _update:
+        # create folder 
+        if not os.path.isdir(os.path.dirname(drift_filename)):
+            if verbose:
+                print(f"--- creating folder:{os.path.dirname(drift_filename)}")
+            os.makedirs(os.path.dirname(drift_filename))
+        # save initialized drift_dict
+        if verbose:
+            print(f"-- create drift file:{drift_filename} with reference:{_ref_key}")
+        pickle.dump(drift_dict, open(drift_filename, 'wb'))
+    else:
+        if verbose:
+            print(f"-- no updates in drift file:{drift_filename}, skip.")
+    
+    return True 
+
