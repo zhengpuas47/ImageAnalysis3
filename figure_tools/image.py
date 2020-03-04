@@ -1,7 +1,10 @@
 # required packages
 import numpy as np
 import matplotlib.pyplot as plt
+plt.rc('font', family='serif')
+plt.rc('font', serif='Arial')
 import matplotlib
+matplotlib.rcParams['pdf.fonttype'] = 42
 import os, glob, sys, time
 # 3d plotting
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -185,6 +188,7 @@ def chromosome_structure_3d_rendering(spots, ax3d=None, cmap='Spectral',
                                       distance_zxy=_distance_zxy, 
                                       center=True, pca_align=False, image_radius=2000,
                                       marker_size=6, marker_alpha=1, 
+                                      marker_edge=False, 
                                       background_color=[0,0,0], 
                                       line_search_dist=3, 
                                       line_width=1, line_alpha=1, depthshade=False,
@@ -271,16 +275,19 @@ def chromosome_structure_3d_rendering(spots, ax3d=None, cmap='Spectral',
             raise TypeError(f"Wrong input type for ax3d:{type(ax3d)}, it should be Axec3DsSubplot object.")
     # background color
     ax3d.set_facecolor(_back_color)
-    if _colors.shape[1] == 3:
-        _edge_colors = [[0,0,0, marker_alpha] for _c in _colors[_valid_inds]]
+    if marker_edge:
+        if _colors.shape[1] == 3:
+            _edge_colors = [[0,0,0, marker_alpha] for _c in _colors[_valid_inds]]
+        else:
+            _edge_colors = _colors[_valid_inds].copy()
+            _edge_colors[:,:3] = 0
     else:
-        _edge_colors = _colors[_valid_inds].copy()
-        _edge_colors[:,:3] = 0
+        _edge_colors = 'none'
     # scatter plot
     _sc = ax3d.scatter(_n_zxy[_valid_inds,1], _n_zxy[_valid_inds,2], _n_zxy                              [_valid_inds,0],
                        c=_colors[_valid_inds], s=marker_size, depthshade=depthshade, #alpha=marker_alpha,
                        edgecolors=_edge_colors, 
-                       linewidth=0.05)
+                       linewidth=0.1)
     # plot lines between spots
     if _colors.shape[1] == 3:
         _line_alphas = [line_alpha for _c in _colors]
@@ -367,6 +374,7 @@ def chromosome_structure_3d_rendering(spots, ax3d=None, cmap='Spectral',
     ax3d.set_zlim([-_radius, _radius])
     # save
     if save:
+        matplotlib.rcParams['pdf.fonttype'] = 42
         if not os.path.exists(save_folder):
             os.makedirs(save_folder)
         if '.png' not in save_basename and '.pdf' not in save_basename:
@@ -375,7 +383,7 @@ def chromosome_structure_3d_rendering(spots, ax3d=None, cmap='Spectral',
         if verbose:
             print(f"-- save 3d-rendering into file:{save_filename}")
         plt.savefig(save_filename, transparent=False)
-    
+
     return ax3d, cb
 
 

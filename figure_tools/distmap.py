@@ -1,5 +1,8 @@
 import matplotlib
+matplotlib.rcParams['pdf.fonttype'] = 42
 import matplotlib.pyplot as plt
+plt.rc('font', family='serif')
+plt.rc('font', serif='Arial')
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 import numpy as np
@@ -41,7 +44,7 @@ def plot_distance_map(distmap, ax=None, cmap='seismic_r',
                    width=tick_label_width, length=tick_label_length,
                    pad=1)
     if ticks is None:
-        _used_ticks = np.arange(0, len(_distmap), 10**np.floor(np.log10(len(distmap))))
+        _used_ticks = np.arange(0, len(_distmap), 2*10**np.floor(np.log10(len(distmap))))
     else:
         _used_ticks = ticks
     ax.set_xticks(_used_ticks, minor=False)
@@ -69,16 +72,22 @@ def plot_distance_map(distmap, ax=None, cmap='seismic_r',
     if add_colorbar:
         divider = make_axes_locatable(ax)
         cax = divider.append_axes('right', size='6%', pad="2%")
-        cb = plt.colorbar(_im, cax=cax, orientation='vertical', **colorbar_kwargs)
-        cax.tick_params(labelsize=font_size, width=tick_label_width, length=tick_label_length-1,pad=1)
+        cb = plt.colorbar(_im, cax=cax, orientation='vertical', 
+                          extend='neither', 
+                          **colorbar_kwargs)
+        cb.ax.minorticks_off()
+        cb.ax.tick_params(labelsize=font_size, width=tick_label_width, length=tick_label_length-1,pad=1)
+        [i[1].set_linewidth(_ticklabel_width) for i in cb.ax.spines.items()]
         # border
         cb.outline.set_linewidth(tick_label_width)
         if colorbar_labels is not None:
             cb.set_label(colorbar_labels, fontsize=_font_size, labelpad=5, rotation=270)
+
+
     # adjust size
     plt.gcf().subplots_adjust(bottom=0.15*bool(ax_label), 
-                              left=0.15*bool(ax_label), 
-                              right=1-(1-0.85)*bool(colorbar_labels))
+                              left=0.2*bool(ax_label), 
+                              right=1-0.15*bool(colorbar_labels))
 
     # save
     if save:
@@ -87,6 +96,9 @@ def plot_distance_map(distmap, ax=None, cmap='seismic_r',
         save_filename = os.path.join(save_folder, save_basename)
         if '.png' not in save_filename and '.pdf' not in save_filename:
             save_filename += '.png'
+        if '.pdf' in save_filename:
+            matplotlib.rcParams['pdf.fonttype'] = 42
+
         plt.savefig(save_filename, transparent=True)
 
     # return

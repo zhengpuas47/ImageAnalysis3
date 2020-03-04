@@ -1,7 +1,11 @@
 import sys,os,re,time,glob
 import numpy as np
 import pickle as pickle
+import matplotlib 
+matplotlib.rcParams['pdf.fonttype'] = 42
 import matplotlib.pylab as plt
+plt.rc('font', family='serif')
+plt.rc('font', serif='Arial')
 from matplotlib import cm 
 from mpl_toolkits.axes_grid1 import ImageGrid
 import scipy
@@ -161,7 +165,7 @@ def plot_domain_in_distmap(distmap, domain_starts, ax=None,
             if save_basename == '':
                 save_basename = 'boundaries.png'
             else:
-                if '.png' not in save_basename:
+                if '.png' not in save_basename and '.pdf' not in save_basename:
                     save_basename += '_boundaries.png'
             fig.savefig(os.path.join(save_folder, save_basename), transparent=True)
 

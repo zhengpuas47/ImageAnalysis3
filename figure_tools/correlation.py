@@ -1,5 +1,8 @@
 import matplotlib
+matplotlib.rcParams['pdf.fonttype'] = 42
 import matplotlib.pyplot as plt
+plt.rc('font', family='serif')
+plt.rc('font', serif='Arial')
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 import numpy as np
