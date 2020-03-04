@@ -10,7 +10,7 @@ _single_row_height= 2 # comparable height to match single-colomn-width
 _ref_bar_length = 1000 / _distance_zxy[-1]
 _ticklabel_size=2
 _ticklabel_width=0.5
-_font_size=6
+_font_size=7.5
 
 ## import sub packages
 # domain related plots
