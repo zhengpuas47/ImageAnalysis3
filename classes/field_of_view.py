@@ -16,8 +16,8 @@ import matplotlib.pyplot as plt
 # import other sub-packages
 # import package parameters
 from .. import _correction_folder, _corr_channels, _temp_folder,_distance_zxy,\
-    _sigma_zxy,_image_size, _allowed_colors, _num_buffer_frames, _num_empty_frames
-from . import _allowed_kwds, _max_num_seeds, _min_num_seeds
+    _sigma_zxy,_image_size, _allowed_colors, _num_buffer_frames, _num_empty_frames, _image_dtype
+from . import _allowed_kwds, _max_num_seeds, _min_num_seeds, _spot_seeding_th
 
 def __init__():
     print(f"Loading field of view class")
@@ -31,11 +31,14 @@ class Field_of_View():
                  _load_references=True, _color_info_kwargs={},
                  _create_savefile=True, _save_filename=None,
                  _savefile_kwargs={},
-                 _load_all_attrs=True):
+                 _segmentation_kwargs={},
+                 _load_all_attrs=True,
+                 _overwrite_attrs=False,
+                 _verbose=True,
+                 ):
         ## Initialize key attributes:
         #: attributes for unprocessed images:
-        # un-splitted raw images
-        self.raw_im_dict = {}
+
         # correction profiles 
         self.correction_profiles = {'bleed':None,
                                     'chromatic':None,
@@ -45,7 +48,10 @@ class Field_of_View():
         # rotations
         self.rotation = {}
         # segmentation
-        self.segmentation_dim = 2
+        if 'segmentation_dim' not in _segmentation_kwargs:
+            self.segmentation_dim = 2 # default is 2d segmentation
+        else:
+            self.segmentation_dim = int(_segmentation_kwargs['segmentation_dim'])
 
         #: attributes for processed images:
         # splitted processed images
@@ -135,6 +141,8 @@ class Field_of_View():
         else:
             self.shared_parameters = {}
         # add parameter keys:
+        if 'image_dtype' not in self.shared_parameters:    
+            self.shared_parameters['image_dtype'] = _image_dtype        
         if 'distance_zxy' not in self.shared_parameters:    
             self.shared_parameters['distance_zxy'] = _distance_zxy
         if 'sigma_zxy' not in self.shared_parameters:
@@ -174,7 +182,9 @@ class Field_of_View():
             self.shared_parameters['drift_sequential'] = False 
         if 'good_drift_th' not in self.shared_parameters:
             self.shared_parameters['good_drift_th'] = 1. 
-        
+        # param for spot_finding
+        if 'spot_seeding_th' not in self.shared_parameters:
+            self.shared_parameters['spot_seeding_th'] = _spot_seeding_th
         ## load experimental info
         if _load_references:
             if '_color_filename' not in _color_info_kwargs:
@@ -215,8 +225,8 @@ class Field_of_View():
         # initialize save file
         if _create_savefile:
             self._init_save_file(_save_filename=_save_filename, 
+                                 _overwrite=_overwrite_attrs,
                                  **_savefile_kwargs)
-
 
 
     ## Load basic info
@@ -260,6 +270,43 @@ class Field_of_View():
     ### Here are some initialization functions
     def _init_save_file(self, _save_filename=None, 
                         _overwrite=False, _verbose=True):
+        """Function to initialize save file for FOV object
+        Inputs:
+            _save_filename: full path for filename saving this dataset.
+            _overwrite: whether overwrite existing info within save_file, bool (default: False)
+            _verbose: say something!, bool (default: True)
+        Outputs:
+            save_file created, current info saved.
+        """
+        if _save_filename is None:
+            _save_filename = getattr(self, 'save_filename')
+        # set save_filename attr
+        setattr(self, 'save_filename', _save_filename)
+        if _verbose: 
+            if not os.path.exists(_save_filename):
+                print(f"- Creating save file for fov:{self.fov_name}: {_save_filename}.")
+            else:
+                print(f"- Initialize save file for fov:{self.fov_name}: {_save_filename}.")
+
+        ## initialize fov_info, segmentation and correction
+        for _type in ['fov_info', 'segmentation', 'correction']:
+            self._save_to_file(_type, _overwrite=_overwrite, _verbose=_verbose)
+        
+        ## initialize image data types
+        from .batch_functions import _color_dic_stat
+        # acquire valid types
+        _type_dic = _color_dic_stat(self.color_dic, 
+                                    self.channels, 
+                                    self.shared_parameters['allowed_data_types']
+                                   )
+        # create
+        for _type, _dict in _type_dic.items():
+            self._save_to_file(_type, _overwrite=_overwrite, _verbose=_verbose)
+        
+        return
+
+    def _old_init_save_file(self, _save_filename=None, 
+                        _overwrite=False, _verbose=True):
         """Function to initialize save file for FOV object"""
         if _save_filename is None:
             _save_filename = getattr(self, 'save_filename')
@@ -284,7 +331,7 @@ class Field_of_View():
                             _info_attr_flag = False
                             break
                     # if its image dict, exclude
-                    if 'im_dict' in _attr_name:
+                    if 'im_dict' in _attr_name or 'channel_dict' in _attr_name:
                         _info_attr_flag = False
                     # if its segmentation, exclude
                     if 'segmentation' in _attr_name:
@@ -292,6 +339,7 @@ class Field_of_View():
                     # if its related to correction, exclude
                     if 'correction' in _attr_name:
                         _info_attr_flag = False
+                    ## all the rest attrs saved to here: 
                     # save here:
                     if _info_attr_flag:
                         # extract the attribute
@@ -362,7 +410,7 @@ class Field_of_View():
                     _old_size=len(_grp['channels'])
                 # images
                 if 'ims' not in _grp:
-                    _ims = _grp.create_dataset('ims', tuple(_im_shape), dtype='u8', chunks=tuple(_chunk_shape))
+                    _ims = _grp.create_dataset('ims', tuple(_im_shape), dtype='u16', chunks=tuple(_chunk_shape))
                     _data_attrs.append('ims')
                 elif len(_im_shape) != len(_grp['ims'].shape) or (_im_shape != (_grp['ims']).shape).any():
                     _change_size_flag.append('ims')
@@ -386,7 +434,7 @@ class Field_of_View():
                     _old_size=len(_grp['drifts'])
                 # flags for whether it's been written
                 if 'flags' not in _grp:
-                    _filenames = _grp.create_dataset('flags', (_im_shape[0], ), dtype='u1')
+                    _filenames = _grp.create_dataset('flags', (_im_shape[0], ), dtype='u8')
                     _data_attrs.append('flags')
                 elif _im_shape[0] != len(_grp['flags']):
                     _change_size_flag.append('flags')
@@ -475,7 +523,7 @@ class Field_of_View():
     def _prepare_dirft_references(self,
         _ref_filename = None,
         _drift_crops = None,
-        _drift_size=600,
+        _drift_size=None,
         _single_im_size = None,
         _all_channels = None,
         _num_buffer_frames = None,
@@ -493,6 +541,8 @@ class Field_of_View():
         from ..visual_tools import DaxReader, get_STD_centers
         from ..get_img_info import get_num_frame, split_channels
         # set default params
+        if _drift_size is None:
+            _drift_size = self.shared_parameters['drift_size']
         if _single_im_size is None:
             _single_im_size = self.shared_parameters['single_im_size']
         if _all_channels is None:
@@ -698,7 +748,10 @@ class Field_of_View():
 
 
     def _process_image_to_spots(self, _data_type, _sel_folders=[], _sel_ids=[], 
+                                _load_common_correction_profiles=True, 
+                                _load_common_reference=True, 
                                 _load_with_multiple=True, 
+                                _use_exist_images=False, 
                                 _warp_images=True, 
                                 _save_images=True, 
                                 _save_drift=True,
@@ -743,6 +796,14 @@ class Field_of_View():
         else:
             # if not given, process all ids for this data_type
             _sel_ids = [int(_id) for _id in _type_dic[_data_type]['ids']]
+        
+        ## load correction profiles if necessary:
+        if _load_common_correction_profiles and not hasattr(self, 'correction_profiles'):
+            self._load_correction_profiles()
+
+        ## load shared drift references
+        if _load_common_reference and (not hasattr(self, 'ref_ims') or not hasattr(self, 'ref_cts')) :
+            self._prepare_dirft_references(_verbose=_verbose)
 
         ## multi-processing for correct_splice_images
         # prepare common params
@@ -781,6 +842,8 @@ class Field_of_View():
         })
         _fitting_args.update({
             'max_num_seeds' : self.shared_parameters['max_num_seeds'],
+            'th_seed': self.shared_parameters['spot_seeding_th'],
+            'init_sigma': self.shared_parameters['sigma_zxy'],
         })
         
         # initiate locks
@@ -815,24 +878,26 @@ class Field_of_View():
                 if _dtype_mk in _mk:
                     _id = int(_mk.split(_dtype_mk)[1])
                     if _id in _sel_ids:
-                        # init a flag to determine whether process this im and spot
-                        _process_flag = True
-                        # check whether this id already exist
-                        _exist_im, _exist_spots,_exist_drift,_exist_flag =  self._check_exist_data(_data_type, _id, )
-                        # process if missing image and save image reuqired
-                        if (_save_images and not _exist_im) or _overwrite_image:
-                            _sel_channels.append(_ch)
-                            _reg_ids.append(_id)  
-                        # image exists but spot doesn't
-                        ### this could be modified to remove cropping part ###
-                        elif not _exist_spots or _overwrite_spot:
-                            _sel_channels.append(_ch)
-                            _reg_ids.append(_id)  
-                        # image and spots all exist without overwrite, direct load 
-                        else:
-                            # load id an spots
+                        # append sel_channels and reg_ids for now
+                        _sel_channels.append(_ch)
+                        _reg_ids.append(_id)
+            # check existence of these candidate selected ids
+            if len(_sel_channels) > 0:
+                # Case 1: if trying to use existing images 
+                if _use_exist_images:
+                    _exist_spots, _exist_drifts, _exist_flags, _exist_ims =  self._check_exist_data(_data_type, _reg_ids, _check_im=True, _verbose=_verbose)
+                    _sel_channels = [_ch for _ch, _es, _ei in zip(_sel_channels, _exist_spots, _exist_ims)
+                                    if not _es or not _ei] # if spot or im not exist, process sel_channel
+                    _reg_ids = [_id for _id, _es, _ei in zip(_reg_ids, _exist_spots, _exist_ims)
+                                if not _es or not _ei] # if spot or im not exist, process reg_id
+                # Case 2: image saving is not required
+                else:
+                    _exist_spots, _exist_drifts, _exist_flags =  self._check_exist_data(_data_type, _reg_ids, _check_im=False, _verbose=_verbose)
+                    _sel_channels = [_ch for _ch, _es in zip(_sel_channels, _exist_spots)
+                                    if not _es] # if spot not exist, process sel_channel
+                    _reg_ids = [_id for _id, _es in zip(_reg_ids, _exist_spots)
+                                if not _es] # if spot not exist, process reg_id
 
-                            continue 
             # append if any channels selected
             if len(_sel_channels) > 0:
                 _args = (_dax_filename, _sel_channels, self.ref_filename,
@@ -865,9 +930,10 @@ class Field_of_View():
                     print(f"++ processed {_data_type} ids: {np.sort(np.concatenate(_processing_id_list))}", end=' ')
                     _start_time = time.time()
                 # Multi-proessing!
-                _spot_results = _processing_pool.starmap(batch_process_image_to_spots,
-                                                        _processing_arg_list, 
-                                                        chunksize=1)
+                _spot_results = _processing_pool.starmap(
+                    batch_process_image_to_spots,
+                    _processing_arg_list, 
+                    chunksize=1)
                 # close multiprocessing
                 _processing_pool.close()
                 _processing_pool.join()
@@ -889,22 +955,232 @@ class Field_of_View():
 
         
 
-    def _save_to_file(self, _type):
+    def _save_to_file(self, _type, _save_attr_list=[], 
+                      _overwrite=False, _verbose=True):
+        """Function to save attributes into standard HDF5 save_file of fov class.
+        """
+        ## check inputs:
         _type = str(_type).lower()
-        if _type != 'info' and _type not in self.shared_parameters['allowed_data_types']:
-            raise ValueError(f"Wrong input for _type:{_type}, \
-                should be within {self.shared_parameters['allowed_data_types'].keys()} and 'info'.")
+        # only allows saving the following types:
+        _allowed_save_types = ['fov_info', 'segmentation', 'correction'] \
+                              + list(self.shared_parameters['allowed_data_types'].keys())
+        if _type not in _allowed_save_types:
+            raise ValueError(f"Wrong input for _type:{_type}, should be within:{_allowed_save_types}.")
+        # save file should exist
+        if not os.path.isfile(self.save_filename):
+            print(f"* create savefile: {self.save_filename}")
+        
+        ## start saving here:
+        if _verbose:
+            print(f"-- saving {_type} to file: {self.save_filename}")
+            _save_start = time.time()
+        
         with h5py.File(self.save_filename, "a", libver='latest') as _f:
-            if _type in _allowed_kwds:
-                _grp = _f[_type]
-                print(_grp['ids'][:])
 
-            elif _type == 'info':
-                pass
+            ## segmentation
+            if _type == 'segmentation':
+                # create segmentation group if not exist 
+                if 'segmentation' not in _f.keys():
+                    _grp = _f.create_group('segmentation') # create segmentation group
+                else:
+                    _grp = _f['segmentation']
+                # directly create segmentation label dataset
+                if 'segmentation_label' not in _grp:
+                    _seg = _grp.create_dataset('segmentation_label', 
+                                            self.shared_parameters['single_im_size'][-self.segmentation_dim:], 
+                                            dtype='i8')
+                if hasattr(self, 'segmentation_label'):
+                    if len(_save_attr_list) > 0 and _save_attr_list is not None:
+                        if 'segmentation_label' in _save_attr_list:
+                            _grp['segmentation_label'] = getattr(self, 'segmentation_label')
+                    else:
+                        _grp['segmentation_label'] = getattr(self, 'segmentation_label')
+                # create other segmentation related datasets
+                for _attr_name in dir(self):
+                    if _attr_name[0] != '_' and 'segmentation' in _attr_name and _attr_name not in _grp.keys():
+                        if len(_save_attr_list) > 0 and _save_attr_list is not None:
+                            # if save_attr_list is given validly and this attr not in it, skip.
+                            if _attr_name not in _save_attr_list:
+                                continue 
+                        _grp[_attr_name] = getattr(self, _attr_name)
+
+            elif _type == 'correction':
+                pass 
+
+            ## save basic attributes as info
+            elif _type == 'fov_info':
+                # initialize attributes as _info_attrs
+                _info_attrs = []
+                for _attr_name in dir(self):
+                    # exclude all default attrs and functions
+                    if _attr_name[0] != '_' and getattr(self, _attr_name) is not None:
+                        # check within save_attr_list:
+                        if len(_save_attr_list) > 0 and _save_attr_list is not None:
+                            # if save_attr_list is given validly and this attr not in it, skip.
+                            if _attr_name not in _save_attr_list:
+                                continue 
+                        # set default to be save
+                        _info_attr_flag = True
+                        # exclude attributes belongs to other categories
+                        for _save_type in _allowed_save_types:
+                            if _save_type in _attr_name:
+                                _info_attr_flag = False 
+                                break
+                        # if its image dict, exclude
+                        if 'im_dict' in _attr_name or 'channel_dict' in _attr_name:
+                            _info_attr_flag = False
+
+                        # save here:
+                        if _info_attr_flag:
+                            # extract the attribute
+                            _attr = getattr(self, _attr_name)
+                            # convert dict if necessary
+                            if isinstance(_attr, dict):
+                                _attr = str(_attr)
+                            # save
+                            if _attr_name not in _f.attrs or _overwrite:
+                                _f.attrs[_attr_name] = _attr
+                                _info_attrs.append(_attr_name)
+                if _verbose:
+                    print(f"--- base attributes updated:{_info_attrs} in {time.time()-_save_start:.3f}s.")
+
+            ## images and spots for a specific data type 
+            elif _type in self.shared_parameters['allowed_data_types']:
+                from .batch_functions import _color_dic_stat
+                _type_dic = _color_dic_stat(self.color_dic, self.channels, self.shared_parameters['allowed_data_types'])
+                if _type not in _type_dic:
+                    print(f"--- given save type:{_type} doesn't exist in this dataset, skip.") 
+                else:
+                    # extract info dict for this data_type
+                    _dict = _type_dic[_type]
+
+                    # create data_type group if not exist 
+                    if _type not in _f.keys():
+                        _grp = _f.create_group(_type) 
+                    else:
+                        _grp = _f[_type]
+                    # record updated data_type related attrs
+                    _data_attrs = []
+                    ## save images, ids, channels, save_flags
+                    # calculate image shape and chunk shape
+                    _im_shape = np.concatenate([np.array([len(_dict['ids'])]), 
+                                                self.shared_parameters['single_im_size']])
+                    _chunk_shape = np.concatenate([np.array([1]), 
+                                                self.shared_parameters['single_im_size']])                              
+                    # change size
+                    _change_size_flag = []
+                    # if missing any of these features, create new ones
+                    # ids
+                    if 'ids' not in _grp:
+                        _ids = _grp.create_dataset('ids', (len(_dict['ids']),), dtype='i', data=_dict['ids'])
+                        _ids = np.array(_dict['ids'], dtype=np.int) # save ids
+                        _data_attrs.append('ids')
+                    elif len(_dict['ids']) != len(_grp['ids']):
+                        _change_size_flag.append('id')
+                        _old_size=len(_grp['ids'])
+
+                    # channels
+                    if 'channels' not in _grp:
+                        _channels = [_ch.encode('utf8') for _ch in _dict['channels']]
+                        _chs = _grp.create_dataset('channels', (len(_dict['channels']),), dtype='S3', data=_channels)
+                        _chs = np.array(_dict['channels'], dtype=str) # save ids
+                        _data_attrs.append('channels')
+                    elif len(_dict['channels']) != len(_grp['channels']):
+                        _change_size_flag.append('channels')
+                        _old_size=len(_grp['channels'])
+
+                    # images
+                    if 'ims' not in _grp:
+                        _ims = _grp.create_dataset('ims', tuple(_im_shape), 
+                                                   dtype='u2',  # uint16
+                                                   chunks=tuple(_chunk_shape))
+                        _data_attrs.append('ims')
+                    elif len(_im_shape) != len(_grp['ims'].shape) or (_im_shape != (_grp['ims']).shape).any():
+                        _change_size_flag.append('ims')
+                        _old_size=len(_grp['ims'])
+
+                    # spots
+                    if 'spots' not in _grp:
+                        _spots = _grp.create_dataset('spots', 
+                                    (_im_shape[0], self.shared_parameters['max_num_seeds'], 11), 
+                                    dtype='f')
+                        _data_attrs.append('spots')
+                    elif _im_shape[0] != len(_grp['spots']):
+                        _change_size_flag.append('spots')
+                        _old_size=len(_grp['spots'])
+
+                    # drift
+                    if 'drifts' not in _grp:
+                        _drift = _grp.create_dataset('drifts', (_im_shape[0], 3), dtype='f')
+                        _data_attrs.append('drifts')
+                    elif _im_shape[0] != len(_grp['drifts']):
+                        _change_size_flag.append('drifts')
+                        _old_size=len(_grp['drifts'])
+
+                    # flags for whether it's been written
+                    if 'flags' not in _grp:
+                        _filenames = _grp.create_dataset('flags', (_im_shape[0], ), dtype='u1')
+                        _data_attrs.append('flags')
+                    elif _im_shape[0] != len(_grp['flags']):
+                        _change_size_flag.append('flags')
+                        _old_size=len(_grp['flags'])
+
+                    # Create other features
+                    for _attr_name in dir(self):
+                        if _attr_name[0] != '_' and _type in _attr_name:
+                            _attr_feature = _attr_name.split(_type)[1][1:]
+
+                            if _attr_feature not in _grp.keys():
+                                _grp[_attr_name] = getattr(self, _attr_name)
+                                _data_attrs.append(_attr_name)
+                    
+                    # if change size, update these features:
+                    if len(_change_size_flag) > 0:
+                        print(f"* data size of {_type} is changing from {_old_size} to {len(_dict['ids'])} because of {_change_size_flag}")
+                        ###UNDER CONSTRUCTION################
+                        pass
+                    # summarize
+                    if _verbose:
+                        print(f"--- {_type} attributes updated:{_data_attrs} in {time.time()-_save_start:.3f}s.")
+                        _save_mid = time.time()
+
+        ## save ims, spots, drifts, flags
+        if _type in self.im_dict:
+            _image_info = self.im_dict[_type]
+            if 'ids' not in _image_info:
+                print(f"--- ids for type:{_type} not given, skip.")
+            else:
+                _ids = _image_info['ids']
+                # save images
+                if 'ims' in _image_info and len(_image_info['ims']) == len(_ids):
+                    from .batch_functions import save_image_to_fov_file
+                    if 'drifts' in _image_info:
+                        _drifts = _image_info['drifts']
+                    else:
+                        _drifts = None 
+                    _ims_flag = save_image_to_fov_file(self.save_filename, 
+                                                        _image_info['ims'],
+                                                        _type, _ids, 
+                                                        warp_image=self.shared_parameters['_warp_images'], 
+                                                        drift=_drifts, 
+                                                        overwrite=_overwrite,
+                                                        verbose=_verbose)
+                # save spots
+                if 'spots' in _image_info and len(_image_info['spots']) == len(_ids):
+                    from .batch_functions import save_spots_to_fov_file
+                    _spots_flag = save_spots_to_fov_file(self.save_filename, 
+                                                        _image_info['spots'],
+                                                        _type, _ids, 
+                                                        overwrite=_overwrite,
+                                                        verbose=_verbose)
+            if _verbose:
+                print(f"--- save images and spots for {_type} in {time.time()-_save_mid:.3f}s.")
+
             
 
-    def _check_exist_data(self, _data_type, _region_id,
-                        empty_value=0):
+    def _check_exist_data(self, _data_type, _region_ids=None,
+                          _check_im=False,
+                          empty_value=0, _verbose=False):
         """function to check within a specific data_type, 
             a specific region_id, does image and spot exists
         Inputs:
@@ -917,22 +1193,59 @@ class Field_of_View():
         """
         if _data_type not in self.shared_parameters['allowed_data_types']:
             raise ValueError(f"Wrong input data_type: {_data_type}, should be among:{self.shared_parameters['allowed_data_types']}")
-        _region_id = int(_region_id)
+        if _region_ids is None:
+            # get color_dic data-type
+            from .batch_functions import _color_dic_stat
+            _type_dic = _color_dic_stat(self.color_dic, 
+                                        self.channels, 
+                                        self.shared_parameters['allowed_data_types'])
+            _region_ids = _type_dic[_data_type]
+        else:  
+            if isinstance(_region_ids, int) or isinstance(_region_ids, np.int):
+                _region_ids = [_region_ids]   
+            elif not isinstance(_region_ids, list) and not isinstance(_region_ids, np.ndarray):
+                raise TypeError(f"Wrong input type for region_ids:{_region_ids}")
+            _region_ids = np.array([int(_i) for _i in _region_ids],dtype=np.int)
+        # print
+        if _verbose:
+            _check_time = time.time()
+            print(f"-- checking {_data_type}, region:{_region_ids}", end=' ')
+            if _check_im:
+                print("including images", end=' ')
         with h5py.File(self.save_filename, "a", libver='latest') as _f:
             if _data_type not in _f.keys():
                 raise ValueError(f"input data type doesn't exist in this save_file:{self.save_filename}")
             _grp = _f[_data_type]
             _ids = list(_grp['ids'][:])
-            if _region_id not in _ids:
-                raise ValueError(f"region_id:{_region_id} not in {_data_type} ids.")
-            # get indices
-            _ind = _ids.index(_region_id)
-            _exist_im = (np.array(_grp['ims'][_ind]) != empty_value).any()
-            _exist_spots = (np.array(_grp['spots'][_ind]) != empty_value).any()
-            _exist_drift = (np.array(_grp['drifts'][_ind]) != empty_value).any()
-            _exist_flag =  np.sum(_grp['flags'][_ind])
-        
-        return _exist_im, _exist_spots, _exist_drift, _exist_flag
+            for _region_id in _region_ids:
+                if _region_id not in _ids:
+                    raise ValueError(f"region_id:{_region_id} not in {_data_type} ids.")
+
+            # initialize
+            _exist_im, _exist_spots, _exist_drift, _exist_flag = [],[],[],[]
+
+            for _region_id in _region_ids:
+                # get indices
+                _ind = _ids.index(_region_id)
+
+                if _check_im:
+                    _exist_im.append((np.array(_grp['ims'][_ind]) != empty_value).any())
+
+                _exist_spots.append((np.array(_grp['spots'][_ind]) != empty_value).any())
+                _exist_drift.append((np.array(_grp['drifts'][_ind]) != empty_value).any())
+                _exist_flag.append( np.array(_grp['flags'][_ind]))
+
+        # convert to array
+        _exist_spots = np.array(_exist_spots) 
+        _exist_drift = np.array(_exist_drift) 
+        _exist_flag = np.array(_exist_flag) 
+        if _verbose:
+            print(f"in {time.time()-_check_time:.3f}s.")
+        if _check_im:
+            _exist_im = np.array(_exist_im) 
+            return _exist_spots, _exist_drift, _exist_flag, _exist_im
+        else:
+            return _exist_spots, _exist_drift, _exist_flag
 
 
     def _load_from_file(self, _type):

@@ -4,7 +4,7 @@ from .. import _correction_folder, _temp_folder, _distance_zxy, _sigma_zxy, _all
 _seed_th={
     '750': 400,
     '647': 600,
-    '561': 600,
+    '561': 400,
 }
 
 ## load sub packages

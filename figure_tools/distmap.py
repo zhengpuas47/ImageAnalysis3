@@ -62,6 +62,9 @@ def plot_distance_map(distmap, ax=None, cmap='seismic_r',
     if ax_label is not None:
         ax.set_xlabel(ax_label, labelpad=2, fontsize=font_size)
         ax.set_ylabel(ax_label, labelpad=2, fontsize=font_size)
+    # set limits
+    ax.set_xlim([-0.5, len(_distmap)-0.5])
+    ax.set_ylim([len(_distmap)-0.5, -0.5])
     # colorbar    
     if add_colorbar:
         divider = make_axes_locatable(ax)

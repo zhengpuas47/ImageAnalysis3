@@ -81,9 +81,9 @@ class GaussianFit():
     def to_center(self,c0_,c1_,c2_):
         """constrains via sigmoidal function close to local center"""
         delta = self.delta_center
-        c0 = 2.*delta/(1.+np.exp(c0_))-delta+self.center_est[0]
-        c1 = 2.*delta/(1.+np.exp(c1_))-delta+self.center_est[1]
-        c2 = 2.*delta/(1.+np.exp(c2_))-delta+self.center_est[2]
+        c0 = 2.*delta*np.exp(-c0_)/(1.+np.exp(-c0_))-delta+self.center_est[0]
+        c1 = 2.*delta*np.exp(-c1_)/(1.+np.exp(-c1_))-delta+self.center_est[1]
+        c2 = 2.*delta*np.exp(-c1_)/(1.+np.exp(-c2_))-delta+self.center_est[2]
         return c0,c1,c2
     def to_sine(self,t_):
         """constrain sin-angles to -1,1"""

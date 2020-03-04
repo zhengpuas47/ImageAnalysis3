@@ -2,14 +2,14 @@
 import os, h5py, pickle, psutil, time
 import numpy as np
 
-from . import _allowed_kwds
+from . import _allowed_kwds, _image_dtype
 from ..io_tools.load import correct_fov_image
 from ..spot_tools.fitting import fit_fov_image, get_centers
 
 _seed_th={
     '750': 400,
-    '647': 800,
-    '561': 600,
+    '647': 600,
+    '561': 500,
 }
 
 ## Process managing
@@ -158,7 +158,7 @@ def batch_process_image_to_spots(dax_filename, sel_channels, ref_filename,
         # run saving
         _save_img_success = save_image_to_fov_file(
             save_filename, _sel_ims, data_type, region_ids, 
-            _drift, overwrite_image, verbose)
+            warp_image, _drift, overwrite_image, verbose)
         # release lock
         if 'image_file_lock' in locals() and image_file_lock is not None:
             image_file_lock.release()
@@ -180,9 +180,8 @@ def batch_process_image_to_spots(dax_filename, sel_channels, ref_filename,
     _spot_list = []
     for _ich, (_im, _ch) in enumerate(zip(_sel_ims, sel_channels)):
         _spots = fit_fov_image(
-            _im, _ch, 
-            th_seed=_seed_th[str(_ch)],
-            verbose=verbose, **fitting_args
+            _im, _ch, verbose=verbose, 
+            **fitting_args,
         )
         if not warp_image:
             # update spot coordinates given warp functions, if image was not warpped.
@@ -208,11 +207,20 @@ def batch_process_image_to_spots(dax_filename, sel_channels, ref_filename,
         return _spot_list
     
 # save image to fov file
-def save_image_to_fov_file(filename, ims, data_type, region_ids, drift=None,
+def save_image_to_fov_file(filename, ims, data_type, region_ids, 
+                           warp_image=False, drift=None,
                            overwrite=False, verbose=True):
     """Function to save image to fov-standard savefile(hdf5)
     Inputs:
-    
+        filename: fov class hdf5 saving filename, string of file path
+        ims: images to be saved, list of np.ndarray 
+        data_type: data type used to load, string
+        region_ids: corresponding region ids of given data_type, 
+            should match length of ims, list of ints
+        warp_image: whether image was warpped or not, bool (default: False)
+        drift: whether drift exist and whether we are going to save it, bool (default: None, not saving)
+        overwrite: whether overwrite existing data, bool (default: False)
+        verbose: say something!, bool (default: True)
     Outputs:
     """
     ## check inputs
@@ -234,23 +242,80 @@ def save_image_to_fov_file(filename, ims, data_type, region_ids, drift=None,
         _save_start = time.time()
     _updated_ims = []
     _updated_drifts = []
+    _saving_flag = False 
     ## start saving
     with h5py.File(filename, "a", libver='latest') as _f:
         _grp = _f[data_type]
         for _i, (_id, _im) in enumerate(zip(region_ids, ims)):
             _index = list(_grp['ids'][:]).index(_id)
             _flag = _grp['flags'][_index]
+            # if not been written or overwrite:
             if _flag == 0 or overwrite:
+                _saving_flag = True 
                 _grp['ims'][_index] = _im
-                _grp['flags'][_index] = 1
+                # warpping image flag
+                if not warp_image:
+                    _grp['flags'][_index] = 1
+                else:
+                    _grp['flags'][_index] = 2 # 2 as markers of warpped images
                 _updated_ims.append(_id)
                 if drift is not None:
                     _grp['drifts'][_index] = _all_drifts[_i]
                     _updated_drifts.append(_id)
+                
     if verbose:
-        print(f"-- updated ims for id:{_updated_ims}, drifts for id:{_updated_drifts} in {time.time()-_save_start:.3f}s")
+        if _saving_flag:
+            print(f"-- updated ims for id:{_updated_ims}, drifts for id:{_updated_drifts} in {time.time()-_save_start:.3f}s")
+        else:
+            print(f"-- images and drifts already exist, skip.")
+
     # return success flag    
-    return True
+    return _saving_flag
+
+# load image from fov file
+def load_image_from_fov_file(filename, data_type, region_ids,
+                             image_dtype=_image_dtype, verbose=True):
+    """Function to load images from fov class file
+    Inputs:
+        filename: fov class hdf5 saving filename, string of file path
+        data_type: data type used to load, string
+        region_ids: corresponding region ids of given data_type, list of ints
+        verbose: say something!, bool (default: True)
+    Outputs:
+        _ims: images in the order of region_ids provided, list of np.ndarray
+        _flags: whether these images were warpped (==2), list of ints
+    """
+    ## check inputs
+    if not os.path.isfile(filename):
+        raise IOError(f"load file: {filename} doesn't exist!")
+    if data_type not in _allowed_kwds:
+        raise ValueError(f"Wrong input data_type:{data_type}, should be among {_allowed_kwds}.")
+    if isinstance(region_ids, int) or isinstance(region_ids, np.int):
+        _region_ids = [int(region_ids)]
+    elif isinstance(region_ids, list) or isinstance(region_ids, np.ndarray):
+        _region_ids = [int(_id) for _id in region_ids]
+    else:
+        raise TypeError(f"Wrong input type for region_ids:{region_ids}")
+    
+    if verbose:
+        print(f"- loading {data_type} info from file:{filename}", end=' ')
+        _load_start = time.time()
+    ## start loading
+    _ims = []
+    _flags = []
+    with h5py.File(filename, "a", libver='latest') as _f:
+        # get the group
+        _grp = _f[data_type]
+        # get index
+        for _i, _id in enumerate(_region_ids):
+            _index = list(_grp['ids'][:]).index(_id)
+            # extract images and flag
+            _ims.append(_grp['ims'][_index])
+            _flags.append(_grp['flags'][_index])
+    if verbose:
+        print(f"in {time.time()-_load_start:.3f}s.")
+        
+    return _ims, _flags
 
 # save image to fov file
 def save_spots_to_fov_file(filename, spot_list, data_type, region_ids, 

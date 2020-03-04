@@ -133,31 +133,33 @@ def get_seeds(im, max_num_seeds=None, th_seed=150,
 
 # fit the entire field of view image
 def fit_fov_image(im, channel, max_num_seeds=500,
-                  seed_gft_size=0.75, background_gft_size=10, local_ft_size=3,
-                  th_seed=None, hot_pix_th=5, remove_edge=True, 
+                  th_seed=300, th_seed_per=95, use_percentile=False, 
+                  use_dynamic_th=True, 
+                  dynamic_niters=10, min_dynamic_seeds=1,
+                  seeding_kwargs={}, 
                   fit_radius=5, init_sigma=_sigma_zxy, weight_sigma=0, 
                   fitting_args={}, verbose=True):
     """Function to merge seeding and fitting for the whole fov image"""
+
     ## check inputs
-    if th_seed is None:
-        _th_seed = _seed_th[str(channel)]
-    else:
-        _th_seed = float(th_seed)
+    _th_seed = float(th_seed)
     if verbose:
         print(f"-- start fitting spots in channel:{channel}, ", end='')
         _fit_time = time.time()
     ## seeding
-    _seeds = get_seed_points_base(im, seed_gft_size, background_gft_size,
-                                  local_ft_size, th_seed=_th_seed, hot_pix_th=hot_pix_th)
-    if max_num_seeds is not None and max_num_seeds > 0:
-        _seeds = _seeds[:, :int(max_num_seeds)]
-    if remove_edge:
-        _seeds = remove_edge_seeds(im, _seeds, np.ceil(local_ft_size/2))
+    _seeds = get_seeds(im, max_num_seeds=max_num_seeds,
+                       th_seed=th_seed, th_seed_per=th_seed_per,
+                       use_percentile=use_percentile,
+                       use_dynamic_th=use_dynamic_th, 
+                       dynamic_niters=dynamic_niters,
+                       min_dynamic_seeds=min_dynamic_seeds,
+                       return_h=False, verbose=False,
+                       **seeding_kwargs,)
     if verbose:
-        print(f"{len(_seeds.T)} seeded, ", end='')
+        print(f"{len(_seeds)} seeded, ", end='')
     ## fitting
     _fitter = Fitting_v3.iter_fit_seed_points(
-        im, _seeds, radius_fit=fit_radius, 
+        im, _seeds.T, radius_fit=fit_radius, 
         init_w=init_sigma, weight_sigma=weight_sigma,
         **fitting_args,
     )    
@@ -216,6 +218,7 @@ def get_centers(im, seeds=None, th_seed=150,
                           min_dynamic_seeds=min_num_seeds,
                           return_h=False, verbose=verbose, 
                           **seed_kwargs)
+
     # fitting
     fitter = iter_fit_seed_points(im, seeds.T, radius_fit=fit_radius)
     fitter.firstfit()

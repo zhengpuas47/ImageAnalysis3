@@ -5,7 +5,7 @@ import multiprocessing as mp
 
 from .. import get_img_info, corrections, visual_tools, spot_tools, domain_tools
 from .. import _correction_folder, _corr_channels, _temp_folder,_distance_zxy,\
-    _sigma_zxy,_image_size, _allowed_colors, _num_buffer_frames, _num_empty_frames
+    _sigma_zxy,_image_size, _allowed_colors, _num_buffer_frames, _num_empty_frames, _image_dtype
 from ..External import Fitting_v3
 from scipy import ndimage, stats
 from scipy.spatial.distance import pdist,cdist,squareform
@@ -27,6 +27,7 @@ _allowed_kwds = {'combo': 'c',
                 'gene':'g'}
 _max_num_seeds = 300 
 _min_num_seeds = 50 
+_spot_seeding_th = 300
 from . import batch_functions
 from . import field_of_view
 
@@ -3486,7 +3487,7 @@ class Cell_Data():
         """Function to identify chromsome automatically first"""
         if not hasattr(self, 'chrom_im'):
             self._generate_chromosome_image()
-        _chrom_im = np.zeros(np.shape(self.chrom_im), dtype=np.uint8) + self.chrom_im
+        _chrom_im = np.zeros(np.shape(self.chrom_im), dtype=_image_dtype) + self.chrom_im
         if not hasattr(self,'chrom_coords'):
             # gaussian filter
             if _gaussian_size:

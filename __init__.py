@@ -16,7 +16,8 @@ _corr_channels = ['750', '647', '561']
 # number of buffer frames and empty frames
 _num_buffer_frames = 10
 _num_empty_frames = 0
-
+# image datatype
+_image_dtype = np.uint16
 
 # library design tools
 from . import library_tools
