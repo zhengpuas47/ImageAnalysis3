@@ -11,6 +11,53 @@ from scipy.ndimage import gaussian_filter
 from .. import _allowed_colors, _distance_zxy, _image_size, _correction_folder
 from ..io_tools.load import correct_fov_image
 
+def generate_warp_function(chromatic_consts=None, 
+                            drift=None,
+                            n_dim=3,
+                            verbose=True):
+    """Function to generate a spot translating function"""
+    ## check inputs
+    if chromatic_consts is None:
+        _ch_consts = np.zeros([n_dim,1])
+    else:
+        _ch_consts = chromatic_consts
+    if drift is None:
+        _drift = np.zeros(n_dim)
+    else:
+        _drift = drift[:n_dim]
+
+    def _shift_function(coords, _ch_consts=_ch_consts, 
+                        _drift=_drift):
+        if np.shape(coords)[1] == n_dim:
+            _coords = np.array(coords).copy()
+        elif np.shape(coords)[1] == 11: # this means 3d fitting result
+            _coords = np.array(coords).copy()[:,4-n_dim:4]
+        else:
+            raise ValueError(f"Wrong input coords")
+        _shifts = []
+        for _idim in range(n_dim):
+            _consts = np.array(_ch_consts[_idim])
+            _ft_order = np.int(np.sqrt(len(_consts)*2+0.25)-1.5) # only dependent on 2d
+            _corr_data = []
+            for _order in range(_ft_order+1):
+                for _p in range(_order+1):
+                    _corr_data.append(_coords[:,-2]**_p \
+                                      * _coords[:,-1]**(_order-_p))
+            _shifts.append(np.dot(np.array(_corr_data).transpose(), _consts))
+        # generate corrected coordinates
+        _corr_coords = _coords - np.stack(_shifts).transpose() - _drift
+        
+        # return as input
+        if np.shape(coords)[1] == n_dim:
+            _output_coords = _corr_coords
+        elif np.shape(coords)[1] == 11: # this means 3d fitting result
+            _output_coords = np.array(coords).copy()
+            _output_coords[:,4-n_dim:4] = _corr_coords
+        return _output_coords
+    
+    # return function
+    return _shift_function
+
 # generate chromatic 
 def generate_chromatic_abbrevation_info(ca_filename, ref_filename, ca_channel, ref_channel='647',
                                         single_im_size=_image_size, all_channels=_allowed_colors, 

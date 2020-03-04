@@ -1821,7 +1821,7 @@ def get_seed_in_distance(im, center=None, num_seeds=0, seed_radius=30,
             _dynamic_range = np.linspace(1, 1 / dynamic_iters, dynamic_iters)
             for _dy_ratio in _dynamic_range:
                 _dynamic_th = _th_seed * _dy_ratio
-                print(_dynamic_th)
+                #print(_dynamic_th)
                 # get candidate seeds
                 _cand_seeds = get_seed_points_base(_cim, gfilt_size=gfilt_size, background_gfilt_size=background_gfilt_size,
                                                    filt_size=filt_size, th_seed=_dynamic_th, hot_pix_th=hot_pix_th, return_h=True)

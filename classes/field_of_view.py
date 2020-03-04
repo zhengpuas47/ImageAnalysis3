@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 # import package parameters
 from .. import _correction_folder, _corr_channels, _temp_folder,_distance_zxy,\
     _sigma_zxy,_image_size, _allowed_colors, _num_buffer_frames, _num_empty_frames
-from . import _allowed_kwds, _max_num_seeds
+from . import _allowed_kwds, _max_num_seeds, _min_num_seeds
 
 def __init__():
     print(f"Loading field of view class")
@@ -161,14 +161,20 @@ class Field_of_View():
             self.shared_parameters['corr_chromatic'] = True
         if 'allowed_kwds' not in self.shared_parameters:
             self.shared_parameters['allowed_data_types'] = _allowed_kwds
+        # params for drift
         if 'max_num_seeds' not in self.shared_parameters:
             self.shared_parameters['max_num_seeds'] = _max_num_seeds
+        if 'min_num_seeds' not in self.shared_parameters:
+            self.shared_parameters['min_num_seeds'] = _min_num_seeds
         if 'drift_size' not in self.shared_parameters:
             self.shared_parameters['drift_size'] = 600
         if 'drift_use_fft' not in self.shared_parameters:
             self.shared_parameters['drift_use_fft'] = True 
         if 'drift_sequential' not in self.shared_parameters:
             self.shared_parameters['drift_sequential'] = False 
+        if 'good_drift_th' not in self.shared_parameters:
+            self.shared_parameters['good_drift_th'] = 1. 
+        
         ## load experimental info
         if _load_references:
             if '_color_filename' not in _color_info_kwargs:
@@ -198,8 +204,6 @@ class Field_of_View():
                                 drift_size=self.shared_parameters['drift_size'],
                                 single_im_size=self.shared_parameters['single_im_size'],
                             )
-        self.ref_cts = None
-        self.ref_ims = None
 
         ## Create savefile
         # save filename
@@ -507,7 +511,11 @@ class Field_of_View():
             print(f"++ acquire reference images and centers from file:{_ref_filename}")
         if '.dax' not in _ref_filename:
             raise TypeError(f"Wrong ref_filename type, should be .dax file!")
-        
+        # Check drift file
+        if not os.path.isfile(self.drift_filename):
+            from .batch_functions import create_drift_file
+            create_drift_file(self.drift_filename, self.ref_filename,
+                              overwrite=_overwrite, verbose=_verbose)
         # check drift_crops
         if not hasattr(self, 'drift_crops') or _overwrite:
             if _drift_crops is not None:
@@ -522,7 +530,7 @@ class Field_of_View():
             _drift_crops = getattr(self, 'drift_crops')
 
         # first check if attribute already exists:
-        _reload_im = _overwrite
+        _load_ref_flag = _overwrite
         if hasattr(self, 'ref_ims') and hasattr(self, 'ref_cts') and not _overwrite:
             #
             _ref_cts = getattr(self, 'ref_cts')
@@ -531,15 +539,17 @@ class Field_of_View():
                 if _im.shape != tuple(_crop[:,1]-_crop[:,0]):
                     if _verbose:
                         print(f"+++ image shape:{np.shape(_im)} doesn't match crop:{_crop}, reload ref_ims!")
-                    _reload_im = True 
+                    _load_ref_flag = True 
                     break
-                if len(_ct) < _min_num_seeds:
+                if len(_ct) < self.shared_parameters['min_num_seeds']:
                     if _verbose:
-                        print(f"+++ not enough reference centers, {len(_ct)} given, {_min_num_seeds} expected, reload ref_ims!")
-                    _reload_im = True 
+                        print(f"+++ not enough reference centers, {len(_ct)} given, {self.shared_parameters['min_num_seeds']} expected, reload ref_ims!")
+                    _load_ref_flag = True 
                     break
+        else:
+            _load_ref_flag = True 
         # if reload im, do loading here:
-        if _reload_im:
+        if _load_ref_flag:
             # load image
             if _verbose:
                 print(f"+++ loading image from .dax file")
@@ -571,7 +581,7 @@ class Field_of_View():
                                         th_seed_per=_seeding_percentile, 
                                         use_percentile=_dynamic_seeding,
                                         max_num_seeds=self.shared_parameters['max_num_seeds'],
-                                        min_num_seeds=_min_num_seeds,
+                                        min_num_seeds=self.shared_parameters['min_num_seeds'],
                                         verbose=_verbose,
                                         )
                 _ref_cts.append(select_sparse_centers(_cand_cts, 
@@ -580,6 +590,12 @@ class Field_of_View():
             # append
             self.ref_ims = _ref_ims
             self.ref_cts = _ref_cts
+        # direct load if not necesary
+        else:
+            if _verbose:
+                print(f"+++ direct load from attributes.")
+            _ref_ims = getattr(self, 'ref_ims')
+            _ref_cts = getattr(self, 'ref_cts')
         # return
         return _ref_ims, _ref_cts
     
@@ -690,7 +706,10 @@ class Field_of_View():
                                 _correction_args={},
                                 _drift_args={}, 
                                 _fitting_args={},
-                                _overwrite=False, _verbose=True):
+                                _overwrite_drift=False, 
+                                _overwrite_image=False, 
+                                _overwrite_spot=False,
+                                _verbose=True):
         ## check inputs
         if _data_type not in self.shared_parameters['allowed_data_types']:
             raise ValueError(f"Wrong input for _data_type:{_data_type}, should be within {self.shared_parameters['allowed_data_types'].keys()}")
@@ -741,18 +760,27 @@ class Field_of_View():
             'illumination_corr':self.shared_parameters['corr_illumination'],
             'illumination_profile':self.correction_profiles['illumination'],
             'chromatic_corr':self.shared_parameters['corr_chromatic'],
-            'chromatic_profile':self.correction_profiles['chromatic'],
             'normalization':self.shared_parameters['normalization'],
         })
+        # specifically, chromatic profile loaded is based on whether warp image
+        if _warp_images:
+            _correction_args.update({
+                'chromatic_profile':self.correction_profiles['chromatic'],})
+        else:
+            _correction_args.update({
+                'chromatic_profile':self.correction_profiles['chromatic_constants'],})
         _drift_args.update({
             'drift_size':self.shared_parameters['drift_size'],
             'use_fft': self.shared_parameters['drift_use_fft'],
             'drift_crops':self.drift_crops,
             'ref_beads':self.ref_cts,
             'ref_ims':self.ref_ims,
+            'max_num_seeds' : self.shared_parameters['max_num_seeds'],
+            'min_num_seeds' : self.shared_parameters['min_num_seeds'],
+            'good_drift_th': self.shared_parameters['good_drift_th'],
         })
         _fitting_args.update({
-            'max_num_seeds' : _max_num_seeds,
+            'max_num_seeds' : self.shared_parameters['max_num_seeds'],
         })
         
         # initiate locks
@@ -768,11 +796,14 @@ class Field_of_View():
         # lock to write to drift file
         _drift_file_lock = _manager.RLock() 
 
-        # prepare kwargs
-        _preprocess_arg_list = []
-        _preprocess_id_list = []
-        # loop through annotated folders
+        ## initialize reported ids and spots
+        _final_ids = []
+        _final_spots = []
+        # prepare kwargs to be processed.
+        _processing_arg_list = []
+        _processing_id_list = []
         
+        # loop through annotated folders
         for _fd in _sel_folders:
             _dax_filename = os.path.join(_fd, self.fov_name)
             # get selected channels
@@ -784,16 +815,24 @@ class Field_of_View():
                 if _dtype_mk in _mk:
                     _id = int(_mk.split(_dtype_mk)[1])
                     if _id in _sel_ids:
+                        # init a flag to determine whether process this im and spot
+                        _process_flag = True
                         # check whether this id already exist
-                        if not _overwrite:
-                            _exist_im, _exist_spots,_exist_drift,_exist_flag =  self._check_exist_data(_data_type, _id, )
-                            if (_save_images and not _exist_im) \
-                                or (_save_fitted_spots and not _exist_spots):
-                                _sel_channels.append(_ch)
-                                _reg_ids.append(_id)                                
-                        else:    
+                        _exist_im, _exist_spots,_exist_drift,_exist_flag =  self._check_exist_data(_data_type, _id, )
+                        # process if missing image and save image reuqired
+                        if (_save_images and not _exist_im) or _overwrite_image:
                             _sel_channels.append(_ch)
-                            _reg_ids.append(_id)
+                            _reg_ids.append(_id)  
+                        # image exists but spot doesn't
+                        ### this could be modified to remove cropping part ###
+                        elif not _exist_spots or _overwrite_spot:
+                            _sel_channels.append(_ch)
+                            _reg_ids.append(_id)  
+                        # image and spots all exist without overwrite, direct load 
+                        else:
+                            # load id an spots
+
+                            continue 
             # append if any channels selected
             if len(_sel_channels) > 0:
                 _args = (_dax_filename, _sel_channels, self.ref_filename,
@@ -803,52 +842,52 @@ class Field_of_View():
                         _data_type, _reg_ids, 
                         _warp_images,
                         _image_file_lock, 
-                        _overwrite, 
+                        _overwrite_image, 
                         _drift_args, 
                         _save_drift, 
                         self.drift_filename,
                         _drift_file_lock, 
-                        _overwrite,
+                        _overwrite_drift,
                         _fitting_args, _save_fitted_spots,
-                        _image_file_lock, _overwrite,
+                        _image_file_lock, _overwrite_spot, 
+                        False, 
                         _verbose,)
-                _preprocess_arg_list.append(_args)
-                _preprocess_id_list.append(_reg_ids)
+                _processing_arg_list.append(_args)
+                _processing_id_list.append(_reg_ids)
 
         # multi-processing
         ## multi-processing for translating segmentation
-        from .batch_functions import batch_process_image_to_spots, killchild
-        with mp.Pool(self.num_threads,) as _preprocess_pool:
+        if len(_processing_arg_list) > 0:
+            from .batch_functions import batch_process_image_to_spots, killchild
+            with mp.Pool(self.num_threads,) as _processing_pool:
+                if _verbose:
+                    print(f"+ Start multi-processing of pre-processing for {len(_processing_arg_list)} images!")
+                    print(f"++ processed {_data_type} ids: {np.sort(np.concatenate(_processing_id_list))}", end=' ')
+                    _start_time = time.time()
+                # Multi-proessing!
+                _spot_results = _processing_pool.starmap(batch_process_image_to_spots,
+                                                        _processing_arg_list, 
+                                                        chunksize=1)
+                # close multiprocessing
+                _processing_pool.close()
+                _processing_pool.join()
+                _processing_pool.terminate()
+            # clear
+            killchild()        
             if _verbose:
-                print(f"+ Start multi-processing of pre-processing for {len(_preprocess_arg_list)} images!")
-                print(f"++ processed {_data_type} ids: {np.sort(np.concatenate(_preprocess_id_list))}")
-            # Multi-proessing!
-            _spot_results = _preprocess_pool.starmap(batch_process_image_to_spots,
-                                                     _preprocess_arg_list, 
-                                                     chunksize=1)
-            # close multiprocessing
-            _preprocess_pool.close()
-            _preprocess_pool.join()
-            _preprocess_pool.terminate()
-        # clear
-        killchild()        
+                print(f"in {time.time()-_start_time:.2f}s.")
+        # unravel and append process
 
-        # unravel process
-        _processed_ids = []
-        _processed_spots = []
-        for _ids, _spot_list in zip(_preprocess_id_list, _spot_results):
-            _processed_ids += list(_ids)
-            _processed_spots += list(_spot_list)
+        for _ids, _spot_list in zip(_processing_id_list, _spot_results):
+            _final_ids += list(_ids)
+            _final_spots += list(_spot_list)
         # sort
-        _ps_ids = [_id for _id,_spots in sorted(zip(_processed_ids, _processed_spots))]
-        _ps_spots = [_spots for _id,_spots in sorted(zip(_processed_ids, _processed_spots))]
-
+        _ps_ids = [_id for _id,_spots in sorted(zip(_final_ids, _final_spots))]
+        _ps_spots = [_spots for _id,_spots in sorted(zip(_final_ids, _final_spots))]
+  
         return _ps_ids, _ps_spots
 
         
-
-
-
 
     def _save_to_file(self, _type):
         _type = str(_type).lower()
@@ -859,6 +898,10 @@ class Field_of_View():
             if _type in _allowed_kwds:
                 _grp = _f[_type]
                 print(_grp['ids'][:])
+
+            elif _type == 'info':
+                pass
+            
 
     def _check_exist_data(self, _data_type, _region_id,
                         empty_value=0):

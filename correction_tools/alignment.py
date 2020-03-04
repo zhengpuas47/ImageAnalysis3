@@ -65,7 +65,7 @@ def align_bead_image(tar_cts, ref_cts,
             verbose=verbose,
         )
     # check paired centers
-    if check_paired_cts:
+    if check_paired_cts and len(_paired_ref_cts) > 3:
         _drift, _paired_tar_cts, _paired_ref_cts = check_paired_centers(
             _paired_tar_cts, _paired_ref_cts, 
             outlier_sigma=outlier_sigma,
@@ -92,7 +92,7 @@ def align_single_image(filename, crop_list, bead_channel='488',
                        ref_filename=None, ref_all_channels=None,
                        ref_centers=None, ref_ims=None,
                        th_seed=100, th_seed_per=98, use_percentile=False,
-                       max_num_seeds=None, min_num_seeds=30, 
+                       max_num_seeds=None, min_num_seeds=50, 
                        fitting_kwargs={}, 
                        use_fft=True, fft_filt_size=0, 
                        match_distance_th=2., 

@@ -26,6 +26,7 @@ _allowed_kwds = {'combo': 'c',
                 'rna': 'r', # long term used label, because "-" is creating issue in python
                 'gene':'g'}
 _max_num_seeds = 300 
+_min_num_seeds = 50 
 from . import batch_functions
 from . import field_of_view
 
@@ -160,7 +161,8 @@ class Cell_List():
     """
     # initialize
     def __init__(self, parameters, _chosen_fovs=[], _exclude_fovs=[], 
-                 _load_all_attr=False, _load_reference_info=True):
+                 _load_all_attr=False, _load_reference_info=True,
+                 _color_filename='Color_Usage'):
         if not isinstance(parameters, dict):
             raise TypeError('wrong input type of parameters, should be a dictionary containing essential info.')
 
@@ -280,7 +282,7 @@ class Cell_List():
         self.chosen_fovs = list(np.array(self.fovs)[np.array(self.fov_ids, dtype=np.int)])
         # read color-usage and encodding-scheme
         if not hasattr(self, 'color_dic') or not hasattr(self, 'channels'):
-            self._load_color_info()
+            self._load_color_info(_color_filename=_color_filename)
         # load extra info for DNA / RNA 
         if _load_reference_info:
             if getattr(self, 'experiment_type') == 'RNA' and not hasattr(self, 'rna-info_dic'):
@@ -1476,9 +1478,12 @@ class Cell_List():
                     _cell._save_to_file('cell_info',_save_dic={'chrom_coords':_coords}, _verbose=_verbose)
 
     # multi-gaussian fitting
-    def _spot_finding_for_cells(self, _data_type='unique', _decoded_flag='diff', _max_fitting_threads=12, 
+    def _spot_finding_for_cells(self, _data_type='unique', _decoded_flag='diff', 
+                                _max_fitting_threads=12, 
                                 _clear_image=False, _normalize_image=True, 
-                                _use_chrom_coords=True, _seed_th_per=50, _max_filt_size=3,
+                                _use_chrom_coords=True, 
+                                _seed_by_per=True, _th_seed_percentile=90,
+                                _max_filt_size=3,
                                 _max_seed_count=6, _min_seed_count=3, _fit_window=40,
                                 _expect_weight=1000, _min_height=100, _max_iter=10, _th_to_end=1e-6,
                                 _save=True, _overwrite=False, _verbose=True):
@@ -1500,7 +1505,8 @@ class Cell_List():
             _cell._multi_fitting_for_chromosome(_data_type=_data_type, _decoded_flag=_decoded_flag, 
                                                 _normalization=_normalize_image, _use_chrom_coords=_use_chrom_coords,
                                                 _num_threads=max(_max_fitting_threads, self.num_threads),
-                                                _seed_th_per=_seed_th_per, _max_filt_size=_max_filt_size, 
+                                                _seed_by_per=_seed_by_per, 
+                                                _th_seed_percentile=_th_seed_percentile,_max_filt_size=_max_filt_size, 
                                                 _max_seed_count=_max_seed_count, _min_seed_count=_min_seed_count, 
                                                 _fit_window=_fit_window, _expect_weight=_expect_weight, 
                                                 _min_height=_min_height, _max_iter=_max_iter,
@@ -3616,7 +3622,8 @@ class Cell_Data():
     def _multi_fitting_for_chromosome(self, _data_type='unique', _decoded_flag='diff', 
                        _normalization=True,  _use_chrom_coords=True, _num_threads=12,
                        _gfilt_size=0.75, _background_gfilt_size=10, _max_filt_size=3,
-                       _seed_th_per=50, _max_seed_count=10, _min_seed_count=3,
+                       _seed_by_per=True, _th_seed_percentile=90,
+                       _max_seed_count=10, _min_seed_count=3,
                        _fit_radius=5, _fit_window=40, 
                        _expect_weight=1000, _min_height=100, _max_iter=10, _th_to_end=1e-6,
                        _check_fitting=True, _save=True, _overwrite=False, _verbose=True):
@@ -3667,7 +3674,7 @@ class Cell_Data():
         else:
             ## Do the multi-fitting
             if _data_type in self.shared_parameters['allowed_data_types']:
-                _seeding_args = (_max_seed_count, _fit_window, _gfilt_size, _background_gfilt_size, _max_filt_size, _seed_th_per, 300, True, 10, _min_seed_count, 0, False)
+                _seeding_args = (_max_seed_count, _fit_window, _gfilt_size, _background_gfilt_size, _max_filt_size, _seed_by_per, _th_seed_percentile, 150, True, 10, _min_seed_count, 0, False)
                 _fitting_args = (_fit_radius, 1, 2.5, _max_iter, 0.1, self.shared_parameters['sigma_zxy'], _expect_weight)
                     # merge arguments
             if _use_chrom_coords:
