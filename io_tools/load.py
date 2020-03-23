@@ -6,7 +6,7 @@ from scipy.ndimage.interpolation import shift, map_coordinates
 
 ## Load other sub-packages
 from .. import visual_tools, get_img_info, corrections, alignment_tools
-
+from .. import _image_dtype
 ## Load shared parameters
 from . import _distance_zxy, _image_size, _allowed_colors, _corr_channels, _correction_folder
 from . import _num_buffer_frames, _num_empty_frames
@@ -595,3 +595,26 @@ def load_correction_profile(corr_type, corr_channels=_corr_channels,
             _pf[_channel] = np.load(os.path.join(correction_folder, _basename))
 
     return _pf 
+
+def find_image_background(im, dtype=_image_dtype, bin_size=10,):
+    """Function to calculate image background
+    Inputs: 
+        im: image, np.ndarray,
+        dtype: data type for image, numpy datatype (default: np.uint16) 
+        bin_size: size of histogram bin, smaller -> higher precision and longer time,
+            float (default: 10)
+    Output: 
+        _background: determined background level, float
+    """
+    
+    if dtype is None:
+        dtype = im.dtype 
+    _cts, _bins = np.histogram(im, 
+                               bins=np.arange(np.iinfo(dtype).min, 
+                                              np.iinfo(dtype).max,
+                                              bin_size)
+                               )
+    _peaks, _params = scipy.signal.find_peaks(_cts, height=np.size(im)/50)
+    _sel_peak = _peaks[np.argmax(_params['peak_heights'])]
+    _background = (_bins[_sel_peak] + _bins[_sel_peak+1]) / 2
+    return _background

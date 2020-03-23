@@ -21,6 +21,7 @@ def get_seeds(im, max_num_seeds=None, th_seed=150,
               gfilt_size=0.75, background_gfilt_size=10,
               filt_size=3, min_edge_distance=2,
               use_dynamic_th=True, dynamic_niters=10, min_dynamic_seeds=1,
+              remove_hot_pixel=True, hot_pixel_th=4,
               return_h=False, verbose=False,
               ):
     """Function to fully get seeding pixels given a image and thresholds.
@@ -113,7 +114,15 @@ def get_seeds(im, max_num_seeds=None, th_seed=150,
     # print current th
     if verbose and use_dynamic_th:
         print(f"->{_current_seed_th:.2f}")
-
+    # hot pixels
+    if remove_hot_pixel:
+        _,_x,_y = _coords
+        _xy_str = [str([np.round(x_,1),np.round(y_,1)]) 
+                    for x_,y_ in zip(_x,_y)]
+        _unique_xy_str, _cts = np.unique(_xy_str, return_counts=True)
+        _keep_hot = np.array([_xy not in _unique_xy_str[_cts>=hot_pixel_th] 
+                             for _xy in _xy_str],dtype=bool)
+        _coords = tuple(_cs[_keep_hot] for _cs in _coords)
     # get heights
     _hs = (_max_ft - _min_ft)[_coords]
     _final_coords = np.array(_coords) + _local_edges[:, np.newaxis] # adjust to absolute coordinates
@@ -138,6 +147,7 @@ def fit_fov_image(im, channel, max_num_seeds=500,
                   dynamic_niters=10, min_dynamic_seeds=1,
                   seeding_kwargs={}, 
                   fit_radius=5, init_sigma=_sigma_zxy, weight_sigma=0, 
+                  normalize_backgroud=False, normalize_local=False,  
                   fitting_args={}, verbose=True):
     """Function to merge seeding and fitting for the whole fov image"""
 
@@ -169,6 +179,9 @@ def fit_fov_image(im, channel, max_num_seeds=500,
     _fitter.repeatfit()
     # get spots
     _spots = np.array(_fitter.ps)
+    # normalize intensity if applicable
+    from ..io_tools.load import find_image_background 
+
     if verbose:
         print(f"{len(_spots)} fitted in {time.time()-_fit_time:.3f}s.")
     return _spots
@@ -191,8 +204,11 @@ def remove_edge_seeds(im, T_seeds, distance=2):
 def get_centers(im, seeds=None, th_seed=150, 
                 th_seed_per=98, use_percentile=False,
                 sel_center=None, seed_radius=40,
-                max_num_seeds=None, use_dynamic_th=True, min_num_seeds=1,
-                seed_kwargs={}, fit_radius=5, 
+                max_num_seeds=None, use_dynamic_th=True, 
+                min_num_seeds=1,
+                remove_hot_pixel=True, hot_pixel_th=3,
+                seed_kwargs={}, 
+                fit_radius=5, 
                 remove_close_pts=True, close_threshold=0.1, 
                 verbose=False):
     '''Fit centers for one image:
@@ -216,6 +232,8 @@ def get_centers(im, seeds=None, th_seed=150,
                           sel_center=sel_center, seed_radius=seed_radius,
                           use_dynamic_th=use_dynamic_th,
                           min_dynamic_seeds=min_num_seeds,
+                          remove_hot_pixel=remove_hot_pixel, 
+                          hot_pixel_th=hot_pixel_th,
                           return_h=False, verbose=verbose, 
                           **seed_kwargs)
 
