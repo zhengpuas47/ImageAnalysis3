@@ -54,3 +54,27 @@ def translate_crop_by_drift(crop3d, drift3d=np.array([0,0,0]), single_im_size=_i
         _drift_limits[_i, 0] = max(_lims[0]-np.ceil(np.abs(_d)), 0)
         _drift_limits[_i, 1] = min(_lims[1]+np.ceil(np.abs(_d)), single_im_size[_i])
     return _drift_limits
+
+def generate_neighboring_crop(zxy, crop_size=5, 
+                              single_im_size=_image_size,
+                              sub_pixel_precision=False):
+    """Function to generate crop given zxy coordinate and crop size
+    Inputs:
+    Output:
+    """
+    ## check inputs
+    _zxy =  np.array(zxy)[:len(single_im_size)]
+    _crop_size = int(crop_size)
+    _single_image_size = np.array(single_im_size, dtype=np.int)
+    # find limits for this crop
+    if sub_pixel_precision:
+        pass
+    else:
+        _left_lims = np.max([np.round(_zxy-_crop_size), 
+                            np.zeros(len(_single_image_size))], axis=0)
+        _right_lims = np.min([np.round(_zxy+_crop_size), 
+                              _single_image_size], axis=0)
+        _crop = tuple([slice(int(_l), int(_r)) 
+                       for _l,_r in zip(_left_lims,_right_lims) ])
+    
+    return _crop

@@ -185,6 +185,9 @@ class Field_of_View():
         # param for spot_finding
         if 'spot_seeding_th' not in self.shared_parameters:
             self.shared_parameters['spot_seeding_th'] = _spot_seeding_th
+        if 'normalize_intensity_local' not in self.shared_parameters:
+            self.shared_parameters['normalize_intensity_local'] = True
+    
         ## load experimental info
         if _load_references:
             if '_color_filename' not in _color_info_kwargs:
@@ -529,7 +532,7 @@ class Field_of_View():
         _num_buffer_frames = None,
         _num_empty_frames = None,
         _bead_channel=None,
-        _seeding_th=100,
+        _seeding_th=150,
         _dynamic_seeding=False,
         _min_num_seeds=50,
         _seeding_percentile=95,
@@ -844,6 +847,9 @@ class Field_of_View():
             'max_num_seeds' : self.shared_parameters['max_num_seeds'],
             'th_seed': self.shared_parameters['spot_seeding_th'],
             'init_sigma': self.shared_parameters['sigma_zxy'],
+            'min_dynamic_seeds': self.shared_parameters['min_num_seeds'],
+            'remove_hot_pixel': self.shared_parameters['corr_hot_pixel'],
+            'normalize_local': self.shared_parameters['normalize_intensity_local'],
         })
         
         # initiate locks

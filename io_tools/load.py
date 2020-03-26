@@ -596,7 +596,7 @@ def load_correction_profile(corr_type, corr_channels=_corr_channels,
 
     return _pf 
 
-def find_image_background(im, dtype=_image_dtype, bin_size=10,):
+def find_image_background(im, dtype=_image_dtype, bin_size=10, make_plot=False):
     """Function to calculate image background
     Inputs: 
         im: image, np.ndarray,
@@ -617,4 +617,14 @@ def find_image_background(im, dtype=_image_dtype, bin_size=10,):
     _peaks, _params = scipy.signal.find_peaks(_cts, height=np.size(im)/50)
     _sel_peak = _peaks[np.argmax(_params['peak_heights'])]
     _background = (_bins[_sel_peak] + _bins[_sel_peak+1]) / 2
+
+    if make_plot:
+        import matplotlib.pyplot as plt
+        plt.figure(dpi=100)
+        plt.hist(np.ravel(im), bins=np.arange(np.iinfo(dtype).min, 
+                                              np.iinfo(dtype).max,
+                                              bin_size))
+        plt.xlim([np.min(im), np.max(im)])     
+        plt.show()
+
     return _background

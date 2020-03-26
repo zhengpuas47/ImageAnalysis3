@@ -21,7 +21,7 @@ def get_seeds(im, max_num_seeds=None, th_seed=150,
               gfilt_size=0.75, background_gfilt_size=10,
               filt_size=3, min_edge_distance=2,
               use_dynamic_th=True, dynamic_niters=10, min_dynamic_seeds=1,
-              remove_hot_pixel=True, hot_pixel_th=4,
+              remove_hot_pixel=True, hot_pixel_th=3,
               return_h=False, verbose=False,
               ):
     """Function to fully get seeding pixels given a image and thresholds.
@@ -145,9 +145,10 @@ def fit_fov_image(im, channel, max_num_seeds=500,
                   th_seed=300, th_seed_per=95, use_percentile=False, 
                   use_dynamic_th=True, 
                   dynamic_niters=10, min_dynamic_seeds=1,
-                  seeding_kwargs={}, 
+                  remove_hot_pixel=True, seeding_kwargs={}, 
                   fit_radius=5, init_sigma=_sigma_zxy, weight_sigma=0, 
-                  normalize_backgroud=False, normalize_local=False,  
+                  normalize_backgroud=False, normalize_local=False, 
+                  background_args={}, 
                   fitting_args={}, verbose=True):
     """Function to merge seeding and fitting for the whole fov image"""
 
@@ -163,6 +164,7 @@ def fit_fov_image(im, channel, max_num_seeds=500,
                        use_dynamic_th=use_dynamic_th, 
                        dynamic_niters=dynamic_niters,
                        min_dynamic_seeds=min_dynamic_seeds,
+                       remove_hot_pixel=remove_hot_pixel,
                        return_h=False, verbose=False,
                        **seeding_kwargs,)
     if verbose:
@@ -180,7 +182,25 @@ def fit_fov_image(im, channel, max_num_seeds=500,
     # get spots
     _spots = np.array(_fitter.ps)
     # normalize intensity if applicable
-    from ..io_tools.load import find_image_background 
+    if normalize_backgroud and not normalize_local:
+        from ..io_tools.load import find_image_background 
+        _back = find_image_background(im, **background_args)
+        if verbose:
+            print(f"normalize total background:{_back:.2f}, ", end='')
+        _spots[:,0] = _spots[:,0] / _back
+    elif normalize_local:
+        from ..io_tools.load import find_image_background
+        from ..io_tools.crop import generate_neighboring_crop
+        _backs = []
+        for _pt in _spots:
+            _crop = generate_neighboring_crop(_pt[1:4],
+                                              crop_size=fit_radius*2,
+                                              single_im_size=np.array(np.shape(im)))
+            _cropped_im = im[_crop]
+            _backs.append(find_image_background(_cropped_im, **background_args))
+        if verbose:
+            print(f"normalize local background for each spot, ", end='')
+        _spots[:,0] = _spots[:,0] / np.array(_backs)
 
     if verbose:
         print(f"{len(_spots)} fitted in {time.time()-_fit_time:.3f}s.")
