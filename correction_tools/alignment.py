@@ -1,6 +1,6 @@
 import os
 import numpy as np
-from .. import _allowed_colors, _image_size, _num_buffer_frames, _num_empty_frames
+from .. import _allowed_colors, _image_size, _num_buffer_frames, _num_empty_frames, _image_dtype
 from .. import _correction_folder
 
 def align_bead_image(tar_cts, ref_cts, 
@@ -275,6 +275,39 @@ def align_single_image(filename, crop_list, bead_channel='488',
     return tuple(_return_args)
     
     
-
+def generate_translation_from_DAPI(old_dapi_im, new_dapi_im, old_to_new_rotation,
+                                   fft_gb=0, fft_max_disp=200, 
+                                   image_dtype=_image_dtype,
+                                   verbose=True):
+    """Function to generate translation matrix required in cv2. 
+        - Only allow X-Y translation """
+    ## check inputs
+    from math import pi
+    import cv2
+    from ..alignment_tools import fft3d_from2d
+    if np.shape(old_to_new_rotation)[0] != 2 or np.shape(old_to_new_rotation)[1] != 2 or len(np.shape(old_to_new_rotation)) != 2:
+        raise IndexError(f"old_to_new_rotation should be a 2x2 rotation matrix!, but {np.shape(old_to_new_rotation)} is given.")
+    ## 1. rotate new dapi im at its center
+    if verbose:
+        print(f"-- start calculating drift between DAPI images")
+    # get dimensions
+    _dz,_dx,_dy = np.shape(old_dapi_im)
+    # calculate cv2 rotation inputs from given rotation_mat
+    
+    _rotation_angle = np.arcsin(old_to_new_rotation[0,1])/pi*180
+    _temp_new_rotation_M = cv2.getRotationMatrix2D((_dx/2, _dy/2), _rotation_angle, 1) # 
+    # generated rotated image by rotation at the x-y center
+    _rot_new_im = np.array([cv2.warpAffine(_lyr, _temp_new_rotation_M, 
+                                           _lyr.shape, borderMode=cv2.BORDER_DEFAULT) 
+                            for _lyr in new_dapi_im], dtype=image_dtype)
+    ## 2. calculate drift by FFT
+    _drift = fft3d_from2d(old_dapi_im, _rot_new_im, max_disp=fft_max_disp, gb=fft_gb)
+    if verbose:
+        print(f"-- start generating translated segmentation labels")
+    # define mat to translate old mat into new ones
+    _rotate_M = cv2.getRotationMatrix2D((_dx/2, _dy/2), -_rotation_angle, 1)
+    _rotate_M[:,2] -= np.flipud(_drift[-2:])
+    
+    return _rotate_M
 
 
