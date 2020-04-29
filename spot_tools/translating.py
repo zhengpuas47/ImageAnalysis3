@@ -26,7 +26,7 @@ def normalize_center_spots(spots, distance_zxy=_distance_zxy,
     if len(spots.shape) != 2:
         raise ValueError(f"Input spots should be 2d-array like structure, but shape:{spots.shape} is given!")
     # case 1, already converted to zxy format
-    if _spots.shape[1] == 3:
+    if np.shape(_spots)[1] == 3:
         _coords = _spots
         _stds = np.ones(np.shape(_coords))
     # case 2, full spots info, extract and adjust scaling according to pixel size
@@ -67,7 +67,7 @@ def normalize_center_spots(spots, distance_zxy=_distance_zxy,
     else:
         _model = None 
     # return
-    if _spots.shape[1] == 3:
+    if np.shape(_spots)[1] == 3:
         _spots = _coords
     else:
         # save then back to spots

@@ -27,8 +27,7 @@ from . import spot_tools
 from . import visual_tools
 # everything about aligments
 from . import alignment_tools
-# everything about domain analysis
-from . import domain_tools
+
 # functions to get hybe, folders
 from . import get_img_info
 # Drift and illumination correction
@@ -42,8 +41,12 @@ from . import postanalysis
 from . import figure_tools
 # functions to read and save images
 from . import io_tools
+# everything about domain analysis
+from . import domain_tools
 # function to call and evaluate compartments
 from . import compartment_tools
+# function to analyze structural features
+from . import structure_tools
 ## import exteral functions
 from .External import Fitting_v3
 from .External import DomainTools

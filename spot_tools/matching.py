@@ -3,7 +3,8 @@ import os, sys
 from . import _distance_zxy
 from ..visual_tools import translate_spot_coordinates
 
-def convert_pick_RNA_spots(rna_cell, dna_cell, rotation_mat=None,
+def convert_pick_RNA_spots(rna_cell, dna_cell, 
+                           rotation_mat=None, rotation_order='forward',
                            intensity_th=1,
                            tss_ref_attr='EM_picked_gene_spots', tss_dist_th=500., 
                            dna_ref_attr='EM_picked_unique_spots', dna_dist_th=500., 
@@ -26,7 +27,10 @@ def convert_pick_RNA_spots(rna_cell, dna_cell, rotation_mat=None,
         # loop through each chromosome
         for _cid, (_spots, _chrom_coord) in enumerate(zip(_spot_list, dna_cell.chrom_coords)):
             # check if there are any candidate spots
-            _cand_spots = _spots[_spots[:,0] >= intensity_th]
+            if len(_spots) == 0:
+                continue
+            else:
+                _cand_spots = _spots[_spots[:,0] >= intensity_th]
             # if there are no candidate spots, directly continue
             if len(_cand_spots) == 0:
                 continue
@@ -35,7 +39,7 @@ def convert_pick_RNA_spots(rna_cell, dna_cell, rotation_mat=None,
                 _ts_spots = translate_spot_coordinates(rna_cell, dna_cell, 
                                                     _cand_spots, 
                                                     rotation_mat=rotation_mat, 
-                                                    rotation_order='forward', verbose=False)
+                                                    rotation_order=rotation_order, verbose=False)
                 ## now find ref_targets
                 # if no ref_dna, check distance to center
                 if 'DNA_id' not in _info or _k not in dna_cell.gene_dic:
@@ -134,7 +138,8 @@ def fit_matched_centers(im, ref_centers, match_distance_th=3,
 
 def find_paired_centers(tar_cts, ref_cts, drift=None,
                         cutoff=2, 
-                        return_paired_cts =True, 
+                        return_paired_cts=True, 
+                        return_kept_inds=False,
                         verbose=False):
     """Function to fast find uniquely paired centers given two lists
         of centers and candidate drifts (tar-ref).
@@ -193,7 +198,12 @@ def find_paired_centers(tar_cts, ref_cts, drift=None,
     if return_paired_cts:
         _return_args.append(_paired_tar_cts)
         _return_args.append(_paired_ref_cts)
-
+    if return_kept_inds:
+        _paired_tar_inds = np.array(_unique_pair_inds, dtype=np.int)[:,0]
+        _paired_ref_inds = np.array(_unique_pair_inds, dtype=np.int)[:,1]
+        # append
+        _return_args.append(_paired_tar_inds)
+        _return_args.append(_paired_ref_inds)
     return tuple(_return_args)
 
 def check_paired_centers(paired_tar_cts, paired_ref_cts, 

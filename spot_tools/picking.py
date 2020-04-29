@@ -763,6 +763,34 @@ def merge_spot_list(spot_list, dist_th=0.1, dist_norm=2,
                 
     return np.array(_kept_spots)
 
+def assign_spots_to_chromosomes(spots, chrom_coords, distance_zxy=_distance_zxy, dist_norm=2):
+    """Function to assign spots to nearest chromosomes
+    Inputs:
+        spots: list of spots, list of np.ndarray or np.ndarray
+        chrom_coords: center coordinate in pixel for all chromosomes within this cell, lst of np.array
+        distance_zxy: pixel size in nm for z,x,y axies, np.array (default: [200,106,106] for STORM6)
+        dist_norm: norm for calculating distances, float (default: 2, Euclidean)
+    Output:
+        _spot_list: list of spots that assigned to corresponding chrom_coords
+    """
+    # input
+    _spots = np.array(spots)
+    _zxys = _spots[:,1:4] * np.array(distance_zxy) 
+    _chrom_zxys = np.array(chrom_coords) * np.array(distance_zxy)
+     
+    
+    # calculate distance
+    from scipy.spatial.distance import cdist
+    _dists = cdist(_zxys, _chrom_zxys) # distance from spots to chromosome centers
+    _assign_flags = np.argmin(_dists, axis=1) # which chromosomes to be assigned
+    
+    # assign spots
+    _spot_list = [_spots[np.where(_assign_flags==_i)] for _i, _chrom_zxy in enumerate(_chrom_zxys)]
+    
+    return _spot_list
+
+
+
 # Pick spots for multiple chromosomes by intensity
 def naive_pick_spots_for_chromosomes(cell_cand_spots, region_ids, chrom_coords=None, 
                                      intensity_th=0., hard_intensity_th=True, 

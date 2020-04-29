@@ -20,3 +20,5 @@ from . import checking
 from . import matching
 # translating, warpping spots
 from . import translating
+# relabelling analysis
+from . import relabelling

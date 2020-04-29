@@ -3,14 +3,39 @@ import numpy as np
 from .. import _allowed_colors, _image_size, _num_buffer_frames, _num_empty_frames, _image_dtype
 from .. import _correction_folder
 
-def align_bead_image(tar_cts, ref_cts, 
-                     tar_im=None, ref_im=None,
-                     use_fft=True, fft_filt_size=0, 
-                     match_distance_th=2., 
-                     check_paired_cts=True,
-                     outlier_sigma=1.5,
-                     return_paired_cts=True,
-                     verbose=True):
+
+def generate_drift_crops(coord_sel=None, drift_size=500, single_im_size=_image_size):
+    """Function to generate drift crop from a selected center and given drift size"""
+    _single_im_size = np.array(single_im_size)
+    if coord_sel is None:
+        coord_sel = np.array(_single_im_size/2, dtype=np.int)
+    if drift_size is None:
+        drift_size = int(np.max(_single_im_size)/4)
+    # generate crops
+    crop0 = np.array([[0, _single_im_size[0]],
+                      [max(coord_sel[-2]-drift_size, 0), coord_sel[-2]],
+                      [max(coord_sel[-1]-drift_size, 0), coord_sel[-1]]], dtype=np.int)
+    crop1 = np.array([[0, _single_im_size[0]],
+                      [coord_sel[-2], min(coord_sel[-2] +
+                                          drift_size, _single_im_size[-2])],
+                      [coord_sel[-1], min(coord_sel[-1]+drift_size, _single_im_size[-1])]], dtype=np.int)
+    crop2 = np.array([[0, _single_im_size[0]],
+                      [coord_sel[-2], min(coord_sel[-2] +
+                                          drift_size, _single_im_size[-2])],
+                      [max(coord_sel[-1]-drift_size, 0), coord_sel[-1]]], dtype=np.int)
+    # merge into one array which is easier to feed into function
+    selected_crops = np.stack([crop0, crop1, crop2])
+    return selected_crops
+
+
+def align_beads(tar_cts, ref_cts, 
+                tar_im=None, ref_im=None,
+                use_fft=True, fft_filt_size=0, 
+                match_distance_th=2., 
+                check_paired_cts=True,
+                outlier_sigma=1.5,
+                return_paired_cts=True,
+                verbose=True):
     """Align single bead image to return drifts
         with two options:
             not use_fft: slow: enumerate all possible combinations of center pairs, keep good ones, canculate drift between pairs.
@@ -181,16 +206,22 @@ def align_single_image(filename, crop_list, bead_channel='488',
         _ref_ct_list = ref_centers
     # case 2: ref_filename is given:
     elif ref_filename is not None:
-        if verbose:
-            print(f"ref_file: {ref_filename}")
-        _ref_bead_im = correct_fov_image(ref_filename, [_bead_channel], 
+        if isinstance(ref_filename, np.ndarray):
+            if verbose:
+                print(f"ref image directly given")
+            _ref_bead_im = ref_filename
+        elif isinstance(ref_filename, str):
+            if verbose:
+                print(f"ref_file: {ref_filename}")
+            _ref_bead_im = correct_fov_image(ref_filename, [_bead_channel], 
                                         single_im_size=single_im_size, 
                                         all_channels=all_channels,
-                                        num_buffer_frames=num_buffer_frames, 
+                                        num_buffer_frames=num_buffer_frames,
                                         num_empty_frames=num_empty_frames, 
                                         calculate_drift=False, 
                                         correction_folder=correction_folder,
                                         illumination_corr=illumination_corr,
+                                        warp_image=False,
                                         bleed_corr=False, 
                                         chromatic_corr=False,
                                         z_shift_corr=False, 
@@ -198,10 +229,10 @@ def align_single_image(filename, crop_list, bead_channel='488',
                                         normalization=False, 
                                         return_drift=False,
                                         verbose=False,
-                                        )[0]
+                                        )[0][0]
         _ref_ims = []
         for _c in crop_list:
-            _crop = tuple([slice(_s[0], _s[-1]) for _s in _c])
+            _crop = tuple([slice(int(_s[0]), int(_s[-1])) for _s in _c])
             _ref_ims.append(_ref_bead_im[_crop])
         # collect ref_ct_list
         from ..spot_tools.fitting import select_sparse_centers
@@ -228,7 +259,7 @@ def align_single_image(filename, crop_list, bead_channel='488',
         # get image
         _cid = len(_drift_list)
         # calculate drift
-        _drift, _paired_tar_cts, _paired_ref_cts = align_bead_image(
+        _drift, _paired_tar_cts, _paired_ref_cts = align_beads(
             _tar_ct_list[_cid], _ref_ct_list[_cid], 
             _tar_ims[_cid], _ref_ims[_cid],
             use_fft=use_fft, 
@@ -275,7 +306,9 @@ def align_single_image(filename, crop_list, bead_channel='488',
     return tuple(_return_args)
     
     
-def generate_translation_from_DAPI(old_dapi_im, new_dapi_im, old_to_new_rotation,
+def generate_translation_from_DAPI(old_dapi_im, new_dapi_im, 
+                                   old_to_new_rotation,
+                                   drift=None,
                                    fft_gb=0, fft_max_disp=200, 
                                    image_dtype=_image_dtype,
                                    verbose=True):
@@ -287,6 +320,10 @@ def generate_translation_from_DAPI(old_dapi_im, new_dapi_im, old_to_new_rotation
     from ..alignment_tools import fft3d_from2d
     if np.shape(old_to_new_rotation)[0] != 2 or np.shape(old_to_new_rotation)[1] != 2 or len(np.shape(old_to_new_rotation)) != 2:
         raise IndexError(f"old_to_new_rotation should be a 2x2 rotation matrix!, but {np.shape(old_to_new_rotation)} is given.")
+    if drift is None:
+        drift = np.zeros(len(old_dapi_im.shape))
+    else:
+        drift = np.array(drift)
     ## 1. rotate new dapi im at its center
     if verbose:
         print(f"-- start calculating drift between DAPI images")
@@ -301,13 +338,14 @@ def generate_translation_from_DAPI(old_dapi_im, new_dapi_im, old_to_new_rotation
                                            _lyr.shape, borderMode=cv2.BORDER_DEFAULT) 
                             for _lyr in new_dapi_im], dtype=image_dtype)
     ## 2. calculate drift by FFT
-    _drift = fft3d_from2d(old_dapi_im, _rot_new_im, max_disp=fft_max_disp, gb=fft_gb)
+    _dapi_shift = fft3d_from2d(old_dapi_im, _rot_new_im, max_disp=fft_max_disp, gb=fft_gb)
     if verbose:
         print(f"-- start generating translated segmentation labels")
     # define mat to translate old mat into new ones
     _rotate_M = cv2.getRotationMatrix2D((_dx/2, _dy/2), -_rotation_angle, 1)
-    _rotate_M[:,2] -= np.flipud(_drift[-2:])
-    
+    _rotate_M[:,2] -= np.flipud(_dapi_shift[-2:])
+    _rotate_M[:,2] -= np.flipud(drift[-2:])
+
     return _rotate_M
 
 

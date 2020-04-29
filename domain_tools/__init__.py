@@ -46,11 +46,6 @@ def interpolate_chr(_chr, gaussian=0):
         _interpolated_chr = f(np.arange(len(_chr)))
         return _interpolated_chr
 
-def radius_of_gyration(segment):
-    segment = np.array(segment)
-    dists = np.linalg.norm(segment - np.nanmean(segment, axis=0), axis=1)
-    return np.nanmean(dists)
-
 def extract_sequences(zxy, domain_starts):
     """Function to extract sequences of zxy coordinates given domain start indices"""
     _dm_starts = np.array(domain_starts, dtype=np.int)

@@ -1,9 +1,10 @@
 import numpy as np
+import time 
 from . import _distance_zxy
 # Function to give scores
 def distance_score(dist, ref_dist, weight=1., 
                    metric='linear', distance_limits=[-np.inf, np.inf],
-                   nan_mask=0., inf_mask=-1000.):
+                   nan_mask=-1000, inf_mask=-1000.):
     """Function to calculate distance score given a reference number
     weight is dominating here, which means if weight is zero then everything is zero"""
     # localize variables
@@ -42,7 +43,7 @@ def distance_score(dist, ref_dist, weight=1.,
         raise ValueError(f"metric type:{metric} has not been supported yet!")
     # remove nan spots
     _scores = np.array(_scores)
-    _scores[np.isnan(_scores)] = nan_mask
+    _scores[np.isnan(_dist)] = nan_mask
     # NOTE
     # this doesnt matter because if lc_dist is nan, all spots has comparable scores
     # if ct_dist is nan, which means this is a bad spota
@@ -153,7 +154,8 @@ def _local_distance(spot_zxys, spot_ids, sel_zxys, sel_ids,
     return np.array(_local_dists)
 
 def _neighboring_distance(spot_zxys, spot_ids=None, 
-                          neighbor_step=1, invalid_dist=np.nan):
+                          neighbor_step=1, invalid_dist=np.nan, 
+                          use_median=True):
     """Function to calculate neighboring distances between list of spot_zxys"""
     _zxys = np.array(spot_zxys)
     if spot_ids is None:
@@ -165,11 +167,42 @@ def _neighboring_distance(spot_zxys, spot_ids=None,
     for _i, (_zxy, _id) in enumerate(zip(_zxys, _ids)):
         if _id+neighbor_step in _ids:
             _nzxy = _zxys[np.where(_id+neighbor_step==_ids)[0]]
-            _nb_dists += list(np.linalg.norm(_nzxy-_zxy, axis=1))
+            if use_median:
+                _nb_dists.append(np.nanmedian((np.linalg.norm(_nzxy-_zxy, axis=1))))
+            else:
+                _nb_dists += list(np.linalg.norm(_nzxy-_zxy, axis=1))
         else:
             _nb_dists.append(invalid_dist)
     
     return np.array(_nb_dists)
+
+def neighboring_distances(spot_zxys, spot_ids=None, 
+                          neighbor_step=1, invalid_dist=np.nan, 
+                          use_median=True):
+    """Function to calculate neighboring distances between list of spot_zxys"""
+    _zxys = np.array(spot_zxys)
+    if spot_ids is None:
+        _ids = np.arange(len(_zxys)).astype(np.int)
+    else:
+        _ids = np.array(spot_ids, dtype=np.int)
+    
+    _fwd_nb_dists, _rev_nb_dists = [], []
+    for _i, (_zxy, _id) in enumerate(zip(_zxys, _ids)):
+        if _id+neighbor_step in _ids:
+            _fzxy = _zxys[np.where(_id + neighbor_step == _ids)[0]]
+            _rzxy = _zxys[np.where(_id - neighbor_step == _ids)[0]]
+            if use_median:
+                _fwd_nb_dists.append(np.nanmedian((np.linalg.norm(_fzxy-_zxy, axis=1))))
+                _rev_nb_dists.append(np.nanmedian((np.linalg.norm(_rzxy-_zxy, axis=1))))
+            else:
+                _fwd_nb_dists += list(np.linalg.norm(_fzxy-_zxy, axis=1))
+                _rev_nb_dists += list(np.linalg.norm(_rzxy-_zxy, axis=1))
+        else:
+            _fwd_nb_dists.append(invalid_dist)
+            _rev_nb_dists.append(invalid_dist)
+    
+    return np.array(_fwd_nb_dists), np.array(_rev_nb_dists)
+
 
 def _filter_intensities(spots, intensity_th=0., invalid_dist=np.nan):
     """Function to filter intensities from spots"""
@@ -269,12 +302,13 @@ def generate_ref_from_chromosome(sel_spots, sel_ids=None, distance_zxy=_distance
     return _ref_center_dist, _ref_local_dist, _ref_neighbor_dist, _ref_intensities
 
 
-def spot_score_in_chromosome(spots, spot_ids, sel_spots, sel_ids=None, chr_center=None,
+def spot_score_in_chromosome(spots, spot_ids, sel_spots, 
+                             sel_ids=None, chr_center=None,
                              ref_center_dist=None, ref_local_dist=None, ref_neighbor_dist=None, 
                              ref_intensities=None, ref_dist_metric='median', 
                              ignore_nan=True, nan_mask=0., inf_mask=-1000., 
                              distance_zxy=_distance_zxy, distance_limits=[0,np.inf], metric='linear',
-                             intensity_th=0., local_size=5, w_ctdist=1, w_lcdist=0.1, w_int=1):
+                             intensity_th=0., local_size=5, w_ctdist=1, w_lcdist=0.1, w_int=1, verbose=True):
     """Function to generate spot_scores in a given chromosomes selected spots
     Inputs:
         spots: spots requires score calculation, np.ndarray of list of 1d-array
@@ -332,16 +366,19 @@ def spot_score_in_chromosome(spots, spot_ids, sel_spots, sel_ids=None, chr_cente
         _chr_center = np.nanmean(_sel_zxys, axis=0)
     else:
         _chr_center = chr_center * distance_zxy
+
     if ref_center_dist is None or ref_local_dist is None or ref_intensities is None:
         if metric == 'cdf' and ref_dist_metric != metric:
             ref_dist_metric = metric # match two metrics
             print(f"-- adjusted ref_dist_metric to {metric} to match performance")
+        if verbose:
+            print(f"-- generate reference from selected spots.")
         ref_center_dist, ref_local_dist, ref_neighbor_dist, ref_intensities = generate_ref_from_chromosome(
-            _sel_spots, _sel_ids, distance_zxy=distance_zxy, ref_center=_chr_center, 
+            _sel_spots, _sel_ids, distance_zxy=distance_zxy, chr_center=chr_center, 
             intensity_th=intensity_th, local_size=local_size, 
             ref_dist_metric=ref_dist_metric, ignore_nan=ignore_nan,
         )
-    
+
     # calculate scores
     _spot_center_scores = _center_distance(_zxys, _chr_center)
     _spot_local_scores = _local_distance(_zxys, _ids, _sel_zxys, _sel_ids, local_size=local_size)
@@ -371,8 +408,110 @@ def spot_score_in_chromosome(spots, spot_ids, sel_spots, sel_ids=None, chr_cente
 
 
 def radius_of_gyration(zxys):
+    """Function to calculate radius of gyration"""
     zxys = np.array(zxys)
+    if len(np.shape(zxys)) != 2:
+        return IndexError(f"zxys should be 2d-array!")
+    # calculate Rs for each spots
     _rs = np.linalg.norm(zxys - np.nanmean(zxys, axis=0), axis=1)
+    # calculate radius of gyration
     _rg = np.sqrt(np.nanmean(_rs**2))
     return _rg
 
+
+def chromosomal_spot_scores(spots, region_ids, 
+                            sel_spots, sel_ids=None, score_metric='cdf',
+                            intensity_th=1., local_size=5, 
+                            w_ctdist=1, w_lcdist=1, w_int=1, w_nbdist=1,
+                            chr_center=None,
+                            distance_zxy=_distance_zxy, distance_limits=[0,np.inf],
+                            ref_center_dists=None, ref_local_dists=None, 
+                            ref_neighbor_dists=None, ref_intensities=None, 
+                            nan_mask=-1000, inf_mask=-1000, ignore_nan=True,
+                            return_separate_scores=True, verbose=True):
+    """NEW function to calculate chromosomal spot scores used for EM spot picking.
+    Inputs:
+        
+    Outputs:
+        
+    """
+    ## check inputs
+    # spots
+    _spots = np.array(spots)
+    if len(np.shape(_spots)) != 2:
+        raise IndexError(f"Wrong shape of _spots, should be 2d array!")
+    # region ids 
+    if isinstance(region_ids, list) or isinstance(region_ids, np.ndarray):
+        _region_ids = np.array(region_ids, dtype=np.int)
+    elif isinstance(region_ids, int) or isinstance(region_ids, float) or isinstance(region_ids, np.int32):
+        _region_ids = np.ones(len(_spots),dtype=np.int) * int(region_ids)
+    else:
+        raise TypeError(f"Wrong input type for region_ids, should be either np.ndarray/list or int/np.int32")
+    # sel_spots
+    _sel_spots = np.array(sel_spots)
+    if len(np.shape(_sel_spots)) != 2:
+        raise IndexError(f"Wrong shape of _sel_spots, should be 2d array!")
+    # sel_ids
+    if sel_ids is None:
+        _sel_ids = np.arange(len(_sel_spots))
+    else:
+        _sel_ids = np.array(sel_ids)
+        
+    ## generate references
+    if ref_center_dists is None or ref_local_dists is None \
+        or ref_neighbor_dists is None or ref_intensities is None:
+        if verbose:
+            _ref_time = time.time()
+            print(f"-- generate spot score reference from sel_spots in", end=' ')
+        ref_center_dists, ref_local_dists, ref_neighbor_dists, ref_intensities = generate_ref_from_chromosome(
+            _sel_spots, _sel_ids, distance_zxy=distance_zxy, chr_center=chr_center, 
+            intensity_th=intensity_th, local_size=local_size, 
+            ref_dist_metric=score_metric, ignore_nan=ignore_nan,
+        )
+        if verbose:
+            print(f"in {time.time()-_ref_time:.2f}s.")
+    else:
+        if verbose:
+            print(f"-- use given spot score reference.")
+    ## calculate corresponding distances
+    if verbose:
+        _score_time = time.time()
+        print(f"-- calculate {len(_spots)} spot scores in", end=' ')
+    _zxys = _spots[:,1:4] * distance_zxy
+    _sel_zxys = _sel_spots[:,1:4] * distance_zxy
+    if chr_center is None:
+        _chr_center = np.nanmean(_sel_zxys, axis=0)
+    else:
+        _chr_center = chr_center * distance_zxy
+    # spot to chr center distances
+    _spot_center_dists = _center_distance(_zxys, _chr_center) ##
+    # spot to local center distances
+    _spot_local_dists = _local_distance(_zxys, _region_ids, _sel_zxys, _sel_ids, local_size=local_size) ##
+    # spot to neighbor spot distances
+    _fwd_neighbor_dists, _rev_neighbor_dists = neighboring_distances(_zxys, _region_ids, use_median=True)
+    # spot intensities
+    _spot_intensities = _spots[:,0]
+
+    # calculate scores
+    _ct_scores = distance_score(_spot_center_dists, ref_center_dists, weight=w_ctdist, 
+                             metric=score_metric, distance_limits=distance_limits,
+                             nan_mask=nan_mask, inf_mask=inf_mask) 
+    _lc_scores = distance_score(_spot_local_dists, ref_local_dists, weight=w_lcdist, 
+                             metric=score_metric, distance_limits=distance_limits,
+                             nan_mask=nan_mask, inf_mask=inf_mask) 
+    _nb_scores = distance_score(np.nanmean([_fwd_neighbor_dists,_rev_neighbor_dists], axis=0), 
+                             ref_neighbor_dists, 
+                             weight=w_nbdist, 
+                             metric=score_metric, distance_limits=distance_limits,
+                             nan_mask=nan_mask, inf_mask=inf_mask) 
+    _int_scores = intensity_score(_spot_intensities, ref_intensities, weight=w_int, 
+                              metric=score_metric, intensity_th=intensity_th,
+                              nan_mask=nan_mask, inf_mask=inf_mask)
+    # summarize
+    _scores = _ct_scores + _lc_scores + _nb_scores + _int_scores
+    if verbose:
+        print(f"in {time.time()-_score_time:.2f}s.")
+    if return_separate_scores:
+        return _ct_scores, _lc_scores, _nb_scores, _int_scores
+    else:
+        return _scores

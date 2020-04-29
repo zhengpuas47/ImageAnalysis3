@@ -14,6 +14,8 @@ from ..visual_tools import get_seed_points_base
 def __init__():
     pass
 
+
+
 # integrated function to get seeds
 def get_seeds(im, max_num_seeds=None, th_seed=150, 
               th_seed_per=95, use_percentile=False,
@@ -82,7 +84,8 @@ def get_seeds(im, max_num_seeds=None, th_seed=150,
     ## do seeding
     if not use_dynamic_th:
         dynamic_niters = 1 # setting only do seeding once
-    
+    else:
+        dynamic_niters = int(dynamic_niters)
     # front filter:
     if gfilt_size:
         _max_im = gaussian_filter(_im, gfilt_size)
@@ -105,10 +108,9 @@ def get_seeds(im, max_num_seeds=None, th_seed=150,
         _coords = np.where((_max_ft == _max_im) & (_min_ft != _min_im) & (_max_ft-_min_ft >= _current_seed_th))
         # remove edges
         if min_edge_distance > 0:
-            _keep_flags = np.ones(len(_coords[0]), dtype=np.bool)
-            for _ic, _cs in enumerate(_coords):
-                _keep_flags = _keep_flags * ((_cs >= min_edge_distance) & (_im.shape[_ic]-_cs >= min_edge_distance))
+            _keep_flags = remove_edge_points(_im, _coords, min_edge_distance)
             _coords = tuple(_cs[_keep_flags] for _cs in _coords)
+        # if got enough seeds, proceed.
         if len(_coords[0]) >= min_dynamic_seeds:
             break
     # print current th
@@ -140,8 +142,20 @@ def get_seeds(im, max_num_seeds=None, th_seed=150,
     
     return _final_coords
 
+def remove_edge_points(im, T_seeds, distance=2):
+    
+    im_size = np.array(np.shape(im))
+    _seeds = np.array(T_seeds)[:len(im_size),:].transpose()
+    flags = []
+    for _seed in _seeds:
+        _f = ((_seed >= distance) * (_seed <= im_size-distance)).all()
+        flags.append(_f)
+    
+    return np.array(flags, dtype=np.bool)
+
+
 # fit the entire field of view image
-def fit_fov_image(im, channel, max_num_seeds=500,
+def fit_fov_image(im, channel, seeds=None, max_num_seeds=500,
                   th_seed=300, th_seed_per=95, use_percentile=False, 
                   use_dynamic_th=True, 
                   dynamic_niters=10, min_dynamic_seeds=1,
@@ -158,17 +172,23 @@ def fit_fov_image(im, channel, max_num_seeds=500,
         print(f"-- start fitting spots in channel:{channel}, ", end='')
         _fit_time = time.time()
     ## seeding
-    _seeds = get_seeds(im, max_num_seeds=max_num_seeds,
-                       th_seed=th_seed, th_seed_per=th_seed_per,
-                       use_percentile=use_percentile,
-                       use_dynamic_th=use_dynamic_th, 
-                       dynamic_niters=dynamic_niters,
-                       min_dynamic_seeds=min_dynamic_seeds,
-                       remove_hot_pixel=remove_hot_pixel,
-                       return_h=False, verbose=False,
-                       **seeding_kwargs,)
-    if verbose:
-        print(f"{len(_seeds)} seeded, ", end='')
+    if seeds is None:
+        _seeds = get_seeds(im, max_num_seeds=max_num_seeds,
+                        th_seed=th_seed, th_seed_per=th_seed_per,
+                        use_percentile=use_percentile,
+                        use_dynamic_th=use_dynamic_th, 
+                        dynamic_niters=dynamic_niters,
+                        min_dynamic_seeds=min_dynamic_seeds,
+                        remove_hot_pixel=remove_hot_pixel,
+                        return_h=False, verbose=False,
+                        **seeding_kwargs,)
+        if verbose:
+            print(f"{len(_seeds)} seeded, ", end='')
+    else:
+        _seeds = np.array(seeds)[:,:len(np.shape(im))]
+        if verbose:
+            print(f"{len(_seeds)} given, ", end='')
+
     ## fitting
     _fitter = Fitting_v3.iter_fit_seed_points(
         im, _seeds.T, radius_fit=fit_radius, 
@@ -207,16 +227,6 @@ def fit_fov_image(im, channel, max_num_seeds=500,
     return _spots
 
 
-def remove_edge_seeds(im, T_seeds, distance=2):
-    im_size = np.array(np.shape(im))
-    _seeds = np.array(T_seeds[:len(im_size),:]).transpose()
-    flags = []
-    for _seed in _seeds:
-        _f = ((_seed >= distance) * (_seed <= im_size)).all()
-        flags.append(_f)
-    _kept_seeds = T_seeds[:, np.array(flags, dtype=np.bool)]
- 
-    return _kept_seeds
 
 
 # integrated function to do gaussian fitting

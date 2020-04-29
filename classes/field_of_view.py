@@ -212,8 +212,8 @@ class Field_of_View():
         self.drift_filename = os.path.join(self.drift_folder,
                                             self.fov_name.replace('.dax', _dft_fl_postfix))
         # generate drift crops
-        from ..io_tools.load import _generate_drift_crops
-        self.drift_crops = _generate_drift_crops(
+        from ..correction_tools.alignment import generate_drift_crops
+        self.drift_crops = generate_drift_crops(
                                 drift_size=self.shared_parameters['drift_size'],
                                 single_im_size=self.shared_parameters['single_im_size'],
                             )
@@ -540,7 +540,8 @@ class Field_of_View():
         _overwrite=False,
         _verbose=True):
         """Function to calculate ref_centers in given drift_crops"""
-        from ..io_tools.load import _generate_drift_crops, split_im_by_channels
+        from ..correction_tools.alignment import generate_drift_crops
+        from ..io_tools.load import split_im_by_channels
         from ..visual_tools import DaxReader, get_STD_centers
         from ..get_img_info import get_num_frame, split_channels
         # set default params
@@ -574,7 +575,7 @@ class Field_of_View():
             if _drift_crops is not None:
                 pass
             else:
-                _drift_crops = _generate_drift_crops(drift_size=_drift_size,
+                _drift_crops = generate_drift_crops(drift_size=_drift_size,
                                                      single_im_size=_single_im_size,)
             if _verbose:
                 print(f"+++ updating drift crop for this fov to: {_drift_crops}")
@@ -948,6 +949,8 @@ class Field_of_View():
             killchild()        
             if _verbose:
                 print(f"in {time.time()-_start_time:.2f}s.")
+        else:
+            return [], []
         # unravel and append process
 
         for _ids, _spot_list in zip(_processing_id_list, _spot_results):

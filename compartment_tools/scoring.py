@@ -220,15 +220,25 @@ def convert_spots_to_cloud(spots, comp_dict, im_radius=30,
     else:
         return _density_dict
 
+
 def spot_cloud_scores(spots, ref_spots, comp_dict, 
                       spot_variance=None, normalize_spots=True,
-                      distance_zxy=_distance_zxy, exclude_self=True, dist_th=0.01):
+                      distance_zxy=_distance_zxy, exclude_self=True, 
+                      exclude_dict={}, dist_th=0.001):
+    from ..spot_tools.translating import normalize_center_spots
+    ## check inputs
     # spot_variance
     if spot_variance is not None:
         if len(spot_variance) < 3:
             raise ValueError(f"variance should be given for 3d")
         else:
             spot_variance=np.array(spot_variance[:3],dtype=np.float).reshape(-1)
+    # check exclude_dict:
+    if not isinstance(exclude_dict, dict):
+        raise TypeError(f"Wrong input type for exclude_dict, should be a dict but {type(exclude_dict)} is given.")
+    else:
+        _rev_ex_dict = {int(_v): int(_k) for _k,_v in exclude_dict.items()}
+    
     if normalize_spots:
         _ref_spots = normalize_center_spots(ref_spots, 
                                             distance_zxy=distance_zxy,
@@ -241,7 +251,6 @@ def spot_cloud_scores(spots, ref_spots, comp_dict,
     else:
         _ref_spots = np.array(ref_spots).copy()
         _zxys = spots[:,1:4]
-        _zxys = _zxys * np.array(distance_zxy) / np.min(distance_zxy)
     _score_dict = {}
     for _key, _inds in comp_dict.items():
         # extract indices
@@ -249,10 +258,16 @@ def spot_cloud_scores(spots, ref_spots, comp_dict,
         # extract coordinates
         _ref_cts = _ref_spots[_inds,1:4]
         _scores = np.zeros(len(_zxys), dtype=np.float)
+        
         for _i, _ct in enumerate(_ref_cts):
             if not np.isnan(_ct).any():
                 # exclude itself flag
-                _ex_flag = cdist(_zxys, _ct[np.newaxis,:]).reshape(-1) < dist_th
+                if exclude_self:
+                    _ex_flag = cdist(_zxys, _ct[np.newaxis,:]).reshape(-1) < dist_th
+                    if _inds[_i] in _rev_ex_dict:
+                        _ex_spot_ind = _rev_ex_dict[_inds[_i]]
+                        _ex_flag[_ex_spot_ind] = True
+                        
                 if spot_variance is None:
                     _std = _ref_spots[_i,5:8]
                 else:
@@ -263,7 +278,6 @@ def spot_cloud_scores(spots, ref_spots, comp_dict,
                 _scores += _gpdfs
         # append
         _score_dict[_key] = _scores
-
     return _score_dict
 
 # batch convert spots to clouds
