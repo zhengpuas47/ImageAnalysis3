@@ -774,9 +774,12 @@ def assign_spots_to_chromosomes(spots, chrom_coords, distance_zxy=_distance_zxy,
         _spot_list: list of spots that assigned to corresponding chrom_coords
     """
     # input
-    _spots = np.array(spots)
-    _zxys = _spots[:,1:4] * np.array(distance_zxy) 
     _chrom_zxys = np.array(chrom_coords) * np.array(distance_zxy)
+
+    _spots = np.array(spots)
+    if len(_spots) == 0:
+        return [[] for _i, _chrom_zxy in enumerate(_chrom_zxys)]
+    _zxys = _spots[:,1:4] * np.array(distance_zxy) 
      
     
     # calculate distance
@@ -1560,3 +1563,460 @@ def _all_score_combinations(_score_list, chrom_share_spots=False):
     if not chrom_share_spots:
         _inds = [_ind for _ind in _inds if len(set(_ind))==len(_ind)]
     return _inds
+
+
+
+def extract_intensities(cand_hzxys):
+    _ints = []
+    for _hzxys in cand_hzxys:
+        if len(_hzxys) == 0:
+            _ints.append([])
+        elif len(np.shape(np.array(_hzxys))) == 1:
+            _ints.append(_hzxys[0])
+        elif len(np.shape(np.array(_hzxys))) == 2:
+            _ints.append(_hzxys[:,0])
+    return _ints
+
+def chromosome_center_dists(cand_hzxys, ref_zxy):
+    
+    _ct_dists = []
+    _ref_zxy = np.array(ref_zxy)[-3:]
+    # loop through regions
+    for _hzxys in cand_hzxys:
+        if len(_hzxys) == 0:
+            _ct_dists.append(np.array([np.nan]))
+        elif len(np.shape(np.array(_hzxys))) == 1:
+            _dist = np.linalg.norm(np.array(_hzxys)[-3:] - _ref_zxy)
+            _ct_dists.append(_dist)
+        elif len(np.shape(np.array(_hzxys))) == 2:
+            _dists = np.linalg.norm(np.array(_hzxys)[:,-3:] - _ref_zxy, axis=1)
+            _ct_dists.append(_dists)
+        else:
+            raise IndexError("Wrong input shape for cand_hzxys:_hzxys")
+    
+    return _ct_dists
+
+
+def local_center_dists(cand_hzxys, cand_ids, ref_hzxys, 
+                       ref_ids=None, neighbor_len=5):
+    """Function to calculate neighboring center"""
+    from scipy.spatial.distance import cdist
+    # candidate ids
+    if cand_ids is None:
+        cand_ids = np.arange(len(cand_hzxys))
+    if isinstance(cand_ids, int) or isinstance(cand_ids, np.int32):
+        cand_ids = np.ones(len(cand_hzxys), dtype=np.int) * int(cand_ids)
+    if len(cand_hzxys) != len(cand_ids):
+        raise IndexError(f"cand_hzxys should have same length as cand_ids")
+    # reference ids
+    if ref_ids is None:
+        ref_ids == np.arange(len(ref_hzxys))
+    if len(ref_hzxys) != len(ref_ids):
+        raise IndexError(f"ref_hzxys should have same length as ref_ids")
+    
+    _nc_dists = []
+    # loop through zxys
+    for _hzxys, _id in zip(cand_hzxys, cand_ids):
+        
+        if len(_hzxys) == 0:
+            _nc_dists.append([])
+        else:
+            _hzxys = np.array(_hzxys)
+            # get reference zxys
+            _nc_hzxys = []
+            _start,_end = max(_id-neighbor_len, min(ref_ids)), min(_id+neighbor_len+1, max(ref_ids)+1)
+            for _ri in range(_start, _end):
+                if _ri in ref_ids:
+                    _nc_hzxys.append(ref_hzxys[list(ref_ids).index(_ri)])
+            # get neighboring center
+            _nc_ct = np.nanmean(_nc_hzxys, axis=0)
+            # calculate distances
+            if len(np.shape(_hzxys)) == 1:
+                _dist = np.linalg.norm(_hzxys[-3:]-_nc_ct[-3:])
+                _nc_dists.append(_dist)
+            elif len(np.shape(_hzxys)) == 2:
+                _dists = np.linalg.norm(_hzxys[:,-3:]- _nc_ct[np.newaxis,-3:], axis=1)
+                _nc_dists.append(_dists)
+            else:
+                raise IndexError(f"_hzxys should be 1d or 2d array!")
+
+    return _nc_dists
+
+
+def Pick_spots_by_intensity(cand_spot_list, pix_size=np.array([200,106,106])):
+    hzxys_list = []
+    # loop through chromosomes
+    for _spot_list in cand_spot_list:
+        # init
+        _sel_hzxys = []
+        # get coords
+        for _ind, _spots in enumerate(_spot_list):
+            # if no candidate spots, append a Nan
+            if len(_spots) == 0:
+                _sel_hzxys.append(np.ones(4)*np.nan)
+            # else, pick brightest one
+            else:
+                _spots = np.array(_spots)
+                # if spots are given:
+                if np.shape(_spots)[1] == 4:
+                    _hzxys = np.array(_spots).copy()
+                else:
+                    # get hzxys
+                    _hzxys = np.array(_spots)[:,:4]
+                    _hzxys[:,1:4] = _hzxys[:,1:4] * np.array(pix_size)[np.newaxis,:] # convert to nm
+                # append the brightest one
+                _sel_hzxys.append(_hzxys[np.argmax(_hzxys[:,0])])
+        # append selected chr
+        hzxys_list.append(np.array(_sel_hzxys))
+
+    return np.stack(hzxys_list)
+
+def _generate_ref_of_chr(_picked_hzxys, picked_ids,
+                         _ref_hzxys, ref_ids, neighbor_len=5):
+    _ct_dists = chromosome_center_dists(_picked_hzxys, np.nanmean(_ref_hzxys,axis=0))
+    _local_dists = local_center_dists(_picked_hzxys, picked_ids, 
+                                                _ref_hzxys, ref_ids, neighbor_len=neighbor_len)
+    _ints = np.array(_picked_hzxys)[:,0]
+    
+    return _ct_dists, _local_dists, _ints
+
+def generate_reference_from_population(picked_hzxys_list, picked_ids=None,
+                                       ref_hzxys_list=None, ref_ids=None,
+                                       num_threads=12,
+                                       neighbor_len=5, collapse_regions=True,
+                                       verbose=True):
+    """Function to generate reference based on currently picked spots"""
+    from tqdm.notebook import tqdm
+    if verbose:
+        print(f"- generate reference metrics from picked chrs.")
+    # picked ids
+    if picked_ids is None:
+        picked_ids = np.arange(len(picked_hzxys_list[0]))
+    # references
+    if ref_hzxys_list is None:
+        ref_hzxys_list = picked_hzxys_list
+    if ref_ids is None:
+        ref_ids = picked_ids
+    # initialize metrics    
+    _ct_dists_list, _local_dists_list, _ints_list = [], [], []
+    # mp option 
+    if isinstance(num_threads, int) and num_threads > 1:
+        import multiprocessing as mp
+        if verbose:
+            _mp_time = time.time()
+            print(f"-- multiprocessing process references with {num_threads} threads", end=', ')
+        _args = [(_picked_hzxys, picked_ids, _ref_hzxys, ref_ids, neighbor_len)
+                 for _picked_hzxys, _ref_hzxys in zip(picked_hzxys_list, ref_hzxys_list)]
+        with mp.Pool(num_threads) as ref_pool:
+            ref_results = ref_pool.starmap(_generate_ref_of_chr, _args)
+            ref_pool.close()
+            ref_pool.join()
+            ref_pool.terminate()
+        # extract results
+        _ct_dists_list = [_r[0] for _r in ref_results]
+        _local_dists_list = [_r[1] for _r in ref_results]
+        _ints_list = [_r[2] for _r in ref_results]
+        if verbose:
+            print(f"in {time.time()-_mp_time:.3f}s")
+    # single thread option
+    else:
+        if verbose:
+            _ss_time = time.time()
+            print(f"-- process references", end=', ')
+        # loop through chromosomes
+        for _picked_hzxys, _ref_hzxys in tqdm(zip(picked_hzxys_list, ref_hzxys_list)):
+            _ct_dists_list.append(chromosome_center_dists(_picked_hzxys, np.nanmean(_ref_hzxys,axis=0)))
+            _local_dists_list.append(local_center_dists(_picked_hzxys, picked_ids, 
+                                                        _ref_hzxys, ref_ids, neighbor_len=neighbor_len))
+            _ints_list.append(np.array(_picked_hzxys)[:,0])
+        if verbose:
+            print(f"in {time.time()-_ss_time:.3f}s")
+    
+    # merge
+    if collapse_regions:
+        if verbose:
+            print(f"-- collapse all regions into 1d.")
+        _ct_dists_list = np.ravel(_ct_dists_list)
+        _local_dists_list = np.ravel(_local_dists_list)
+        _ints_list = np.ravel(_ints_list)
+    else:
+        _ct_dists_list = np.array(_ct_dists_list)
+        _local_dists_list = np.array(_local_dists_list)
+        _ints_list = np.array(_ints_list)
+    
+    return _ct_dists_list, _local_dists_list, _ints_list
+
+
+def cum_val(vals,target):
+    """returns the fraction of elements with value < taget. assumes vals is sorted"""
+    niter_max = 10
+    niter = 0
+    m,M = 0,len(vals)-1
+    while True:
+        mid = int((m+M)/2)
+        if vals[mid]<target:
+            m = mid
+        else:
+            M = mid
+        niter+=1
+        if (M-m)<2:
+            break
+        if niter > niter_max:
+            break
+
+    return mid/float(len(vals))
+
+def _maximize_score_spot_picking_of_chr(_cand_hzxys, cand_ids, _ref_hzxys, ref_ids, 
+                                        ref_ct_dists, ref_local_dists, ref_ints,
+                                        neighbor_len=5, use_center=True, use_local=True,):
+    """single function to process data"""
+    
+    if use_center:
+        _cand_ct_dists = chromosome_center_dists(_cand_hzxys, np.nanmean(_ref_hzxys,axis=0))
+    if use_local:
+        _cand_local_dists = local_center_dists(_cand_hzxys, cand_ids, 
+                                               _ref_hzxys, ref_ids, 
+                                               neighbor_len=neighbor_len)
+    _cand_ints = extract_intensities(_cand_hzxys)
+    # convert to scores
+    _scores = []
+    _sel_scores = []
+    _sel_hzxys = []
+    for _rid, _hzxys in enumerate(_cand_hzxys):
+        if len(_hzxys) == 0:
+            _scores.append([])
+            # append a NAN to bad region
+            _sel_scores.append(np.ones(4)*np.nan)
+            _sel_hzxys.append(np.ones(4)*np.nan)
+
+        elif len(np.shape(np.array(_hzxys))) == 1:
+            if np.shape(ref_ints) == 2:
+                _sc = cum_val(ref_ints[:,_rid], _cand_ints[_rid])
+            else:
+                _sc = cum_val(ref_ints[:], _cand_ints[_rid])
+            # center dist
+            if use_center:
+                if np.shape(_cand_ct_dists) == 2:
+                    _sc *= 1 - cum_val(_cand_ct_dists[:,_rid], _cand_ct_dists[_rid])
+                else:
+                    _sc *= 1 - cum_val(_cand_ct_dists[:], _cand_ct_dists[_rid])
+            # local dist
+            if use_local:
+                if np.shape(_cand_local_dists) == 2:
+                    _sc *= 1 - cum_val(_cand_local_dists[:,_rid], _cand_local_dists[_rid])
+                else:
+                    _sc *= 1 - cum_val(_cand_local_dists[:], _cand_local_dists[_rid])
+            _scores.append(_sc)
+            # append this only spot
+            _sel_scores.append(_sc)
+            _sel_hzxys.append(_hzxys)
+
+        elif len(np.shape(np.array(_hzxys))) == 2:
+            _scs = []
+            for _sid in range(len(_hzxys)):
+                if np.shape(ref_ints) == 2:
+                    _sc = cum_val(ref_ints[:,_rid], _cand_ints[_rid][_sid])
+                else:
+                    _sc = cum_val(ref_ints[:], _cand_ints[_rid][_sid])
+                # center dist
+                if use_center:
+                    if np.shape(_cand_ct_dists) == 2:
+                        _sc *= 1 - cum_val(ref_ct_dists[:,_rid], _cand_ct_dists[_rid][_sid])
+                    else:
+                        _sc *= 1 - cum_val(ref_ct_dists[:], _cand_ct_dists[_rid][_sid])
+                # local dist
+                if use_local:
+                    if np.shape(_cand_local_dists) == 2:
+                        _sc *= 1 - cum_val(ref_local_dists[:,_rid], _cand_local_dists[_rid][_sid])
+                    else:
+                        _sc *= 1 - cum_val(ref_local_dists[:], _cand_local_dists[_rid][_sid])
+                _scs.append(_sc)
+            _scores.append(np.array(_scs))
+            # append this only spot
+            _sel_scores.append(np.nanmax(_scs))
+            _sel_hzxys.append(_hzxys[np.argmax(_scs)])
+    
+    return np.array(_sel_hzxys), np.array(_sel_scores), _scores
+
+
+def EM_pick_scores_in_population(cand_hzxys_list, cand_ids=None, init_hzxys_list=None, 
+                                 ref_ct_dists=None, ref_local_dists=None, ref_ints=None, 
+                                 ref_hzxys_list=None, ref_ids=None, 
+                                 num_threads=12,
+                                 neighbor_len=5, use_center=True, use_local=True,
+                                 pix_size=[200,106,106], collapse_ref_regions=True,
+                                 verbose=True):
+    """Function for E-step within EM spot picking"""
+    from tqdm.notebook import tqdm
+    if verbose:
+        print(f"- start EM picking.")
+        #print(f"- EM pick spots, \
+        #E: estimate with currently picked reference values. \
+        #M: pick spots that maximize overall scores")
+    # initialize if not give
+    if init_hzxys_list is None:
+        init_hzxys_list = Pick_spots_by_intensity(cand_hzxys_list, pix_size=pix_size)
+    # candidate ids
+    if cand_ids is None:
+        cand_ids = np.arange(len(cand_hzxys_list[0]))
+    # reference hzxys
+    if ref_hzxys_list is None:
+        ref_hzxys_list = init_hzxys_list
+    if ref_ids is None:
+        ref_ids = cand_ids
+    
+    # reference distributions
+    if (ref_ints is None) \
+        or (use_center and ref_ct_dists is None) \
+        or (use_local and ref_local_dists is None):
+        if verbose:
+            print(f"-- generate reference from initial picked spots.")
+        # generate references according to this dataset
+        ref_ct_dists, ref_local_dists, ref_ints = generate_reference_from_population(
+                init_hzxys_list, cand_ids, ref_hzxys_list, ref_ids, 
+                num_threads=num_threads,
+                neighbor_len=neighbor_len, collapse_regions=collapse_ref_regions,
+            )
+    else:
+        if verbose:
+            print(f"-- directly use given reference.")
+    
+    all_scores_list = []
+    sel_scores_list = []
+    sel_hzxys_list = []
+    
+    if isinstance(num_threads, int) and num_threads > 1:
+        if verbose:
+            _mp_time = time.time()
+            print(f"-- multiprocessing maximization step with {num_threads} threads", end=', ')
+        import multiprocessing as mp
+        _args = [(_cand_hzxys, cand_ids, _ref_hzxys, ref_ids, 
+                  ref_ct_dists, ref_local_dists, ref_ints,
+                  neighbor_len, use_center, use_local)
+                 for _cand_hzxys, _ref_hzxys in zip(cand_hzxys_list, ref_hzxys_list)]
+        with mp.Pool(num_threads) as ref_pool:
+            ref_results = ref_pool.starmap(_maximize_score_spot_picking_of_chr, _args)
+            ref_pool.close()
+            ref_pool.join()
+            ref_pool.terminate()
+        # extract results
+        sel_hzxys_list = [_r[0] for _r in ref_results]
+        sel_scores_list = [_r[1] for _r in ref_results]
+        all_scores_list = [_r[2] for _r in ref_results]     
+        if verbose:
+            print(f"in {time.time()-_mp_time:.3f}s")
+    else:
+        if verbose:
+            _ss_time = time.time()
+            print(f"-- maximization step", end=', ')
+        # loop through chromosomes
+        for _cand_hzxys, _init_hzxys, _ref_hzxys in tqdm(zip(cand_hzxys_list, init_hzxys_list, ref_hzxys_list)):
+            if use_center:
+                _cand_ct_dists = chromosome_center_dists(_cand_hzxys, np.nanmean(_ref_hzxys,axis=0))
+            if use_local:
+                _cand_local_dists = local_center_dists(_cand_hzxys, cand_ids, 
+                                                       _ref_hzxys, ref_ids, 
+                                                       neighbor_len=neighbor_len)
+            _cand_ints = extract_intensities(_cand_hzxys)
+            # convert to scores
+            _scores = []
+            _sel_scores = []
+            _sel_hzxys = []
+            for _rid, _hzxys in enumerate(_cand_hzxys):
+                if len(_hzxys) == 0:
+                    _scores.append([])
+                    # append a NAN to bad region
+                    _sel_scores.append(np.ones(4)*np.nan)
+                    _sel_hzxys.append(np.ones(4)*np.nan)
+
+                elif len(np.shape(np.array(_hzxys))) == 1:
+                    if np.shape(ref_ints) == 2:
+                        _sc = cum_val(ref_ints[:,_rid], _cand_ints[_rid])
+                    else:
+                        _sc = cum_val(ref_ints[:], _cand_ints[_rid])
+                    # center dist
+                    if use_center:
+                        if np.shape(_cand_ct_dists) == 2:
+                            _sc *= 1 - cum_val(_cand_ct_dists[:,_rid], _cand_ct_dists[_rid])
+                        else:
+                            _sc *= 1 - cum_val(_cand_ct_dists[:], _cand_ct_dists[_rid])
+                    # local dist
+                    if use_local:
+                        if np.shape(_cand_local_dists) == 2:
+                            _sc *= 1 - cum_val(_cand_local_dists[:,_rid], _cand_local_dists[_rid])
+                        else:
+                            _sc *= 1 - cum_val(_cand_local_dists[:], _cand_local_dists[_rid])
+                    _scores.append(_sc)
+                    # append this only spot
+                    _sel_scores.append(_sc)
+                    _sel_hzxys.append(_hzxys)
+
+                elif len(np.shape(np.array(_hzxys))) == 2:
+                    _scs = []
+                    for _sid in range(len(_hzxys)):
+                        if np.shape(ref_ints) == 2:
+                            _sc = cum_val(ref_ints[:,_rid], _cand_ints[_rid][_sid])
+                        else:
+                            _sc = cum_val(ref_ints[:], _cand_ints[_rid][_sid])
+                        # center dist
+                        if use_center:
+                            if np.shape(_cand_ct_dists) == 2:
+                                _sc *= 1 - cum_val(ref_ct_dists[:,_rid], _cand_ct_dists[_rid][_sid])
+                            else:
+                                _sc *= 1 - cum_val(ref_ct_dists[:], _cand_ct_dists[_rid][_sid])
+                        # local dist
+                        if use_local:
+                            if np.shape(_cand_local_dists) == 2:
+                                _sc *= 1 - cum_val(ref_local_dists[:,_rid], _cand_local_dists[_rid][_sid])
+                            else:
+                                _sc *= 1 - cum_val(ref_local_dists[:], _cand_local_dists[_rid][_sid])
+                        _scs.append(_sc)
+                    _scores.append(np.array(_scs))
+                    # append this only spot
+                    _sel_scores.append(np.nanmax(_scs))
+                    _sel_hzxys.append(_hzxys[np.argmax(_scs)])
+
+            all_scores_list.append(_scores)
+            sel_scores_list.append(np.array(_sel_scores))
+            sel_hzxys_list.append(np.array(_sel_hzxys))
+        if verbose:
+            print(f"in {time.time()-_ss_time:.3f}s")
+    return sel_hzxys_list, sel_scores_list, all_scores_list
+                
+def evaluate_differences(old_hzxys_list, new_hzxys_list):
+    """Function to evaluate similarity between two picked sets"""
+    diffs = np.concatenate([np.linalg.norm(_ohzxys[:,-3:]-_nhzxys[:,-3:], axis=1) 
+                            for _ohzxys,_nhzxys in zip(old_hzxys_list, new_hzxys_list)])
+    return np.sum(diffs < 0.01) / np.sum(np.isnan(diffs)==False)
+
+
+def screen_RNA_based_on_refs(rna_cand_hzxys_list, rna_region_ids,
+                             ref_hzxys, ref_ids, dist_th=800, keep_no_ref=True):
+    """Function to screen RNA spots based on their proximity to reference spots.
+    Inputs:
+        """
+    if len(rna_cand_hzxys_list) != len(rna_region_ids):
+        raise IndexError(f"length of rna_cand_hzxys_list should match rna_region_ids")
+    if len(ref_hzxys) != len(ref_ids):
+        raise IndexError(f"length of ref_hzxys should match ref_ids")
+    for _rid in rna_region_ids:
+        if _rid not in ref_ids:
+            raise ValueError(f"RNA region id: {_rid} doesn't exist in reference ids!")
+    _sel_cand_list = []
+    for _id, _cand_hzxys in zip(rna_region_ids, rna_cand_hzxys_list):
+        if len(_cand_hzxys) == 0:
+            _sel_cand_list.append([])
+        else:
+            _ind = list(ref_ids).index(_id)
+            if np.isnan(ref_hzxys[_ind, -3:]).any():
+                if keep_no_ref:
+                    _sel_cand_list.append(_cand_hzxys)
+                else:
+                    _sel_cand_list.append([])
+            else:
+                _dists = np.linalg.norm(_cand_hzxys[:,-3:] - ref_hzxys[_ind, -3:], axis=1)
+                if np.sum(_dists <= dist_th) == 0:
+                    _sel_cand_list.append([])
+                else:
+                    _sel_cand_list.append(np.array(_cand_hzxys)[_dists <= dist_th,:])
+    return _sel_cand_list

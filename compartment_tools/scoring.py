@@ -224,6 +224,7 @@ def convert_spots_to_cloud(spots, comp_dict, im_radius=30,
 def spot_cloud_scores(spots, ref_spots, comp_dict, 
                       spot_variance=None, normalize_spots=True,
                       distance_zxy=_distance_zxy, exclude_self=True, 
+                      convert_to_nm=True,
                       exclude_dict={}, dist_th=0.001):
     from ..spot_tools.translating import normalize_center_spots
     ## check inputs
@@ -242,15 +243,17 @@ def spot_cloud_scores(spots, ref_spots, comp_dict,
     if normalize_spots:
         _ref_spots = normalize_center_spots(ref_spots, 
                                             distance_zxy=distance_zxy,
-                                            center=True, pca_align=False,
+                                            center_zero=True, pca_align=False,
                                             scale_variance=False,scaling=1.
                                             )
         # adjust zxys
-        _zxys = spots[:,1:4] - np.nanmean(ref_spots[:,1:4], axis=0)
-        _zxys = _zxys * np.array(distance_zxy) / np.min(distance_zxy)
+        _zxys = _spots[:,1:4] - np.nanmean(ref_spots[:,1:4], axis=0)
+        if convert_to_nm:
+            _zxys = _zxys * np.array(distance_zxy) / np.min(distance_zxy)
     else:
         _ref_spots = np.array(ref_spots).copy()
         _zxys = spots[:,1:4]
+    #print(_zxys)
     _score_dict = {}
     for _key, _inds in comp_dict.items():
         # extract indices
@@ -278,6 +281,7 @@ def spot_cloud_scores(spots, ref_spots, comp_dict,
                 _scores += _gpdfs
         # append
         _score_dict[_key] = _scores
+
     return _score_dict
 
 # batch convert spots to clouds
@@ -344,6 +348,8 @@ def calculate_gaussian_density(centers, ref_center, sigma,
     return g_pdf
 
 
+
+
 def winsorize(scores, l_per=5, u_per=5, normalize=False):
     _scores = np.array(scores, dtype=np.float)
     _llim = scoreatpercentile(_scores, l_per)
@@ -353,3 +359,34 @@ def winsorize(scores, l_per=5, u_per=5, normalize=False):
     if normalize:
         _scores = (_scores - np.nanmin(_scores)) / (np.nanmax(_scores) - np.nanmin(_scores))
     return _scores
+
+def spot_density_scores(hzxys, ref_hzxys, comp_dict, stds=[100,100,100],
+                        exclude_self=True, self_th=0.001,):
+    """Function to calculate spot scores"""
+    
+    _hzxys = np.array(hzxys)[:,:4]
+    _ref_hzxys = np.array(ref_hzxys)[:,:4]
+    _stds = np.array(stds)[-3:]
+    
+    # initialize
+    _score_dict = {_k:np.zeros(len(_hzxys)) for _k in comp_dict}
+    # loop through keys
+    for _k, _inds in comp_dict.items():
+        _sel_ref_hzxys = _ref_hzxys[np.array(_inds, dtype=np.int)]
+        # add gaussians
+        for _i, _hzxy in enumerate(_hzxys):
+            # skip if this spot is nan
+            if np.isnan(hzxys[_i]).any():
+                _score_dict[_k][_i] = np.nan
+                continue
+            else:
+                _zxy = _hzxy[-3:].copy()
+                _r_zxys = _sel_ref_hzxys[(np.isnan(_sel_ref_hzxys).sum(1)==0), -3:].copy()
+                if exclude_self:
+                    _dists = np.linalg.norm(_r_zxys-_zxy, axis=1)
+                    _r_zxys = _r_zxys[_dists > self_th]
+                _dens = calculate_gaussian_density(_r_zxys, _zxy, _stds)
+                # append
+                _score_dict[_k][_i] += np.sum(_dens)
+
+    return _score_dict
