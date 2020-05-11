@@ -8,7 +8,7 @@ def convert_pick_RNA_spots(rna_cell, dna_cell,
                            intensity_th=1,
                            tss_ref='EM_picked_gene_spots', tss_dist_th=500., 
                            dna_ref='EM_picked_unique_spots', dna_dist_th=500., 
-                           chr_ref_attr='chrom_coords', chr_dist_th=2000.,
+                           chr_ref_attr='chrom_coords', chr_dist_th=np.inf,
                            add_attr=True, attr_name='ts_RNA_spots', verbose=False):
     if rotation_mat is None:
         rotation_mat = np.load(os.path.join(rna_cell.experiment_folder, 'rotation.npy'))
@@ -30,6 +30,7 @@ def convert_pick_RNA_spots(rna_cell, dna_cell,
             
             # check if there are any candidate spots
             if len(_spots) == 0:
+                _cands.append([])
                 continue
             else:
                 _cand_spots = _spots[_spots[:,0] >= intensity_th]
@@ -44,7 +45,8 @@ def convert_pick_RNA_spots(rna_cell, dna_cell,
                                                     rotation_mat=rotation_mat, 
                                                     rotation_order=rotation_order, verbose=False)
                                         
-                _cands.append(_ts_spots)                                                    
+                _cands.append(_ts_spots)  
+                                                                   
                 ## now find ref_targets
                 # if no ref_dna, check distance to center
                 if 'DNA_id' not in _info or _k not in dna_cell.gene_dic:
@@ -59,15 +61,15 @@ def convert_pick_RNA_spots(rna_cell, dna_cell,
                     _keep_flags = np.zeros(len(_ts_spots),dtype=np.bool)
                     if not np.isnan(_tss_ref_spot).any():
                         _keep_flags += (np.linalg.norm((_ts_spots - _tss_ref_spot)[:,1:4] \
-                                                * _distance_zxy, axis=1) <= tss_dist_th)
+                                                * _distance_zxy, axis=1) < tss_dist_th)
                         #print('tss', sum(_keep_flags))
                     if not np.isnan(_dna_ref_spot).any():
                         _keep_flags += (np.linalg.norm((_ts_spots - _dna_ref_spot)[:,1:4] \
-                                                * _distance_zxy, axis=1) <= dna_dist_th)
+                                                * _distance_zxy, axis=1) < dna_dist_th)
                         #print('dna', sum(_keep_flags))
                     if np.isnan(_tss_ref_spot).any() and np.isnan(_dna_ref_spot).any():
                         _keep_flags += (np.linalg.norm((_ts_spots - _dna_ref_spot)[:,1:4] \
-                                                * _distance_zxy, axis=1) <= chr_dist_th)
+                                                * _distance_zxy, axis=1) < chr_dist_th)
                         #print('chr', sum(_keep_flags))
                     _kept_spots = _ts_spots[_keep_flags]
                 

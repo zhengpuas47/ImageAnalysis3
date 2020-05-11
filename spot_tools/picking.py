@@ -1623,13 +1623,16 @@ def local_center_dists(cand_hzxys, cand_ids, ref_hzxys,
         else:
             _hzxys = np.array(_hzxys)
             # get reference zxys
-            _nc_hzxys = []
+            #_nc_hzxys = []
             _start,_end = max(_id-neighbor_len, min(ref_ids)), min(_id+neighbor_len+1, max(ref_ids)+1)
-            for _ri in range(_start, _end):
-                if _ri in ref_ids:
-                    _nc_hzxys.append(ref_hzxys[list(ref_ids).index(_ri)])
+            # select inds
+            _sel_local_inds = np.intersect1d(np.arange(_start,_end), ref_ids)
+            _nc_ct = np.nanmean(np.array(ref_hzxys)[_sel_local_inds], axis=0)
+            #for _ri in range(_start, _end):
+            #    if _ri in ref_ids:
+            #        _nc_hzxys.append(ref_hzxys[list(ref_ids).index(_ri)])
             # get neighboring center
-            _nc_ct = np.nanmean(_nc_hzxys, axis=0)
+            #_nc_ct = np.nanmean(_nc_hzxys, axis=0)
             # calculate distances
             if len(np.shape(_hzxys)) == 1:
                 _dist = np.linalg.norm(_hzxys[-3:]-_nc_ct[-3:])
@@ -1786,23 +1789,23 @@ def _maximize_score_spot_picking_of_chr(_cand_hzxys, cand_ids, _ref_hzxys, ref_i
         if len(_hzxys) == 0:
             _scores.append([])
             # append a NAN to bad region
-            _sel_scores.append(np.ones(4)*np.nan)
+            _sel_scores.append(np.nan)
             _sel_hzxys.append(np.ones(4)*np.nan)
 
         elif len(np.shape(np.array(_hzxys))) == 1:
-            if np.shape(ref_ints) == 2:
+            if len(np.shape(ref_ints)) == 2:
                 _sc = cum_val(ref_ints[:,_rid], _cand_ints[_rid])
             else:
                 _sc = cum_val(ref_ints[:], _cand_ints[_rid])
             # center dist
             if use_center:
-                if np.shape(_cand_ct_dists) == 2:
+                if len(np.shape(_cand_ct_dists)) == 2:
                     _sc *= 1 - cum_val(_cand_ct_dists[:,_rid], _cand_ct_dists[_rid])
                 else:
                     _sc *= 1 - cum_val(_cand_ct_dists[:], _cand_ct_dists[_rid])
             # local dist
             if use_local:
-                if np.shape(_cand_local_dists) == 2:
+                if len(np.shape(_cand_local_dists)) == 2:
                     _sc *= 1 - cum_val(_cand_local_dists[:,_rid], _cand_local_dists[_rid])
                 else:
                     _sc *= 1 - cum_val(_cand_local_dists[:], _cand_local_dists[_rid])
@@ -1814,19 +1817,19 @@ def _maximize_score_spot_picking_of_chr(_cand_hzxys, cand_ids, _ref_hzxys, ref_i
         elif len(np.shape(np.array(_hzxys))) == 2:
             _scs = []
             for _sid in range(len(_hzxys)):
-                if np.shape(ref_ints) == 2:
+                if len(np.shape(ref_ints)) == 2:
                     _sc = cum_val(ref_ints[:,_rid], _cand_ints[_rid][_sid])
                 else:
                     _sc = cum_val(ref_ints[:], _cand_ints[_rid][_sid])
                 # center dist
                 if use_center:
-                    if np.shape(_cand_ct_dists) == 2:
+                    if len(np.shape(ref_ct_dists)) == 2:
                         _sc *= 1 - cum_val(ref_ct_dists[:,_rid], _cand_ct_dists[_rid][_sid])
                     else:
                         _sc *= 1 - cum_val(ref_ct_dists[:], _cand_ct_dists[_rid][_sid])
                 # local dist
                 if use_local:
-                    if np.shape(_cand_local_dists) == 2:
+                    if len(np.shape(ref_local_dists)) == 2:
                         _sc *= 1 - cum_val(ref_local_dists[:,_rid], _cand_local_dists[_rid][_sid])
                     else:
                         _sc *= 1 - cum_val(ref_local_dists[:], _cand_local_dists[_rid][_sid])
@@ -1991,7 +1994,7 @@ def evaluate_differences(old_hzxys_list, new_hzxys_list):
 
 
 def screen_RNA_based_on_refs(rna_cand_hzxys_list, rna_region_ids,
-                             ref_hzxys, ref_ids, dist_th=800, keep_no_ref=True):
+                             ref_hzxys, ref_ids, dist_th=500, keep_no_ref=False):
     """Function to screen RNA spots based on their proximity to reference spots.
     Inputs:
         """
