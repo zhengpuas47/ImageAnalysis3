@@ -775,17 +775,18 @@ def assign_spots_to_chromosomes(spots, chrom_coords, distance_zxy=_distance_zxy,
     """
     # input
     _spots = np.array(spots)
-    _zxys = _spots[:,1:4] * np.array(distance_zxy) 
     _chrom_zxys = np.array(chrom_coords) * np.array(distance_zxy)
-     
-    
-    # calculate distance
-    from scipy.spatial.distance import cdist
-    _dists = cdist(_zxys, _chrom_zxys) # distance from spots to chromosome centers
-    _assign_flags = np.argmin(_dists, axis=1) # which chromosomes to be assigned
-    
-    # assign spots
-    _spot_list = [_spots[np.where(_assign_flags==_i)] for _i, _chrom_zxy in enumerate(_chrom_zxys)]
+    if len(_spots) == 0:
+        return [[] for _i, _chrom_zxy in enumerate(_chrom_zxys)]
+    else:
+        _zxys = _spots[:,1:4] * np.array(distance_zxy) 
+        # calculate distance
+        from scipy.spatial.distance import cdist
+        _dists = cdist(_zxys, _chrom_zxys) # distance from spots to chromosome centers
+        _assign_flags = np.argmin(_dists, axis=1) # which chromosomes to be assigned
+        
+        # assign spots
+        _spot_list = [_spots[np.where(_assign_flags==_i)] for _i, _chrom_zxy in enumerate(_chrom_zxys)]
     
     return _spot_list
 
