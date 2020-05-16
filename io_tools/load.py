@@ -578,7 +578,7 @@ def load_correction_profile(corr_type, corr_channels=_corr_channels,
 
     return _pf 
 
-def find_image_background(im, dtype=_image_dtype, bin_size=10, make_plot=False):
+def find_image_background(im, dtype=_image_dtype, bin_size=10, make_plot=False, max_iter=10):
     """Function to calculate image background
     Inputs: 
         im: image, np.ndarray,
@@ -599,13 +599,20 @@ def find_image_background(im, dtype=_image_dtype, bin_size=10, make_plot=False):
     _peaks = []
     # gradually lower height to find at least one peak
     _height = np.size(im)/50
+    _iter = 0
     while len(_peaks) == 0:
         _height = _height / 2 
         _peaks, _params = scipy.signal.find_peaks(_cts, height=_height)
+        _iter += 1
+        if _iter > max_iter:
+            break
     # select highest peak
-    _sel_peak = _peaks[np.argmax(_params['peak_heights'])]
-    # define background as this value
-    _background = (_bins[_sel_peak] + _bins[_sel_peak+1]) / 2
+    if _iter > max_iter:
+        _background = np.nanmedian(im)
+    else:
+        _sel_peak = _peaks[np.argmax(_params['peak_heights'])]
+        # define background as this value
+        _background = (_bins[_sel_peak] + _bins[_sel_peak+1]) / 2
     # plot histogram if necessary
     if make_plot:
         import matplotlib.pyplot as plt
