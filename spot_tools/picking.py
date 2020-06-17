@@ -1613,7 +1613,6 @@ def local_center_dists(cand_hzxys, cand_ids, ref_hzxys,
         ref_ids == np.arange(len(ref_hzxys))
     if len(ref_hzxys) != len(ref_ids):
         raise IndexError(f"ref_hzxys should have same length as ref_ids")
-    
     _nc_dists = []
     # loop through zxys
     for _hzxys, _id in zip(cand_hzxys, cand_ids):
@@ -1626,7 +1625,10 @@ def local_center_dists(cand_hzxys, cand_ids, ref_hzxys,
             #_nc_hzxys = []
             _start,_end = max(_id-neighbor_len, min(ref_ids)), min(_id+neighbor_len+1, max(ref_ids)+1)
             # select inds
-            _sel_local_inds = np.intersect1d(np.arange(_start,_end), ref_ids)
+            _sel_local_ids = np.concatenate([np.arange(_start, _id), np.arange(_id+1, _end)])
+            _sel_local_ids = np.intersect1d(_sel_local_ids, ref_ids)
+            # conert into indices
+            _sel_local_inds = [list(ref_ids).index(_id) for _id in _sel_local_ids]
             _nc_ct = np.nanmean(np.array(ref_hzxys)[_sel_local_inds], axis=0)
             #for _ri in range(_start, _end):
             #    if _ri in ref_ids:
