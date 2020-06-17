@@ -3314,3 +3314,24 @@ def remove_cap(im, cap_th_per=99.5, fill_nan=True):
         else:
             _corr_im[_corr_im > _cap_th] = _cap_th
     return _corr_im
+
+
+def reconstruct_image(spots, image_size, use_intensity=False, 
+                      use_stds=True, given_stds=np.array([1,1,1]),
+                      ):
+    # reconstruct images
+    _im = np.zeros(image_size)
+
+    for _spot in spots:
+        if use_intensity:
+            _h = _spot[0]
+        else:
+            _h = 1
+        if use_stds:
+            _stds = _spot[5:8]
+        else:
+            _stds = given_stds
+            
+        _im = add_source(_im, _spot[1:4], h=_h, sig=_stds, )
+    
+    return _im

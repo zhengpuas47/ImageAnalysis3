@@ -201,6 +201,7 @@ def fit_fov_image(im, channel, seeds=None, max_num_seeds=500,
     _fitter.repeatfit()
     # get spots
     _spots = np.array(_fitter.ps)
+    _spots = _spots[np.sum(np.isnan(_spots),axis=1)==0] # remove NaNs
     # normalize intensity if applicable
     if normalize_backgroud and not normalize_local:
         from ..io_tools.load import find_image_background 

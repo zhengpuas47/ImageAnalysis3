@@ -88,6 +88,9 @@ class countTable():
             start = time.time()
         self.create_matrix()
         pos,cts = np.unique(self.ints,return_counts=True)
+        # convert into integer, if length of pos > max(np.int32), python convert it to float by default, which cause error in line 109
+        pos = np.array(pos, dtype=np.int64)
+        cts = np.array(cts, dtype=np.int64)
         countTable_values = np.array(np.clip(cts, 0, 2**16-1),dtype='uint16')#clip and recast as uint16
         if verbose:
             end=time.time()

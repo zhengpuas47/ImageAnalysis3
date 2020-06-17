@@ -76,8 +76,24 @@ def Batch_Extract_Sequences(library_folder, genome_folder,
         if not flanking:
             flanking=0
         # read chromosome seq
-        _, _wholechr = ld.fastaread(genome_folder+os.sep+_chrom+'.fa')
-        _wholechr = _wholechr[0]
+        # load all fa files;
+        _all_files = os.listdir(genome_folder)
+        _all_fasta_files = [_fl for _fl in _all_files 
+                            if _fl[-3:]=='.fa' or _fl[-6:]=='.fasta']
+        print(_all_fasta_files)
+        _wholechr = None
+        for _filename in _all_fasta_files:
+            _ref_names, _ref_seqs = ld.fastaread(os.path.join(genome_folder, _filename))
+            for _n, _seq in zip(_ref_names, _ref_seqs):
+                if _n == _chrom:
+                    print(_filename)
+                    _wholechr = _seq
+                    break
+            # stop searching if chromosome already exists    
+            if _wholechr is not None:
+                break
+        if _wholechr is None:
+            raise ValueError(f"Chromosome: {_chrom} doesn't exist in genome folder: {genome_folder}.")
         # number of regions
         _n_reg = int(np.ceil( float(_stop+flanking - (_start-flanking)) / resolution))
         # extract all required seq
