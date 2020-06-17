@@ -219,7 +219,7 @@ def chromosome_structure_3d_rendering(spots, ax3d=None, cmap='Spectral',
     else:
         _zxy = _spots[:,1:4] * distance_zxy[np.newaxis,:]
     _n_zxy = normalize_center_spots(_zxy, distance_zxy=distance_zxy,
-                                    center=center, scale_variance=False, 
+                                    center_zero=center, scale_variance=False, 
                                     pca_align=pca_align, scaling=1)
     _valid_inds = (np.isnan(_n_zxy).sum(1) == 0)
     # set dimension
