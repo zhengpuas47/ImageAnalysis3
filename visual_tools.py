@@ -3,6 +3,7 @@ import numpy as np
 import pickle as pickle
 import matplotlib.pylab as plt
 from mpl_toolkits.axes_grid1 import ImageGrid
+from matplotlib import gridspec # this is the replacement for ImageGrid, contributed by Shiwei Liu
 import scipy
 from scipy.signal import fftconvolve
 from scipy.ndimage.filters import maximum_filter,minimum_filter,median_filter,gaussian_filter
@@ -555,10 +556,14 @@ class imshow_mark_3d_v2:
         self.im_z = self.im_z[indz[indz<im_z_len],...]
         #setup plots
         if fig is None:
-            self.f=plt.figure()
+            self.f=plt.figure(figsize=(4,8))
         else:
             self.f=fig
-        self.ax1,self.ax2 = ImageGrid(self.f, 111, nrows_ncols=(2, 1), axes_pad=0.1)
+        #self.ax1,self.ax2 = ImageGrid(self.f, 111, nrows_ncols=(2, 1), axes_pad=0.1)
+        gs = gridspec.GridSpec(2,1, figure=self.f,  hspace=-0.25)
+        self.ax1 = self.f.add_subplot(gs[0], aspect='equal')
+        self.ax2 = self.f.add_subplot(gs[1], sharex=self.ax1, aspect='equal')
+
         self.lxy,=self.ax1.plot(self.draw_x, self.draw_y, 'o',
                               markersize=12,markeredgewidth=1,markeredgecolor='y',markerfacecolor='None')
         self.lz,=self.ax2.plot(self.draw_x, self.draw_z, 'o',

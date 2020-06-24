@@ -255,7 +255,7 @@ def save_image_to_fov_file(filename, ims, data_type, region_ids,
                 _grp['ims'][_index] = _im
                 # warpping image flag
                 if not warp_image:
-                    _grp['flags'][_index] = 1
+                    _grp['flags'][_index] = 1 # 1 as markers of un-wrapped iamges
                 else:
                     _grp['flags'][_index] = 2 # 2 as markers of warpped images
                 _updated_ims.append(_id)
@@ -274,7 +274,7 @@ def save_image_to_fov_file(filename, ims, data_type, region_ids,
 
 # load image from fov file
 def load_image_from_fov_file(filename, data_type, region_ids,
-                             image_dtype=_image_dtype, verbose=True):
+                             image_dtype=_image_dtype, load_drift=False, verbose=True):
     """Function to load images from fov class file
     Inputs:
         filename: fov class hdf5 saving filename, string of file path
@@ -303,6 +303,8 @@ def load_image_from_fov_file(filename, data_type, region_ids,
     ## start loading
     _ims = []
     _flags = []
+    if load_drift:
+        _drifts = []
     with h5py.File(filename, "a", libver='latest') as _f:
         # get the group
         _grp = _f[data_type]
@@ -312,10 +314,14 @@ def load_image_from_fov_file(filename, data_type, region_ids,
             # extract images and flag
             _ims.append(_grp['ims'][_index])
             _flags.append(_grp['flags'][_index])
+            if load_drift:
+                _drifts.append(_grp['drifts'][_index])
     if verbose:
         print(f"in {time.time()-_load_start:.3f}s.")
-        
-    return _ims, _flags
+    if load_drift:
+        return _ims, _flags, _drifts
+    else:
+        return _ims, _flags
 
 # save image to fov file
 def save_spots_to_fov_file(filename, spot_list, data_type, region_ids, 

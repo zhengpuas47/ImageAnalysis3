@@ -703,7 +703,7 @@ class pb_reports_class:
         self.save_pbr()
         end = time.time()
         print("Time(s): "+str(end-start))
-    def single_plot(self,sz_bin=5000,region = 0,save_file_png=None,show=True):
+    def single_plot(self,sz_bin=1000,region = 0,save_file_png=None,show=True):
         "Plot figure with distribution of probes"
         import matplotlib.pyplot as plt
         indexes_keep=[self.pb_reports_keep[key]['pb_index'] for key in list(self.pb_reports_keep.keys()) 

@@ -185,9 +185,13 @@ class Field_of_View():
         # param for spot_finding
         if 'spot_seeding_th' not in self.shared_parameters:
             self.shared_parameters['spot_seeding_th'] = _spot_seeding_th
+        if 'normalize_intensity_backgroud' not in self.shared_parameters:
+            self.shared_parameters['normalize_intensity_backgroud'] = True
         if 'normalize_intensity_local' not in self.shared_parameters:
-            self.shared_parameters['normalize_intensity_local'] = True
+            self.shared_parameters['normalize_intensity_local'] = False
     
+
+
         ## load experimental info
         if _load_references:
             if '_color_filename' not in _color_info_kwargs:
@@ -850,6 +854,7 @@ class Field_of_View():
             'init_sigma': self.shared_parameters['sigma_zxy'],
             'min_dynamic_seeds': self.shared_parameters['min_num_seeds'],
             'remove_hot_pixel': self.shared_parameters['corr_hot_pixel'],
+            'normalize_backgroud': self.shared_parameters['normalize_intensity_backgroud'],
             'normalize_local': self.shared_parameters['normalize_intensity_local'],
         })
         
@@ -893,6 +898,10 @@ class Field_of_View():
                 # Case 1: if trying to use existing images 
                 if _use_exist_images:
                     _exist_spots, _exist_drifts, _exist_flags, _exist_ims =  self._check_exist_data(_data_type, _reg_ids, _check_im=True, _verbose=_verbose)
+                    # take overwrite into consideration
+                    _exist_spots = _exist_spots & (not _overwrite_spot)
+                    _exist_ims = _exist_ims & (not _overwrite_image)
+                    # select channels based on exist spots and ims
                     _sel_channels = [_ch for _ch, _es, _ei in zip(_sel_channels, _exist_spots, _exist_ims)
                                     if not _es or not _ei] # if spot or im not exist, process sel_channel
                     _reg_ids = [_id for _id, _es, _ei in zip(_reg_ids, _exist_spots, _exist_ims)
@@ -900,6 +909,9 @@ class Field_of_View():
                 # Case 2: image saving is not required
                 else:
                     _exist_spots, _exist_drifts, _exist_flags =  self._check_exist_data(_data_type, _reg_ids, _check_im=False, _verbose=_verbose)
+                    # take overwrite into consideration
+                    _exist_spots = _exist_spots & (not _overwrite_spot)
+                    # select channels based on exist spots and ims
                     _sel_channels = [_ch for _ch, _es in zip(_sel_channels, _exist_spots)
                                     if not _es] # if spot not exist, process sel_channel
                     _reg_ids = [_id for _id, _es in zip(_reg_ids, _exist_spots)

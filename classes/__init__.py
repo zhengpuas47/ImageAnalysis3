@@ -25,9 +25,9 @@ _allowed_kwds = {'combo': 'c',
                 'rna-unique':'r', 
                 'rna': 'r', # long term used label, because "-" is creating issue in python
                 'gene':'g'}
-_max_num_seeds = 300 
+_max_num_seeds = 500 
 _min_num_seeds = 50 
-_spot_seeding_th = 300
+_spot_seeding_th = 200
 from . import batch_functions
 from . import field_of_view
 

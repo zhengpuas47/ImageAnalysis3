@@ -115,7 +115,7 @@ def get_seeds(im, max_num_seeds=None, th_seed=150,
             break
     # print current th
     if verbose and use_dynamic_th:
-        print(f"->{_current_seed_th:.2f}")
+        print(f"->{_current_seed_th:.2f}", end=', ')
     # hot pixels
     if remove_hot_pixel:
         _,_x,_y = _coords
