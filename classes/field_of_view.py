@@ -182,6 +182,11 @@ class Field_of_View():
             self.shared_parameters['drift_sequential'] = False 
         if 'good_drift_th' not in self.shared_parameters:
             self.shared_parameters['good_drift_th'] = 1. 
+        if 'drift_precision_fold' not in self.shared_parameters:
+            self.shared_parameters['drift_precision_fold'] = 100 # 0.01 pixel precision
+        if 'drift_correction_args' not in self.shared_parameters:
+            self.shared_parameters['drift_correction_args'] = {} # use defaults for drift
+            
         # param for spot_finding
         if 'spot_seeding_th' not in self.shared_parameters:
             self.shared_parameters['spot_seeding_th'] = _spot_seeding_th
@@ -189,7 +194,10 @@ class Field_of_View():
             self.shared_parameters['normalize_intensity_backgroud'] = True
         if 'normalize_intensity_local' not in self.shared_parameters:
             self.shared_parameters['normalize_intensity_local'] = False
-    
+
+        # parameter for saving
+        if 'empty_value' not in self.shared_parameters:
+            self.shared_parameters['empty_value'] = 0
 
 
         ## load experimental info
@@ -434,7 +442,7 @@ class Field_of_View():
                     _old_size=len(_grp['spots'])
                 # drift
                 if 'drifts' not in _grp:
-                    _drift = _grp.create_dataset('drifts', (_im_shape[0], 3), dtype='f')
+                    _drift = _grp.create_dataset('drifts', (_im_shape[0], len(self.shared_parameters['single_im_size'])), dtype='f')
                     _data_attrs.append('drifts')
                 elif _im_shape[0] != len(_grp['drifts']):
                     _change_size_flag.append('drifts')
@@ -470,7 +478,7 @@ class Field_of_View():
                                   _corr_channels=['750','647','561'],
                                   _chromatic_target='647',
                                   _profile_postfix='.npy', _verbose=True):
-        """Function to laod correction profiles in RAM"""
+        """Function to load correction profiles in RAM"""
         from ..io_tools.load import load_correction_profile
         # determine correction folder
         if _correction_folder is None:
@@ -497,12 +505,94 @@ class Field_of_View():
         # load illumination
         if self.shared_parameters['corr_illumination']:
             bead_channel = str(self.channels[self.bead_channel_index])
-            self.correction_profiles['illumination'] = load_correction_profile('illumination', self.shared_parameters['corr_channels']+[bead_channel], 
+            dapi_channel = str(self.channels[self.dapi_channel_index])
+            self.correction_profiles['illumination'] = load_correction_profile('illumination', self.shared_parameters['corr_channels']+[bead_channel, dapi_channel], 
                                                 self.correction_folder, all_channels=self.channels, 
                                                 im_size=self.shared_parameters['single_im_size'],
                                                 verbose=_verbose)
         return
-    
+    def _save_correction_profile(self, _correction_folder=None, _overwrite=False, _verbose=True):
+        """Function to save loaded correction profiles into hdf5 save file"""
+        
+        with h5py.File(self.save_filename, "a", libver='latest') as _f:
+
+            # create a correction_profile group if necessary
+            if 'corrections' not in _f.keys():
+                _grp = _f.create_group('corrections')
+            else:
+                _grp = _f['corrections']
+            
+            # save illumination
+            if 'illumination' in self.correction_profiles:
+                # loop through existing profiles
+                for _ch, _pf in self.correction_profiles['illumination'].items():
+                    _key = str(_ch)+"_illumination"
+                    if _key not in _grp.keys():
+                        _dat = _grp.create_dataset(_key, 
+                                                    np.array(_pf.shape), 
+                                                    dtype='f')
+                    else:
+                        _dat = _grp[_key]
+                    # save
+                    if (np.array(_dat[:]) != self.shared_parameters['empty_value']).any() and not _overwrite:
+                        if _verbose:
+                            print(f"-- {_key} profile already exist in save_file: {self.save_filename}, skip.")
+                    else:
+                        if _verbose:
+                            print(f"-- saving {_key} profile to save_file: {self.save_filename}.")
+                        if _pf is not None:
+                            _dat[:] = _pf
+
+            # save chromatic
+            if 'chromatic' in self.correction_profiles:
+                # loop through existing profiles
+                for _ch, _pf in self.correction_profiles['chromatic'].items():
+                    _key = str(_ch)+"_chromatic"
+                    if _pf is None:
+                        _shape = (1,)
+                    else:
+                        _shape = np.array(np.array(_pf).shape)
+                    # create dataset
+                    if _key not in _grp.keys():
+                        _dat = _grp.create_dataset(_key, _shape, dtype='f')
+                    else:
+                        _dat = _grp[_key]
+                    # save
+                    if (np.array(_dat[:]) != self.shared_parameters['empty_value']).any() and not _overwrite:
+                        if _verbose:
+                            print(f"-- {_key} profile already exist in save_file: {self.save_filename}, skip.")
+                    else:
+                        if _verbose:
+                            print(f"-- saving {_key} profile to save_file: {self.save_filename}.")
+                        if _pf is not None:
+                            _dat[:] = _pf
+
+            # save chromatic_constants
+            if 'chromatic_constants' in self.correction_profiles:
+                # loop through existing profiles
+                for _ch, _pf in self.correction_profiles['chromatic_constants'].items():
+                    _key = str(_ch)+"_chromatic_constants"
+                    if _pf is None:
+                        _shape = (1,)
+                    else:
+                        _shape = np.array(np.array(_pf).shape)
+                    # create dataset
+                    if _key not in _grp.keys():
+                        _dat = _grp.create_dataset(_key, _shape, dtype='f')
+                    else:
+                        _dat = _grp[_key]
+                    # save
+                    if (np.array(_dat[:]) != self.shared_parameters['empty_value']).any() and not _overwrite:
+                        if _verbose:
+                            print(f"-- {_key} profile already exist in save_file: {self.save_filename}, skip.")
+                    else:
+                        if _verbose:
+                            print(f"-- saving {_key} profile to save_file: {self.save_filename}.")
+                        if _pf is not None:
+                            _dat[:] = _pf                        
+
+
+
     ## load existing drift info
     def _load_drift_file(self , _drift_basename=None, _drift_postfix='_current_cor.pkl', 
                          _sequential_mode=False, _verbose=False):
@@ -527,6 +617,13 @@ class Field_of_View():
             return False
 
     ## generate reference images and reference centers
+
+    def _load_ref_drift_image(self,
+    
+    ):
+        """Function to load reference drift image"""
+        pass
+
     def _prepare_dirft_references(self,
         _ref_filename = None,
         _drift_crops = None,
@@ -810,7 +907,7 @@ class Field_of_View():
             self._load_correction_profiles()
 
         ## load shared drift references
-        if _load_common_reference and (not hasattr(self, 'ref_ims') or not hasattr(self, 'ref_cts')) :
+        if _load_common_reference and not hasattr(self, 'ref_drift_im'):
             self._prepare_dirft_references(_verbose=_verbose)
 
         ## multi-processing for correct_splice_images
@@ -820,7 +917,7 @@ class Field_of_View():
             'all_channels':self.channels,
             'num_buffer_frames':self.shared_parameters['num_buffer_frames'],
             'num_empty_frames':self.shared_parameters['num_empty_frames'],
-            'bead_channel': self.channels[self.bead_channel_index],
+            'drift_channel': self.channels[self.bead_channel_index],
             'correction_folder':self.correction_folder,
             'hot_pixel_corr':self.shared_parameters['corr_hot_pixel'], 
             'z_shift_corr':self.shared_parameters['corr_Z_shift'], 
@@ -838,20 +935,15 @@ class Field_of_View():
         else:
             _correction_args.update({
                 'chromatic_profile':self.correction_profiles['chromatic_constants'],})
+        # required parameters for drift correction
         _drift_args.update({
-            'drift_size':self.shared_parameters['drift_size'],
-            'use_fft': self.shared_parameters['drift_use_fft'],
-            'drift_crops':self.drift_crops,
-            'ref_beads':self.ref_cts,
-            'ref_ims':self.ref_ims,
-            'max_num_seeds' : self.shared_parameters['max_num_seeds'],
-            'min_num_seeds' : self.shared_parameters['min_num_seeds'],
-            'good_drift_th': self.shared_parameters['good_drift_th'],
+            'precision_fold': self.shared_parameters['drift_precision_fold'],
+            'drift_correction_args': self.shared_parameters['drift_correction_args'],
         })
+        # required parameters for fitting
         _fitting_args.update({
             'max_num_seeds' : self.shared_parameters['max_num_seeds'],
             'th_seed': self.shared_parameters['spot_seeding_th'],
-            'init_sigma': self.shared_parameters['sigma_zxy'],
             'min_dynamic_seeds': self.shared_parameters['min_num_seeds'],
             'remove_hot_pixel': self.shared_parameters['corr_hot_pixel'],
             'normalize_backgroud': self.shared_parameters['normalize_intensity_backgroud'],
@@ -919,12 +1011,13 @@ class Field_of_View():
 
             # append if any channels selected
             if len(_sel_channels) > 0:
-                _args = (_dax_filename, _sel_channels, self.ref_filename,
-                        _load_file_lock,
-                        _correction_args, 
-                        _save_images, self.save_filename,
+                _args = (_dax_filename, _sel_channels, 
+                        self.save_filename, 
                         _data_type, _reg_ids, 
-                        _warp_images,
+                        self.ref_filename,
+                        _load_file_lock,
+                        _warp_images, _correction_args, 
+                        _save_images, self.shared_parameters['empty_value'],
                         _image_file_lock, 
                         _overwrite_image, 
                         _drift_args, 

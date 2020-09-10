@@ -2604,6 +2604,7 @@ class Cell_Data():
             all_channels=self.channels,
             num_buffer_frames=self.shared_parameters['num_buffer_frames'], 
             num_empty_frames=self.shared_parameters['num_empty_frames'], 
+            correction_folder=self.correction_folder,
             illumination_correction=self.shared_parameters['corr_illumination'],
             min_shape_ratio=_min_shape_ratio, signal_cap_ratio=_signal_cap_ratio,
             denoise_window=_denoise_window, shrink_percent=_shrink_percent,
@@ -3430,6 +3431,12 @@ class Cell_Data():
                         print(f"--- {_load_attr} doesn't exist in saved file, exit!")
                         return None
             
+    # load chromosome image if exists
+    def _load_chromosome_image(self, _verbose=False):
+        """Function to load chromosome images if applicable"""
+
+        pass    
+    
     # Generate pooled image representing chromosomes
     def _generate_chromosome_image(self, _source='unique', _max_count=90, _verbose=False):
         """Generate chromosome from existing combo / unique images"""

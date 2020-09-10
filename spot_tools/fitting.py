@@ -8,7 +8,7 @@ from scipy.ndimage.filters import maximum_filter,minimum_filter,gaussian_filter
 # import from this package
 from . import _seed_th
 from .. import _sigma_zxy
-from ..External import Fitting_v3
+from ..External import Fitting_v4
 from ..visual_tools import get_seed_points_base
 
 def __init__():
@@ -20,7 +20,7 @@ def __init__():
 def get_seeds(im, max_num_seeds=None, th_seed=150, 
               th_seed_per=95, use_percentile=False,
               sel_center=None, seed_radius=30,
-              gfilt_size=0.75, background_gfilt_size=10,
+              gfilt_size=0.75, background_gfilt_size=8,
               filt_size=3, min_edge_distance=2,
               use_dynamic_th=True, dynamic_niters=10, min_dynamic_seeds=1,
               remove_hot_pixel=True, hot_pixel_th=3,
@@ -160,7 +160,7 @@ def fit_fov_image(im, channel, seeds=None, max_num_seeds=500,
                   use_dynamic_th=True, 
                   dynamic_niters=10, min_dynamic_seeds=1,
                   remove_hot_pixel=True, seeding_kwargs={}, 
-                  fit_radius=5, init_sigma=_sigma_zxy, weight_sigma=0, 
+                  fit_radius=5, #init_sigma=_sigma_zxy, weight_sigma=0, 
                   normalize_backgroud=False, normalize_local=False, 
                   background_args={}, 
                   fitting_args={}, verbose=True):
@@ -190,9 +190,9 @@ def fit_fov_image(im, channel, seeds=None, max_num_seeds=500,
             print(f"{len(_seeds)} given, ", end='')
 
     ## fitting
-    _fitter = Fitting_v3.iter_fit_seed_points(
+    _fitter = Fitting_v4.iter_fit_seed_points(
         im, _seeds.T, radius_fit=fit_radius, 
-        init_w=init_sigma, weight_sigma=weight_sigma,
+        #init_w=init_sigma, weight_sigma=weight_sigma,
         **fitting_args,
     )    
     # fit
@@ -254,7 +254,7 @@ def get_centers(im, seeds=None, th_seed=150,
         verbose: say something!, bool (default: False)
     Outputs:
         centers: fitted spots with information, n by 4 array'''
-    from ..External.Fitting_v3 import iter_fit_seed_points
+    from ..External.Fitting_v4 import iter_fit_seed_points
     # seeding
     if seeds is None:
         seeds = get_seeds(im, max_num_seeds=max_num_seeds,
@@ -270,9 +270,14 @@ def get_centers(im, seeds=None, th_seed=150,
 
     # fitting
     fitter = iter_fit_seed_points(im, seeds.T, radius_fit=fit_radius)
+    # initial fitting
     fitter.firstfit()
-    pfits = fitter.ps # get fitted points
+    # iterate to refine
+    fitter.repeatfit()
     # get coordinates for fitted centers
+    pfits = fitter.ps 
+
+    # remove close points
     if len(pfits) > 0:
         centers = np.array(pfits)[:, 1:4]
         if verbose:
@@ -288,7 +293,7 @@ def get_centers(im, seeds=None, th_seed=150,
             centers = centers[remove==False]
             if verbose:
                 print(f"-- {np.sum(remove)} points removed, given miminum distance {close_threshold}.")
-    else:
+    else: # return an empty array
         centers = np.array([])
         if verbose:
             print(f"-- no points fitted, return empty array.")

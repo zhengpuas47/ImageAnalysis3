@@ -556,11 +556,11 @@ class imshow_mark_3d_v2:
         self.im_z = self.im_z[indz[indz<im_z_len],...]
         #setup plots
         if fig is None:
-            self.f=plt.figure(figsize=(4,8))
+            self.f=plt.figure(figsize=(4,5))
         else:
             self.f=fig
         #self.ax1,self.ax2 = ImageGrid(self.f, 111, nrows_ncols=(2, 1), axes_pad=0.1)
-        gs = gridspec.GridSpec(2,1, figure=self.f,  hspace=-0.25)
+        gs = gridspec.GridSpec(2,1, figure=self.f,  hspace=-0.1, height_ratios=[4,1])
         self.ax1 = self.f.add_subplot(gs[0], aspect='equal')
         self.ax2 = self.f.add_subplot(gs[1], sharex=self.ax1, aspect='equal')
 
