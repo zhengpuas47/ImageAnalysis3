@@ -1508,6 +1508,7 @@ class Field_of_View():
                                     calculate_drift=_use_ref_im, ref_filename=_drift_ref,
                                     warp_image=True, return_drift=True, 
                                     )
+            _chrom_im = _chrom_im[0]
             print(_drift)
 
             setattr(self, 'chrom_im', _chrom_im)

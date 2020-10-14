@@ -212,7 +212,7 @@ def correct_fov_image(dax_filename, sel_channels,
         raise IndexError(f"drift should have the same dimension as single_im_size.")
     
     ## correction channels and profiles
-    corr_channels = [str(ch) for ch in sorted(corr_channels, key=lambda v:-int(v)) if str(ch) in sel_channels]    
+    corr_channels = [str(ch) for ch in sorted(corr_channels, key=lambda v:-int(v)) if str(ch) in all_channels]    
     for _ch in corr_channels:
         if _ch not in all_channels:
             raise ValueError(f"Wrong correction channel:{_ch}, should be within {all_channels}")
@@ -260,7 +260,7 @@ def correct_fov_image(dax_filename, sel_channels,
         else:
             bleed_profile = np.array(bleed_profile, dtype=np.float)
             if bleed_profile.shape != (len(corr_channels),len(corr_channels),single_im_size[-2], single_im_size[-1]):
-                raise IndexError(f"Wrong input shape for bleed_profile: {bleed_profile.shape}")
+                raise IndexError(f"Wrong input shape for bleed_profile: {bleed_profile.shape}, should be {(len(corr_channels),len(corr_channels),single_im_size[-2], single_im_size[-1])}")
     # load chromatic or chromatic_constants depends on whether do warpping
     if chromatic_corr and len(_overlap_channels) > 0:
         if chromatic_profile is None:
