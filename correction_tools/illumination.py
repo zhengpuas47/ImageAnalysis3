@@ -3,6 +3,7 @@ import os
 import time 
 import numpy as np
 import matplotlib.pyplot as plt 
+import multiprocessing as mp 
 from scipy.stats import scoreatpercentile
 from scipy.ndimage import gaussian_filter
 
@@ -10,8 +11,10 @@ from scipy.ndimage import gaussian_filter
 from .. import _allowed_colors, _distance_zxy, _image_size, _correction_folder
 from ..io_tools.load import correct_fov_image
 
-def Generate_Illumination_Correction(data_folder, sel_channels=None, 
-                                     num_loaded_files=40, 
+def Generate_Illumination_Correction(data_folder, 
+                                     sel_channels=None, 
+                                     num_threads=12,
+                                     num_loaded_files=48,
                                      single_im_size=_image_size, all_channels=_allowed_colors,
                                      num_buffer_frames=10, num_empty_frames=0, 
                                      correction_folder=_correction_folder,
@@ -60,40 +63,37 @@ def Generate_Illumination_Correction(data_folder, sel_channels=None,
         # get input daxfiles
         _input_fls = [os.path.join(data_folder, _fl) for _fl in _fovs[:_num_load]]
         # load images
-        _signal_sums = [np.zeros([single_im_size[-2], single_im_size[-1]]) for _c in _sel_channels]
-        _layer_cts = [np.zeros([single_im_size[-2], single_im_size[-1]]) for _c in _sel_channels]
-
-        # loop through files
-        for _fl in _input_fls:
-            if verbose:
-                print(f"--- {os.path.basename(_fl)}: correction, ", end='')
-            _ims = correct_fov_image(_fl, _sel_channels,
-                                    single_im_size=single_im_size, all_channels=all_channels,
-                                    num_buffer_frames=num_buffer_frames, num_empty_frames=num_empty_frames,
-                                    calculate_drift=False, corr_channels=_sel_channels,
-                                    hot_pixel_corr=hot_pixel_corr, hot_pixel_th=hot_pixel_th,
-                                    z_shift_corr=z_shift_corr,
-                                    illumination_corr=False, chromatic_corr=False, bleed_corr=False,
-                                    return_drift=False, verbose=False)
-            _start_time = time.time()
-            for _i, (_ch, _im) in enumerate(zip(_sel_channels, _ims)):
-                if verbose:
-                    print(_ch, end=' ')
-                _limits = [scoreatpercentile(_im, min(cap_th_per)), scoreatpercentile(_im, max(cap_th_per))]
-                _nim = np.clip(_im, min(_limits), max(_limits))
-                _signal_sums[_i] += gaussian_filter(np.sum(_nim, axis=0), gaussian_filter_size)
-                #_layer_cts[_i] += np.sum((_im > min(_limits)) & (_im < max(_limits)), axis=0)
-                #_im[(_im < min(_limits)) | (_im > max(_limits))] = 0
-                #_signal_sums[_i] += np.sum(_im, axis=0)
-            if verbose:
-                print(f" in {time.time()-_start_time:.2f}s")
-        if verbose:
-            print(f"-- calculating mean profiles")
-        # do gaussian filter
-        _sel_pfs = [gaussian_filter(_s/len(_input_fls), gaussian_filter_size) for _s in _signal_sums]
-        # normalize
-        _sel_pfs = [_pf / np.max(_pf) for _pf in _sel_pfs]
+        #_signal_sums = [np.zeros([single_im_size[-2], single_im_size[-1]]) for _c in _sel_channels]
+        #_layer_cts = [np.zeros([single_im_size[-2], single_im_size[-1]]) for _c in _sel_channels]
         
+        _illumination_args = [(_fl, _sel_channels, 
+                      remove_cap, cap_th_per, 
+                      gaussian_filter_size,
+                      single_im_size, 
+                      all_channels, 
+                      num_buffer_frames, num_empty_frames,
+                      hot_pixel_corr, hot_pixel_th, 
+                      z_shift_corr, 
+                      verbose) for _fl in _input_fls]
+
+        with mp.Pool(num_threads) as _illumination_pool:
+            if verbose:
+                print(f"++ start multi-processing illumination profile calculateion with {num_threads} threads for {len(_illumination_args)} images", end=' ')
+                _multi_time = time.time()
+            _pfs_per_fov = _illumination_pool.starmap(_image_to_profile, _illumination_args, chunksize=1)
+            _illumination_pool.close()
+            _illumination_pool.join()
+            _illumination_pool.terminate()
+            if verbose:
+                print(f"in {time.time()-_multi_time:.2f}s.")
+        # summarize results
+        _sel_pfs = []
+        for _i, _ch in enumerate(_sel_channels):
+            _pf = np.mean([_r[_i] for _r in _pfs_per_fov], axis=0)
+            _pf = gaussian_filter(_pf, gaussian_filter_size) 
+            _sel_pfs.append(_pf / np.max(_pf))
+
+
         # save
         if save:
             if verbose:
@@ -125,3 +125,56 @@ def Generate_Illumination_Correction(data_folder, sel_channels=None,
     if verbose:
         print(f"-- finish generating illumination profiles, time:{time.time()-_total_start:.2f}s")
     return _illumination_pfs
+
+
+## function to be called by multiprocessing:
+# function to process a image into median profiles in this fov
+def _image_to_profile(filename, sel_channels, 
+                      remove_cap=True, cap_th_per=[5, 90], 
+                      gaussian_filter_size=40,
+                      single_im_size=_image_size, 
+                      all_channels=_allowed_colors, 
+                      num_buffer_frames=10, num_empty_frames=0,
+                      hot_pixel_corr=True, hot_pixel_th=4, 
+                      z_shift_corr=False, 
+                      verbose=True,
+                      ):
+    """Function to process image into mean profiles"""
+
+    ## step 1: load images
+    if verbose:
+        print(f"-- load image: {os.path.join(os.path.basename(filename))} for illumination", end=' ')
+        _start_time = time.time()
+
+    _ims,_ = correct_fov_image(filename, sel_channels,
+                              single_im_size=single_im_size, 
+                              all_channels=all_channels,
+                              num_buffer_frames=num_buffer_frames, 
+                              num_empty_frames=num_empty_frames,
+                              calculate_drift=False, 
+                              corr_channels=sel_channels,
+                              warp_image=False, 
+                              hot_pixel_corr=hot_pixel_corr, 
+                              hot_pixel_th=hot_pixel_th,
+                              z_shift_corr=z_shift_corr,
+                              illumination_corr=False, chromatic_corr=False, 
+                              bleed_corr=False,
+                              return_drift=False, verbose=True)
+    if verbose:
+        _load_time = time.time()
+        print(f"in {_load_time-_start_time:.2f}s,", end=' ')
+    ## step 2: calculate mean profile
+    _pfs = []
+    for _im, _ch in zip(_ims, sel_channels):
+        _nim = np.array(_im, dtype=np.float)
+        # remove extreme values if specified
+        if remove_cap:
+            _limits = [scoreatpercentile(_im, min(cap_th_per)), 
+                       scoreatpercentile(_im, max(cap_th_per))]
+            _nim = np.clip(_im, min(_limits), max(_limits))
+        _pfs.append(gaussian_filter(np.sum(_nim, axis=0), 
+                                    gaussian_filter_size) )
+    if verbose:
+        print(f"into profile in {time.time()-_load_time:.2f}s.")
+
+    return _pfs                                

@@ -609,7 +609,7 @@ def Load_Encoding_Scheme(master_folder, encoding_filename='Encoding_Scheme', enc
     return _encoding_scheme
 
 def split_channels(ims, names, num_channel=2, buffer_frames=10, DAPI=False, verbose=True):
-    '''Function to load images, and split images according to channels
+    '''Function to split images according to channels
     Inputs:
         ims: all images that acquired by get_images, list of images
         names: compatible names also from get_images, list of strings

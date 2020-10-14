@@ -1,4 +1,4 @@
-import os
+import os,time
 import numpy as np
 from .. import _allowed_colors, _image_size, _num_buffer_frames, _num_empty_frames, _image_dtype
 from .. import _correction_folder
@@ -134,7 +134,7 @@ def align_single_image(filename, crop_list, bead_channel='488',
     Outputs:
     """
     from scipy.spatial.distance import cdist, pdist, squareform
-    from ..io_tools.load import correct_fov_image
+    from ..io_tools.load import old_correct_fov_image
     from ..alignment_tools import fft3d_from2d
     from ..spot_tools.fitting import get_centers
     ## check inputs
@@ -167,7 +167,7 @@ def align_single_image(filename, crop_list, bead_channel='488',
             print(f"-- start aligning file {filename} to", end=' ')
         if not os.path.isfile(filename) or filename.split('.')[-1] != 'dax':
             raise IOError(f"input filename: {filename} should be a .dax file!")
-        _bead_im = correct_fov_image(filename, [_bead_channel], 
+        _bead_im = old_correct_fov_image(filename, [_bead_channel], 
                                      single_im_size=single_im_size, 
                                      all_channels=all_channels,
                                      num_buffer_frames=num_buffer_frames, 
@@ -213,7 +213,7 @@ def align_single_image(filename, crop_list, bead_channel='488',
         elif isinstance(ref_filename, str):
             if verbose:
                 print(f"ref_file: {ref_filename}")
-            _ref_bead_im = correct_fov_image(ref_filename, [_bead_channel], 
+            _ref_bead_im = old_correct_fov_image(ref_filename, [_bead_channel], 
                                         single_im_size=single_im_size, 
                                         all_channels=all_channels,
                                         num_buffer_frames=num_buffer_frames,
@@ -304,7 +304,91 @@ def align_single_image(filename, crop_list, bead_channel='488',
         _return_args.append(_paired_ref_ct_list)
     
     return tuple(_return_args)
+
+
+# basic function to align single image
+def cross_correlation_align_single_image(im, ref_im, precision_fold=100,
+                                         all_channels=_allowed_colors, 
+                                         ref_all_channels=None, drift_channel='488',
+                                         single_im_size=_image_size,
+                                         num_buffer_frames=_num_buffer_frames,
+                                         num_empty_frames=_num_empty_frames,
+                                         correction_folder=_correction_folder,
+                                         correction_args={},
+                                         return_all=False,
+                                         verbose=True, detailed_verbose=False,                      
+                       ):
+    """Function to align one single image by FFT
+    Inputs:
     
+    Outputs:
+    """
+    
+    if verbose:
+        print(f"-- aligning image", end=' ')
+        if isinstance(im, str):
+            print(os.path.join(os.path.basename(os.path.dirname(im))), os.path.basename(im), end=' ')
+        if isinstance(ref_im, str):
+            print('to '+os.path.join(os.path.basename(os.path.dirname(ref_im))), os.path.basename(ref_im), end=' ')
+    
+    # set default correction args
+    _correction_args = {
+        'hot_pixel_corr':True,
+        'hot_pixel_th':4,
+        'z_shift_corr':False,
+        'illumination_corr':True,
+        'illumination_profile':None,
+        'bleed_corr':False,
+        'chromatic_corr':False,
+        'normalization':False,
+    }
+    _correction_args.update(correction_args)
+    
+    # check im file type   
+    if isinstance(im, np.ndarray):
+        if verbose:
+            print(f"-> directly use image")
+        _im = im.copy()
+        if np.shape(_im) != tuple(np.array(single_im_size)):
+            raise IndexError(f"shape of im:{np.shape(_im)} and single_im_size:{single_im_size} doesn't match!")
+    elif isinstance(im, str):
+        if 'correct_fov_image' not in locals():
+            from ..io_tools.load import correct_fov_image
+        #  load image
+        _im = correct_fov_image(im, [drift_channel], 
+                                  single_im_size=single_im_size, all_channels=all_channels,
+                                  num_buffer_frames=num_buffer_frames, num_empty_frames=num_empty_frames, 
+                                  drift=[0,0,0], calculate_drift=False, drift_channel=drift_channel, 
+                                  correction_folder=correction_folder, warp_image=False, verbose=detailed_verbose, 
+                                  **_correction_args)[0][0]
+    # check ref_im file type   
+    if isinstance(ref_im, np.ndarray):
+        if verbose:
+            print(f"-- directly use ref_image")
+        _ref_im = ref_im
+        if np.shape(_ref_im) != tuple(np.array(single_im_size)):
+            raise IndexError(f"shape of ref_im:{np.shape(_ref_im)} and single_im_size:{single_im_size} doesn't match!")
+    elif isinstance(ref_im, str):
+        if 'correct_fov_ref_image' not in locals():
+            from ..io_tools.load import correct_fov_image
+        _ref_im = correct_fov_image(ref_im, [drift_channel], 
+                                      single_im_size=single_im_size, all_channels=all_channels,
+                                      num_buffer_frames=num_buffer_frames, num_empty_frames=num_empty_frames, 
+                                      drift=[0,0,0], calculate_drift=False, drift_channel=drift_channel, 
+                                      correction_folder=correction_folder, warp_image=False, verbose=detailed_verbose, 
+                                      **_correction_args)[0][0]
+    
+    # align by cross-correlation
+    from skimage.feature import register_translation
+    _start_time = time.time()
+    _drift, _error, _phasediff = register_translation(_ref_im, _im, 
+                                                      upsample_factor=precision_fold)
+    
+    # return
+    if return_all:
+        return _drift, _error, _phasediff
+    else:
+        return _drift
     
 def generate_translation_from_DAPI(old_dapi_im, new_dapi_im, 
                                    old_to_new_rotation,

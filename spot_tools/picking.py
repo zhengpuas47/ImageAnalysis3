@@ -2025,3 +2025,25 @@ def screen_RNA_based_on_refs(rna_cand_hzxys_list, rna_region_ids,
                 else:
                     _sel_cand_list.append(np.array(_cand_hzxys)[_dists <= dist_th,:])
     return _sel_cand_list
+
+def convert_spots_to_hzxys(spot_list, pix_size=_distance_zxy):
+    """Function to convert spot list into hzxys list"""
+    _hzxys_list = []
+    pix_size = np.array(pix_size)
+    for _spots in spot_list:
+        if len(_spots) == 0:
+            _hzxys_list.append([])
+        else:
+            _spots = np.array(_spots).copy()
+            if len(np.shape(_spots)) == 1:
+                _hzxy = _spots[:1+len(pix_size)]
+                _hzxy[1:1+len(pix_size)] = _hzxy[1:1+len(pix_size)] * pix_size
+                _hzxys_list.append(_hzxy)
+            elif len(np.shape(_spots)) == 2:
+                _hzxys = _spots[:, :1+len(pix_size)]
+                _hzxys[:,1:1+len(pix_size)] = _hzxys[:,1:1+len(pix_size)] * pix_size
+                _hzxys_list.append(_hzxys)
+            else:
+                raise IndexError(f"_spots should be 1d or 2d array.")
+    return _hzxys_list
+

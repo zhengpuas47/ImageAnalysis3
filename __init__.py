@@ -1,15 +1,15 @@
 ## global variables
 import numpy as np
 # correction_folder
-_correction_folder=r'\\10.245.74.116\Chromatin_NAS_0\Corrections\Corrections_202001'
+_correction_folder=r'\\10.245.74.158\Chromatin_NAS_0\Corrections\Corrections_202008'
 # temp folder
-_temp_folder = r'\\10.245.74.116\Chromatin_NAS_6\Pu_Temp'
+_temp_folder = r'\\mendel\Mendel_SSD3\Common_Temp'
 # distance_zxy
-_distance_zxy = np.array([200, 106, 106])
+_distance_zxy = [200, 108, 108]
 # sigma_zxy
-_sigma_zxy = np.array([1.35, 1.9, 1.9])
+_sigma_zxy = [1.35, 1.9, 1.9]
 # image_dim
-_image_size = np.array([30,2048,2048])
+_image_size = [30,2048,2048]
 # allowed_colors
 _allowed_colors = ['750', '647', '561', '488', '405']
 _corr_channels = ['750', '647', '561']
@@ -47,6 +47,8 @@ from . import domain_tools
 from . import compartment_tools
 # function to analyze structural features
 from . import structure_tools
+# function to help segmentations
+from . import segmentation_tools
 ## import exteral functions
 from .External import Fitting_v3
 from .External import DomainTools

@@ -78,3 +78,50 @@ def generate_neighboring_crop(zxy, crop_size=5,
                        for _l,_r in zip(_left_lims,_right_lims) ])
     
     return _crop
+
+def crop_neighboring_area(im, center, crop_sizes, 
+                          extrapolate_mode='nearest'):
+    
+    """Function to crop neighboring area of a certain coordiante
+    Args:
+        im: image, np.ndarray
+        center: zxy coordinate for the center of this crop area
+        crop_sizes: dimension(s) of the cropping area, int or np.ndarray
+        extrapolate_mode: mode in map_coordinate, str
+    Return:
+        _cim: cropped image, np.ndarray
+    """
+    if 'map_coordinates' not in locals():
+        from scipy.ndimage.interpolation import map_coordinates
+    if not isinstance(im, np.ndarray):
+        raise TypeError(f"wrong input image, should be np.ndarray")
+    
+    _dim = len(np.shape(im))
+    _center = np.array(center)[:_dim]
+    # crop size
+    if isinstance(crop_sizes, int) or isinstance(crop_sizes, np.int32):
+        _crop_sizes = np.ones(_dim, dtype=np.int)*int(crop_sizes)
+    elif isinstance(crop_sizes, list) or isinstance(crop_sizes, np.ndarray):
+        _crop_sizes = np.array(crop_sizes)[:_dim]
+    
+    # generate a rough crop, to save RAM
+    _rough_left_lims = np.max([np.zeros(_dim), 
+                               np.floor(_center-_crop_sizes/2)], axis=0)
+    _rough_right_lims = np.min([np.array(np.shape(im)), 
+                                np.ceil(_center+_crop_sizes/2)], axis=0)
+    _rough_center = _center - _rough_left_lims
+    
+    _rough_crop = tuple([slice(int(_l),int(_r)) for _l,_r in zip(_rough_left_lims, _rough_right_lims)])
+    _rough_cropped_im = im[_rough_crop]
+    
+    # generate coordinates to be mapped
+    _pixel_coords = np.indices(_crop_sizes) + np.expand_dims(_rough_center - (_crop_sizes-1)/2, 
+                                                       tuple(np.arange(_dim)+1))
+    #return _pixel_coords
+    # map coordiates
+    _cim = map_coordinates(_rough_cropped_im, _pixel_coords.reshape(_dim, -1),
+                           mode=extrapolate_mode, cval=np.min(_rough_cropped_im))
+    _cim = _cim.reshape(_crop_sizes) # reshape back to original shape
+    
+    
+    return _cim

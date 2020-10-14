@@ -929,7 +929,6 @@ def generate_chromatic_abbrevation_from_spots(corr_spots, ref_spots,
         _x = ref_spots[:,1]
         _y = ref_spots[:,2]
 
-
         for _i in range(3): # 3D
             if verbose:
                 print(f"-- fitting chromatic-abbrevation in axis {_i} with order:{fitting_order[_i]}")
@@ -943,7 +942,7 @@ def generate_chromatic_abbrevation_from_spots(corr_spots, ref_spots,
             _value =  corr_spots[:,_i] - ref_spots[:,_i] # target-value for polyfit
             _C,_r,_r2,_r3 = scipy.linalg.lstsq(_data, _value)    # coefficients and residues
             _cac_consts.append(_C) # store correction constants
-            _rsquare =  1 - np.mean((_data.dot(_C) - _value)**2)/np.var(_value)
+            _rsquare =  1 - np.sum((_data.dot(_C) - _value)**2)/np.sum((_value-np.mean(_value))**2) # r2 = 1 - SSR/SST
             if verbose:
                 print(f"--- fitted rsquare:{_rsquare}")
 
@@ -1604,7 +1603,8 @@ def Bleedthrough_correction(input_im, crop_limits=None, all_channels=_allowed_co
         return _corr_ims
 
 ## merged function to crop and correct single image
-def correct_single_image(filename, channel, crop_limits=None, seg_label=None, extend_dim=20,
+def correct_single_image(filename, channel, crop_limits=None, 
+                         seg_label=None, extend_dim=20,
                          single_im_size=_image_size, all_channels=_allowed_colors, 
                          num_buffer_frames=10, num_empty_frames=1, 
                          drift=np.array([0, 0, 0]), correction_folder=_correction_folder, normalization=False,

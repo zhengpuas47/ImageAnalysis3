@@ -28,12 +28,15 @@ class Field_of_View():
     
     def __init__(self, parameters, 
                  _fov_id=None, _fov_name=None,
-                 _load_references=True, _color_info_kwargs={},
-                 _create_savefile=True, _save_filename=None,
+                 _color_info_kwargs={},
+                 _save_filename=None, 
                  _savefile_kwargs={},
                  _segmentation_kwargs={},
-                 _load_all_attrs=True,
-                 _overwrite_attrs=False,
+                 _load_fov_info=True, 
+                 _load_correction=True,
+                 _load_segmentation=True, 
+                 _prioritize_saved_attrs=True,
+                 _save_info_to_file=True, 
                  _verbose=True,
                  ):
         ## Initialize key attributes:
@@ -41,8 +44,8 @@ class Field_of_View():
 
         # correction profiles 
         self.correction_profiles = {'bleed':None,
-                                    'chromatic':None,
-                                    'illumination':None,}
+                                    'chromatic':{},
+                                    'illumination':{},}
         # drifts
         self.drift = {}
         # rotations
@@ -93,16 +96,32 @@ class Field_of_View():
         self.fov_id = _fov_id
         self.fov_name = _fov_name
 
+        # find analysis folder
+        if 'analysis_folder'  in parameters:
+            self.analysis_folder = str(parameters['analysis_folder'])
+        else:
+            self.analysis_folder = os.path.join(self.data_folder[0], 'Analysis')
+        
+        ## load experimental info
+        if '_color_filename' not in _color_info_kwargs:
+            self.color_filename = 'Color_Usage'
+            _color_info_kwargs['_color_filename'] = self.color_filename
+        else:
+            self.color_filename = _color_info_kwargs['_color_filename']
+        if '_color_format' not in _color_info_kwargs:
+            self.color_format = 'csv'
+            _color_info_kwargs['_color_format'] = self.color_format
+        else:
+            self.color_format = _color_info_kwargs['_color_format']
+        _color_dic = self._load_color_info(_annotate_folders=True, **_color_info_kwargs)
+
         # experiment_folder
         if 'experiment_folder'  in parameters:
             self.experiment_folder = parameters['experiment_folder']
         else:
             self.experiment_folder = os.path.join(self.data_folder[0], 'Experiment')
         ## analysis_folder, segmentation_folder, save_folder, correction_folder,map_folder
-        if 'analysis_folder'  in parameters:
-            self.analysis_folder = str(parameters['analysis_folder'])
-        else:
-            self.analysis_folder = os.path.join(self.data_folder[0], 'Analysis')
+
         if 'segmentation_folder' in parameters:
             self.segmentation_folder = parameters['segmentation_folder']
         else:
@@ -134,15 +153,18 @@ class Field_of_View():
             self.ref_id = int(parameters['ref_id'])
         else:
             self.ref_id = 0
+        # data type
+        if 'image_dtype' in parameters:
+            self.image_dtype = parameters['image_dtype']
+        else:
+            self.image_dtype = _image_dtype
         ## shared_parameters
         # initialize
         if 'shared_parameters' in parameters:
             self.shared_parameters = parameters['shared_parameters']
         else:
             self.shared_parameters = {}
-        # add parameter keys:
-        if 'image_dtype' not in self.shared_parameters:    
-            self.shared_parameters['image_dtype'] = _image_dtype        
+        # add parameter keys:      
         if 'distance_zxy' not in self.shared_parameters:    
             self.shared_parameters['distance_zxy'] = _distance_zxy
         if 'sigma_zxy' not in self.shared_parameters:
@@ -157,6 +179,13 @@ class Field_of_View():
             self.shared_parameters['normalization'] = False
         if 'corr_channels' not in self.shared_parameters:
             self.shared_parameters['corr_channels'] = _corr_channels
+        # adjust corr_channels
+        _kept_corr_channels = []
+        for _ch in self.shared_parameters['corr_channels']:
+            if str(_ch) in self.channels:
+                _kept_corr_channels.append(str(_ch))
+        self.shared_parameters['corr_channels'] = _kept_corr_channels
+
         if 'corr_bleed' not in self.shared_parameters:
             self.shared_parameters['corr_bleed'] = True
         if 'corr_Z_shift' not in self.shared_parameters:
@@ -174,37 +203,31 @@ class Field_of_View():
             self.shared_parameters['max_num_seeds'] = _max_num_seeds
         if 'min_num_seeds' not in self.shared_parameters:
             self.shared_parameters['min_num_seeds'] = _min_num_seeds
-        if 'drift_size' not in self.shared_parameters:
-            self.shared_parameters['drift_size'] = 600
         if 'drift_use_fft' not in self.shared_parameters:
             self.shared_parameters['drift_use_fft'] = True 
         if 'drift_sequential' not in self.shared_parameters:
             self.shared_parameters['drift_sequential'] = False 
         if 'good_drift_th' not in self.shared_parameters:
             self.shared_parameters['good_drift_th'] = 1. 
+        if 'drift_precision_fold' not in self.shared_parameters:
+            self.shared_parameters['drift_precision_fold'] = 100 # 0.01 pixel precision
+        if 'drift_correction_args' not in self.shared_parameters:
+            self.shared_parameters['drift_correction_args'] = {} # use defaults for drift
+            
         # param for spot_finding
         if 'spot_seeding_th' not in self.shared_parameters:
             self.shared_parameters['spot_seeding_th'] = _spot_seeding_th
         if 'normalize_intensity_backgroud' not in self.shared_parameters:
-            self.shared_parameters['normalize_intensity_backgroud'] = True
+            self.shared_parameters['normalize_intensity_backgroud'] = False
         if 'normalize_intensity_local' not in self.shared_parameters:
-            self.shared_parameters['normalize_intensity_local'] = False
-    
+            self.shared_parameters['normalize_intensity_local'] = True
+
+        # parameter for saving
+        if 'empty_value' not in self.shared_parameters:
+            self.shared_parameters['empty_value'] = 0
 
 
-        ## load experimental info
-        if _load_references:
-            if '_color_filename' not in _color_info_kwargs:
-                self.color_filename = 'Color_Usage'
-                _color_info_kwargs['_color_filename'] = self.color_filename
-            else:
-                self.color_filename = _color_info_kwargs['_color_filename']
-            if '_color_format' not in _color_info_kwargs:
-                self.color_format = 'csv'
-                _color_info_kwargs['_color_format'] = self.color_format
-            else:
-                self.color_format = _color_info_kwargs['_color_format']
-            _color_dic = self._load_color_info(_annotate_folders=True, **_color_info_kwargs)
+
         
         ## Drift
         # update ref_filename
@@ -215,12 +238,6 @@ class Field_of_View():
             _dft_fl_postfix = '_sequential'+_dft_fl_postfix
         self.drift_filename = os.path.join(self.drift_folder,
                                             self.fov_name.replace('.dax', _dft_fl_postfix))
-        # generate drift crops
-        from ..correction_tools.alignment import generate_drift_crops
-        self.drift_crops = generate_drift_crops(
-                                drift_size=self.shared_parameters['drift_size'],
-                                single_im_size=self.shared_parameters['single_im_size'],
-                            )
 
         ## Create savefile
         # save filename
@@ -228,12 +245,41 @@ class Field_of_View():
             _save_filename = os.path.join(self.save_folder, self.fov_name.replace('.dax', '.hdf5'))
         # set save_filename attr
         self.save_filename = _save_filename
+    
+        # if savefile already exists, load attributes from it        
+        if os.path.isfile(self.save_filename):
+            _new_savefile = False 
+            # load attributes
+            if _load_fov_info:
+                self._load_from_file('fov_info', 
+                                    _overwrite=_prioritize_saved_attrs,
+                                    _verbose=_verbose,)
+            if _load_correction:
+                self._load_from_file('correction', 
+                                    _overwrite=_prioritize_saved_attrs,
+                                    _verbose=_verbose,)
+            if _load_segmentation:
+                self._load_from_file('segmentation', 
+                                    _overwrite=_prioritize_saved_attrs,
+                                    _verbose=_verbose,)                                            
+        # otherwise, initialize save file if not exist
+        else:
+            _new_savefile = True 
 
-        # initialize save file
-        if _create_savefile:
+            if _load_correction:
+                self._load_correction_profiles(
+                    _load_from_savefile_first=False,
+                    _verbose=_verbose)
+            if _load_segmentation:
+                pass 
+
             self._init_save_file(_save_filename=_save_filename, 
-                                 _overwrite=_overwrite_attrs,
-                                 **_savefile_kwargs)
+                                 **_savefile_kwargs)                        
+        # if decided to overwrite savefile info with what this initiation gives, do it:
+        if _save_info_to_file:
+            self._save_to_file('fov_info', _overwrite=(not _prioritize_saved_attrs), _verbose=_verbose)
+
+        
 
 
     ## Load basic info
@@ -312,197 +358,285 @@ class Field_of_View():
         
         return
 
-    def _old_init_save_file(self, _save_filename=None, 
-                        _overwrite=False, _verbose=True):
-        """Function to initialize save file for FOV object"""
-        if _save_filename is None:
-            _save_filename = getattr(self, 'save_filename')
-        # set save_filename attr
-        setattr(self, 'save_filename', _save_filename)
-        if _verbose and not os.path.exists(_save_filename):
-            print(f"- Creating save file for fov:{self.fov_name}: {_save_filename}")
-        with h5py.File(_save_filename, "a", libver='latest') as _f:
-            if _verbose:
-                print(f"- Updating info for fov:{self.fov_name}: {_save_filename}")
-            ## self specific attributes stored directly in attributes:
-            _base_attrs = []
-            for _attr_name in dir(self):
-                # exclude all default attrs and functions
-                if _attr_name[0] != '_' and getattr(self, _attr_name) is not None:
-                    # set default to be save
-                    _info_attr_flag = True
-                    # if included into data_type, not save here
-                    for _name in self.shared_parameters['allowed_data_types'].keys():
-                        # give some criteria
-                        if _name in _attr_name:
-                            _info_attr_flag = False
-                            break
-                    # if its image dict, exclude
-                    if 'im_dict' in _attr_name or 'channel_dict' in _attr_name:
-                        _info_attr_flag = False
-                    # if its segmentation, exclude
-                    if 'segmentation' in _attr_name:
-                        _info_attr_flag = False
-                    # if its related to correction, exclude
-                    if 'correction' in _attr_name:
-                        _info_attr_flag = False
-                    ## all the rest attrs saved to here: 
-                    # save here:
-                    if _info_attr_flag:
-                        # extract the attribute
-                        _attr = getattr(self, _attr_name)
-                        # convert dict if necessary
-                        if isinstance(_attr, dict):
-                            _attr = str(_attr)
-                        # save
-                        if _attr_name not in _f.attrs or _overwrite:
-                            _f.attrs[_attr_name] = _attr
-                            _base_attrs.append(_attr_name)
-            if _verbose:
-                print(f"-- base attributes updated:{_base_attrs}")
-                        
-            ## segmentation
-            if 'segmentation' not in _f.keys():
-                _grp = _f.create_group('segmentation') # create segmentation group
-            else:
-                _grp = _f['segmentation']
-            
-            # directly create segmentation label dataset
-            if 'segmentation_label' not in _grp:
-                _seg = _grp.create_dataset('segmentation_label', 
-                                        self.shared_parameters['single_im_size'][-self.segmentation_dim:], 
-                                        dtype='i8')
-                if hasattr(self, 'segmentation_label'):
-                    _grp['segmentation_label'] = getattr(self, 'segmentation_label')
-            # create other segmentation related datasets
-            for _attr_name in dir(self):
-                if _attr_name[0] != '_' and 'segmentation' in _attr_name and _attr_name not in _grp.keys():
-                    _grp[_attr_name] = getattr(self, _attr_name)
-            
-            # create label for each datatype
-            from .batch_functions import _color_dic_stat
-            _type_dic = _color_dic_stat(self.color_dic, self.channels, self.shared_parameters['allowed_data_types'])
-            for _data_type, _dict in _type_dic.items():
-                if _data_type not in _f.keys():
-                    _grp = _f.create_group(_data_type) # create data_type group
-                else:
-                    _grp = _f[_data_type]
-                # record updated data_type related attrs
-                _data_attrs = []
-                # save images, ids, channels
-                # calculate image shape and chunk shape
-                _im_shape = np.concatenate([np.array([len(_dict['ids'])]), 
-                                            self.shared_parameters['single_im_size']])
-                _chunk_shape = np.concatenate([np.array([1]), 
-                                            self.shared_parameters['single_im_size']])                              
-                # change size
-                _change_size_flag = []
-                # if missing any of these features, create new ones
-                # ids
-                if 'ids' not in _grp:
-                    _ids = _grp.create_dataset('ids', (len(_dict['ids']),), dtype='i', data=_dict['ids'])
-                    _ids = np.array(_dict['ids'], dtype=np.int) # save ids
-                    _data_attrs.append('ids')
-                elif len(_dict['ids']) != len(_grp['ids']):
-                    _change_size_flag.append('id')
-                    _old_size=len(_grp['ids'])
-                # channels
-                if 'channels' not in _grp:
-                    _channels = [_ch.encode('utf8') for _ch in _dict['channels']]
-                    _chs = _grp.create_dataset('channels', (len(_dict['channels']),), dtype='S3', data=_channels)
-                    _chs = np.array(_dict['channels'], dtype=str) # save ids
-                    _data_attrs.append('channels')
-                elif len(_dict['channels']) != len(_grp['channels']):
-                    _change_size_flag.append('channels')
-                    _old_size=len(_grp['channels'])
-                # images
-                if 'ims' not in _grp:
-                    _ims = _grp.create_dataset('ims', tuple(_im_shape), dtype='u16', chunks=tuple(_chunk_shape))
-                    _data_attrs.append('ims')
-                elif len(_im_shape) != len(_grp['ims'].shape) or (_im_shape != (_grp['ims']).shape).any():
-                    _change_size_flag.append('ims')
-                    _old_size=len(_grp['ims'])
-
-                # spots
-                if 'spots' not in _grp:
-                    _spots = _grp.create_dataset('spots', 
-                                (_im_shape[0], self.shared_parameters['max_num_seeds'], 11), 
-                                dtype='f')
-                    _data_attrs.append('spots')
-                elif _im_shape[0] != len(_grp['spots']):
-                    _change_size_flag.append('spots')
-                    _old_size=len(_grp['spots'])
-                # drift
-                if 'drifts' not in _grp:
-                    _drift = _grp.create_dataset('drifts', (_im_shape[0], 3), dtype='f')
-                    _data_attrs.append('drifts')
-                elif _im_shape[0] != len(_grp['drifts']):
-                    _change_size_flag.append('drifts')
-                    _old_size=len(_grp['drifts'])
-                # flags for whether it's been written
-                if 'flags' not in _grp:
-                    _filenames = _grp.create_dataset('flags', (_im_shape[0], ), dtype='u8')
-                    _data_attrs.append('flags')
-                elif _im_shape[0] != len(_grp['flags']):
-                    _change_size_flag.append('flags')
-                    _old_size=len(_grp['flags'])
-
-                # if change size, update these features:
-                if len(_change_size_flag) > 0:
-                    print(f"* data size of {_data_type} is changing from {_old_size} to {len(_dict['ids'])} because of {_change_size_flag}")
-                    ###UNDER CONSTRUCTION################
-                    pass
-                # elsif size don't change, also load other related dtypes
-                else:
-                    for _attr_name in dir(self):
-                        if _attr_name[0] != '_' and _data_type in _attr_name:
-                            if _attr_name not in _grp.keys() or _overwrite:
-                                _grp[_attr_name] = getattr(self, _attr_name)
-                                _data_attrs.append(_attr_name)
-                # summarize
-                if _verbose:
-                    print(f"-- {_data_type} attributes updated:{_data_attrs}")
-
     def _DAPI_segmentation(self):
         pass
 
     def _load_correction_profiles(self, _correction_folder=None, 
+                                  _load_from_savefile_first=True,
                                   _corr_channels=['750','647','561'],
                                   _chromatic_target='647',
-                                  _profile_postfix='.npy', _verbose=True):
-        """Function to laod correction profiles in RAM"""
+                                  _profile_postfix='.npy', 
+                                  _empty_value=0, 
+                                  _overwrite=False, 
+                                  _verbose=True):
+        """Function to load correction profiles in RAM"""
         from ..io_tools.load import load_correction_profile
         # determine correction folder
         if _correction_folder is None:
             _correction_folder = self.correction_folder
         # loading bleedthrough
         if self.shared_parameters['corr_bleed']:
-            self.correction_profiles['bleed'] = load_correction_profile('bleedthrough', self.shared_parameters['corr_channels'], 
-                                        self.correction_folder, all_channels=self.channels, 
-                                        im_size=self.shared_parameters['single_im_size'],
-                                        verbose=_verbose)
-        # loading chromatic
-        if self.shared_parameters['corr_chromatic']:
-            self.correction_profiles['chromatic']= load_correction_profile('chromatic', self.shared_parameters['corr_channels'], 
-                                        self.correction_folder, all_channels=self.channels, 
-                                        im_size=self.shared_parameters['single_im_size'],
-                                        verbose=_verbose)
-            self.correction_profiles['chromatic_constants']= load_correction_profile(
-                'chromatic_constants', 
-                self.shared_parameters['corr_channels'], 
-                self.correction_folder, all_channels=self.channels, 
-                im_size=self.shared_parameters['single_im_size'],
-                verbose=_verbose)
-            
-        # load illumination
-        if self.shared_parameters['corr_illumination']:
-            bead_channel = str(self.channels[self.bead_channel_index])
-            self.correction_profiles['illumination'] = load_correction_profile('illumination', self.shared_parameters['corr_channels']+[bead_channel], 
+            if 'bleed' in self.correction_profiles and self.correction_profiles['bleed'] is not None and not _overwrite:
+                print(f"++ bleed correction profile already exist, skip.")
+            else:
+                _savefile_load_bleed = False
+                if _load_from_savefile_first:
+                    # try to load from save_file
+                    with h5py.File(self.save_filename, "r", libver='latest', swmr=True) as _f:
+                        if 'corrections' in _f.keys():
+                            _grp = _f['corrections']
+                            _bleed_key = '_'.join(self.shared_parameters['corr_channels'])+'_bleed'
+                            if _bleed_key in _grp:
+                                _pf = _grp[_bleed_key][:]
+                                if (np.array(_pf) != _empty_value).any():
+                                    if _verbose:
+                                        print(f"++ load bleed correction profile directly from savefile.")
+                                    _savefile_load_bleed = True
+                                    self.correction_profiles['bleed'] = _pf
+                # if not successfully loaded or not savefile first, load from original file
+                if not _savefile_load_bleed:
+                    if _verbose:
+                        print(f"++ load bleed correction profile from original file.")
+                    self.correction_profiles['bleed'] = load_correction_profile('bleedthrough', self.shared_parameters['corr_channels'], 
                                                 self.correction_folder, all_channels=self.channels, 
                                                 im_size=self.shared_parameters['single_im_size'],
                                                 verbose=_verbose)
+        # loading chromatic
+        if self.shared_parameters['corr_chromatic']:
+            ## chromatic profiles
+            if 'chromatic' in self.correction_profiles and self.correction_profiles['chromatic'] is not None and len(self.correction_profiles['chromatic']) > 0 and not _overwrite:
+                print(f"++ chromatic correction profile already exist, skip.")
+            else:
+                _savefile_load_chromatic = False
+                if _load_from_savefile_first:
+                    # try to load from save_file
+                    with h5py.File(self.save_filename, "r", libver='latest', swmr=True) as _f:
+                        if 'corrections' in _f.keys():
+                            _grp = _f['corrections']
+                            _pf_dict = {}
+                            for _ch in self.shared_parameters['corr_channels']:
+                                _chromatic_key = f'{_ch}_chromatic'
+                                if _chromatic_key in _grp:
+                                    _pf = _grp[_chromatic_key][:]
+                                    if (np.array(_pf) != _empty_value).any():
+                                        _pf_dict[str(_ch)] = _pf
+                                    elif np.size(_pf) == 1:
+                                        _pf_dict[str(_ch)] = None
+                            if set(list(_pf_dict.keys())) == set(list(self.shared_parameters['corr_channels'])):
+                                if _verbose:
+                                    print(f"++ load chromatic correction profile directly from savefile.")
+                                _savefile_load_chromatic = True
+                                self.correction_profiles['chromatic'] = _pf_dict
+                                
+                # if not successfully loaded or not savefile first, load from original file
+                if not _savefile_load_chromatic:
+                    if _verbose:
+                        print(f"++ load chromatic correction profile from original file.")
+                    self.correction_profiles['chromatic']= load_correction_profile('chromatic', self.shared_parameters['corr_channels'], 
+                                                self.correction_folder, all_channels=self.channels, 
+                                                im_size=self.shared_parameters['single_im_size'],
+                                                verbose=_verbose)
+            
+            ## chromatic_constants
+            if 'chromatic_constants' in self.correction_profiles and self.correction_profiles['chromatic_constants'] is not None and len(self.correction_profiles['chromatic_constants']) > 0 and not _overwrite:
+                print(f"++ chromatic_constants correction profile already exist, skip.")
+            else:
+                _savefile_load_chromatic_constants = False
+                if _load_from_savefile_first:
+                    # try to load from save_file
+                    with h5py.File(self.save_filename, "r", libver='latest', swmr=True) as _f:
+                        if 'corrections' in _f.keys():
+                            _grp = _f['corrections']
+                            _pf_dict = {}
+                            for _ch in self.shared_parameters['corr_channels']:
+                                _chromatic_constants_key = f'{_ch}_chromatic_constants'
+                                if _chromatic_constants_key in _grp:
+                                    _info_dict= {}
+                                    for _key in _grp[_chromatic_constants_key].keys():
+                                        _info_dict[_key] = _grp[_chromatic_constants_key][_key][:]
+                                    # append
+                                    if len(_info_dict) > 0:
+                                        _pf_dict[str(_ch)] = _info_dict
+                                    else:
+                                        _pf_dict[str(_ch)] = None
+                            if set(list(_pf_dict.keys())) == set(list(self.shared_parameters['corr_channels'])):
+                                if _verbose:
+                                    print(f"++ load chromatic_constants correction profile directly from savefile.")
+                                _savefile_load_chromatic_constants = True
+                                self.correction_profiles['chromatic_constants'] = _pf_dict
+                                
+                # if not successfully loaded or not savefile first, load from original file
+                if not _savefile_load_chromatic_constants:
+                    if _verbose:
+                        print(f"++ load chromatic_constants correction profile from original file.")
+                    # chromatic constant dicts
+                    self.correction_profiles['chromatic_constants']= load_correction_profile(
+                        'chromatic_constants', 
+                        self.shared_parameters['corr_channels'], 
+                        self.correction_folder, all_channels=self.channels, 
+                        im_size=self.shared_parameters['single_im_size'],
+                        verbose=_verbose)
+            
+        # load illumination
+        if self.shared_parameters['corr_illumination']:
+            if 'illumination' in self.correction_profiles and self.correction_profiles['illumination'] is not None and len(self.correction_profiles['illumination']) > 0 and not _overwrite:
+                print(f"++ illumination correction profile already exist, skip.")
+            else:
+                bead_channel = str(self.channels[self.bead_channel_index])
+                dapi_channel = str(self.channels[self.dapi_channel_index])
+                _illumination_channels = self.shared_parameters['corr_channels']+[bead_channel, dapi_channel]
+                ## illumination profiles
+                _savefile_load_illumination = False
+                if _load_from_savefile_first:
+                    # try to load from save_file
+                    with h5py.File(self.save_filename, "r", libver='latest', swmr=True) as _f:
+                        if 'corrections' in _f.keys():
+                            _grp = _f['corrections']
+                            _pf_dict = {}
+                            for _ch in _illumination_channels:
+                                _illumination_key = f'{_ch}_illumination'
+                                if _illumination_key in _grp:
+                                    _pf = _grp[_illumination_key][:]
+                                    if (np.array(_pf) != _empty_value).any():
+                                        _pf_dict[str(_ch)] = _pf
+                                    elif np.size(_pf) == 1:
+                                        _pf_dict[str(_ch)] = None
+                            if set(list(_pf_dict.keys())) == set(list(_illumination_channels)):
+                                if _verbose:
+                                    print(f"++ load illumination correction profile directly from savefile.")
+                                _savefile_load_illumination = True
+                                self.correction_profiles['illumination'] = _pf_dict
+                                
+                # if not successfully loaded or not savefile first, load from original file
+                if not _savefile_load_illumination:
+                    if _verbose:
+                        print(f"++ load illumination correction profile from original file.")
+        
+
+                    self.correction_profiles['illumination'] = load_correction_profile('illumination', 
+                                                        _illumination_channels, 
+                                                        self.correction_folder, all_channels=self.channels, 
+                                                        im_size=self.shared_parameters['single_im_size'],
+                                                        verbose=_verbose)
         return
-    
+
+    def _save_correction_profile(self, _correction_folder=None, _overwrite=False, _verbose=True):
+        """Function to save loaded correction profiles into hdf5 save file"""
+        
+        with h5py.File(self.save_filename, "a", libver='latest', swmr=True) as _f:
+
+            # create a correction_profile group if necessary
+            if 'corrections' not in _f.keys():
+                _grp = _f.create_group('corrections')
+            else:
+                _grp = _f['corrections']
+            
+            # save illumination
+            if 'illumination' in self.correction_profiles:
+                # loop through existing profiles
+                for _ch, _pf in self.correction_profiles['illumination'].items():
+                    _key = str(_ch)+"_illumination"
+                    if _key not in _grp.keys():
+                        _dat = _grp.create_dataset(_key, 
+                                                    np.array(_pf.shape), 
+                                                    dtype='f')
+                    else:
+                        _dat = _grp[_key]
+                    # save
+                    if (np.array(_dat[:]) != self.shared_parameters['empty_value']).any() and not _overwrite:
+                        if _verbose:
+                            print(f"-- {_key} profile already exist in save_file: {self.save_filename}, skip.")
+                    else:
+                        if _verbose:
+                            print(f"-- saving {_key} profile to save_file: {self.save_filename}.")
+                        if _pf is not None:
+                            _dat[:] = _pf
+
+            # save chromatic
+            if 'chromatic' in self.correction_profiles:
+                # loop through existing profiles
+                for _ch, _pf in self.correction_profiles['chromatic'].items():
+                    _key = str(_ch)+"_chromatic"
+                    if _pf is None:
+                        _shape = (1,)
+                    else:
+                        _shape = np.array(np.array(_pf).shape)
+                    # create dataset
+                    if _key not in _grp.keys():
+                        _dat = _grp.create_dataset(_key, _shape, dtype='f')
+                    else:
+                        _dat = _grp[_key]
+                    # save
+                    if (np.array(_dat[:]) != self.shared_parameters['empty_value']).any() and not _overwrite:
+                        if _verbose:
+                            print(f"-- {_key} profile already exist in save_file: {self.save_filename}, skip.")
+                    else:
+                        if _verbose:
+                            print(f"-- saving {_key} profile to save_file: {self.save_filename}.")
+                        if _pf is not None:
+                            _dat[:] = _pf
+
+            # save chromatic_constants
+            if 'chromatic_constants' in self.correction_profiles:
+                # loop through existing profiles
+                for _ch, _pf in self.correction_profiles['chromatic_constants'].items():
+                    _key = str(_ch)+"_chromatic_constants"
+
+                    # create dataset
+
+
+                    if _key not in _grp.keys():
+                        _dat = _grp.create_group(_key)
+                    elif _overwrite:
+                        del(_grp[_key])
+                        _dat = _grp.create_group(_key)
+                    else:
+                        _dat = _grp[_key]
+                    _updated_info = []
+                    # save
+                    if _pf is not None:
+                        for _k, _v in _pf.items():
+                            # write updating keys
+                            if _k not in _dat.keys():
+                                _updated_info.append(_k)
+                                _info = _dat.create_dataset(_k, 
+                                                            np.shape(np.array(_v)), dtype='f')
+                                _info[:] = np.array(_v)
+                    if _verbose:
+                        if len(_updated_info) > 0:
+                            print(f"-- saving {_key} profile with {_updated_info} to save_file: {self.save_filename}.")
+                        else:
+                            print(f"-- {_key} profile already exist in save_file: {self.save_filename}, skip.")
+            # save chromatic
+            if 'bleed' in self.correction_profiles:
+                # loop through existing profiles
+                _pf = self.correction_profiles['bleed']
+
+                _key = ''
+                for _ch in self.shared_parameters['corr_channels']:
+                    _key += f'{_ch}_'
+                _key += "bleed"
+
+                if _pf is None:
+                    _shape = (1,)
+                else:
+                    _shape = np.array(np.array(_pf).shape)
+                # create dataset
+                if _key not in _grp.keys():
+                    _dat = _grp.create_dataset(_key, _shape, dtype='f')
+                else:
+                    _dat = _grp[_key]
+                # save
+                if (np.array(_dat[:]) != self.shared_parameters['empty_value']).any() and not _overwrite:
+                    if _verbose:
+                        print(f"-- {_key} profile already exist in save_file: {self.save_filename}, skip.")
+                else:
+                    if _verbose:
+                        print(f"-- saving {_key} profile to save_file: {self.save_filename}.")
+                    if _pf is not None:
+                        _dat[:] = _pf
+
+
     ## load existing drift info
     def _load_drift_file(self , _drift_basename=None, _drift_postfix='_current_cor.pkl', 
                          _sequential_mode=False, _verbose=False):
@@ -527,136 +661,48 @@ class Field_of_View():
             return False
 
     ## generate reference images and reference centers
-    def _prepare_dirft_references(self,
-        _ref_filename = None,
-        _drift_crops = None,
-        _drift_size=None,
-        _single_im_size = None,
-        _all_channels = None,
-        _num_buffer_frames = None,
-        _num_empty_frames = None,
-        _bead_channel=None,
-        _seeding_th=150,
-        _dynamic_seeding=False,
-        _min_num_seeds=50,
-        _seeding_percentile=95,
-        _match_distance_th=3, 
-        _overwrite=False,
-        _verbose=True):
-        """Function to calculate ref_centers in given drift_crops"""
-        from ..correction_tools.alignment import generate_drift_crops
-        from ..io_tools.load import split_im_by_channels
-        from ..visual_tools import DaxReader, get_STD_centers
-        from ..get_img_info import get_num_frame, split_channels
-        # set default params
-        if _drift_size is None:
-            _drift_size = self.shared_parameters['drift_size']
-        if _single_im_size is None:
-            _single_im_size = self.shared_parameters['single_im_size']
-        if _all_channels is None:
-            _all_channels = self.channels
-        if _num_buffer_frames is None:
-            _num_buffer_frames = self.shared_parameters['num_buffer_frames']
-        if _num_empty_frames is None:
-            _num_empty_frames = self.shared_parameters['num_empty_frames']
-        if _bead_channel is None:
-            _bead_channel=self.channels[self.bead_channel_index]
-
+    def _load_reference_image(self, 
+                            _ref_filename=None,
+                            _save=True, 
+                            _overwrite=False, 
+                            _verbose=True):
+        """Function to load ref image for fov class"""
         # check ref_filename
+        
         if _ref_filename is None:
             _ref_filename = self.ref_filename
         if _verbose:
-            print(f"++ acquire reference images and centers from file:{_ref_filename}")
-        if '.dax' not in _ref_filename:
-            raise TypeError(f"Wrong ref_filename type, should be .dax file!")
-        # Check drift file
-        if not os.path.isfile(self.drift_filename):
-            from .batch_functions import create_drift_file
-            create_drift_file(self.drift_filename, self.ref_filename,
-                              overwrite=_overwrite, verbose=_verbose)
-        # check drift_crops
-        if not hasattr(self, 'drift_crops') or _overwrite:
-            if _drift_crops is not None:
-                pass
-            else:
-                _drift_crops = generate_drift_crops(drift_size=_drift_size,
-                                                     single_im_size=_single_im_size,)
-            if _verbose:
-                print(f"+++ updating drift crop for this fov to: {_drift_crops}")
-            setattr(self, 'drift_crops', _drift_crops)
-        else:
-            _drift_crops = getattr(self, 'drift_crops')
+            print(f"+ load reference image from file:{_ref_filename}")
+        if 'correct_fov_image' not in locals():
+            from ImageAnalysis3.io_tools.load import correct_fov_image
 
-        # first check if attribute already exists:
-        _load_ref_flag = _overwrite
-        if hasattr(self, 'ref_ims') and hasattr(self, 'ref_cts') and not _overwrite:
-            #
-            _ref_cts = getattr(self, 'ref_cts')
-            _ref_ims = getattr(self, 'ref_ims')
-            for _im, _ct, _crop in zip(_ref_ims, _ref_cts, _drift_crops):
-                if _im.shape != tuple(_crop[:,1]-_crop[:,0]):
-                    if _verbose:
-                        print(f"+++ image shape:{np.shape(_im)} doesn't match crop:{_crop}, reload ref_ims!")
-                    _load_ref_flag = True 
-                    break
-                if len(_ct) < self.shared_parameters['min_num_seeds']:
-                    if _verbose:
-                        print(f"+++ not enough reference centers, {len(_ct)} given, {self.shared_parameters['min_num_seeds']} expected, reload ref_ims!")
-                    _load_ref_flag = True 
-                    break
+        
+        if hasattr(self, 'ref_im') and not _overwrite:
+            if _verbose:
+                print(f"++ directly return existing attribute.")
+            _ref_im = getattr(self, 'ref_im')
         else:
-            _load_ref_flag = True 
-        # if reload im, do loading here:
-        if _load_ref_flag:
-            # load image
-            if _verbose:
-                print(f"+++ loading image from .dax file")
-            _reader = DaxReader(_ref_filename, verbose=_verbose)
-            _full_im = _reader.loadAll()
-            _reader.close()
-            _full_im_shape, _num_color = get_num_frame(_ref_filename,
-                                                    frame_per_color=_single_im_size[0],
-                                                    buffer_frame=_num_buffer_frames)
-            _bead_im = split_im_by_channels(_full_im, [_bead_channel], _all_channels[:_num_color], 
-                                        single_im_size=_single_im_size, 
-                                        num_buffer_frames=_num_buffer_frames,
-                                        num_empty_frames=_num_empty_frames)[0]
-            # crop images
-            if _verbose:
-                print(f"+++ cropping {len(_drift_crops)} images")
-            _ref_ims = [_bead_im[_c[0,0]:_c[0,1],
-                                _c[1,0]:_c[1,1],
-                                _c[2,0]:_c[2,1]] for _c in _drift_crops]
-            
-            # fit centers
-            if _verbose:
-                print(f"+++ get ref_centers by gaussian fitting")
-            # collect ref_cts
-            from ..spot_tools.fitting import select_sparse_centers, get_centers
-            _ref_cts = []
-            for _im in _ref_ims:
-                _cand_cts = get_centers(_im, th_seed=_seeding_th,
-                                        th_seed_per=_seeding_percentile, 
-                                        use_percentile=_dynamic_seeding,
-                                        max_num_seeds=self.shared_parameters['max_num_seeds'],
-                                        min_num_seeds=self.shared_parameters['min_num_seeds'],
-                                        verbose=_verbose,
-                                        )
-                _ref_cts.append(select_sparse_centers(_cand_cts, 
-                                    distance_th=_match_distance_th,
-                                    verbose=_verbose))
-            # append
-            self.ref_ims = _ref_ims
-            self.ref_cts = _ref_cts
-        # direct load if not necesary
-        else:
-            if _verbose:
-                print(f"+++ direct load from attributes.")
-            _ref_ims = getattr(self, 'ref_ims')
-            _ref_cts = getattr(self, 'ref_cts')
-        # return
-        return _ref_ims, _ref_cts
-    
+            # load
+            _ref_im = correct_fov_image(_ref_filename, 
+                                        [self.channels[self.bead_channel_index]], 
+                                        bleed_corr=False, 
+                                        chromatic_corr=False, 
+                                        num_buffer_frames=self.shared_parameters['num_buffer_frames'],
+                                        single_im_size=self.shared_parameters['single_im_size'],
+                                        num_empty_frames=self.shared_parameters['num_empty_frames'],
+                                        illumination_corr=True,
+                                        correction_folder=self.correction_folder,
+                                        calculate_drift=False,
+                                        )[0][0]
+            setattr(self, 'ref_im', _ref_im)
+
+            # save new chromosome image
+            if _save:
+                self._save_to_file('fov_info', _save_attr_list=['ref_im'],
+                                _verbose=_verbose)
+
+        return _ref_im
+
     ## check drift info
     def _check_drift(self, _load_drift_kwargs={}, 
                      _load_info_kwargs={}, _verbose=False):
@@ -810,8 +856,13 @@ class Field_of_View():
             self._load_correction_profiles()
 
         ## load shared drift references
-        if _load_common_reference and (not hasattr(self, 'ref_ims') or not hasattr(self, 'ref_cts')) :
-            self._prepare_dirft_references(_verbose=_verbose)
+        if _load_common_reference and not hasattr(self, 'ref_im'):
+            self._load_reference_image(_verbose=_verbose)
+        if hasattr(self, 'ref_im'):
+            _drift_reference = getattr(self, 'ref_im')
+        else:
+            _drift_reference = getattr(self, 'ref_filename')
+            #self._prepare_dirft_references(_verbose=_verbose)
 
         ## multi-processing for correct_splice_images
         # prepare common params
@@ -820,7 +871,7 @@ class Field_of_View():
             'all_channels':self.channels,
             'num_buffer_frames':self.shared_parameters['num_buffer_frames'],
             'num_empty_frames':self.shared_parameters['num_empty_frames'],
-            'bead_channel': self.channels[self.bead_channel_index],
+            'drift_channel': self.channels[self.bead_channel_index],
             'correction_folder':self.correction_folder,
             'hot_pixel_corr':self.shared_parameters['corr_hot_pixel'], 
             'z_shift_corr':self.shared_parameters['corr_Z_shift'], 
@@ -838,20 +889,15 @@ class Field_of_View():
         else:
             _correction_args.update({
                 'chromatic_profile':self.correction_profiles['chromatic_constants'],})
+        # required parameters for drift correction
         _drift_args.update({
-            'drift_size':self.shared_parameters['drift_size'],
-            'use_fft': self.shared_parameters['drift_use_fft'],
-            'drift_crops':self.drift_crops,
-            'ref_beads':self.ref_cts,
-            'ref_ims':self.ref_ims,
-            'max_num_seeds' : self.shared_parameters['max_num_seeds'],
-            'min_num_seeds' : self.shared_parameters['min_num_seeds'],
-            'good_drift_th': self.shared_parameters['good_drift_th'],
+            'precision_fold': self.shared_parameters['drift_precision_fold'],
+            'drift_correction_args': self.shared_parameters['drift_correction_args'],
         })
+        # required parameters for fitting
         _fitting_args.update({
             'max_num_seeds' : self.shared_parameters['max_num_seeds'],
             'th_seed': self.shared_parameters['spot_seeding_th'],
-            'init_sigma': self.shared_parameters['sigma_zxy'],
             'min_dynamic_seeds': self.shared_parameters['min_num_seeds'],
             'remove_hot_pixel': self.shared_parameters['corr_hot_pixel'],
             'normalize_backgroud': self.shared_parameters['normalize_intensity_backgroud'],
@@ -919,12 +965,13 @@ class Field_of_View():
 
             # append if any channels selected
             if len(_sel_channels) > 0:
-                _args = (_dax_filename, _sel_channels, self.ref_filename,
-                        _load_file_lock,
-                        _correction_args, 
-                        _save_images, self.save_filename,
+                _args = (_dax_filename, _sel_channels, 
+                        self.save_filename, 
                         _data_type, _reg_ids, 
-                        _warp_images,
+                        _drift_reference,
+                        _load_file_lock,
+                        _warp_images, _correction_args, 
+                        _save_images, self.shared_parameters['empty_value'],
                         _image_file_lock, 
                         _overwrite_image, 
                         _drift_args, 
@@ -943,9 +990,9 @@ class Field_of_View():
         ## multi-processing for translating segmentation
         if len(_processing_arg_list) > 0:
             from .batch_functions import batch_process_image_to_spots, killchild
-            with mp.Pool(self.num_threads,) as _processing_pool:
+            with mp.Pool(self.num_threads) as _processing_pool:
                 if _verbose:
-                    print(f"+ Start multi-processing of pre-processing for {len(_processing_arg_list)} images!")
+                    print(f"+ Start multi-processing of pre-processing for {len(_processing_arg_list)} images with {self.num_threads} threads")
                     print(f"++ processed {_data_type} ids: {np.sort(np.concatenate(_processing_id_list))}", end=' ')
                     _start_time = time.time()
                 # Multi-proessing!
@@ -987,6 +1034,8 @@ class Field_of_View():
                               + list(self.shared_parameters['allowed_data_types'].keys())
         if _type not in _allowed_save_types:
             raise ValueError(f"Wrong input for _type:{_type}, should be within:{_allowed_save_types}.")
+        # exclude the following attributes:
+        _excluded_attrs = ['im_dict', 'spot_dict', 'channel_dict', 'correction_profiles']
         # save file should exist
         if not os.path.isfile(self.save_filename):
             print(f"* create savefile: {self.save_filename}")
@@ -996,7 +1045,7 @@ class Field_of_View():
             print(f"-- saving {_type} to file: {self.save_filename}")
             _save_start = time.time()
         
-        with h5py.File(self.save_filename, "a", libver='latest') as _f:
+        with h5py.File(self.save_filename, "a", libver='latest', swmr=True) as _f:
 
             ## segmentation
             if _type == 'segmentation':
@@ -1026,7 +1075,8 @@ class Field_of_View():
                         _grp[_attr_name] = getattr(self, _attr_name)
 
             elif _type == 'correction':
-                pass 
+                self._save_correction_profile(self.correction_folder, _overwrite=_overwrite,
+                                              _verbose=_verbose) 
 
             ## save basic attributes as info
             elif _type == 'fov_info':
@@ -1034,25 +1084,13 @@ class Field_of_View():
                 _info_attrs = []
                 for _attr_name in dir(self):
                     # exclude all default attrs and functions
-                    if _attr_name[0] != '_' and getattr(self, _attr_name) is not None:
-                        # check within save_attr_list:
-                        if len(_save_attr_list) > 0 and _save_attr_list is not None:
-                            # if save_attr_list is given validly and this attr not in it, skip.
-                            if _attr_name not in _save_attr_list:
-                                continue 
-                        # set default to be save
-                        _info_attr_flag = True
-                        # exclude attributes belongs to other categories
-                        for _save_type in _allowed_save_types:
-                            if _save_type in _attr_name:
-                                _info_attr_flag = False 
-                                break
-                        # if its image dict, exclude
-                        if 'im_dict' in _attr_name or 'channel_dict' in _attr_name:
-                            _info_attr_flag = False
-
-                        # save here:
-                        if _info_attr_flag:
+                    if _attr_name[0] != '_' and getattr(self, _attr_name) is not None and '<class ' not in str(getattr(self, _attr_name)):
+                        # exclude some large files shouldnt save
+                        if _attr_name in _excluded_attrs:
+                            continue
+                        # check within save_attr_list or not specified
+                        if _save_attr_list is None or len(_save_attr_list) == 0 or _attr_name in _save_attr_list:
+                            ## save
                             # extract the attribute
                             _attr = getattr(self, _attr_name)
                             # convert dict if necessary
@@ -1062,8 +1100,9 @@ class Field_of_View():
                             if _attr_name not in _f.attrs or _overwrite:
                                 _f.attrs[_attr_name] = _attr
                                 _info_attrs.append(_attr_name)
+                            
                 if _verbose:
-                    print(f"--- base attributes updated:{_info_attrs} in {time.time()-_save_start:.3f}s.")
+                    print(f"++ base attributes saved:{_info_attrs} in {time.time()-_save_start:.3f}s.")
 
             ## images and spots for a specific data type 
             elif _type in self.shared_parameters['allowed_data_types']:
@@ -1233,7 +1272,7 @@ class Field_of_View():
             print(f"-- checking {_data_type}, region:{_region_ids}", end=' ')
             if _check_im:
                 print("including images", end=' ')
-        with h5py.File(self.save_filename, "a", libver='latest') as _f:
+        with h5py.File(self.save_filename, "r", libver='latest', swmr=True) as _f:
             if _data_type not in _f.keys():
                 raise ValueError(f"input data type doesn't exist in this save_file:{self.save_filename}")
             _grp = _f[_data_type]
@@ -1269,8 +1308,127 @@ class Field_of_View():
             return _exist_spots, _exist_drift, _exist_flag
 
 
-    def _load_from_file(self, _type):
-        pass
+    def _load_from_file(self, _type, _load_attr_list=[],
+                        _load_processed=True, _load_image=False, 
+                        _overwrite=False, _verbose=True):
+        """Function to load from existing save_file"""
+        ## check inputs:
+        _type = str(_type).lower()
+        # only allows loading the following types:
+        _allowed_save_types = ['fov_info', 'segmentation', 'correction'] \
+                            + list(self.shared_parameters['allowed_data_types'].keys())
+        if _type not in _allowed_save_types:
+            raise ValueError(f"Wrong input for _type:{_type}, should be within:{_allowed_save_types}.")
+        # save file should exist
+        if not os.path.isfile(self.save_filename):
+            raise FileExistsError(f"savefile: {self.save_filename} doesn't exist, exit.")
+        
+        ## start loading here:
+        if _verbose:
+            print(f"+ loading {_type} from file: {self.save_filename}")
+            _load_start = time.time()
+        
+        _loaded_attrs = []
+        
+        with h5py.File(self.save_filename, "r", libver='latest', swmr=True) as _f:
+            ## segmentation
+            if _type == 'segmentation':
+                # create segmentation group if not exist 
+                if 'segmentation' not in _f.keys():
+                    print(f"segmetation group doesn't exist in save_file:{self.save_filename}, exit.")
+                else:
+                    _grp = _f['segmentation']
+                    # directly create segmentation label dataset
+                    if 'segmentation_label' not in _grp:
+                        _seg = _grp.create_dataset('segmentation_label', 
+                                                self.shared_parameters['single_im_size'][-self.segmentation_dim:], 
+                                                dtype='i8')
+                    if hasattr(self, 'segmentation_label'):
+                        if (len(_load_attr_list) > 0 and 'segmentation_label' in _load_attr_list) or len(_load_attr_list)==0:
+                            if not hasattr(self, 'segmentation_label') or _overwrite:
+                                setattr(self, 'segmentation_label', _grp['segmentation_label'])
+                                _loaded_attrs.append('segmentation_label')
+                        
+                    # create other segmentation related datasets
+                    for _attr_name in dir(self):
+                        if _attr_name[0] != '_' and 'segmentation' in _attr_name and _attr_name in _grp.keys():
+                            if (len(_load_attr_list) > 0 and _attr_name in _load_attr_list) or len(_load_attr_list)==0:
+                                if not hasattr(self, _attr_name) or _overwrite:
+                                    _value = np.array(_grp[_attr_name])
+                                    # special treatment for strings
+                                    if isinstance(_value.dtype, np.object):
+                                        _value = str(_value)
+                                    # save
+                                    setattr(self, _attr_name, _value)
+                                    _loaded_attrs.append(_attr_name)
+                                    
+            elif _type == 'correction':
+                return self._load_correction_profiles(_overwrite=_overwrite,
+                                                    _verbose=_verbose)
+            
+            ## save basic attributes as info
+            elif _type == 'fov_info':
+                for _attr in _f.attrs:
+                    if not hasattr(self, _attr) or _overwrite:
+                        if _attr in _load_attr_list or len(_load_attr_list) == 0:
+                            _value =  _f.attrs[_attr]
+                            # convert dicts
+                            if isinstance(_value, str) and _value[0] == '{' and _value[-1] == '}':
+                                print(_attr)
+                                _value = ast.literal_eval(_value)
+                            setattr(self, _attr, _value)
+                            _loaded_attrs.append(_attr)
+
+            elif _type in self.shared_parameters['allowed_data_types']:
+
+                if hasattr(self, f"{_type}_ids") and \
+                    hasattr(self, f"{_type}_drifts") and \
+                    hasattr(self, f"{_type}_spots_list") and \
+                    not _overwrite:
+                    if _load_image and hasattr(self, f"{_type}_ims"):
+                        return
+                    elif not _load_image:
+                        return
+                _start_time = time.time()
+                with h5py.File(self.save_filename, "r", libver='latest', swmr=True) as _f:
+                    if _type in _f.keys():
+                        _grp = _f[_type]
+                        # load ids and spots
+                        _flags = _grp['flags'][:]
+
+                        # screen if specified
+                        if _load_processed:
+                            _ids = np.array([_id for _flg, _id in zip(_flags, _grp['ids'][:]) if _flg > 0])
+                            _drifts = np.array([_dft for _flg, _dft in zip(_flags, _grp['drifts'][:]) if _flg > 0])
+                            _spots_list = np.array([_spots[_spots[:,0] > 0] for _flg, _spots in zip(_flags, _grp['spots'][:]) if _flg > 0])
+                            if _load_image:
+                                _ims = _grp['ims'][:]
+                        else:
+                            _ids = _grp['ids'][:]
+                            _drifts = _grp['drifts'][:]
+                            _spots_list = np.array([_spots[_spots[:,0] > 0] for _spots in _grp['spots'][:]])
+                            if _load_image:
+                                _ims = _grp['ims'][:]
+                        
+                        # set attributes
+                        setattr(self, f"{_type}_ids", _ids)
+                        setattr(self, f"{_type}_drifts", _drifts)
+                        setattr(self, f"{_type}_spots_list", _spots_list)
+                        if _load_image:
+                            setattr(self, f"{_type}_ims", _ims)
+                        if _verbose:
+                            print(f"++ finish loading {_type} in {time.time()-_start_time:.3f}s. ")
+                    else:
+                        raise KeyError(f"{_type} doesn't exist in savefile:{self.save_filename}")
+                return
+
+            
+                        
+        if _verbose:
+            print(f"++ base attributes loaded:{_loaded_attrs} in {time.time()-_load_start:.3f}s.")
+
+        return _loaded_attrs
+    
 
     def _delete_save_file(self, _type):
         pass
@@ -1278,6 +1436,368 @@ class Field_of_View():
     def _convert_to_cell_list(self):
         pass
 
-    def _spot_finding(self):
-        pass
 
+    def _load_chromosome_image(self, _type='forward', 
+                               _generate_data_type='unique', _generate_num_im=30,
+                               _save=True, 
+                               _overwrite=False, 
+                               _verbose=True):
+        """Function to load chrom image into fov class
+        """
+        
+        if 'correct_fov_image' not in locals():
+            from ImageAnalysis3.io_tools.load import correct_fov_image
+
+        if hasattr(self, 'chrom_im') and not _overwrite:
+            if _verbose:
+                print(f"directly return existing attribute.")
+            _chrom_im = getattr(self, 'chrom_im')
+        else:
+            # initialize default chromosome reference
+            _select_chrom = False
+
+            # find chrom im in color_usage
+            for _fd, _infos in self.color_dic.items():
+                
+                for _ch, _info in zip(self.channels, _infos):
+                    if 'chrom' in _info and _type in _info:
+                        # define chromosome folder 
+                        _chrom_fd = [_full_fd for _full_fd in self.annotated_folders 
+                                    if os.path.basename(_full_fd) == _fd][0]
+                        if _verbose:
+                            print(f"-- choose chrom images from folder: {_chrom_fd[0]}.")
+                        _chrom_channel = _ch
+                        _chrom_fd_ind = self.annotated_folders.index(_chrom_fd)
+                        # load reference of chromosome image
+                        if _chrom_fd_ind != self.ref_id:                                
+                            if not hasattr(self, 'ref_im'):
+                                self._load_reference_image(_verbose=_verbose)
+                            _use_ref_im = True
+                        else:
+                            _use_ref_im = False 
+
+                        _select_chrom = True  # successfully selected chrom
+                        break 
+
+            if not _select_chrom:
+                print(f'No {_type} chrom detected in color usage, generate chromosome with existing data')
+                _use_ref_im = False 
+
+                return self._generate_chrom_im_from_data(
+                    _data_type=_generate_data_type, 
+                    _num_loaded_image=_generate_num_im,
+                    _save=_save, _overwrite=_overwrite, _verbose=_verbose
+                )
+
+            _chrom_filename = os.path.join(_chrom_fd, self.fov_name)
+            
+            # load from Dax file
+            if hasattr(self, 'ref_im'):
+                _drift_ref = getattr(self, 'ref_im')
+            else:
+                _drift_ref = getattr(self, 'ref_filename')
+
+            _chrom_im, _drift = correct_fov_image(_chrom_filename, [_chrom_channel], 
+                                    bleed_corr=False, 
+                                    chromatic_corr=False, 
+                                        num_buffer_frames=self.shared_parameters['num_buffer_frames'],
+                                    single_im_size=self.shared_parameters['single_im_size'],
+                                        num_empty_frames=self.shared_parameters['num_empty_frames'],
+                                    illumination_corr=True, 
+                                    correction_folder=self.correction_folder,
+                                    calculate_drift=_use_ref_im, ref_filename=_drift_ref,
+                                    warp_image=True, return_drift=True, 
+                                    )
+            print(_drift)
+
+            setattr(self, 'chrom_im', _chrom_im)
+            
+            # save new chromosome image
+            if _save:
+                self._save_to_file('fov_info', _save_attr_list=['chrom_im'],
+                                _verbose=_verbose)
+        
+        return _chrom_im
+
+    def _generate_chrom_im_from_data(self, _data_type, _num_loaded_image=10, 
+                           _fast=True, _save=False,
+                           _overwrite=False, _verbose=True):
+        """Function to create chromosome image by stacking over all images from certain data_type
+        _data_type: type of images to be used to generate chromosome image
+        _num_loaded_image: image loaded per round, int
+        _fast: whether do it in fast 
+        """    
+        from .batch_functions import load_image_from_fov_file
+        from ..io_tools.load import find_image_background
+        ## check inputs
+        if _data_type not in self.shared_parameters['allowed_data_types']:
+            raise ValueError(f"Wrong input data_type: {_data_type}, should be among:{self.shared_parameters['allowed_data_types']}")
+        _num_loaded_image = int(_num_loaded_image)
+        
+        if hasattr(self, 'chrom_im') and not _overwrite:
+            if _verbose:
+                print(f"- Directly load chrom_im from fov class.")
+            _chrom_im = getattr(self, 'chrom_im')
+        else:
+            # load all IDs
+            with h5py.File(self.save_filename, "r", libver='latest', swmr=True) as _f:
+                # get the group
+                _grp = _f[_data_type]
+
+                _flags = _grp['flags'][:]
+                _valid_ids = _grp['ids'][_flags > 0] # only load from processed ids
+                _valid_flags = _flags[_flags > 0]
+            if _verbose:
+                print(f"- Generate chromosome image from {_data_type} images, {len(_valid_ids)} images planned to load.")
+                _chrom_time = time.time()
+            # start to load images
+            _chrom_im = np.zeros(self.shared_parameters['single_im_size'])
+            # load images in batch to avoid memory limitations
+            for _batch_id in range(int(np.ceil(len(_valid_ids)/_num_loaded_image))):
+                # load these iamges in this bat
+                _load_ids = _valid_ids[_batch_id*_num_loaded_image:(_batch_id+1)*_num_loaded_image]
+                _load_flags = _valid_flags[_batch_id*_num_loaded_image:(_batch_id+1)*_num_loaded_image]
+                # load
+                _ims, _flags, _drifts = load_image_from_fov_file(self.save_filename, _data_type, _load_ids,
+                                                            image_dtype=self.image_dtype, 
+                                                            load_drift=True, verbose=_verbose)
+                # get only pixel level drift for computational efficiency
+                #_shifted_ims = []
+                if _verbose:
+                    print(f"-- shifting images", end=' ')
+                    _shift_time = time.time()
+                
+                if _fast:
+                    _rough_drifts = np.round(_drifts).astype(np.int)
+                    for _i, (_im, _flag, _drift) in enumerate(zip(_ims, _flags, _rough_drifts)):
+                        # if warpped, directly add
+                        if _flag == 2:
+                            _chrom_im += _im
+                        else:
+                            # left limits
+                            _llim = np.max([_drift, np.zeros(len(_drift), dtype=np.int)], axis=0)
+                            _shift_llim = np.max([-_drift, np.zeros(len(_drift), dtype=np.int)], axis=0)
+                            # corresponding right limits
+                            _rlim = np.array(np.shape(_im)) - _shift_llim
+                            _shift_rlim = _shift_llim + (_rlim - _llim)
+                            # generate crops
+                            _crops = tuple([slice(_l,_r) for _l,_r in zip(_llim, _rlim)])
+                            _shift_crops = tuple([slice(_l,_r) for _l,_r in zip(_shift_llim, _shift_rlim)])
+                            #_shift_im = np.ones(np.shape(_chrom_im)) * find_image_background(_im)
+                            # crop image and add to shift_im
+                            #_shift_im[_shift_crops] = _im[_crops]
+                            # append
+                            _background = np.median(_im)
+                            _chrom_im += _background
+                            _chrom_im[_shift_crops] += _im[_crops]-_background
+                            #_shifted_ims.append(_shift_im)
+                else:
+                    from scipy.ndimage.interpolation import shift
+                    for _i, (_im, _flag, _drift) in enumerate(zip(_ims, _flags, _drifts)):
+                        # if warpped, directly add
+                        if _flag == 2: # this image has been warpped
+                            _shift_im = _im
+                        else:
+                            _shift_im = shift(_im, -_drift, order=1, mode='constant', cval=find_image_background(_im))
+                        _chrom_im += _shift_im
+                        #_shifted_ims.append(_shift_im)
+                        
+                if _verbose:
+                    print(f"in {time.time()-_shift_time:.3f}s. ")
+
+            # add attribute
+            setattr(self, 'chrom_im', _chrom_im)
+
+            if _verbose:
+                print(f"-- finish generating chrom_im in {time.time()-_chrom_time:.3f}s. ")
+            
+            if _save:
+                self._save_to_file('fov_info', _save_attr_list=['chrom_im'],
+                                _verbose=_verbose)
+            
+        return _chrom_im #, _shifted_ims
+
+
+    def _find_candidate_chromosomes_by_segmentation(self, 
+                                                _chrom_im=None, 
+                                                _adjust_layers=False, 
+                                                _filt_size=3, 
+                                                _binary_per_th=99.5,
+                                                _morphology_size=1, 
+                                                _min_label_size=100,
+                                                _random_walk_beta=10,
+                                                _save=True,
+                                                _overwrite=False,
+                                                _verbose=True):
+        """Function to find candidate chromsome centers given
+        Inputs:
+            _chrom_im: image that chromosomes are lighted, 
+                it could be directly from experimental result, or assembled by stacking over images,
+                np.ndarray(shape equal to single_im_size)
+            _adjust_layers: whether adjust intensity for layers, bool (default: False)
+            _filt_size: filter size for maximum and minimum filters used to find local maximum, int (default: 3)
+            _binary_per_th: percentile threshold to binarilize the image to get peaks, float (default: 99.5)
+            _morphology_size=1, 
+            _min_label_size=100,
+            _random_walk_beta=10,
+            _verbose: say something!, bool (default: True)
+        Output:
+            _cand_chrom_coords: list of chrom coordinates in zxy pixels"""
+        from scipy.ndimage.filters import maximum_filter, minimum_filter
+        from skimage import morphology
+        from scipy.stats import scoreatpercentile
+        from scipy import ndimage
+        if hasattr(self, 'cand_chrom_coords') and not _overwrite:
+            if _verbose:
+                print(f"+ directly use current chromsome coordinates.")
+            return getattr(self, 'cand_chrom_coords')
+        elif not _overwrite:
+            self._load_from_file('fov_info', _load_attr_list=['cand_chrom_coords'],
+                                _overwrite=_overwrite, _verbose=_verbose, )
+            if hasattr(self, 'cand_chrom_coords'):
+                if _verbose:
+                    print(f"+ use chromsome coordinates from savefile: {os.path.basename(self.save_filename)}.")
+                return getattr(self, 'cand_chrom_coords')
+        
+        ## 0. load or generate chromosome
+        if _chrom_im is None:
+            if hasattr(self, 'chrom_im'):
+                _chrom_im = getattr(self, 'chrom_im')
+            else:
+                _chrom_im = self._load_chromosome_image(_verbose=_verbose)
+        from ..segmentation_tools.chromosome import find_candidate_chromosomes
+        _chrom_coords = find_candidate_chromosomes(
+            _chrom_im,
+            _adjust_layers=_adjust_layers, 
+            _filt_size=_filt_size, 
+            _binary_per_th=_binary_per_th,
+            _morphology_size=_morphology_size, 
+            _min_label_size=_min_label_size,
+            _random_walk_beta=_random_walk_beta,
+            _num_threads=self.num_threads,
+            _verbose=_verbose,
+        )
+        # set attributes
+        setattr(self, 'cand_chrom_coords', _chrom_coords)
+        if _save:
+            self._save_to_file('fov_info', _save_attr_list=['cand_chrom_coords'],
+                                _overwrite=_overwrite,
+                                _verbose=_verbose)
+        
+        return _chrom_coords
+
+    def _select_chromosome_by_candidate_spots(self, 
+                                            _spot_type='unique',
+                                            _cand_chrom_coords=None,
+                                            _good_chr_loss_th=0.4, 
+                                            _save=False, _overwrite=False,
+                                            _verbose=True):
+        """Function to select"""
+        from ..segmentation_tools.chromosome import select_candidate_chromosomes
+        
+        # check if already exists
+        if hasattr(self, 'chrom_coords') and not _overwrite:
+            if _verbose:
+                print(f"+ directly use current chromsome coordinates.")
+            return getattr(self, 'chrom_coords')
+        elif not _overwrite:
+            self._load_from_file('fov_info', _load_attr_list=['chrom_coords'],
+                                _overwrite=_overwrite, _verbose=_verbose, )
+            if hasattr(self, 'chrom_coords'):
+                if _verbose:
+                    print(f"+ use chromsome coordinates from savefile: {os.path.basename(self.save_filename)}.")
+                return getattr(self, 'chrom_coords')
+                
+        if _spot_type not in self.shared_parameters['allowed_data_types']:
+            raise KeyError(f"Wrong input _spot_type:{_spot_type}, should be within {list(self.shared_parameters['allowed_data_types'].keys())}")
+        # load spots
+        _spot_attr = f"{_spot_type}_spots_list"
+        # try to load
+        if not hasattr(self, _spot_attr):
+            self._load_from_file(_spot_type, 
+                                _load_image=False, 
+                                _load_processed=True, 
+                                _verbose=_verbose)
+            if not hasattr(self, _spot_attr):
+                raise AttributeError(f"fov class doesn't have {_spot_attr}.")
+        # extract
+        _spots_list = getattr(self, _spot_attr)
+        
+        # chrom_coords
+        if _cand_chrom_coords is None:
+            if not hasattr(self, 'cand_chrom_coords'):
+                self._load_from_file('fov_info', 
+                                    _load_attr_list=['cand_chrom_coords'],
+                                    _verbose=_verbose)
+                if not hasattr(self, 'cand_chrom_coords'):
+                    raise AttributeError(f"fov class doesn't have cand_chrom_coords.")
+            # extract
+            _cand_chrom_coords = list(getattr(self, 'cand_chrom_coords'))
+        else:
+            _cand_chrom_coords = list(_cand_chrom_coords)
+        
+        # calcualte
+        _chrom_coords = select_candidate_chromosomes(_cand_chrom_coords, 
+                                    _spots_list,
+                                    _good_chr_loss_th=_good_chr_loss_th,
+                                    _verbose=_verbose,
+                                    )
+        
+        # set attributes
+        setattr(self, 'chrom_coords', _chrom_coords)
+        if _save:
+            self._save_to_file('fov_info', _save_attr_list=['chrom_coords'],
+                                _overwrite=_overwrite,
+                                _verbose=_verbose)
+
+        return _chrom_coords
+
+    ##
+    def _load_dapi_image(self, 
+                         _save=True,
+                         _overwrite=False, _verbose=True):
+        """Function to load dapi image for fov class"""
+        
+        if 'correct_fov_image' not in locals():
+            from ImageAnalysis3.io_tools.load import correct_fov_image
+        
+        if hasattr(self, 'dapi_im') and not _overwrite:
+            if _verbose:
+                print(f"directly return existing attribute.")
+            _dapi_im = getattr(self, 'dapi_im')
+        else:
+            # find DAPI
+            for _fd, _info in self.color_dic.items():
+                if len(_info) >= self.dapi_channel_index+1 and _info[self.dapi_channel_index] == 'DAPI':
+                    _dapi_fd = [_full_fd for _full_fd in self.annotated_folders if os.path.basename(
+                        _full_fd) == _fd]
+                    if len(_dapi_fd) == 1:
+                        if _verbose:
+                            print(f"-- choose dapi images from folder: {_dapi_fd[0]}.")
+                        _dapi_fd = _dapi_fd[0]
+                        _select_dapi = True  # successfully selected dapi
+            if not _select_dapi:
+                print('No DAPI detected in color usage!')
+                
+            _filename = os.path.join(_dapi_fd, self.fov_name)
+            _channel = self.channels[self.dapi_channel_index]
+            
+            # load
+            _dapi_im = correct_fov_image(_filename, [_channel], 
+                                    bleed_corr=False, 
+                                    chromatic_corr=False, 
+                                        num_buffer_frames=self.shared_parameters['num_buffer_frames'],
+                                    single_im_size=self.shared_parameters['single_im_size'],
+                                        num_empty_frames=self.shared_parameters['num_empty_frames'],
+                                    illumination_corr=True,
+                                    correction_folder=self.correction_folder,
+                                    calculate_drift=False,
+                                    )[0][0]
+            setattr(self, 'dapi_im', _dapi_im)
+            
+            # save new chromosome image
+            if _save:
+                self._save_to_file('fov_info', _save_attr_list=['dapi_im'],
+                                _verbose=_verbose)
+        
+        return _dapi_im

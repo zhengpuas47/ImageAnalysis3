@@ -146,7 +146,7 @@ def fit_matched_centers(im, ref_centers, match_distance_th=3,
         return _matched_cts, _matched_ref_cts, _matched_ref_inds
 
 def find_paired_centers(tar_cts, ref_cts, drift=None,
-                        cutoff=2, 
+                        cutoff=2, dimension=3,  
                         return_paired_cts=True, 
                         return_kept_inds=False,
                         verbose=False):
@@ -167,12 +167,18 @@ def find_paired_centers(tar_cts, ref_cts, drift=None,
         _paired_ref_cts: paired reference centers, 2d numpy arrray of n_spots*dim
     """
     from scipy.spatial.distance import cdist
+    _dimension = int(dimension)
     _tar_cts = np.array(tar_cts)
     _ref_cts = np.array(ref_cts)
+    if np.shape(_tar_cts)[1] > 3:
+        _tar_cts = _tar_cts[:,1:1+_dimension]
+    if np.shape(_ref_cts)[1] > 3:
+        _ref_cts = _ref_cts[:,1:1+_dimension]
+        
     if drift is None:
         _drift = np.zeros(np.shape(_tar_cts)[1])
     else:
-        _drift = np.array(drift, dtype=np.float)[:np.shape(_tar_cts)[1]]
+        _drift = np.array(drift, dtype=np.float)[:_dimension]
     if verbose:
         print(f"-- aligning {len(_tar_cts)} centers to {len(_ref_cts)} ref_centers, given drift:{np.round(_drift,2)}",
               end=', ')
