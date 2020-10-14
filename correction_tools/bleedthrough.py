@@ -4,7 +4,7 @@ import time
 import pickle 
 import numpy as np
 import scipy
-
+import matplotlib.pyplot as plt 
 # import local variables
 from .. import _allowed_colors, _image_size, _correction_folder
 
@@ -27,16 +27,17 @@ _bleedthrough_default_correction_args = {
     'chromatic_corr':False,
 }
 
-_bleedthrough_default_fitting_args = {'max_num_seeds':300,
-    'th_seed': 500,
+_bleedthrough_default_fitting_args = {'max_num_seeds':500,
+    'th_seed': 300,
     'use_dynamic_th':True,
 }
 
 
 def find_bleedthrough_pairs(filename, channel,
                             corr_channels=_bleedthrough_channels,
-                            correction_args={},
-                            fitting_args={}, intensity_th=1.,
+                            correction_args=_bleedthrough_default_correction_args,
+                            fitting_args=_bleedthrough_default_fitting_args, 
+                            intensity_th=1.,
                             crop_size=9, rsq_th=0.9, 
                             save_temp=True, save_name=None,
                             overwrite=True, verbose=True,
@@ -132,8 +133,10 @@ def interploate_bleedthrough_correction_from_channel(
     info_dicts, ref_channel, target_channel, 
     min_num_spots=200, 
     single_im_size=_image_size, ref_center=None,
-    fitting_order=2, save_temp=True, 
-    verbose=True,
+    fitting_order=2, 
+    save_temp=True, save_folder=None, 
+    make_plots=True, save_plots=True,
+    overwrite=False, verbose=True,
 ):
     """Function to interpolate and generate the bleedthrough correction profiles between two channels
     
@@ -164,7 +167,7 @@ def interploate_bleedthrough_correction_from_channel(
 
         # adjust ref_coords with ref center
         if ref_center is None:
-            _ref_center = single_im_size[:np.shape(_coords)[1]] / 2
+            _ref_center = np.array(single_im_size)[:np.shape(_coords)[1]] / 2
         else:
             _ref_center = np.array(ref_center)[:np.shape(_coords)[1]]
         _ref_coords = _coords - _ref_center[np.newaxis, :]
@@ -193,5 +196,34 @@ def interploate_bleedthrough_correction_from_channel(
         _pX = generate_polynomial_data(_pixel_coords.transpose(), fitting_order)
         _p_slope = np.dot(_pX, _C_slope).reshape(single_im_size)
         _p_intercept = np.dot(_pX, _C_intercept).reshape(single_im_size)
+        ## save temp if necessary
         
+        if save_temp:
+            if save_folder is not None and os.path.isdir(save_folder):
+                if verbose:
+                    print(f"-- saving bleedthrough temp profile from channel: {ref_channel} to channel: {target_channel}.")
+                
+            else:
+                print(f"-- save_folder is not given or not valid, skip.")
+            
+        ## make plots if applicable
+        if make_plots:
+            plt.figure(dpi=150, figsize=(4,3))
+            plt.imshow(_p_slope.mean(0))
+            plt.colorbar()
+            plt.title(f"{ref_channel} to {target_channel}, slope")
+            if save_plots and (save_folder is not None and os.path.isdir(save_folder)):
+                plt.savefig(os.path.join(save_folder, f'bleedthrough_profile_{ref_channel}_to_{target_channel}_slope.png'),
+                            transparent=True)
+            plt.show()
+
+            plt.figure(dpi=150, figsize=(4,3))
+            plt.imshow(_p_intercept.mean(0))
+            plt.colorbar()
+            plt.title(f"{ref_channel} to {target_channel}, intercept")
+            if save_plots and (save_folder is not None and os.path.isdir(save_folder)):
+                plt.savefig(os.path.join(save_folder, f'bleedthrough_profile_{ref_channel}_to_{target_channel}_intercept.png'),
+                            transparent=True)
+            plt.show()
+
         return _p_slope, _p_intercept

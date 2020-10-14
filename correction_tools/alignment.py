@@ -347,14 +347,14 @@ def cross_correlation_align_single_image(im, ref_im, precision_fold=100,
     # check im file type   
     if isinstance(im, np.ndarray):
         if verbose:
-            print(f"-- directly use image")
+            print(f"-> directly use image")
         _im = im.copy()
         if np.shape(_im) != tuple(np.array(single_im_size)):
             raise IndexError(f"shape of im:{np.shape(_im)} and single_im_size:{single_im_size} doesn't match!")
     elif isinstance(im, str):
         if 'correct_fov_image' not in locals():
             from ..io_tools.load import correct_fov_image
-        #    print('load')
+        #  load image
         _im = correct_fov_image(im, [drift_channel], 
                                   single_im_size=single_im_size, all_channels=all_channels,
                                   num_buffer_frames=num_buffer_frames, num_empty_frames=num_empty_frames, 
@@ -381,10 +381,9 @@ def cross_correlation_align_single_image(im, ref_im, precision_fold=100,
     # align by cross-correlation
     from skimage.feature import register_translation
     _start_time = time.time()
-    _drift, _error, _phasediff = register_translation(_ref_im, _im, upsample_factor=precision_fold)
+    _drift, _error, _phasediff = register_translation(_ref_im, _im, 
+                                                      upsample_factor=precision_fold)
     
-    print(time.time()-_start_time)
-
     # return
     if return_all:
         return _drift, _error, _phasediff

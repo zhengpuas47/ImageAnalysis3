@@ -212,7 +212,7 @@ def correct_fov_image(dax_filename, sel_channels,
         raise IndexError(f"drift should have the same dimension as single_im_size.")
     
     ## correction channels and profiles
-    corr_channels = [str(ch) for ch in sorted(corr_channels, key=lambda v:-int(v))]    
+    corr_channels = [str(ch) for ch in sorted(corr_channels, key=lambda v:-int(v)) if str(ch) in sel_channels]    
     for _ch in corr_channels:
         if _ch not in all_channels:
             raise ValueError(f"Wrong correction channel:{_ch}, should be within {all_channels}")
@@ -464,17 +464,7 @@ def correct_fov_image(dax_filename, sel_channels,
                     _func = generate_chromatic_function(chromatic_profile[_ch], _drift)
                 # without chromatic
                 else:
-                    def _func(_coords, _drift=_drift):
-                        _drift = np.array(_drift).copy()
-                        _return_coords = np.array(_coords).copy
-                        if len(np.shape(_return_coords)) != 2:
-                            return _return_coords
-                        else:
-                            if len(_drift) == np.shape(_return_coords)[1]:
-                                _return_coords -= _drift[np.newaxis, :]
-                            else:
-                                _return_coords[:,1:1+len(_drift)] -= _drift[np.newaxis, :]
-                            return _return_coords
+                    _func = generate_chromatic_function(None, _drift)
             # no translating
             else:
                 def _func(_spots):
@@ -724,8 +714,7 @@ def old_correct_fov_image(dax_filename, sel_channels,
                                 **alignment_args,
                                 )
         if verbose:
-            print(f"--- finish drift in {time.time()-_drift_time:.3f}s")
-            print(f"-- drift: {_drift}")
+            print(f"--- finish drift: {_drift} in {time.time()-_drift_time:.3f}s")
     else:
         if drift is None:
             _drift = np.zeros(3)

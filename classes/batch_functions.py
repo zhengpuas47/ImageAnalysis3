@@ -92,10 +92,15 @@ def batch_process_image_to_spots(dax_filename, sel_channels,
     if not isinstance(save_filename, str) or save_filename[-5:] != '.hdf5':
         raise IOError(f"HDF5 file: {save_filename} has wrong data type, exit!")
     # ref_Filename 
-    if not os.path.isfile(ref_filename):
-        raise IOError(f"Dax file: {ref_filename} is not a file, exit!")
-    if not isinstance(ref_filename, str) or ref_filename[-4:] != '.dax':
-        raise IOError(f"Dax file: {ref_filename} has wrong data type, exit!")
+    if isinstance(ref_filename, str):
+        if not os.path.isfile(ref_filename):
+            raise IOError(f"Dax file: {ref_filename} is not a file, exit!")
+        elif ref_filename[-4:] != '.dax':
+            raise IOError(f"Dax file: {ref_filename} has wrong data type, exit!")
+    elif isinstance(ref_filename, np.ndarray):
+        pass
+    else:
+        raise TypeError(f"ref_filename should be np.ndarray or string of path, but {type(ref_filename)} is given")
     # region ids
     if len(region_ids) != len(sel_channels):
         raise ValueError(f"Wrong input region_ids:{region_ids}, should of same length as sel_channels:{sel_channels}.")
@@ -107,20 +112,31 @@ def batch_process_image_to_spots(dax_filename, sel_channels,
                                                     load_drift=True, 
                                                     verbose=verbose)
     # determine which image should be processed
+    # initialize processing images and channels
     _process_flags = []
+    _process_sel_channels = []
+    # initialzie carried over images and channels
+    _carryover_ims = []
+    _carryover_sel_channels = []
     for _im, _flg, _drift, _rid, _ch in zip(_ims, _warp_flags, _drifts, region_ids, sel_channels):
         # if decided to overwrite image or overwrite drift, proceed
         if overwrite_image or overwrite_drift:
             _process_flags.append(True)
-            continue
+            _process_sel_channels.append(_ch)
         else:
             if (_im != empty_value).any() and (_drift!= empty_value).any() and _flg-1 == int(warp_image):
                 # image exist, no need to process from beginning
                 _process_flags.append(False)
+                _carryover_ims.append(_im.copy() )
+                _carryover_sel_channels.append(_ch)
             else:
                 _process_flags.append(True)
+                _process_sel_channels.append(_ch)
+    # release RAM
+    del(_ims)
+
     # convert this processed drifts
-    _process_drift = list(set([tuple(_dft) for _dft, _flg in zip(_drifts, _process_flags) if _flg]) )
+    _process_drift = list(set([tuple(_dft) for _dft in _drifts]))
 
     # one unique non-zero drift exist, directly use it
     if len(_process_drift) == 1 and np.array(_process_drift[0]).any() and not overwrite_drift:
@@ -133,9 +149,6 @@ def batch_process_image_to_spots(dax_filename, sel_channels,
         
     ## if any image to be processed:
     if np.sum(_process_flags) > 0:
-        # convert this processed channel
-        _process_sel_channels = [_ch for _ch, _flg in zip(sel_channels, _process_flags) if _flg]
-        _carryover_sel_channels = [_ch for _ch, _flg in zip(sel_channels, _process_flags) if not _flg]
 
         if verbose:
             print(f"-- {_process_sel_channels} images are required to process, {_carryover_sel_channels} images are loaded from save file: {save_filename}")
@@ -162,20 +175,34 @@ def batch_process_image_to_spots(dax_filename, sel_channels,
                                     warp_image=warp_image,
                                     return_drift=True, verbose=verbose, 
                                     **correction_args, **drift_args)
-
-             
-        ## merge processed image with loaded image
-        # merge image
-        _sel_ims = []
-        for _im, _flg in zip(_ims, _process_flags):
-            if not _flg:
-                _sel_ims.append(_im)
-            else:
-                _sel_ims.append(_processed_ims.pop(0))
+    # nothing processed, create empty list
     else:
-        _sel_ims = _ims
-        _drift = np.array(_process_drift)
-        print(_drift)
+        _processed_ims = []
+        if not warp_image:
+            _processed_warp_funcs = []
+        _drift = np.array(_process_drift) # use old drift
+
+    ## merge processed and carryover images
+    _sel_ims = []
+    for _ch, _flg in zip(sel_channels, _process_flags):
+        if not _flg:
+            _sel_ims.append(_carryover_ims.pop(0))
+        else:
+            _sel_ims.append(_processed_ims.pop(0))
+
+    if not warp_image:
+        _warp_funcs = []
+        for _ch, _flg in zip(sel_channels, _process_flags):
+            if not _flg:
+                from ..correction_tools.chromatic import generate_chromatic_function
+                _warp_funcs.append(
+                    generate_chromatic_function(correction_args['chromatic_profile'][str(_ch)], _drift)
+                )
+            else:
+                _warp_funcs.append(
+                    _processed_warp_funcs.pop(0)
+                )
+
     ## save image if specified
     if save_image:
         # initiate lock
@@ -222,8 +249,9 @@ def batch_process_image_to_spots(dax_filename, sel_channels,
         )
         if not warp_image:
             # update spot coordinates given warp functions, if image was not warpped.
-            _func = _processed_warp_funcs[_ich]
+            _func = _warp_funcs[_ich]
             _spots = _func(_spots)
+            #print(f"type: {type(_spots)} for {dax_filename}, region {region_ids[_ich]} channel {_ch}, {_func}")
         # append 
         _spot_list.append(_spots)
     ## save fitted_spots if specified
@@ -242,6 +270,7 @@ def batch_process_image_to_spots(dax_filename, sel_channels,
         return _spot_list, _drift
     else:
         return _spot_list
+
 # save image to fov file
 def save_image_to_fov_file(filename, ims, data_type, region_ids, 
                            warp_image=False, drift=None,
@@ -280,7 +309,7 @@ def save_image_to_fov_file(filename, ims, data_type, region_ids,
     _updated_drifts = []
     _saving_flag = False 
     ## start saving
-    with h5py.File(filename, "a", libver='latest') as _f:
+    with h5py.File(filename, "a", libver='latest', swmr=True) as _f:
         _grp = _f[data_type]
         for _i, (_id, _im) in enumerate(zip(region_ids, ims)):
             _index = list(_grp['ids'][:]).index(_id)
@@ -296,7 +325,6 @@ def save_image_to_fov_file(filename, ims, data_type, region_ids,
                     _grp['flags'][_index] = 2 # 2 as markers of warpped images
                 _updated_ims.append(_id)
                 if drift is not None:
-                    print("--- save drift")
                     _grp['drifts'][_index,:] = _all_drifts[_i]
                     _updated_drifts.append(_id)
                 
@@ -335,14 +363,14 @@ def load_image_from_fov_file(filename, data_type, region_ids,
         raise TypeError(f"Wrong input type for region_ids:{region_ids}")
     
     if verbose:
-        print(f"- loading {data_type} info from file:{filename}", end=' ')
+        print(f"- loading {data_type} info from file:{os.path.basename(filename)}", end=' ')
         _load_start = time.time()
     ## start loading
     _ims = []
     _flags = []
     if load_drift:
         _drifts = []
-    with h5py.File(filename, "a", libver='latest') as _f:
+    with h5py.File(filename, "r", libver='latest', swmr=True) as _f:
         # get the group
         _grp = _f[data_type]
         # get index
@@ -381,7 +409,7 @@ def save_spots_to_fov_file(filename, spot_list, data_type, region_ids,
         _save_start = time.time()
     _updated_spots = []
     ## start saving
-    with h5py.File(filename, "a", libver='latest') as _f:
+    with h5py.File(filename, "a", libver='latest', swmr=True) as _f:
         _grp = _f[data_type]
         for _i, (_id, _spots) in enumerate(zip(region_ids, spot_list)):
             _index = list(_grp['ids'][:]).index(_id)

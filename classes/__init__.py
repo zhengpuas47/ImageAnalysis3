@@ -21,6 +21,7 @@ import ast
 _allowed_kwds = {'combo': 'c', 
                 'decoded':'d',
                 'unique': 'u', 
+                'relabeled_unique':'l',
                 'merfish': 'm', 
                 'rna-unique':'r', 
                 'rna': 'r', # long term used label, because "-" is creating issue in python

@@ -48,7 +48,7 @@ def get_seeds(im, max_num_seeds=None, th_seed=150,
     """
     # check inputs
     if not isinstance(im, np.ndarray):
-        raise TypeError(f"image given should be a numpy.ndarray")
+        raise TypeError(f"image given should be a numpy.ndarray, but {type(im)} is given.")
     if th_seed_per >= 100 or th_seed_per <= 50:
         use_percentile = False
         print(f"th_seed_per should be a percentile > 50, invalid value given ({th_seed_per}), so not use percentile here.")

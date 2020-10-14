@@ -48,8 +48,10 @@ def generate_chromatic_function(chromatic_const_file, drift=None):
         _info_dict = pickle.load(open(chromatic_const_file, 'rb'))
     elif chromatic_const_file is None:
         if drift is None:
-            def _func(_coords): return _coords
-            return _func
+            print('empty_function')
+            def _shift_function(_coords, _drift=drift): 
+                return _coords
+            return _shift_function
         else:
             _info_dict ={
                 'constants': [np.array([0]) for _dft in drift],
@@ -75,6 +77,11 @@ def generate_chromatic_function(chromatic_const_file, drift=None):
                         _ref_center=_ref_center,
                         ):
         """generated translation function with constants and drift"""
+        # return empty if thats the case
+        if len(_coords) == 0:
+            return _coords
+        else:
+            _coords = np.array(_coords)
 
         if np.shape(_coords)[1] == len(_ref_center):
             _new_coords = np.array(_coords).copy()
@@ -88,7 +95,7 @@ def generate_chromatic_function(chromatic_const_file, drift=None):
             # calculate dX
             _X = generate_polynomial_data(_new_coords- _ref_center[np.newaxis,:], 
                                           _order)
-            _dy = np.dot(_X, _const) + _dft
+            _dy = np.dot(_X, _const) - _dft
             _shifts.append(_dy)
         _shifts = np.array(_shifts).transpose()
 
@@ -391,7 +398,7 @@ def generate_polynomial_data(coords, max_order):
     """
     import itertools
     _X = []
-    for _order in range(max_order+1):
+    for _order in range(int(max_order)+1):
         for _lst in itertools.combinations_with_replacement(
                 coords.transpose(), _order):
             # initialize one column
