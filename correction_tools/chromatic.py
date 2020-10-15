@@ -95,6 +95,7 @@ def generate_chromatic_function(chromatic_const_file, drift=None):
             # calculate dX
             _X = generate_polynomial_data(_new_coords- _ref_center[np.newaxis,:], 
                                           _order)
+            # calculate dY
             _dy = np.dot(_X, _const) - _dft
             _shifts.append(_dy)
         _shifts = np.array(_shifts).transpose()
