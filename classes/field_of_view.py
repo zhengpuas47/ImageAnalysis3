@@ -662,10 +662,10 @@ class Field_of_View():
 
     ## generate reference images and reference centers
     def _load_reference_image(self, 
-                            _ref_filename=None,
-                            _save=True, 
-                            _overwrite=False, 
-                            _verbose=True):
+                              _ref_filename=None,
+                              _save=True, 
+                              _overwrite=False, 
+                              _verbose=True):
         """Function to load ref image for fov class"""
         # check ref_filename
         
@@ -685,15 +685,20 @@ class Field_of_View():
             # load
             _ref_im = correct_fov_image(_ref_filename, 
                                         [self.channels[self.bead_channel_index]], 
+                                        single_im_size=self.shared_parameters['single_im_size'],
+                                        all_channels=self.channels,
+                                        num_buffer_frames=self.shared_parameters['num_buffer_frames'],
+                                        num_empty_frames=self.shared_parameters['num_empty_frames'],
+                                        drift=None, calculate_drift=False,
+                                        correction_folder=self.correction_folder,
+                                        warp_image=False,
+                                        illumination_corr=True,
                                         bleed_corr=False, 
                                         chromatic_corr=False, 
-                                        num_buffer_frames=self.shared_parameters['num_buffer_frames'],
-                                        single_im_size=self.shared_parameters['single_im_size'],
-                                        num_empty_frames=self.shared_parameters['num_empty_frames'],
-                                        illumination_corr=True,
-                                        correction_folder=self.correction_folder,
-                                        calculate_drift=False,
+                                        z_shift_corr=self.shared_parameters['corr_Z_shift'],
+                                        verbose=_verbose,
                                         )[0][0]
+
             setattr(self, 'ref_im', _ref_im)
 
             # save new chromosome image
@@ -1497,20 +1502,28 @@ class Field_of_View():
             else:
                 _drift_ref = getattr(self, 'ref_filename')
 
-            _chrom_im, _drift = correct_fov_image(_chrom_filename, [_chrom_channel], 
-                                    bleed_corr=False, 
-                                    chromatic_corr=False, 
-                                        num_buffer_frames=self.shared_parameters['num_buffer_frames'],
+            _chrom_im, _drift = correct_fov_image(_chrom_filename, 
+                                    [_chrom_channel],
                                     single_im_size=self.shared_parameters['single_im_size'],
-                                        num_empty_frames=self.shared_parameters['num_empty_frames'],
-                                    illumination_corr=True, 
+                                    all_channels=self.channels,
+                                    num_buffer_frames=self.shared_parameters['num_buffer_frames'],
+                                    num_empty_frames=self.shared_parameters['num_empty_frames'],
+                                    drift=None, calculate_drift=_use_ref_im,
+                                    ref_filename=_drift_ref,
                                     correction_folder=self.correction_folder,
-                                    calculate_drift=_use_ref_im, ref_filename=_drift_ref,
-                                    warp_image=True, return_drift=True, 
+                                    warp_image=True,
+                                    illumination_corr=self.shared_parameters['corr_illumination'],
+                                    bleed_corr=False, 
+                                    chromatic_corr=self.shared_parameters['corr_chromatic'], 
+                                    z_shift_corr=self.shared_parameters['corr_Z_shift'],
+                                    return_drift=True, verbose=_verbose,
                                     )
-            _chrom_im = _chrom_im[0]
-            print(_drift)
 
+            _chrom_im = _chrom_im[0]
+            if _verbose:
+                print(f"-- chromosome image has drift: {np.round(_drift, 2)}")
+            
+            # add chromosome image into attributes
             setattr(self, 'chrom_im', _chrom_im)
             
             # save new chromosome image
@@ -1767,6 +1780,27 @@ class Field_of_View():
                 print(f"directly return existing attribute.")
             _dapi_im = getattr(self, 'dapi_im')
         else:
+            _select_dapi = False
+            _use_ref_im = False
+            # find DAPI in color_usage
+            for _fd, _infos in self.color_dic.items():
+                if len(_info) >= self.dapi_channel_index+1 and _info[self.dapi_channel_index] == 'DAPI':
+                    _dapi_fd = [_full_fd for _full_fd in self.annotated_folders if os.path.basename(
+                        _full_fd) == _fd]
+                    if len(_dapi_fd) == 1:
+                        if _verbose:
+                            print(f"-- choose dapi images from folder: {_dapi_fd[0]}.")
+                        _dapi_fd = _dapi_fd[0]
+                        _select_dapi = True  # successfully selected dapi
+
+                        _dapi_fd_ind = self.annotated_folders.index(_dapi_fd)
+                        if _dapi_fd_ind != self.ref_id:                                
+                            if not hasattr(self, 'ref_im'):
+                                self._load_reference_image(_verbose=_verbose)
+                            _use_ref_im = True
+                        else:
+                            _use_ref_im = False 
+
             # find DAPI
             for _fd, _info in self.color_dic.items():
                 if len(_info) >= self.dapi_channel_index+1 and _info[self.dapi_channel_index] == 'DAPI':
@@ -1780,20 +1814,34 @@ class Field_of_View():
             if not _select_dapi:
                 print('No DAPI detected in color usage!')
                 
-            _filename = os.path.join(_dapi_fd, self.fov_name)
-            _channel = self.channels[self.dapi_channel_index]
-            
+            _dapi_filename = os.path.join(_dapi_fd, self.fov_name)
+            _dapi_channel = self.channels[self.dapi_channel_index]
+
+            # load from Dax file
+            if hasattr(self, 'ref_im'):
+                _drift_ref = getattr(self, 'ref_im')
+            else:
+                _drift_ref = getattr(self, 'ref_filename')
+
             # load
-            _dapi_im = correct_fov_image(_filename, [_channel], 
-                                    bleed_corr=False, 
-                                    chromatic_corr=False, 
+            _dapi_im = correct_fov_image(_dapi_filename, 
+                                        [_dapi_channel],
+                                        single_im_size=self.shared_parameters['single_im_size'],
+                                        all_channels=self.channels,
                                         num_buffer_frames=self.shared_parameters['num_buffer_frames'],
-                                    single_im_size=self.shared_parameters['single_im_size'],
                                         num_empty_frames=self.shared_parameters['num_empty_frames'],
-                                    illumination_corr=True,
-                                    correction_folder=self.correction_folder,
-                                    calculate_drift=False,
-                                    )[0][0]
+                                        drift=None, calculate_drift=_use_ref_im,
+                                        ref_filename=_drift_ref,
+                                        correction_folder=self.correction_folder,
+                                        warp_image=True,
+                                        illumination_corr=self.shared_parameters['corr_illumination'],
+                                        bleed_corr=False, 
+                                        chromatic_corr=False, 
+                                        z_shift_corr=self.shared_parameters['corr_Z_shift'],
+                                        verbose=_verbose,
+                                        )[0][0]
+
+
             setattr(self, 'dapi_im', _dapi_im)
             
             # save new chromosome image
