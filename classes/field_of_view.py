@@ -1773,7 +1773,7 @@ class Field_of_View():
         """Function to load dapi image for fov class"""
         
         if 'correct_fov_image' not in locals():
-            from ImageAnalysis3.io_tools.load import correct_fov_image
+            from ..io_tools.load import correct_fov_image
         
         if hasattr(self, 'dapi_im') and not _overwrite:
             if _verbose:
@@ -1784,7 +1784,7 @@ class Field_of_View():
             _use_ref_im = False
             # find DAPI in color_usage
             for _fd, _infos in self.color_dic.items():
-                if len(_info) >= self.dapi_channel_index+1 and _info[self.dapi_channel_index] == 'DAPI':
+                if len(_infos) >= self.dapi_channel_index+1 and _infos[self.dapi_channel_index] == 'DAPI':
                     _dapi_fd = [_full_fd for _full_fd in self.annotated_folders if os.path.basename(
                         _full_fd) == _fd]
                     if len(_dapi_fd) == 1:
