@@ -91,16 +91,17 @@ def generate_chromatic_function(chromatic_const_file, drift=None):
             raise ValueError(f"Wrong input coords")
 
         _shifts = []
-        for _i, (_dft, _const, _order) in enumerate(zip(_drift, _consts, _fitting_orders)):
+        for _i, (_const, _order) in enumerate(zip(_consts, _fitting_orders)):
             # calculate dX
             _X = generate_polynomial_data(_new_coords- _ref_center[np.newaxis,:], 
                                           _order)
-            _dy = np.dot(_X, _const) - _dft
+            # calculate dY
+            _dy = np.dot(_X, _const)
             _shifts.append(_dy)
         _shifts = np.array(_shifts).transpose()
 
         # generate corrected coordinates
-        _corr_coords = _new_coords - _shifts
+        _corr_coords = _new_coords - _shifts + _drift
 
         # return as input
         if np.shape(_coords)[1] == len(_ref_center):
