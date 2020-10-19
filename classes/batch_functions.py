@@ -60,7 +60,7 @@ def batch_process_image_to_spots(dax_filename, sel_channels,
                                  load_file_lock=None, 
                                  warp_image=True, correction_args={}, 
                                  save_image=True, empty_value=0,
-                                 image_file_lock=None, 
+                                 fov_savefile_lock=None, 
                                  overwrite_image=False, 
                                  drift_args={}, save_drift=True, 
                                  drift_filename=None, 
@@ -107,10 +107,17 @@ def batch_process_image_to_spots(dax_filename, sel_channels,
     region_ids = [int(_id) for _id in region_ids] # convert to ints
     
     # judge if images exist
+    # initiate lock
+    if 'fov_savefile_lock' in locals() and fov_savefile_lock is not None:
+        fov_savefile_lock.acquire()
     _ims, _warp_flags, _drifts = load_image_from_fov_file(save_filename, 
                                                     data_type, region_ids,
                                                     load_drift=True, 
                                                     verbose=verbose)
+    # release lock
+    if 'fov_savefile_lock' in locals() and fov_savefile_lock is not None:
+        fov_savefile_lock.release()
+
     # determine which image should be processed
     # initialize processing images and channels
     _process_flags = []
@@ -206,15 +213,15 @@ def batch_process_image_to_spots(dax_filename, sel_channels,
     ## save image if specified
     if save_image:
         # initiate lock
-        if 'image_file_lock' in locals() and image_file_lock is not None:
-            image_file_lock.acquire()
+        if 'fov_savefile_lock' in locals() and fov_savefile_lock is not None:
+            fov_savefile_lock.acquire()
         # run saving
         _save_img_success = save_image_to_fov_file(
             save_filename, _sel_ims, data_type, region_ids, 
             warp_image, _drift, overwrite_image, verbose)
         # release lock
-        if 'image_file_lock' in locals() and image_file_lock is not None:
-            image_file_lock.release()
+        if 'fov_savefile_lock' in locals() and fov_savefile_lock is not None:
+            fov_savefile_lock.release()
 
     ## save drift if specified
     if save_drift:
@@ -309,7 +316,7 @@ def save_image_to_fov_file(filename, ims, data_type, region_ids,
     _updated_drifts = []
     _saving_flag = False 
     ## start saving
-    with h5py.File(filename, "a", libver='latest', swmr=True) as _f:
+    with h5py.File(filename, "a", libver='latest') as _f:
         _grp = _f[data_type]
         for _i, (_id, _im) in enumerate(zip(region_ids, ims)):
             _index = list(_grp['ids'][:]).index(_id)
@@ -370,7 +377,7 @@ def load_image_from_fov_file(filename, data_type, region_ids,
     _flags = []
     if load_drift:
         _drifts = []
-    with h5py.File(filename, "r", libver='latest', swmr=True) as _f:
+    with h5py.File(filename, "a", libver='latest') as _f:
         # get the group
         _grp = _f[data_type]
         # get index
@@ -409,7 +416,7 @@ def save_spots_to_fov_file(filename, spot_list, data_type, region_ids,
         _save_start = time.time()
     _updated_spots = []
     ## start saving
-    with h5py.File(filename, "a", libver='latest', swmr=True) as _f:
+    with h5py.File(filename, "a", libver='latest') as _f:
         _grp = _f[data_type]
         for _i, (_id, _spots) in enumerate(zip(region_ids, spot_list)):
             _index = list(_grp['ids'][:]).index(_id)

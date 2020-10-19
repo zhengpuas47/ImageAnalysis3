@@ -382,7 +382,7 @@ class Field_of_View():
                 _savefile_load_bleed = False
                 if _load_from_savefile_first:
                     # try to load from save_file
-                    with h5py.File(self.save_filename, "r", libver='latest', swmr=True) as _f:
+                    with h5py.File(self.save_filename, "a", libver='latest') as _f:
                         if 'corrections' in _f.keys():
                             _grp = _f['corrections']
                             _bleed_key = '_'.join(self.shared_parameters['corr_channels'])+'_bleed'
@@ -410,7 +410,7 @@ class Field_of_View():
                 _savefile_load_chromatic = False
                 if _load_from_savefile_first:
                     # try to load from save_file
-                    with h5py.File(self.save_filename, "r", libver='latest', swmr=True) as _f:
+                    with h5py.File(self.save_filename, "a", libver='latest') as _f:
                         if 'corrections' in _f.keys():
                             _grp = _f['corrections']
                             _pf_dict = {}
@@ -444,7 +444,7 @@ class Field_of_View():
                 _savefile_load_chromatic_constants = False
                 if _load_from_savefile_first:
                     # try to load from save_file
-                    with h5py.File(self.save_filename, "r", libver='latest', swmr=True) as _f:
+                    with h5py.File(self.save_filename, "a", libver='latest') as _f:
                         if 'corrections' in _f.keys():
                             _grp = _f['corrections']
                             _pf_dict = {}
@@ -489,7 +489,7 @@ class Field_of_View():
                 _savefile_load_illumination = False
                 if _load_from_savefile_first:
                     # try to load from save_file
-                    with h5py.File(self.save_filename, "r", libver='latest', swmr=True) as _f:
+                    with h5py.File(self.save_filename, "a", libver='latest') as _f:
                         if 'corrections' in _f.keys():
                             _grp = _f['corrections']
                             _pf_dict = {}
@@ -523,7 +523,7 @@ class Field_of_View():
     def _save_correction_profile(self, _correction_folder=None, _overwrite=False, _verbose=True):
         """Function to save loaded correction profiles into hdf5 save file"""
         
-        with h5py.File(self.save_filename, "a", libver='latest', swmr=True) as _f:
+        with h5py.File(self.save_filename, "a", libver='latest') as _f:
 
             # create a correction_profile group if necessary
             if 'corrections' not in _f.keys():
@@ -918,7 +918,7 @@ class Field_of_View():
         else:
             _load_file_lock = _manager.RLock()
         # lock to write to save_file
-        _image_file_lock = _manager.RLock() 
+        _fov_savefile_lock = _manager.RLock() 
         # lock to write to drift file
         _drift_file_lock = _manager.RLock() 
 
@@ -977,7 +977,7 @@ class Field_of_View():
                         _load_file_lock,
                         _warp_images, _correction_args, 
                         _save_images, self.shared_parameters['empty_value'],
-                        _image_file_lock, 
+                        _fov_savefile_lock, 
                         _overwrite_image, 
                         _drift_args, 
                         _save_drift, 
@@ -985,7 +985,7 @@ class Field_of_View():
                         _drift_file_lock, 
                         _overwrite_drift,
                         _fitting_args, _save_fitted_spots,
-                        _image_file_lock, _overwrite_spot, 
+                        _fov_savefile_lock, _overwrite_spot, 
                         False, 
                         _verbose,)
                 _processing_arg_list.append(_args)
@@ -1050,7 +1050,7 @@ class Field_of_View():
             print(f"-- saving {_type} to file: {self.save_filename}")
             _save_start = time.time()
         
-        with h5py.File(self.save_filename, "a", libver='latest', swmr=True) as _f:
+        with h5py.File(self.save_filename, "a", libver='latest') as _f:
 
             ## segmentation
             if _type == 'segmentation':
@@ -1277,7 +1277,7 @@ class Field_of_View():
             print(f"-- checking {_data_type}, region:{_region_ids}", end=' ')
             if _check_im:
                 print("including images", end=' ')
-        with h5py.File(self.save_filename, "r", libver='latest', swmr=True) as _f:
+        with h5py.File(self.save_filename, "a", libver='latest') as _f:
             if _data_type not in _f.keys():
                 raise ValueError(f"input data type doesn't exist in this save_file:{self.save_filename}")
             _grp = _f[_data_type]
@@ -1335,7 +1335,7 @@ class Field_of_View():
         
         _loaded_attrs = []
         
-        with h5py.File(self.save_filename, "r", libver='latest', swmr=True) as _f:
+        with h5py.File(self.save_filename, "a", libver='latest') as _f:
             ## segmentation
             if _type == 'segmentation':
                 # create segmentation group if not exist 
@@ -1395,7 +1395,7 @@ class Field_of_View():
                     elif not _load_image:
                         return
                 _start_time = time.time()
-                with h5py.File(self.save_filename, "r", libver='latest', swmr=True) as _f:
+                with h5py.File(self.save_filename, "a", libver='latest') as _f:
                     if _type in _f.keys():
                         _grp = _f[_type]
                         # load ids and spots
@@ -1554,7 +1554,7 @@ class Field_of_View():
             _chrom_im = getattr(self, 'chrom_im')
         else:
             # load all IDs
-            with h5py.File(self.save_filename, "r", libver='latest', swmr=True) as _f:
+            with h5py.File(self.save_filename, "a", libver='latest') as _f:
                 # get the group
                 _grp = _f[_data_type]
 
