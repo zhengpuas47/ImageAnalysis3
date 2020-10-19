@@ -352,7 +352,7 @@ def Generate_bleedthrough_correction(bleed_folders,
         bld_corr_profile = bld_corr_profile.reshape((len(corr_channels),
                                                      len(corr_channels), 
                                                      -1))
-        print(bld_corr_profile.shape)
+        # initialize and caluclate inverse matrix
         inv_corr_profile = np.zeros(bld_corr_profile.shape)
         for _i in range(np.shape(bld_corr_profile)[-1]):
             inv_corr_profile[:,:,_i] = np.linalg.inv(bld_corr_profile[:,:,_i])
