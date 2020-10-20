@@ -122,7 +122,10 @@ def Generate_chromatic_abbrevation(chromatic_folder, ref_folder,
                                    drift_channel=_drift_channel,
                                    num_threads=12, 
                                    start_fov=1, num_images=40,
-                                   correction_args={'single_im_size':_image_size,},
+                                   correction_args={'correction_folder': _correction_folder,
+                                                    'single_im_size':_image_size,
+                                                    'all_channels':_allowed_colors,
+                                                    },
                                    drift_args={},
                                    fitting_args={},
                                    matching_args={},
@@ -139,6 +142,17 @@ def Generate_chromatic_abbrevation(chromatic_folder, ref_folder,
     ## 0. inputs
     _correction_args = {_k:_v for _k,_v in _chromatic_default_correction_args.items()}
     _correction_args.update(correction_args) # update with input info
+    # update illumination correction profile
+    if 'illumination_profile' not in _correction_args:
+        from ..io_tools.load import load_correction_profile
+        _correction_args['illumination_profile'] = \
+            load_correction_profile('illumination', 
+                                    corr_channels=list(chromatic_channel)+[str(_drift_channel)], 
+                                    correction_folder=_correction_args['correction_folder'], 
+                                    all_channels=_correction_args['all_channels'],
+                                    ref_channel=ref_channel, 
+                                    im_size=_correction_args['single_im_size'], 
+                                    verbose=verbose)
     _drift_args = {_k:_v for _k,_v in _chromatic_default_drift_args.items()}
     _drift_args.update(drift_args) # update with input info
     _fitting_args = {_k:_v for _k,_v in _chromatic_default_fitting_args.items()}

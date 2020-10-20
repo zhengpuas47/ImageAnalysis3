@@ -11,10 +11,10 @@ from scipy.ndimage import gaussian_filter
 from .. import _allowed_colors, _distance_zxy, _image_size, _correction_folder
 from ..io_tools.load import correct_fov_image
 
-def Generate_Illumination_Correction(data_folder, 
+def Generate_illumination_correction(data_folder, 
                                      sel_channels=None, 
                                      num_threads=12,
-                                     num_loaded_files=48,
+                                     num_images=48,
                                      single_im_size=_image_size, all_channels=_allowed_colors,
                                      num_buffer_frames=10, num_empty_frames=0, 
                                      correction_folder=_correction_folder,
@@ -26,7 +26,10 @@ def Generate_Illumination_Correction(data_folder,
                                      make_plot=True, verbose=True):
     """Function to generate illumination corrections for given channels
     Inputs:
-    
+        data_folder: the folder (one hybridization) contains images, str of path
+        sel_channels: selected channels to generate illumination profiles, list or None (default: None->all channels in this round)
+        num_threads: number of threads to process images in parallel, int (default: 12)
+        num_images: number of images to be proecessed and averaged, int (default: 40)
     Outputs:
         """
     
@@ -57,7 +60,7 @@ def Generate_Illumination_Correction(data_folder,
 
         ## detect dax files
         _fovs = [_fl for _fl in os.listdir(data_folder) if _fl.split('.')[-1]=='dax']
-        _num_load = min(num_loaded_files, len(_fovs))
+        _num_load = min(num_images, len(_fovs))
         if verbose:
             print(f"-- {_num_load} among {len(_fovs)} dax files will be loaded in data_folder: {data_folder}")
         # get input daxfiles

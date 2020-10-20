@@ -72,7 +72,6 @@ def find_bleedthrough_pairs(filename, channel,
     ## 1. load this file
     _ims, _ = correct_fov_image(filename, corr_channels,
                                 calculate_drift=False, warp_image=False,
-                                bleed_corr=False,
                                 **correction_args, 
                                 return_drift=False, verbose=verbose,
                                 )
