@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 # biopython imports
 from Bio import SeqIO
 from Bio.Seq import Seq
-from Bio.Alphabet import IUPAC
 from Bio.SeqRecord import SeqRecord
 from Bio.Blast.Applications import NcbiblastnCommandline
 from Bio.Blast import NCBIXML
@@ -47,7 +46,7 @@ def Extend_Readout(input_seq, target_len=30, add_5p=True):
             input_seq_string = choice(dna_alphabet)+input_seq_string
         else:
             input_seq_string += choice(dna_alphabet)
-    out_seq = Seq(input_seq_string, IUPAC.unambiguous_dna)
+    out_seq = Seq(input_seq_string)
     return out_seq
 
 
@@ -75,8 +74,7 @@ def Filter_Readout(input_seq,
     '''
     from Bio import SeqIO
     from Bio.Seq import Seq
-    from Bio.Alphabet import IUPAC
-    input_seq = Seq(str(input_seq).upper(), IUPAC.unambiguous_dna)
+    input_seq = Seq(str(input_seq).upper())
     
     def _checking_GC(input_seq=input_seq, check_GC=GC_percent):
         if check_GC:

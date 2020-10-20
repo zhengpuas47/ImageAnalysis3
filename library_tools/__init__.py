@@ -9,7 +9,6 @@ _adaptor_site_names = ['Stv_82', 'Stv_1', 'Stv_79']
 def _rand_seq_generator(length=1, dna_alphabet=['A', 'C', 'G', 'T']):
     from random import choice
     from Bio.Seq import Seq
-    from Bio.Alphabet import IUPAC
     _rand_seq = [choice(dna_alphabet) for _i in range(length)]
     _rand_seq = ''.join(_rand_seq)
     return SeqRecord(Seq(_rand_seq))
