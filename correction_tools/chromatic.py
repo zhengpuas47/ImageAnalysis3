@@ -147,7 +147,9 @@ def Generate_chromatic_abbrevation(chromatic_folder, ref_folder,
         from ..io_tools.load import load_correction_profile
         _correction_args['illumination_profile'] = \
             load_correction_profile('illumination', 
-                                    corr_channels=list(chromatic_channel)+[str(_drift_channel)], 
+                                    corr_channels=[str(ref_channel), 
+                                                   str(chromatic_channel), 
+                                                   str(_drift_channel)], 
                                     correction_folder=_correction_args['correction_folder'], 
                                     all_channels=_correction_args['all_channels'],
                                     ref_channel=ref_channel, 
