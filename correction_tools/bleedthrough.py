@@ -27,8 +27,8 @@ _bleedthrough_default_correction_args = {
     'chromatic_corr':False,
 }
 
-_bleedthrough_default_fitting_args = {'max_num_seeds':500,
-    'th_seed': 300,
+_bleedthrough_default_fitting_args = {'max_num_seeds':1000,
+    'th_seed': 500,
     'use_dynamic_th':True,
 }
 

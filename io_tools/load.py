@@ -341,6 +341,32 @@ def correct_fov_image(dax_filename, sel_channels,
                 dtype=output_dtype, normalization=False)
         if verbose:
             print(f"in {time.time()-_z_time:.3f}s")
+    
+    ## bleedthrough correction
+    # do bleedthrough correction if there's any final required image within corr_channels
+    if len(_overlap_channels) > 0 and bleed_corr:
+        if verbose:
+            print(f"-- bleedthrough correction for channels: {corr_channels}", end=' ')
+            _bleed_time = time.time()
+        # extract all images within corr_channels
+        _bld_ims = [_ims[_load_channels.index(_ch)] for _ch in corr_channels]
+        # initialize list to store corrected images
+        _bld_corr_ims = []
+        for _i, _ch in enumerate(corr_channels):
+            # new image is the sum of all intensity contribution from images in corr_channels
+            _nim = np.sum([_im * bleed_profile[_i, _j] 
+                            for _j,_im in enumerate(_bld_ims)],axis=0)
+            _bld_corr_ims.append(_nim)
+        # update images
+        for _nim, _ch in zip(_bld_corr_ims, corr_channels):
+            # restore output_type
+            _nim[_nim > np.iinfo(output_dtype).max] = np.iinfo(output_dtype).max
+            _nim[_nim < np.iinfo(output_dtype).min] = np.iinfo(output_dtype).min
+            _ims[_load_channels.index(_ch)] = _nim.astype(output_dtype)
+        # clear
+        del(_bld_ims, _bld_corr_ims, bleed_profile)
+        if verbose:
+            print(f"in {time.time()-_bleed_time:.3f}s")
 
     ## illumination correction
     if illumination_corr:
@@ -383,28 +409,6 @@ def correct_fov_image(dax_filename, sel_channels,
     else:
         _drift = drift.copy()
         
-    ## bleedthrough correction
-    if len(_overlap_channels) > 0 and bleed_corr:
-        if verbose:
-            print(f"-- bleedthrough correction for channels: {corr_channels}", end=' ')
-            _bleed_time = time.time()
-        _bld_ims = [_ims[_load_channels.index(_ch)] for _ch in corr_channels]
-        _bld_corr_ims = []
-        for _i, _ch in enumerate(corr_channels):
-            _nim = np.sum([_im * bleed_profile[_i, _j] 
-                            for _j,_im in enumerate(_bld_ims)],axis=0)
-            _bld_corr_ims.append(_nim)
-        # update images
-        for _nim, _ch in zip(_bld_corr_ims, corr_channels):
-            # restore output_type
-            _nim[_nim > np.iinfo(output_dtype).max] = np.iinfo(output_dtype).max
-            _nim[_nim < np.iinfo(output_dtype).min] = np.iinfo(output_dtype).min
-            _ims[_load_channels.index(_ch)] = _nim.astype(output_dtype)
-        # clear
-        del(_bld_ims, _bld_corr_ims, bleed_profile)
-        if verbose:
-            print(f"in {time.time()-_bleed_time:.3f}s")
-
     ## chromatic abbrevation
     _chromatic_channels = [_ch for _ch in corr_channels 
                             if _ch in sel_channels and _ch != chromatic_ref_channel]

@@ -60,6 +60,7 @@ def Generate_illumination_correction(data_folder,
 
         ## detect dax files
         _fovs = [_fl for _fl in os.listdir(data_folder) if _fl.split('.')[-1]=='dax']
+        _fovs = [_f for _f in sorted(_fovs, key=lambda v:int(v.split(',dax')[0].split('_')[-1]) )]
         _num_load = min(num_images, len(_fovs))
         if verbose:
             print(f"-- {_num_load} among {len(_fovs)} dax files will be loaded in data_folder: {data_folder}")
