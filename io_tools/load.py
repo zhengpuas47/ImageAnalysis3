@@ -259,7 +259,7 @@ def correct_fov_image(dax_filename, sel_channels,
                                 ref_channel=chromatic_ref_channel, im_size=single_im_size, verbose=verbose)
         else:
             bleed_profile = np.array(bleed_profile, dtype=np.float)
-            if bleed_profile.shape != (len(corr_channels),len(corr_channels),single_im_size[-2], single_im_size[-1]):
+            if bleed_profile.shape != (len(corr_channels),len(corr_channels),single_im_size[-2], single_im_size[-1]) and bleed_profile.shape != tuple([len(corr_channels),len(corr_channels)]+list(single_im_size)):
                 raise IndexError(f"Wrong input shape for bleed_profile: {bleed_profile.shape}, should be {(len(corr_channels),len(corr_channels),single_im_size[-2], single_im_size[-1])}")
     # load chromatic or chromatic_constants depends on whether do warpping
     if chromatic_corr and len(_overlap_channels) > 0:

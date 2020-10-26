@@ -37,7 +37,7 @@ def find_bleedthrough_pairs(filename, channel,
                             correction_args=_bleedthrough_default_correction_args,
                             fitting_args=_bleedthrough_default_fitting_args, 
                             intensity_th=1.,
-                            crop_size=9, rsq_th=0.9, 
+                            crop_size=9, rsq_th=0.81, 
                             save_temp=True, save_name=None,
                             overwrite=True, verbose=True,
                             ):
@@ -58,7 +58,9 @@ def find_bleedthrough_pairs(filename, channel,
             _basename = 'bleedthrough_'+_basename
             _temp_filename = os.path.join(os.path.dirname(filename), _basename)
             if os.path.isfile(_temp_filename) and not overwrite:
-                _info_dict[f"{_channel}_to_{_ch}"] = pickle.load(open(_temp_filename, 'rb'))
+                _infos = pickle.load(open(_temp_filename, 'rb'))
+                _kept_infos = [_info for _info in _infos if _info['rsquare'] >= rsq_th]
+                _info_dict[f"{_channel}_to_{_ch}"] = _kept_infos
                 _load_flags.append(1)
             else:
                 _info_dict[f"{_channel}_to_{_ch}"] = []
@@ -94,23 +96,23 @@ def find_bleedthrough_pairs(filename, channel,
             _rim = crop_neighboring_area(_ref_im, _spot[1:4], crop_sizes=crop_size)
             _cim = crop_neighboring_area(_im, _spot[1:4], crop_sizes=crop_size)
             # calculate r-square
-            _x = np.array([np.ravel(_rim), np.ones(np.size(_rim))]).transpose()
+            _x = np.ravel(_rim)[:,np.newaxis]
             _y = np.ravel(_cim)
             _reg = LinearRegression().fit(_x,_y)        
             _rsq = _reg.score(_x,_y)
     
-            print(_reg.coef_, _rsq)
-            if _rsq >= rsq_th:
-                _info = {
-                    'coord': _spot[1:4],
-                    'ref_im': _rim,
-                    'bleed_im': _cim,
-                    'rsquare': _rsq,
-                    'slope': _reg.coef_,
-                    'intercept': _reg.intercept_,
-                    'file':filename,
-                }
-                _info_dict[_key].append(_info)
+            #print(_reg.coef_, _rsq)
+
+            _info = {
+                'coord': _spot[1:4],
+                'ref_im': _rim,
+                'bleed_im': _cim,
+                'rsquare': _rsq,
+                'slope': _reg.coef_[0],
+                'intercept': _reg.intercept_,
+                'file':filename,
+            }
+            _info_dict[_key].append(_info)
 
     if save_temp:
         for _ch in corr_channels:
@@ -127,13 +129,82 @@ def find_bleedthrough_pairs(filename, channel,
                 if verbose:
                     print(f"-- channel {_ch} doesn't match {_channel}, skip saving.")
 
-    return _info_dict
-            
+    # only return the information with rsquare large enough
+    _kept_info_dict = {_key:[] for _key in _info_dict}
+    for _key, _infos in _info_dict.items():
+        _kept_info_dict[_key] = [_info for _info in _infos if _info['rsquare']>= rsq_th]
+
+    return _kept_info_dict
+
+
+def check_bleedthrough_pairs(info_list, outlier_sigma=2, keep_per_th=0.95, max_iter=20, 
+                             verbose=True,):
+    """Function to check bleedthrough pairs"""
+    from scipy.spatial import Delaunay
+    # prepare inputs
+    if verbose:
+        print(f"- check {len(info_list)} bleedthrough pairs.")
+    _coords = np.array([_info['coord'] for _info in info_list])
+    _slopes = np.array([_info['slope'] for _info in info_list])
+    _intercepts = np.array([_info['intercept'] for _info in info_list])
+    
+    if verbose:
+        print(f"- start iteration with outlier_sigma={outlier_sigma:.2f}, keep_percentage={keep_per_th:.2f}")
+    _n_iter = 0
+    _kept_flags = np.ones(len(_coords), dtype=np.bool)
+    _flags = []
+    while(len(_flags) == 0 or np.mean(_flags) < keep_per_th):
+        _n_iter += 1
+        _flags = []
+        _tri = Delaunay(_coords[_kept_flags])
+        for _i, (_coord, _slope, _intercept) in enumerate(zip(_coords[_kept_flags], 
+                                                              _slopes[_kept_flags], 
+                                                              _intercepts[_kept_flags])):
+            # get neighboring center ids
+            _nb_ids = np.array([_simplex for _simplex in _tri.simplices.copy()
+                                if _i in _simplex], dtype=np.int)
+            _nb_ids = np.unique(_nb_ids)
+            # remove itself
+            _nb_ids = _nb_ids[(_nb_ids != _i) & (_nb_ids != -1)]
+            #print(_nb_ids)
+            # get neighbor slopes
+            _nb_coords = _coords[_nb_ids]
+            _nb_slopes = _slopes[_nb_ids]
+            _nb_intercepts = _intercepts[_nb_ids]
+            _nb_weights = 1 / np.linalg.norm(_nb_coords-_coord, axis=1)
+            _nb_weights = _nb_weights / np.sum(_nb_weights)
+            #print(_nb_slopes)
+            # calculate expected slope and compare
+            _exp_slope = np.dot(_nb_slopes.T, _nb_weights) 
+            _keep_slope = (np.abs(_exp_slope - _slope) <= outlier_sigma * np.std(_nb_slopes))
+            # calculate expected intercept and compare
+            _exp_intercept = np.dot(_nb_intercepts.T, _nb_weights) 
+            _keep_intercept = (np.abs(_exp_intercept - _intercept) <= outlier_sigma * np.std(_nb_intercepts))
+            # append keep flags
+            _flags.append((_keep_slope and _keep_intercept))
+
+        # update _kept_flags
+        _updating_inds = np.where(_kept_flags)[0]
+        _kept_flags[_updating_inds] = np.array(_flags, dtype=np.bool)
+        if verbose:
+            print(np.array(_flags), np.array(_kept_flags))
+            print(f"-- iter: {_n_iter}, kept in this round: {np.mean(_flags):.3f}, total: {np.mean(_kept_flags):.3f}")
+        if _n_iter > max_iter:
+            if verbose:
+                print(f"-- exceed maximum number of iterations, exit.")
+            break
+    # selected infos
+    kept_info_list = [_info for _info, _flag in zip(info_list, _kept_flags) if _flag]
+    if verbose:
+        print(f"- {len(kept_info_list)} pairs passed.")
+    return kept_info_list            
+
 
 
 def interploate_bleedthrough_correction_from_channel(
     info_dicts, ref_channel, target_channel, 
-    min_num_spots=200, 
+    check_info=True, check_params={},
+    min_num_spots=50, 
     single_im_size=_image_size, ref_center=None,
     fitting_order=2, 
     save_temp=True, save_folder=None, 
@@ -144,17 +215,27 @@ def interploate_bleedthrough_correction_from_channel(
     
     """
     _key = f"{ref_channel}_to_{target_channel}"
+    # extract info list of correct channels
+    _info_list = []
+    for _dict in info_dicts:
+        if _key in _dict:
+            _info_list += list(_dict[_key])
+    if len(_info_list) < min_num_spots:
+        if verbose:
+            print(f"-- not enough spots ({len(_info_list)}) from {ref_channel} to {target_channel}")
+        return np.zeros(single_im_size), np.zeros(single_im_size)
+
+    # check
+    if check_info:
+        _info_list = check_bleedthrough_pairs(_info_list, **check_params)
+    # extract information
     _coords = []
     _slopes = []
     _intercepts = []
-    
-    for _dict in info_dicts:
-        if _key in _dict:
-            _infos = _dict[_key]
-            for _info in _infos:
-                _coords.append(_info['coord'])
-                _slopes.append(_info['slope'][0])
-                _intercepts.append(_info['intercept'])
+    for _info in _info_list:
+        _coords.append(_info['coord'])
+        _slopes.append(_info['slope'])
+        _intercepts.append(_info['intercept'])
     
     if len(_coords) < min_num_spots:
         if verbose:
@@ -173,8 +254,6 @@ def interploate_bleedthrough_correction_from_channel(
         else:
             _ref_center = np.array(ref_center)[:np.shape(_coords)[1]]
         _ref_coords = _coords - _ref_center[np.newaxis, :]
-
-        print(_coords.shape, _slopes.shape, _intercepts.shape)
 
         # generate_polynomial_data
         _X = generate_polynomial_data(_coords, fitting_order)
@@ -213,7 +292,7 @@ def interploate_bleedthrough_correction_from_channel(
             plt.figure(dpi=150, figsize=(4,3))
             plt.imshow(_p_slope.mean(0))
             plt.colorbar()
-            plt.title(f"{ref_channel} to {target_channel}, slope")
+            plt.title(f"{ref_channel} to {target_channel}, slope, rsq={_rsq_slope:.3f}")
             if save_plots and (save_folder is not None and os.path.isdir(save_folder)):
                 plt.savefig(os.path.join(save_folder, f'bleedthrough_profile_{ref_channel}_to_{target_channel}_slope.png'),
                             transparent=True)
@@ -222,7 +301,7 @@ def interploate_bleedthrough_correction_from_channel(
             plt.figure(dpi=150, figsize=(4,3))
             plt.imshow(_p_intercept.mean(0))
             plt.colorbar()
-            plt.title(f"{ref_channel} to {target_channel}, intercept")
+            plt.title(f"{ref_channel} to {target_channel}, intercept, rsq={_rsq_intercept:.3f}")
             if save_plots and (save_folder is not None and os.path.isdir(save_folder)):
                 plt.savefig(os.path.join(save_folder, f'bleedthrough_profile_{ref_channel}_to_{target_channel}_intercept.png'),
                             transparent=True)
@@ -239,7 +318,7 @@ def Generate_bleedthrough_correction(bleed_folders,
                                                       'illumination_corr':False,
                                                       'chromatic_corr':False},
                                      fitting_args={}, intensity_th=1.,
-                                     crop_size=9, rsq_th=0.9, 
+                                     crop_size=9, rsq_th=0.81, 
                                      fitting_order=2, generate_2d=True,
                                      interpolate_args={},
                                      make_plots=True, save_plots=True, 
@@ -331,39 +410,37 @@ def Generate_bleedthrough_correction(bleed_folders,
         for _ref_i, _ref_ch in enumerate(corr_channels):
             for _tar_i, _tar_ch in enumerate(corr_channels):
                 if _ref_ch == _tar_ch:
-                    bld_corr_profile[_ref_i, _tar_i] = np.ones(_correction_args['single_im_size'])
+                    bld_corr_profile[_tar_i, _ref_i] = np.ones(_correction_args['single_im_size'])
                 else:
                     _slope_pf, _intercept_pf = interploate_bleedthrough_correction_from_channel(
                         _info_dicts, _ref_ch, _tar_ch, 
                         single_im_size=_correction_args['single_im_size'],
                         fitting_order=fitting_order, 
+                        save_folder=save_folder,
                         verbose=True, **interpolate_args,
                     )
-                    bld_corr_profile[_ref_i, _tar_i] = _slope_pf
+                    bld_corr_profile[_tar_i, _ref_i] = _slope_pf
                     
 
         # compress to 2d
         if generate_2d:
             bld_corr_profile = bld_corr_profile.mean(2)
-
         # calculate inverse matrix for each pixel
-        bld_pf_shape = np.shape(bld_corr_profile)
-        bld_corr_profile = bld_corr_profile.reshape((len(corr_channels),
-                                                     len(corr_channels), 
-                                                     -1))
-        # initialize and caluclate inverse matrix
-        inv_corr_profile = np.zeros(bld_corr_profile.shape)
-        for _i in range(np.shape(bld_corr_profile)[-1]):
-            inv_corr_profile[:,:,_i] = np.linalg.inv(bld_corr_profile[:,:,_i])
-        # reshape back to saving shape
-        inv_corr_profile = inv_corr_profile.reshape(bld_pf_shape)
+        _bleed_profiles = np.zeros(np.shape(bld_corr_profile), dtype=np.float)
+        for _i in range(np.shape(bld_corr_profile)[-2]):
+            for _j in range(np.shape(bld_corr_profile)[-1]):
+                if generate_2d:
+                    _bleed_profiles[:,:,_i,_j] = np.linalg.inv(bld_corr_profile[:,:,_i,_j])
+                else:
+                    for _z in range(np.shape(bld_corr_profile)[-3]):
+                        _bleed_profiles[:,:,_z,_i,_j] = np.linalg.inv(bld_corr_profile[:,:,_z,_i,_j])
+        
         # reshape the profile
-        _bleed_profiles = inv_corr_profile.reshape(np.concatenate([[len(corr_channels)**2],
-                                                                   bld_pf_shape[2:]])
-                                                    )
         ## 5. save
         if verbose:
             print(f"-- saving to file:{saved_profile_filename}")
-        np.save(saved_profile_filename, _bleed_profiles)
+        np.save(saved_profile_filename, _bleed_profiles.reshape(np.concatenate([[len(corr_channels)**2],
+                                                                   np.shape(_bleed_profiles)[2:]])
+                                                    ))
         
     return _bleed_profiles
