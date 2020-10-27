@@ -228,10 +228,11 @@ def interploate_bleedthrough_correction_from_channel(
     if len(_info_list) > max_num_spots:
         if verbose:
             print(f"-- only keep the top {max_num_spots} spots from {len(_info_list)} for bleedthrough interpolation.")
-    _rsquares = np.array([_info['rsquare'] for _info in _info_list])
-    _rsq_th = np.sort(_rsquares)[-int(max_num_spots)]
-    _info_list = [_info for _info in _info_list if _info['rsquare']>= _rsq_th]
-    
+    if len(_info_list) > int(max_num_spots):
+        _rsquares = np.array([_info['rsquare'] for _info in _info_list])
+        _rsq_th = np.sort(_rsquares)[-int(max_num_spots)]
+        _info_list = [_info for _info in _info_list if _info['rsquare']>= _rsq_th]
+        
     # check
     if check_info:
         _info_list = check_bleedthrough_pairs(_info_list, **check_params)
