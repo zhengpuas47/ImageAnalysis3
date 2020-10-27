@@ -434,6 +434,8 @@ def Generate_bleedthrough_correction(bleed_folders,
         if generate_2d:
             bld_corr_profile = bld_corr_profile.mean(2)
         # calculate inverse matrix for each pixel
+        if verbose:
+            print(f"-- generating inverse matrix.")
         _bleed_profiles = np.zeros(np.shape(bld_corr_profile), dtype=np.float)
         for _i in range(np.shape(bld_corr_profile)[-2]):
             for _j in range(np.shape(bld_corr_profile)[-1]):
