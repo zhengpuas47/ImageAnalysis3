@@ -188,7 +188,7 @@ def chromosome_structure_3d_rendering(spots, ax3d=None, cmap='Spectral',
                                       distance_zxy=_distance_zxy, 
                                       center=True, pca_align=False, image_radius=2000,
                                       marker_size=6, marker_alpha=1, 
-                                      marker_edge=False, 
+                                      marker_edge_line_width=0.0, 
                                       background_color=[0,0,0], 
                                       line_search_dist=3, 
                                       line_width=1, line_alpha=1, depthshade=False,
@@ -275,7 +275,7 @@ def chromosome_structure_3d_rendering(spots, ax3d=None, cmap='Spectral',
             raise TypeError(f"Wrong input type for ax3d:{type(ax3d)}, it should be Axec3DsSubplot object.")
     # background color
     ax3d.set_facecolor(_back_color)
-    if marker_edge:
+    if marker_edge_line_width is not None or marker_edge_line_width > 0:
         if _colors.shape[1] == 3:
             _edge_colors = [[0,0,0, marker_alpha] for _c in _colors[_valid_inds]]
         else:
@@ -284,10 +284,10 @@ def chromosome_structure_3d_rendering(spots, ax3d=None, cmap='Spectral',
     else:
         _edge_colors = 'none'
     # scatter plot
-    _sc = ax3d.scatter(_n_zxy[_valid_inds,1], _n_zxy[_valid_inds,2], _n_zxy                              [_valid_inds,0],
+    _sc = ax3d.scatter(_n_zxy[_valid_inds,1], _n_zxy[_valid_inds,2], _n_zxy[_valid_inds,0],
                        c=_colors[_valid_inds], s=marker_size, depthshade=depthshade, #alpha=marker_alpha,
                        edgecolors=_edge_colors, 
-                       linewidth=0.1)
+                       linewidth=marker_edge_line_width)
     # plot lines between spots
     if _colors.shape[1] == 3:
         _line_alphas = [line_alpha for _c in _colors]
