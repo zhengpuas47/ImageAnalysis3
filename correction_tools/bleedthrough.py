@@ -155,6 +155,7 @@ def check_bleedthrough_pairs(info_list, outlier_sigma=2, keep_per_th=0.95, max_i
     _flags = []
     while(len(_flags) == 0 or np.mean(_flags) < keep_per_th):
         _n_iter += 1
+        _start_time = time.time()
         _flags = []
         _tri = Delaunay(_coords[_kept_flags])
         for _i, (_coord, _slope, _intercept) in enumerate(zip(_coords[_kept_flags], 
@@ -187,8 +188,7 @@ def check_bleedthrough_pairs(info_list, outlier_sigma=2, keep_per_th=0.95, max_i
         _updating_inds = np.where(_kept_flags)[0]
         _kept_flags[_updating_inds] = np.array(_flags, dtype=np.bool)
         if verbose:
-            print(np.array(_flags), np.array(_kept_flags))
-            print(f"-- iter: {_n_iter}, kept in this round: {np.mean(_flags):.3f}, total: {np.mean(_kept_flags):.3f}")
+            print(f"-- iter: {_n_iter}, kept in this round: {np.mean(_flags):.3f}, total: {np.mean(_kept_flags):.3f} in {time.time()-_start_time:.3f}s")
         if _n_iter > max_iter:
             if verbose:
                 print(f"-- exceed maximum number of iterations, exit.")
@@ -204,7 +204,7 @@ def check_bleedthrough_pairs(info_list, outlier_sigma=2, keep_per_th=0.95, max_i
 def interploate_bleedthrough_correction_from_channel(
     info_dicts, ref_channel, target_channel, 
     check_info=True, check_params={},
-    min_num_spots=50, 
+    max_num_spots=1000, min_num_spots=50, 
     single_im_size=_image_size, ref_center=None,
     fitting_order=2, 
     save_temp=True, save_folder=None, 
@@ -224,7 +224,14 @@ def interploate_bleedthrough_correction_from_channel(
         if verbose:
             print(f"-- not enough spots ({len(_info_list)}) from {ref_channel} to {target_channel}")
         return np.zeros(single_im_size), np.zeros(single_im_size)
-
+    # keep the spot pairs with the highest rsquares
+    if len(_info_list) > max_num_spots:
+        if verbose:
+            print(f"-- only keep the top {max_num_spots} spots from {len(_info_list)} for bleedthrough interpolation.")
+    _rsquares = np.array([_info['rsquare'] for _info in _info_list])
+    _rsq_th = np.sort(_rsquares)[-int(max_num_spots)]
+    _info_list = [_info for _info in _info_list if _info['rsquare']>= _rsq_th]
+    
     # check
     if check_info:
         _info_list = check_bleedthrough_pairs(_info_list, **check_params)
