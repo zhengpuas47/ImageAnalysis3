@@ -1703,7 +1703,8 @@ class Field_of_View():
     def _select_chromosome_by_candidate_spots(self, 
                                             _spot_type='unique',
                                             _cand_chrom_coords=None,
-                                            _good_chr_loss_th=0.4, 
+                                            _good_chr_loss_th=0.4,
+                                            _cand_spot_intensity_th=0.5, 
                                             _save=False, _overwrite=False,
                                             _verbose=True):
         """Function to select"""
@@ -1753,6 +1754,7 @@ class Field_of_View():
         # calcualte
         _chrom_coords = select_candidate_chromosomes(_cand_chrom_coords, 
                                     _spots_list,
+                                    _cand_spot_intensity_th=_cand_spot_intensity_th,
                                     _good_chr_loss_th=_good_chr_loss_th,
                                     _verbose=_verbose,
                                     )

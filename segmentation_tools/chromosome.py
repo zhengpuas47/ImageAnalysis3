@@ -109,6 +109,7 @@ def find_candidate_chromosomes(_chrom_im,
 
 def select_candidate_chromosomes(_cand_chrom_coords,
                                  _spots_list, 
+                                 _cand_spot_intensity_th=0.5,
                                  _good_chr_loss_th=0.4,
                                  _verbose=True,
                                  ):
@@ -124,7 +125,9 @@ def select_candidate_chromosomes(_cand_chrom_coords,
         # for currently existing chromosomes, assign candidate spots
         _cand_chr_spots = [[] for _ct in _cand_chrom_coords]
         for _spots in _spots_list:
-            _cands_list = assign_spots_to_chromosomes(_spots, _cand_chrom_coords)
+            _spots = np.array(_spots)
+            _sel_spots = _spots[_spots[:,0]>=_cand_spot_intensity_th]
+            _cands_list = assign_spots_to_chromosomes(_sel_spots, _cand_chrom_coords)
             for _i, _cands in enumerate(_cands_list):
                 _cand_chr_spots[_i].append(_cands)
                 
