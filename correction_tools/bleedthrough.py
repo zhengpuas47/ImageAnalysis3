@@ -204,7 +204,7 @@ def check_bleedthrough_pairs(info_list, outlier_sigma=2, keep_per_th=0.95, max_i
 def interploate_bleedthrough_correction_from_channel(
     info_dicts, ref_channel, target_channel, 
     check_info=True, check_params={},
-    max_num_spots=1000, min_num_spots=50, 
+    max_num_spots=1000, min_num_spots=100, 
     single_im_size=_image_size, ref_center=None,
     fitting_order=2, 
     save_temp=True, save_folder=None, 
