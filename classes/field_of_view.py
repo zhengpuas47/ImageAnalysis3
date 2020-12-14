@@ -131,6 +131,11 @@ class Field_of_View():
             self.save_folder = parameters['save_folder']
         else:
             self.save_folder = os.path.join(self.analysis_folder,'save')
+        if not os.path.exists(self.save_folder):# create save folder if not exist
+            if _verbose:
+                print(f"+ creating save folder: {self.save_folder}")
+            os.makedirs(self.save_folder)
+
         if 'correction_folder' in parameters:
             self.correction_folder = parameters['correction_folder']
         else:
@@ -1020,7 +1025,7 @@ class Field_of_View():
         for _ids, _spot_list in zip(_processing_id_list, _spot_results):
             _final_ids += list(_ids)
             _final_spots += list(_spot_list)
-        # sort
+         # sort
         _ps_ids = [_id for _id,_spots in sorted(zip(_final_ids, _final_spots))]
         _ps_spots = [_spots for _id,_spots in sorted(zip(_final_ids, _final_spots))]
   

@@ -2,7 +2,7 @@
 import numpy as np
 import os, glob, sys, time
 # import from parental packages
-from . import _distance_zxy
+from . import _distance_zxy, _image_size
 
 ## Change scaling-------------------------------------------------------
 # center and PCA transfomr spots in 3d
@@ -88,3 +88,35 @@ def normalize_center_spots(spots, distance_zxy=_distance_zxy,
         return _spots 
 
 ## Warpping------------------------------------------------------- 
+
+def translate_spots(spots, rotation_mat=None, drift=None, 
+                    single_im_size=_image_size):
+    _spots = np.array(spots, dtype=np.float)
+    _single_im_size = np.array(single_im_size, dtype=np.float)
+    _rot_center = _single_im_size / 2
+    if len(np.shape(_spots)) == 1:
+        _spots = _spots[np.newaxis,:]
+    if np.shape(_spots)[1] == 3:
+        _coords = _spots
+    elif np.shape(_spots)[1] == 4:
+        _coords = _spots[:,1:]
+    else:
+        _coords = _spots[:,1:4]
+    
+    if rotation_mat is None:
+        rotation_mat = np.diag([1,1])
+    else:
+        rotation_mat = np.array(rotation_mat)
+    # rotation
+    _coords[:,1:] = np.dot(_coords[:,1:]-_rot_center[1:3], 
+                           np.transpose(rotation_mat)) \
+                    + _rot_center[1:3]
+        
+    if drift is None:
+        drift = np.zeros(3)
+    else:
+        drift = np.array(drift)
+    # drift
+    _coords += -drift[:3]
+    
+    return _coords

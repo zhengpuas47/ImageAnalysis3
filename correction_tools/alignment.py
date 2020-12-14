@@ -134,7 +134,7 @@ def align_single_image(filename, crop_list, bead_channel='488',
     Outputs:
     """
     from scipy.spatial.distance import cdist, pdist, squareform
-    from ..io_tools.load import old_correct_fov_image
+    from ..io_tools.load import correct_fov_image
     from ..alignment_tools import fft3d_from2d
     from ..spot_tools.fitting import get_centers
     ## check inputs
@@ -167,7 +167,7 @@ def align_single_image(filename, crop_list, bead_channel='488',
             print(f"-- start aligning file {filename} to", end=' ')
         if not os.path.isfile(filename) or filename.split('.')[-1] != 'dax':
             raise IOError(f"input filename: {filename} should be a .dax file!")
-        _bead_im = old_correct_fov_image(filename, [_bead_channel], 
+        _bead_im = correct_fov_image(filename, [_bead_channel], 
                                      single_im_size=single_im_size, 
                                      all_channels=all_channels,
                                      num_buffer_frames=num_buffer_frames, 
@@ -320,7 +320,7 @@ def cross_correlation_align_single_image(im, ref_im, precision_fold=100,
                        ):
     """Function to align one single image by FFT
     Inputs:
-    
+        im: 
     Outputs:
     """
     
@@ -430,6 +430,54 @@ def generate_translation_from_DAPI(old_dapi_im, new_dapi_im,
     _rotate_M[:,2] -= np.flipud(_dapi_shift[-2:])
     _rotate_M[:,2] -= np.flipud(drift[-2:])
 
-    return _rotate_M
+    return _rot_new_im, _rotate_M
 
 
+def calculate_translation(reference_im:np.ndarray, 
+                          target_im:np.ndarray,
+                          ref_to_tar_rotation:np.ndarray=None,
+                          cross_corr_align:bool=True,
+                          alignment_kwargs:dict={},
+                          verbose:bool=True,
+                          ):
+    """Calculate translation between two images with rotation """
+    from math import pi
+    import cv2
+    ## quality check
+    # images
+    if np.shape(reference_im) != np.shape(target_im):
+        raise IndexError(f"two images should be of the same shape")
+    # rotation matrix
+    if ref_to_tar_rotation is None:
+        ref_to_tar_rotation = np.diag([1,1])
+    elif np.shape(ref_to_tar_rotation) != tuple([2,2]):
+        raise IndexError(f"wrong shape for rotation matrix, should be 2x2. ")
+    # get dimensions
+    _dz,_dx,_dy = np.shape(reference_im)
+    # calculate angle
+    if verbose:
+        print(f"-- start calculating drift with rotation between images")
+    _rotation_angle = np.arcsin(ref_to_tar_rotation[0,1])/pi*180
+    _temp_new_rotation_M = cv2.getRotationMatrix2D((_dx/2, _dy/2), _rotation_angle, 1) # temporary rotation angle
+    # rotate image
+    if _rotation_angle != 0:
+        _rot_target_im = np.array([cv2.warpAffine(_lyr, _temp_new_rotation_M, 
+                                                  _lyr.shape, borderMode=cv2.BORDER_DEFAULT) 
+                                   for _lyr in target_im], dtype=reference_im.dtype)
+    else:
+        _rot_target_im = target_im
+    # calculate drift
+    if cross_corr_align:
+        _drift = cross_correlation_align_single_image(_rot_target_im,
+                                                      reference_im,
+                                                      single_im_size=np.array(np.shape(reference_im)),
+                                                      **alignment_kwargs,)
+    else:
+        _drift_crops = generate_drift_crops()
+        _drift = align_single_image(reference_im, _drift_crops,
+                                    single_im_size=np.array(np.shape(reference_im)), 
+                                    ref_filename=_rot_target_im, **alignment_kwargs)
+    if verbose:
+        print(f"--- drift: {np.round(_drift,2)} pixels")
+        
+    return _rot_target_im, ref_to_tar_rotation, _drift

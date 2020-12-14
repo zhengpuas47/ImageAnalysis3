@@ -1,5 +1,5 @@
 # global variables
-from .. import _correction_folder, _temp_folder, _distance_zxy, _sigma_zxy, _allowed_colors
+from .. import _correction_folder, _temp_folder, _distance_zxy, _sigma_zxy, _allowed_colors, _image_size
 # some shared parameters
 _seed_th={
     '750': 400,
