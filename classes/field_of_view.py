@@ -144,6 +144,11 @@ class Field_of_View():
             self.drift_folder = parameters['drift_folder']
         else:
             self.drift_folder =  os.path.join(self.analysis_folder, 'drift')
+        if not os.path.exists(self.drift_folder):# create save folder if not exist
+            if _verbose:
+                print(f"+ creating save folder: {self.drift_folder}")
+            os.makedirs(self.drift_folder)
+
         if 'map_folder' in parameters:
             self.map_folder = parameters['map_folder']
         else:
@@ -1515,9 +1520,11 @@ class Field_of_View():
                                     all_channels=self.channels,
                                     num_buffer_frames=self.shared_parameters['num_buffer_frames'],
                                     num_empty_frames=self.shared_parameters['num_empty_frames'],
-                                    drift=None, calculate_drift=_use_ref_im,
+                                    drift=None, calculate_drift=_use_ref_im, 
+                                    drift_channel=self.channels[self.bead_channel_index],
                                     ref_filename=_drift_ref,
                                     correction_folder=self.correction_folder,
+                                    corr_channels=self.shared_parameters['corr_channels'],
                                     warp_image=True,
                                     illumination_corr=self.shared_parameters['corr_illumination'],
                                     bleed_corr=False, 
@@ -1847,8 +1854,10 @@ class Field_of_View():
                                         num_buffer_frames=self.shared_parameters['num_buffer_frames'],
                                         num_empty_frames=self.shared_parameters['num_empty_frames'],
                                         drift=None, calculate_drift=_use_ref_im,
+                                        drift_channel=self.channels[self.bead_channel_index],
                                         ref_filename=_drift_ref,
                                         correction_folder=self.correction_folder,
+                                        corr_channels=self.shared_parameters['corr_channels'],
                                         warp_image=True,
                                         illumination_corr=self.shared_parameters['corr_illumination'],
                                         bleed_corr=False, 
