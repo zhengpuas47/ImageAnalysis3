@@ -695,6 +695,7 @@ class Field_of_View():
                                         num_buffer_frames=self.shared_parameters['num_buffer_frames'],
                                         num_empty_frames=self.shared_parameters['num_empty_frames'],
                                         drift=None, calculate_drift=False,
+                                        drift_channel=self.channels[self.bead_channel_index],
                                         correction_folder=self.correction_folder,
                                         warp_image=False,
                                         illumination_corr=True,
@@ -881,8 +882,8 @@ class Field_of_View():
             'all_channels':self.channels,
             'num_buffer_frames':self.shared_parameters['num_buffer_frames'],
             'num_empty_frames':self.shared_parameters['num_empty_frames'],
-            'drift_channel': self.channels[self.bead_channel_index],
             'correction_folder':self.correction_folder,
+            'corr_channels': self.shared_parameters['corr_channels'],
             'hot_pixel_corr':self.shared_parameters['corr_hot_pixel'], 
             'z_shift_corr':self.shared_parameters['corr_Z_shift'], 
             'bleed_corr':self.shared_parameters['corr_bleed'],
@@ -901,6 +902,7 @@ class Field_of_View():
                 'chromatic_profile':self.correction_profiles['chromatic_constants'],})
         # required parameters for drift correction
         _drift_args.update({
+            'drift_channel': self.channels[self.bead_channel_index],
             'precision_fold': self.shared_parameters['drift_precision_fold'],
             'drift_correction_args': self.shared_parameters['drift_correction_args'],
         })
@@ -1773,8 +1775,9 @@ class Field_of_View():
 
         return _chrom_coords
 
-    ##
+    ## load DAPI image
     def _load_dapi_image(self, 
+                         _dapi_id=None,
                          _save=True,
                          _overwrite=False, _verbose=True):
         """Function to load dapi image for fov class"""
@@ -1792,21 +1795,27 @@ class Field_of_View():
             # find DAPI in color_usage
             for _fd, _infos in self.color_dic.items():
                 if len(_infos) >= self.dapi_channel_index+1 and _infos[self.dapi_channel_index] == 'DAPI':
-                    _dapi_fd = [_full_fd for _full_fd in self.annotated_folders if os.path.basename(
+                    _dapi_fds = [_full_fd for _full_fd in self.annotated_folders if os.path.basename(
                         _full_fd) == _fd]
-                    if len(_dapi_fd) == 1:
-                        if _verbose:
-                            print(f"-- choose dapi images from folder: {_dapi_fd[0]}.")
-                        _dapi_fd = _dapi_fd[0]
-                        _select_dapi = True  # successfully selected dapi
+                    # choose dapi folder
+                    if len(_dapi_fd) == 1 or _dapi_id is None:
+                        _dapi_fd = _dapi_fds[0]
+                    elif isinstance(_dapi_id, int) or isinstance(_dapi_id, np.int):
+                        _dapi_fd = _dapi_fds[_dapi_id]
+                    else:
+                        raise TypeError(f"Wrong input type: {type(_dapi_id)} for _dapi_id.")
 
-                        _dapi_fd_ind = self.annotated_folders.index(_dapi_fd)
-                        if _dapi_fd_ind != self.ref_id:                                
-                            if not hasattr(self, 'ref_im'):
-                                self._load_reference_image(_verbose=_verbose)
-                            _use_ref_im = True
-                        else:
-                            _use_ref_im = False 
+                    if _verbose:
+                        print(f"-- choose dapi images from folder: {_dapi_fd[0]}.")
+                    _dapi_fd = _dapi_fd[0]
+                    _select_dapi = True  # successfully selected dapi
+                    _dapi_fd_ind = self.annotated_folders.index(_dapi_fd)
+                    if _dapi_fd_ind != self.ref_id:                                
+                        if not hasattr(self, 'ref_im'):
+                            self._load_reference_image(_verbose=_verbose)
+                        _use_ref_im = True
+                    else:
+                        _use_ref_im = False 
 
             # find DAPI
             for _fd, _info in self.color_dic.items():
@@ -1848,7 +1857,6 @@ class Field_of_View():
                                         verbose=_verbose,
                                         )[0][0]
 
-
             setattr(self, 'dapi_im', _dapi_im)
             
             # save new chromosome image
@@ -1857,3 +1865,6 @@ class Field_of_View():
                                 _verbose=_verbose)
         
         return _dapi_im
+
+
+# add test comment

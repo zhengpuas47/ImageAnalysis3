@@ -50,5 +50,5 @@ from . import structure_tools
 # function to help segmentations
 from . import segmentation_tools
 ## import exteral functions
-from .External import Fitting_v3
+from .External import Fitting_v4
 from .External import DomainTools

@@ -4,28 +4,56 @@ from .. import _allowed_colors, _image_size, _num_buffer_frames, _num_empty_fram
 from .. import _correction_folder
 
 
-def generate_drift_crops(coord_sel=None, drift_size=500, single_im_size=_image_size):
-    """Function to generate drift crop from a selected center and given drift size"""
+def generate_drift_crops(single_im_size=_image_size, coord_sel=None, drift_size=None):
+    """Function to generate drift crop from a selected center and given drift size
+    keywards:
+        single_im_size: single image size to generate crops, np.ndarray like;
+        coord_sel: selected center coordinate to split image into 4 rectangles, np.ndarray like;
+        drift_size: size of drift crop, int or np.int;
+    returns:
+        crops: 4x3x2 np.ndarray. 
+    """
+    # check inputs
     _single_im_size = np.array(single_im_size)
     if coord_sel is None:
         coord_sel = np.array(_single_im_size/2, dtype=np.int)
+    if coord_sel[-2] >= _single_im_size[-2] or coord_sel[-1] >= _single_im_size[-1]:
+        raise ValueError(f"wrong input coord_sel:{coord_sel}, should be smaller than single_im_size:{single_im_size}")
     if drift_size is None:
-        drift_size = int(np.max(_single_im_size)/4)
+        drift_size = int(np.max(_single_im_size)/3)
+        
+    # generate boundaries
+    crop_0_bds = np.array([[0, _single_im_size[0]],
+                           [0, coord_sel[-2]],
+                           [0, coord_sel[-1]],
+                          ], dtype=np.int)
+    crop_1_bds = np.array([[0, _single_im_size[0]],
+                           [0, coord_sel[-2]],
+                           [coord_sel[-1], _single_im_size[-1]],
+                          ], dtype=np.int)
+    crop_2_bds = np.array([[0, _single_im_size[0]],
+                           [coord_sel[-2], _single_im_size[-2]],
+                           [0, coord_sel[-1]],
+                          ], dtype=np.int)
+    crop_3_bds = np.array([[0, _single_im_size[0]],
+                           [coord_sel[-2], _single_im_size[-2]],
+                           [coord_sel[-1], _single_im_size[-1]],
+                          ], dtype=np.int)
     # generate crops
-    crop0 = np.array([[0, _single_im_size[0]],
-                      [max(coord_sel[-2]-drift_size, 0), coord_sel[-2]],
-                      [max(coord_sel[-1]-drift_size, 0), coord_sel[-1]]], dtype=np.int)
-    crop1 = np.array([[0, _single_im_size[0]],
-                      [coord_sel[-2], min(coord_sel[-2] +
-                                          drift_size, _single_im_size[-2])],
-                      [coord_sel[-1], min(coord_sel[-1]+drift_size, _single_im_size[-1])]], dtype=np.int)
-    crop2 = np.array([[0, _single_im_size[0]],
-                      [coord_sel[-2], min(coord_sel[-2] +
-                                          drift_size, _single_im_size[-2])],
-                      [max(coord_sel[-1]-drift_size, 0), coord_sel[-1]]], dtype=np.int)
-    # merge into one array which is easier to feed into function
-    selected_crops = np.stack([crop0, crop1, crop2])
-    return selected_crops
+    crops = []
+    for _bd in [crop_0_bds, crop_1_bds, crop_2_bds, crop_3_bds]:
+        _ct = np.mean(_bd, axis=1).astype(np.int)
+        
+        _crop = np.array([_bd[0],
+                      [max(_ct[-2]-drift_size/2, _bd[-2,0]), 
+                       min(_ct[-2]+drift_size/2, _bd[-2,1])],
+                      [max(_ct[-1]-drift_size/2, _bd[-1,0]), 
+                       min(_ct[-1]+drift_size/2, _bd[-1,1])], 
+                     ], dtype=np.int)
+        crops.append(_crop)
+        
+    return np.array(crops)
+
 
 
 def align_beads(tar_cts, ref_cts, 
