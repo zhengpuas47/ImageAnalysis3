@@ -81,7 +81,7 @@ def find_candidate_chromosomes(_chrom_im,
     ## 6. keep objects
     if _verbose:
         print(f"-- find objects larger than size={_min_label_size}")
-    _kept_label = morphology.remove_small_objects(_seg_label, 100).astype(np.uint16)
+    _kept_label = morphology.remove_small_objects(_seg_label, _min_label_size).astype(np.uint16)
     _label_ids = np.unique(_kept_label)
     _label_ids = _label_ids[_label_ids > 0]
     if _verbose:
