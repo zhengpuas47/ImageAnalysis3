@@ -89,6 +89,8 @@ def align_beads(tar_cts, ref_cts,
     _tar_cts = np.array(tar_cts)
     _ref_cts = np.array(ref_cts)
     _distance_th = float(match_distance_th)
+    from ..alignment_tools import fft3d_from2d
+    from ..spot_tools.matching import find_paired_centers, check_paired_centers
     # case 1: directly align centers by brute force
     if not use_fft:
         from ..alignment_tools import translation_align_pts
@@ -101,8 +103,6 @@ def align_beads(tar_cts, ref_cts,
         )
     # case 2: fft align images and match centers
     else:
-        from ..alignment_tools import fft3d_from2d
-        from ..spot_tools.matching import find_paired_centers, check_paired_centers
         if tar_im is None or ref_im is None:
             raise ValueError(f"both tar_im and ref_im should be given if use FFT!")
         if np.shape(tar_im) != np.shape(ref_im):
@@ -117,6 +117,7 @@ def align_beads(tar_cts, ref_cts,
             cutoff=_distance_th, return_paired_cts=True,
             verbose=verbose,
         )
+    print("before check:", _drift, len(_paired_ref_cts))
     # check paired centers
     if check_paired_cts and len(_paired_ref_cts) > 3:
         _drift, _paired_tar_cts, _paired_ref_cts = check_paired_centers(
@@ -509,3 +510,176 @@ def calculate_translation(reference_im:np.ndarray,
         print(f"--- drift: {np.round(_drift,2)} pixels")
         
     return _rot_target_im, ref_to_tar_rotation, _drift
+
+# updated function to align simge image:
+
+_default_align_corr_args={
+    'single_im_size':_image_size,
+    'num_buffer_frames':_num_buffer_frames,
+    'num_empty_frames':_num_empty_frames,
+    'correction_folder':_correction_folder,
+    'illumination_corr':True,
+    'bleed_corr': False, 
+    'chromatic_corr': False,
+    'z_shift_corr': False, 
+    'hot_pixel_corr': True,
+    'normalization': False,
+}
+
+_default_align_fitting_args={
+    'th_seed': 300,
+    'th_seed_per': 95, 
+    'use_percentile': False,
+    'use_dynamic_th': True,
+    'min_dynamic_seeds': 10,
+    'max_num_seeds': 200,
+}
+
+
+def align_image(
+    src_im:np.ndarray, 
+    ref_im:np.ndarray, 
+    crop_list=None,
+    use_autocorr=True, precision_fold=100, 
+    drift_diff_th=1.,
+    all_channels=_allowed_colors, 
+    ref_all_channels=None, 
+    drift_channel='488',
+    correction_args={},
+    fitting_args={},
+    match_distance_th=2.,
+    return_all=False,
+    verbose=True, detailed_verbose=False,                      
+    ):
+    """Function to align one image by either FFT or spot_finding"""
+    
+    from scipy.spatial.distance import cdist, pdist, squareform
+    from ..io_tools.load import correct_fov_image
+    from ..alignment_tools import fft3d_from2d
+    from ..spot_tools.fitting import fit_fov_image
+    from ..spot_tools.fitting import select_sparse_centers
+    from skimage.feature import register_translation
+    ## check inputs
+    # correciton keywords
+    _correction_args = {_k:_v for _k,_v in _default_align_corr_args.items()}
+    _correction_args.update(correction_args)
+    # fitting keywords
+    _fitting_args = {_k:_v for _k,_v in _default_align_fitting_args.items()}
+    _fitting_args.update(fitting_args)
+    
+    # check crop_list:
+    if crop_list is None:
+        crop_list = generate_drift_crops(_correction_args['single_im_size'])
+    for _crop in crop_list:
+        if np.shape(np.array(_crop)) != (3,2):
+            raise IndexError(f"crop should be 3x2 np.ndarray.")
+    # check channels
+    _all_channels = [str(_ch) for _ch in all_channels]
+    # check bead_channel
+    _drift_channel = str(drift_channel)
+    if _drift_channel not in all_channels:
+        raise ValueError(f"bead channel {_drift_channel} not exist in all channels given:{_all_channels}")
+    # check ref_all_channels
+    if ref_all_channels is None:
+        _ref_all_channels = _all_channels
+    else:
+        _ref_all_channels = [str(_ch) for _ch in ref_all_channels]
+    
+    ## process source image
+    if isinstance(src_im, np.ndarray):
+        if verbose:
+            print(f"-- start aligning given source image to", end=' ')
+        _src_im = src_im
+        if np.shape(_src_im) != tuple(_correction_args['single_im_size']):
+            _size = tuple(_correction_args['single_im_size'])
+            raise IndexError(f"shape of target image:{np.shape(_ref_im)} and single_im_size:{_size} doesnt match!")
+    elif isinstance(src_im, str):
+        if verbose:
+            print(f"-- start aligning file {src_im}.", end=' ')
+        if not os.path.isfile(src_im) or src_im.split('.')[-1] != 'dax':
+            raise IOError(f"input src_im: {src_im} should be a .dax file!")
+        _src_im = correct_fov_image(src_im, [_drift_channel], 
+                                    all_channels=_all_channels,
+                                    calculate_drift=False, 
+                                    return_drift=False, verbose=detailed_verbose,
+                                    **_correction_args)[0]
+    else:
+        raise IOError(f"Wrong input file type, {type(src_im)} should be .dax file or np.ndarray")
+    
+    ## process reference image
+    if isinstance(ref_im, np.ndarray):
+        if verbose:
+            print(f"given reference image.")
+        _ref_im = ref_im
+        if np.shape(_ref_im) != tuple(_correction_args['single_im_size']):
+            _size = tuple(_correction_args['single_im_size'])
+            raise IndexError(f"shape of reference image:{np.shape(_ref_im)} and single_im_size:{_size} doesnt match!")
+    elif isinstance(ref_im, str):
+        if verbose:
+            print(f"reference file:{ref_im}.")
+        if not os.path.isfile(ref_im) or ref_im.split('.')[-1] != 'dax':
+            raise IOError(f"input ref_im: {ref_im} should be a .dax file!")
+        _ref_im = correct_fov_image(ref_im, [_drift_channel], 
+                                    all_channels=_ref_all_channels,
+                                    calculate_drift=False, 
+                                    return_drift=False, verbose=detailed_verbose,
+                                    **_correction_args)[0]
+    else:
+        raise IOError(f"Wrong input ref file type, {type(ref_im)} should be .dax file or np.ndarray")
+    
+    ## crop images
+    _crop_src_ims, _crop_ref_ims = [], []
+    for _crop in crop_list:
+        _s = ([slice(*np.array(_c,dtype=np.int)) for _c in _crop])
+        _crop_src_ims.append(_src_im[_s])
+        _crop_ref_ims.append(_ref_im[_s])
+        
+    ## align two images
+    _drifts, _errors, _diffs = [], [], []
+    if use_autocorr:
+        if verbose:
+            print("--- use auto correlation to calculate drift.")
+        for _i, (_sim, _rim) in enumerate(zip(_crop_src_ims, _crop_ref_ims)):
+            _start_time = time.time()
+            _drift, _error, _phasediff = register_translation(_sim, _rim, 
+                                                              upsample_factor=precision_fold)
+            # append
+            _drifts.append(_drift)
+            _errors.append(_error)
+            _diffs.append(_phasediff)
+            if verbose:
+                print(f"--- align image {_i} in {time.time()-_start_time:.3f}s.")
+    else:
+        if verbose:
+            print("--- use spot finding to calculate drift.")
+        for _i, (_sim, _rim) in enumerate(zip(_crop_src_ims, _crop_ref_ims)):
+            _start_time = time.time()
+            # source
+            _src_spots = fit_fov_image(_sim, _drift_channel, 
+                verbose=detailed_verbose,
+                **_fitting_args) # fit source spots
+            _sp_src_cts = select_sparse_centers(_src_spots[:,1:4], match_distance_th) # select sparse source spots
+            # reference
+            _ref_spots = fit_fov_image(_rim, _drift_channel, 
+                verbose=detailed_verbose,
+                **_fitting_args)
+            _sp_ref_cts = select_sparse_centers(_ref_spots[:,1:4], match_distance_th) # select sparse ref spots
+            #print(_sp_src_cts, _sp_ref_cts)
+            
+            # align
+            _dft, _paired_src_cts, _paired_ref_cts = align_beads(
+                _sp_src_cts, _sp_ref_cts,
+                _sim, _rim,
+                use_fft=True,
+                match_distance_th=match_distance_th, 
+                return_paired_cts=True,
+                verbose=detailed_verbose,
+            )
+            _drifts.append(_dft)
+            _errors.append(0)
+            _diffs.append(0)
+            if verbose:
+                print(f"--- align image {_i} in {time.time()-_start_time:.3f}s.")
+                print(_dft)
+                
+    return np.nanmean(_drifts, axis=1) #, _errors, _diffs

@@ -1875,5 +1875,44 @@ class Field_of_View():
         
         return _dapi_im
 
+    ## load bead image, for checking purposes
+    def _load_bead_image(self, _bead_id,
+                        _overwrite=False, _verbose=True):
+        """Function to load bead image for fov class
+        
+        """
+
+        if 'correct_fov_image' not in locals():
+            from ImageAnalysis3.io_tools.load import correct_fov_image
+
+        if isinstance(_bead_id, int) or isinstance(_bead_id, np.int):
+            _ind = int(_bead_id)
+        elif isinstance(_bead_id, str):
+            for _i, _fd in enumerate(self.annotated_folders):
+                if _bead_id in _fd:
+                    _ind = _i
+                    break
+        _bead_filename = os.path.join(self.annotated_folders[_ind], self.fov_name)
+        _bead_channel = self.channels[self.bead_channel_index]
+        # load this beads image
+        _bead_im = correct_fov_image(_bead_filename, 
+                                    [_bead_channel],
+                                    single_im_size=self.shared_parameters['single_im_size'],
+                                    all_channels=self.channels,
+                                    num_buffer_frames=self.shared_parameters['num_buffer_frames'],
+                                    num_empty_frames=self.shared_parameters['num_empty_frames'],
+                                    drift=None, calculate_drift=False,
+                                    ref_filename=None,
+                                    correction_folder=self.correction_folder,
+                                    warp_image=True,
+                                    illumination_corr=self.shared_parameters['corr_illumination'],
+                                    bleed_corr=False, 
+                                    chromatic_corr=False, 
+                                    z_shift_corr=self.shared_parameters['corr_Z_shift'],
+                                    verbose=_verbose,
+                                    )[0][0]
+
+        return _bead_im
+
 
 # add test comment
