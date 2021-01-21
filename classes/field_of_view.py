@@ -1902,6 +1902,7 @@ class Field_of_View():
                                     num_buffer_frames=self.shared_parameters['num_buffer_frames'],
                                     num_empty_frames=self.shared_parameters['num_empty_frames'],
                                     drift=None, calculate_drift=False,
+                                    drift_channel=_bead_channel,
                                     ref_filename=None,
                                     correction_folder=self.correction_folder,
                                     warp_image=True,
