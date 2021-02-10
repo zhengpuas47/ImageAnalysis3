@@ -586,6 +586,8 @@ def Generate_adaptors(readout_fasta, adaptor_site_fasta, rc_readout=False, rc_ad
             site_records[_i % len(site_records)][:kept_len] + \
             site_records[_i % len(site_records)][:kept_len]
         _adaptor.id = f"{_readout.id}_2x{site_records[_i % len(site_records)].id}"
+        _adaptor.name = ""
+        _adaptor.description = ""
         adaptor_records.append(_adaptor)
 
     return adaptor_records
