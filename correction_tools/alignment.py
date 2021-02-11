@@ -682,4 +682,4 @@ def align_image(
                 print(f"--- align image {_i} in {time.time()-_start_time:.3f}s.")
                 print(_dft)
                 
-    return np.nanmean(_drifts, axis=1) #, _errors, _diffs
+    return np.nanmean(_drifts, axis=0) #, _errors, _diffs
