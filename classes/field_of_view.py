@@ -24,8 +24,14 @@ def __init__():
     pass
 
 class Field_of_View():
-    """Class of field-of-view of a certain sample, which includes all possible files across hybs and parameters"""
-    
+    """Class of field-of-view of a certain sample, which includes all possible files across hybs and parameters
+    Key features:
+        1. load and save images
+        2. pre-process images by warpping or generating spot-translating functions
+        3. perform gaussian fitting, convert images into spot coordinates
+        4. load and process chromosome image, DAPI image, reference(beads) image
+
+    """
     def __init__(self, parameters, 
                  _fov_id=None, _fov_name=None,
                  _color_info_kwargs={},
