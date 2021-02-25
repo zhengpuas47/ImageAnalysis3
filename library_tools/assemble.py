@@ -321,7 +321,9 @@ def Assemble_probes(library_folder, probe_source, gene_readout_dict, readout_dic
             _sel_readout = readout_dict[_type][_ind]
             _reg_readouts.append(_sel_readout)
             _reg_readout_names.append(_sel_readout.id + '_' + _type)
-            if _sel_readout not in readout_summary[_type][_reg_name]:
+            print(readout_summary[_type][_reg_name], _sel_readout)
+            if len(readout_summary[_type][_reg_name])==0 \
+                or _sel_readout.id not in [_rd.id for _rd in readout_summary[_type][_reg_name]]:
                 readout_summary[_type][_reg_name].append(_sel_readout)
         if isinstance(_pb_obj, ld.pb_reports_class):
             if verbose:

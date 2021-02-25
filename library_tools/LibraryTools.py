@@ -120,6 +120,25 @@ def fastaread(fl,force_upper=False):
             lines.append(line[:-1])
     fid.close()
     return [names,seqs[1:]]
+
+def extract_lower_case(name, seq_string, min_length=17):
+    """Function to extract lower case string from a sequence"""
+    _sub_names, _sub_seqs = [], []
+    _seq = ""
+    for _s in seq_string:
+        #print(_s)
+        if _s.islower():
+            _seq += _s
+        elif _s.isupper() and len(_seq) > 0:
+            if len(_seq) >= min_length:
+                _sub_seqs.append(_seq)
+                _sub_names.append(name+f'_{len(_sub_seqs)}')
+            _seq = ""
+        else:
+            pass
+        
+    return _sub_names, _sub_seqs
+
 def nt2intblock(gen_seq):
     int_gen_seq = nt2int(gen_seq)
     block = len(gen_seq)

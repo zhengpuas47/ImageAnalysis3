@@ -172,7 +172,7 @@ def _parsing_probe_sequence(record, add_rand_gap=0, primer_len=20, readout_len=2
     readout_list = []
     _main_seq = record.seq[primer_len:-primer_len]
     # number of readout sequence in this probe
-    _readout_num = (len(_main_seq) - target_len) / (primer_len+add_rand_gap)
+    _readout_num = (len(_main_seq) - target_len) / (readout_len+add_rand_gap)
     if _readout_num != int(_readout_num):
         raise ValueError(
             "Length of probe doesn't match given element length! ")

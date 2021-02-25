@@ -4,6 +4,7 @@ _readout_folder = r'\\smirnov\Chromatin_NAS_2\Libraries\Readouts'
 _genome_folder = r'\\SMIRNOV\Chromatin_NAS_2\Libraries\Genomes\human\hg38'
 
 _adaptor_site_names = ['Stv_82', 'Stv_1', 'Stv_79']
+_fasta_ext = ['fa', 'fasta']
 
 # shared functions
 def _rand_seq_generator(length=1, dna_alphabet=['A', 'C', 'G', 'T']):
@@ -13,11 +14,11 @@ def _rand_seq_generator(length=1, dna_alphabet=['A', 'C', 'G', 'T']):
     _rand_seq = ''.join(_rand_seq)
     return SeqRecord(Seq(_rand_seq))
 
-
 # import sub packages
 from Bio.SeqRecord import SeqRecord
 from . import LibraryDesigner
 from . import LibraryTools
 from . import readouts
-from . import probes
+from . import design
+from . import assemble
 from . import sequences
