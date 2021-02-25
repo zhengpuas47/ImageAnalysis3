@@ -146,7 +146,7 @@ class Field_of_View():
             self.drift_folder =  os.path.join(self.analysis_folder, 'drift')
         if not os.path.exists(self.drift_folder):# create save folder if not exist
             if _verbose:
-                print(f"+ creating save folder: {self.drift_folder}")
+                print(f"+ creating drift folder: {self.drift_folder}")
             os.makedirs(self.drift_folder)
 
         if 'map_folder' in parameters:
