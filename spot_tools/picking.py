@@ -1676,24 +1676,35 @@ def Pick_spots_by_intensity(cand_spot_list, pix_size=np.array([200,106,106])):
 
     return np.stack(hzxys_list)
 
-def _generate_ref_of_chr(_picked_hzxys, picked_ids,
-                         _ref_hzxys, ref_ids, neighbor_len=5):
+def _generate_ref_of_chr(_picked_hzxys, _picked_ids,
+                         _ref_hzxys, _ref_ids, _ref_channels=None,
+                         _neighbor_len=5):
     _ct_dists = chromosome_center_dists(_picked_hzxys, np.nanmean(_ref_hzxys,axis=0))
-    _local_dists = local_center_dists(_picked_hzxys, picked_ids, 
-                                                _ref_hzxys, ref_ids, neighbor_len=neighbor_len)
-    _ints = np.array(_picked_hzxys)[:,0]
+    _local_dists = local_center_dists(_picked_hzxys, _picked_ids, 
+                                                _ref_hzxys, _ref_ids, neighbor_len=_neighbor_len)
+    # intensity
+    if _ref_channels is None:
+        _ints = np.array(_picked_hzxys)[:,0]
+    else:
+        _chs = np.array([np.str(_ch) for _ch in _ref_channels])
+        _ints = {}
+        for _ch in np.unique(_chs):
+            _ints[_ch] = np.array(_picked_hzxys)[np.where(_chs==_ch)[0],0]
     
     return _ct_dists, _local_dists, _ints
 
 def generate_reference_from_population(picked_hzxys_list, picked_ids=None,
-                                       ref_hzxys_list=None, ref_ids=None,
+                                       ref_hzxys_list=None, ref_ids=None, 
+                                       ref_channels=None,
                                        num_threads=12,
-                                       neighbor_len=5, collapse_regions=True,
+                                       neighbor_len=5, 
+                                       collapse_regions=True, split_channels=True,
                                        verbose=True):
     """Function to generate reference based on currently picked spots"""
     from tqdm.notebook import tqdm
     if verbose:
         print(f"- generate reference metrics from picked chrs.")
+    ## check inputs
     # picked ids
     if picked_ids is None:
         picked_ids = np.arange(len(picked_hzxys_list[0]))
@@ -1702,6 +1713,11 @@ def generate_reference_from_population(picked_hzxys_list, picked_ids=None,
         ref_hzxys_list = picked_hzxys_list
     if ref_ids is None:
         ref_ids = picked_ids
+    # channels
+    if ref_channels is not None:
+        if len(ref_channels) != len(picked_ids):
+            raise IndexError(f"wrong length of ref_channels, length should match picked_ids")
+
     # initialize metrics    
     _ct_dists_list, _local_dists_list, _ints_list = [], [], []
     # mp option 
@@ -1710,7 +1726,7 @@ def generate_reference_from_population(picked_hzxys_list, picked_ids=None,
         if verbose:
             _mp_time = time.time()
             print(f"-- multiprocessing process references with {num_threads} threads", end=', ')
-        _args = [(_picked_hzxys, picked_ids, _ref_hzxys, ref_ids, neighbor_len)
+        _args = [(_picked_hzxys, picked_ids, _ref_hzxys, ref_ids, ref_channels, neighbor_len)
                  for _picked_hzxys, _ref_hzxys in zip(picked_hzxys_list, ref_hzxys_list)]
         with mp.Pool(num_threads) as ref_pool:
             ref_results = ref_pool.starmap(_generate_ref_of_chr, _args)
