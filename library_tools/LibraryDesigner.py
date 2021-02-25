@@ -471,6 +471,7 @@ class pb_reports_class:
             self.files_to_OTmap("map_"+key,self.map_dic[key])
         end = time.time()
         print("Time(s): "+str(end-start))
+
     def files_to_OTmap(self,map_key,curr_dic):
         "This function transforms a file or list of files to an OT map and sets it as an attribute in self."
         print("Setting attribute: "+map_key)
@@ -596,8 +597,8 @@ class pb_reports_class:
         check_on_go = self.check_on_go
         gen_seqs,gen_names = self.input_seqs,self.input_names
         input_use_revc = self.sequence_dic.get('use_revc',False)
-        input_use_kmer = self.sequence_dic.get('use_kmer',False)
-        
+        input_use_kmer = self.sequence_dic.get('use_kmer', True)
+
         pb_reports = {}
         self.pb_reports_keep = {}
         
@@ -608,6 +609,10 @@ class pb_reports_class:
             reg_t = gen_seqs[k].replace('N','A')
             #Iterate through probes:
             checks_ = np.zeros(len(reg_t))
+            # generate kmer if specified
+            if input_use_kmer:
+                pass
+
             for i in range(len(reg_t)-pb_len):
                 pb_t = reg_t[i:i+pb_len]
                 if isinstance(pb_t, str):
