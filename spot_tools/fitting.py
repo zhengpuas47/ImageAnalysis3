@@ -91,14 +91,14 @@ def get_seeds(im, max_num_seeds=None, th_seed=150,
         _max_im = gaussian_filter(_im, gfilt_size)
     else:
         _max_im = _im
-    _max_ft = np.array(maximum_filter(_max_im, int(filt_size)), dtype=np.int)
+    _max_ft = np.array(maximum_filter(_max_im, int(filt_size)), dtype=_max_im.dtype)
     # background filter
     if background_gfilt_size:
         _min_im = gaussian_filter(_im,background_gfilt_size)
     else:
         _min_im = _im
-    _min_ft = np.array(minimum_filter(_min_im, int(filt_size)), dtype=np.int)
-    
+    _min_ft = np.array(minimum_filter(_min_im, int(filt_size)), dtype=_min_im.dtype)
+
     # iteratively select seeds
     for _iter in range(dynamic_niters):
         # get seed coords

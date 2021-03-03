@@ -248,19 +248,23 @@ def batch_process_image_to_spots(dax_filename, sel_channels,
             drift_file_lock.release()
 
     ## multi-fitting
+    _raw_spot_list = []
     _spot_list = []
     for _ich, (_im, _ch) in enumerate(zip(_sel_ims, sel_channels)):
-        _spots = fit_fov_image(
+        _raw_spots = fit_fov_image(
             _im, _ch, verbose=verbose, 
             **fitting_args,
         )
         if not warp_image:
             # update spot coordinates given warp functions, if image was not warpped.
             _func = _warp_funcs[_ich]
-            _spots = _func(_spots)
+            _spots = _func(_raw_spots)
             #print(f"type: {type(_spots)} for {dax_filename}, region {region_ids[_ich]} channel {_ch}, {_func}")
+        else:
+            _spots = _raw_spots.copy()
         # append 
         _spot_list.append(_spots)
+        _raw_spot_list.append(_raw_spots)
     ## save fitted_spots if specified
     if save_spots:
         # initiate lock
@@ -269,7 +273,8 @@ def batch_process_image_to_spots(dax_filename, sel_channels,
         # run saving
         _save_spt_success = save_spots_to_fov_file(
             save_filename, _spot_list, data_type, region_ids, 
-            overwrite_spot, verbose)
+            raw_spot_list=_raw_spot_list,
+            overwrite=overwrite_spot, verbose=verbose)
         # release lock
         if spot_file_lock is not None:
             spot_file_lock.release()
@@ -397,6 +402,7 @@ def load_image_from_fov_file(filename, data_type, region_ids,
 
 # save image to fov file
 def save_spots_to_fov_file(filename, spot_list, data_type, region_ids, 
+                           raw_spot_list=None,
                            overwrite=False, verbose=True):
     """Function to save image to fov-standard savefile(hdf5)
     Inputs:
@@ -410,6 +416,8 @@ def save_spots_to_fov_file(filename, spot_list, data_type, region_ids,
         raise ValueError(f"Wrong input data_type:{data_type}, should be among {_allowed_kwds}.")
     if len(spot_list) != len(region_ids):
         raise ValueError(f"Wrong input region_ids:{region_ids}, should of same length as spots, len={len(spot_list)}.")
+    if raw_spot_list is not None and len(raw_spot_list) != len(spot_list):
+        raise IndexError(f"length of input spot_list and raw_spot list should match, {len(spot_list)}, {len(raw_spot_list)}")
 
     if verbose:
         print(f"- writting {data_type} spots into file:{filename}")
@@ -423,6 +431,9 @@ def save_spots_to_fov_file(filename, spot_list, data_type, region_ids,
             if np.sum(_grp['spots'][_index])==0 or overwrite:
                 _grp['spots'][_index, :len(_spots), :] = _spots
                 _updated_spots.append(_id)
+            if 'raw_spots' in _grp.keys():
+                if np.sum(_grp['raw_spots'][_index])==0 or overwrite:
+                    _grp['raw_spots'][_index, :len(raw_spot_list[_i]), :] = raw_spot_list[_i]
 
     if verbose:
         print(f"-- updated spots for id:{_updated_spots} in {time.time()-_save_start:.3f}s")

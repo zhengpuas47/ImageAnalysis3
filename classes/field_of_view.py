@@ -1028,11 +1028,10 @@ class Field_of_View():
         else:
             return [], []
         # unravel and append process
-
         for _ids, _spot_list in zip(_processing_id_list, _spot_results):
             _final_ids += list(_ids)
             _final_spots += list(_spot_list)
-         # sort
+         # sort processed spots according to ids
         _ps_ids = [_id for _id,_spots in sorted(zip(_final_ids, _final_spots))]
         _ps_spots = [_spots for _id,_spots in sorted(zip(_final_ids, _final_spots))]
   
@@ -1185,6 +1184,15 @@ class Field_of_View():
                     elif _im_shape[0] != len(_grp['spots']):
                         _change_size_flag.append('spots')
                         _old_size=len(_grp['spots'])
+                    # raw spots (for debugging)
+                    if 'raw_spots' not in _grp:
+                        _spots = _grp.create_dataset('raw_spots', 
+                                    (_im_shape[0], self.shared_parameters['max_num_seeds'], 11), 
+                                    dtype='f')
+                        _data_attrs.append('raw_spots')
+                    elif _im_shape[0] != len(_grp['raw_spots']):
+                        _change_size_flag.append('raw_spots')
+                        _old_size=len(_grp['raw_spots'])
 
                     # drift
                     if 'drifts' not in _grp:
@@ -1291,7 +1299,7 @@ class Field_of_View():
                 print("including images", end=' ')
         with h5py.File(self.save_filename, "a", libver='latest') as _f:
             if _data_type not in _f.keys():
-                raise ValueError(f"input data type doesn't exist in this save_file:{self.save_filename}")
+                raise ValueError(f"input data type: {_data_type} doesn't exist in this save_file:{self.save_filename}")
             _grp = _f[_data_type]
             _ids = list(_grp['ids'][:])
             for _region_id in _region_ids:
@@ -1401,6 +1409,7 @@ class Field_of_View():
                 if hasattr(self, f"{_type}_ids") and \
                     hasattr(self, f"{_type}_drifts") and \
                     hasattr(self, f"{_type}_spots_list") and \
+                    hasattr(self, f"{_type}_channels") and \
                     not _overwrite:
                     if _load_image and hasattr(self, f"{_type}_ims"):
                         return
@@ -1418,12 +1427,14 @@ class Field_of_View():
                             _ids = np.array([_id for _flg, _id in zip(_flags, _grp['ids'][:]) if _flg > 0])
                             _drifts = np.array([_dft for _flg, _dft in zip(_flags, _grp['drifts'][:]) if _flg > 0])
                             _spots_list = np.array([_spots[_spots[:,0] > 0] for _flg, _spots in zip(_flags, _grp['spots'][:]) if _flg > 0])
+                            _channels = [str(_ch) for _flg, _ch in zip(_flags, _grp['channels'][:]) if _flg > 0]
                             if _load_image:
                                 _ims = _grp['ims'][:]
                         else:
                             _ids = _grp['ids'][:]
                             _drifts = _grp['drifts'][:]
                             _spots_list = np.array([_spots[_spots[:,0] > 0] for _spots in _grp['spots'][:]])
+                            _channels = [str(_ch) for _ch in _grp['channels'][:]]
                             if _load_image:
                                 _ims = _grp['ims'][:]
                         
@@ -1431,6 +1442,7 @@ class Field_of_View():
                         setattr(self, f"{_type}_ids", _ids)
                         setattr(self, f"{_type}_drifts", _drifts)
                         setattr(self, f"{_type}_spots_list", _spots_list)
+                        setattr(self, f"{_type}_channels", _channels)
                         if _load_image:
                             setattr(self, f"{_type}_ims", _ims)
                         if _verbose:
