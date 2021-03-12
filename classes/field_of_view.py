@@ -1163,7 +1163,7 @@ class Field_of_View():
 
                     # channels
                     if 'channels' not in _grp:
-                        _channels = [_ch.encode('utf8') for _ch in _dict['channels']]
+                        _channels = [_ch for _ch in _dict['channels']]
                         _chs = _grp.create_dataset('channels', (len(_dict['channels']),), dtype='S3', data=_channels)
                         _chs = np.array(_dict['channels'], dtype=str) # save ids
                         _data_attrs.append('channels')
