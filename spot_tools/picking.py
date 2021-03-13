@@ -1934,12 +1934,12 @@ def pick_spots_by_scores(cand_hzxys_list, cand_ids=None,
                          neighbor_len=5, center_weight=1., local_weight=1.,
                          pix_size=_distance_zxy, 
                          collapse_regions=True, split_channels=True, 
+                         return_other_scores=False,
                          sort=True, verbose=True,
                         ):
     """Function to pick spots by calculating scores"""
     if verbose:
-        print(f"- start EM picking.")
-    
+        print(f"- pick spots by scores")
     ## check inputs
     # candidate ids
     if cand_ids is None:
@@ -1960,8 +1960,7 @@ def pick_spots_by_scores(cand_hzxys_list, cand_ids=None,
     if (ref_ints is None) \
         or (ref_ct_dists is None) \
         or (ref_local_dists is None):
-        if verbose:
-            print(f"-- generate reference from initial picked spots.")
+        # generate ref
         ref_ct_dists, ref_local_dists, ref_ints = generate_reference_from_population(
             ref_hzxys_list, ref_ids, 
             ref_hzxys_list, ref_ids,
@@ -1977,7 +1976,7 @@ def pick_spots_by_scores(cand_hzxys_list, cand_ids=None,
     if parallel:
         if verbose:
             _mp_time = time.time()
-            print(f"-- multiprocessing maximization step with {int(num_threads)} threads", end=', ')
+            print(f"--- multiprocessing maximization step with {int(num_threads)} threads", end=', ')
         _args = [(_cand_hzxys, cand_ids, _ref_hzxys, ref_ids, 
                   ref_ct_dists, ref_local_dists, ref_ints,
                   cand_channels, ref_channels,
@@ -1999,7 +1998,7 @@ def pick_spots_by_scores(cand_hzxys_list, cand_ids=None,
     else:
         if verbose:
             _sq_time = time.time()
-            print(f"-- maximization step", end=', ')
+            print(f"--- maximization step", end=', ')
         # init
         sel_hzxys_list, sel_scores_list, all_scores_list = [], [], []
         # loop
@@ -2016,8 +2015,24 @@ def pick_spots_by_scores(cand_hzxys_list, cand_ids=None,
             all_scores_list.append(_all_scores)
         if verbose:
             print(f"in {time.time()-_sq_time:.3f}s")
-    
-    return sel_hzxys_list, sel_scores_list, all_scores_list
+
+    if return_other_scores:
+        # get other scores if specified
+        other_scores_list = []
+        for _sel_scores, _all_scores in zip(sel_scores_list, all_scores_list):
+            _other_scores = []
+            for _s, _scs in zip(_sel_scores, _all_scores):
+                if np.isnan(_s).sum() > 0:
+                    _other_scores.append(_scs)
+                elif len(_scs) == 0:
+                    _other_scores.append(np.array([]))
+                else:
+                    _other_scores.append(_scs[_scs != _s])
+            other_scores_list.append(_other_scores)
+        return sel_hzxys_list, sel_scores_list, all_scores_list, other_scores_list
+
+    else:
+        return sel_hzxys_list, sel_scores_list, all_scores_list
 
 
 def EM_pick_scores_in_population(cand_hzxys_list, cand_ids=None, init_hzxys_list=None, 
