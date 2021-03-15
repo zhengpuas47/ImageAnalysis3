@@ -20,7 +20,7 @@ def __init__():
 def get_seeds(im, max_num_seeds=None, th_seed=150, 
               th_seed_per=95, use_percentile=False,
               sel_center=None, seed_radius=30,
-              gfilt_size=0.75, background_gfilt_size=8,
+              gfilt_size=0.75, background_gfilt_size=8.,
               filt_size=3, min_edge_distance=2,
               use_dynamic_th=True, dynamic_niters=10, min_dynamic_seeds=1,
               remove_hot_pixel=True, hot_pixel_th=3,
@@ -70,6 +70,7 @@ def get_seeds(im, max_num_seeds=None, th_seed=150,
         _local_edges = np.zeros(len(np.shape(im)))
         _im = im.copy()
         
+
     # get threshold
     if use_percentile:
         _th_seed = scoreatpercentile(im, th_seed_per) - scoreatpercentile(im, (100-th_seed_per)/2)
@@ -88,16 +89,18 @@ def get_seeds(im, max_num_seeds=None, th_seed=150,
         dynamic_niters = int(dynamic_niters)
     # front filter:
     if gfilt_size:
-        _max_im = gaussian_filter(_im, gfilt_size)
+        _max_im = np.array(gaussian_filter(_im, gfilt_size), dtype=np.float)
     else:
-        _max_im = _im
-    _max_ft = np.array(maximum_filter(_max_im, int(filt_size)), dtype=_max_im.dtype)
+        _max_im = _im.astype(np.float)
+    _max_ft = np.array(maximum_filter(_max_im, int(filt_size)), dtype=np.float)
     # background filter
     if background_gfilt_size:
-        _min_im = gaussian_filter(_im,background_gfilt_size)
+        _min_im = np.array(gaussian_filter(_im, background_gfilt_size), dtype=np.float)
     else:
-        _min_im = _im
-    _min_ft = np.array(minimum_filter(_min_im, int(filt_size)), dtype=_min_im.dtype)
+        _min_im = _im.astype(np.float)
+    _min_ft = np.array(minimum_filter(_min_im, int(filt_size)), dtype=np.float)
+
+    #return _max_ft, _min_ft, _max_im, _min_im
 
     # iteratively select seeds
     for _iter in range(dynamic_niters):
@@ -113,6 +116,7 @@ def get_seeds(im, max_num_seeds=None, th_seed=150,
         # if got enough seeds, proceed.
         if len(_coords[0]) >= min_dynamic_seeds:
             break
+
     # print current th
     if verbose and use_dynamic_th:
         print(f"->{_current_seed_th:.2f}", end=', ')
@@ -161,7 +165,7 @@ def fit_fov_image(im, channel, seeds=None, max_num_seeds=500,
                   dynamic_niters=10, min_dynamic_seeds=1,
                   remove_hot_pixel=True, seeding_kwargs={}, 
                   fit_radius=5, #init_sigma=_sigma_zxy, weight_sigma=0, 
-                  normalize_backgroud=False, normalize_local=False, 
+                  normalize_background=False, normalize_local=False, 
                   background_args={}, 
                   fitting_args={}, verbose=True):
     """Function to merge seeding and fitting for the whole fov image"""
@@ -202,8 +206,9 @@ def fit_fov_image(im, channel, seeds=None, max_num_seeds=500,
     # get spots
     _spots = np.array(_fitter.ps)
     _spots = _spots[np.sum(np.isnan(_spots),axis=1)==0] # remove NaNs
+
     # normalize intensity if applicable
-    if normalize_backgroud and not normalize_local:
+    if normalize_background and not normalize_local:
         from ..io_tools.load import find_image_background 
         _back = find_image_background(im, **background_args)
         if verbose:
@@ -226,7 +231,6 @@ def fit_fov_image(im, channel, seeds=None, max_num_seeds=500,
     if verbose:
         print(f"{len(_spots)} fitted in {time.time()-_fit_time:.3f}s.")
     return _spots
-
 
 
 

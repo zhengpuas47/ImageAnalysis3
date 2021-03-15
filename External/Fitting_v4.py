@@ -159,7 +159,6 @@ def add_source(im_,pos=[0,0,0],h=200,sig=[2,2,2]):
     im[slices_im]+=im_ker[slices_ker]*h
     return im
     
-
     
 from scipy.optimize import leastsq
 class GaussianFit():
@@ -184,25 +183,62 @@ class GaussianFit():
         self.p_ = np.array([bk_guess,h_guess,0,0,0,wg,wg,wg,0,0],dtype=np.float32)
         self.to_natural_paramaters()
         self.success = False
+
     def to_center(self,c0_,c1_,c2_):
         """constrains via sigmoidal function close to local center"""
         delta = self.delta_center
-        c0 = 2.*delta/(1.+np.exp(c0_))-delta+self.center_est[0]
-        c1 = 2.*delta/(1.+np.exp(c1_))-delta+self.center_est[1]
-        c2 = 2.*delta/(1.+np.exp(c2_))-delta+self.center_est[2]
+        # c0
+        if c0_ >= np.log(np.finfo(c0_.dtype).max):
+            c0 = - delta + self.center_est[0]
+        elif c0_ <= - np.log(np.finfo(c0_.dtype).max):
+            c0 = delta + self.center_est[0]
+        else:
+            c0 = 2. *delta / (1.+np.exp(c0_)) - delta + self.center_est[0]
+        # c1
+        if c1_ >= np.log(np.finfo(c1_.dtype).max):
+            c1 = - delta + self.center_est[1]
+        elif c1_ <= - np.log(np.finfo(c1_.dtype).max):
+            c1 = delta + self.center_est[1]
+        else:
+            c1 = 2. *delta / (1.+np.exp(c1_)) - delta + self.center_est[1]
+        # c2
+        if c2_ >= np.log(np.finfo(c2_.dtype).max):
+            c2 = - delta + self.center_est[2]
+        elif c2_ <= - np.log(np.finfo(c2_.dtype).max):
+            c2 = delta + self.center_est[2]
+        else:
+            c2 = 2. *delta / (1.+np.exp(c2_)) - delta + self.center_est[2]
+
+        #c0 = 2. *delta / (1.+np.exp(c0_)) - delta + self.center_est[0]
+        #c1 = 2.*delta/(1.+np.exp(c1_))-delta+self.center_est[1]
+        #c2 = 2.*delta/(1.+np.exp(c2_))-delta+self.center_est[2]
         return c0,c1,c2
-    def to_sine(self,t_):
+
+    def to_sine(self, t_):
         """constrain sin-angles to -1,1"""
         #eps =  10E-5
         #self.sine_eps = eps
         #return 2.*(1-eps)/(1+np.exp(t_))-1.+eps
-        return 2./(1+np.exp(t_))-1.
+        if t_ >= np.log(np.finfo(t_.dtype).max):
+            return -1
+        elif t_ <= - np.log(np.finfo(t_.dtype).max):
+            return 1
+        else:
+            return 2./(1+np.exp(t_))-1.
+
     def to_ws(self,w_):
         """constrain widths"""
         min_ws = self.min_w
         delta_ws = self.max_w - min_ws
-        ws = delta_ws/(1.+np.exp(w_))+min_ws
+
+        if w_ >= np.log(np.finfo(w_.dtype).max):
+            ws = min_ws
+        elif w_ <= - np.log(np.finfo(w_.dtype).max):
+            ws = delta_ws + min_ws
+        else:
+            ws = delta_ws/(1.+np.exp(w_))+min_ws
         return ws
+
     def to_natural_paramaters(self,parms=None):
         """
         Convert from constrained paramaters to [hf,xc,yc,zc,bkf,w1f,w2f,w3f,t,p,eps]
@@ -344,7 +380,7 @@ class GaussianFit():
             self.eps_frac,self.eps_dist,self.eps_angle = eps_frac,eps_dist,eps_angle
             parms0 = self.p_
             self.p_old = None
-            parmsf,_ = leastsq(self.calc_eps,parms0,Dfun=self.calc_jac)
+            parmsf,_ = leastsq(self.calc_eps,parms0,Dfun=self.calc_jac, maxfev=1000) # changed maxfev to block warning message
             #parmsf=parms0#####pisici
             self.p_ = parmsf
             self.to_natural_paramaters()

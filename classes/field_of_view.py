@@ -233,8 +233,8 @@ class Field_of_View():
         # param for spot_finding
         if 'spot_seeding_th' not in self.shared_parameters:
             self.shared_parameters['spot_seeding_th'] = _spot_seeding_th
-        if 'normalize_intensity_backgroud' not in self.shared_parameters:
-            self.shared_parameters['normalize_intensity_backgroud'] = False
+        if 'normalize_intensity_background' not in self.shared_parameters:
+            self.shared_parameters['normalize_intensity_background'] = False
         if 'normalize_intensity_local' not in self.shared_parameters:
             self.shared_parameters['normalize_intensity_local'] = True
 
@@ -824,6 +824,7 @@ class Field_of_View():
 
 
     def _process_image_to_spots(self, _data_type, _sel_folders=[], _sel_ids=[], 
+                                _parallel=True, 
                                 _load_common_correction_profiles=True, 
                                 _load_common_reference=True, 
                                 _load_with_multiple=True, 
@@ -923,7 +924,7 @@ class Field_of_View():
             'th_seed': self.shared_parameters['spot_seeding_th'],
             'min_dynamic_seeds': self.shared_parameters['min_num_seeds'],
             'remove_hot_pixel': self.shared_parameters['corr_hot_pixel'],
-            'normalize_backgroud': self.shared_parameters['normalize_intensity_backgroud'],
+            'normalize_background': self.shared_parameters['normalize_intensity_background'],
             'normalize_local': self.shared_parameters['normalize_intensity_local'],
         })
         
@@ -1009,28 +1010,40 @@ class Field_of_View():
                 _processing_arg_list.append(_args)
                 _processing_id_list.append(_reg_ids)
 
-        # multi-processing
-        ## multi-processing for translating segmentation
         if len(_processing_arg_list) > 0:
             from .batch_functions import batch_process_image_to_spots, killchild
-            with mp.Pool(self.num_threads) as _processing_pool:
+            # multi-processing
+            if _parallel:
+                with mp.Pool(self.num_threads) as _processing_pool:
+                    if _verbose:
+                        print(f"+ Start multi-processing of pre-processing for {len(_processing_arg_list)} images with {self.num_threads} threads")
+                        print(f"++ processed {_data_type} ids: {np.sort(np.concatenate(_processing_id_list))}", end=' ')
+                        _start_time = time.time()
+                    # Multi-proessing!
+                    _spot_results = _processing_pool.starmap(
+                        batch_process_image_to_spots,
+                        _processing_arg_list, 
+                        chunksize=1)
+                    # close multiprocessing
+                    _processing_pool.close()
+                    _processing_pool.join()
+                    _processing_pool.terminate()
+                # clear
+                killchild()        
                 if _verbose:
-                    print(f"+ Start multi-processing of pre-processing for {len(_processing_arg_list)} images with {self.num_threads} threads")
+                    print(f"in {time.time()-_start_time:.2f}s.")
+            else:
+                # initialize
+                _spot_results = []
+                if _verbose:
+                    print(f"+ Start sequential pre-processing for {len(_processing_arg_list)} images")
                     print(f"++ processed {_data_type} ids: {np.sort(np.concatenate(_processing_id_list))}", end=' ')
                     _start_time = time.time()
-                # Multi-proessing!
-                _spot_results = _processing_pool.starmap(
-                    batch_process_image_to_spots,
-                    _processing_arg_list, 
-                    chunksize=1)
-                # close multiprocessing
-                _processing_pool.close()
-                _processing_pool.join()
-                _processing_pool.terminate()
-            # clear
-            killchild()        
-            if _verbose:
-                print(f"in {time.time()-_start_time:.2f}s.")
+                for _ids, _args in zip(_processing_id_list, _processing_arg_list):
+                    _spots = batch_process_image_to_spots(*_args)
+                    _spot_results.append(_spots)
+                if _verbose:
+                    print(f"in {time.time()-_start_time:.2f}s.")
         else:
             return [], []
         # unravel and append process
@@ -1163,7 +1176,7 @@ class Field_of_View():
 
                     # channels
                     if 'channels' not in _grp:
-                        _channels = [_ch for _ch in _dict['channels']]
+                        _channels = [str(_ch).encode('utf8') for _ch in _dict['channels']]
                         _chs = _grp.create_dataset('channels', (len(_dict['channels']),), dtype='S3', data=_channels)
                         _chs = np.array(_dict['channels'], dtype=str) # save ids
                         _data_attrs.append('channels')
@@ -1433,7 +1446,7 @@ class Field_of_View():
                             _ids = np.array([_id for _flg, _id in zip(_flags, _grp['ids'][:]) if _flg > 0])
                             _drifts = np.array([_dft for _flg, _dft in zip(_flags, _grp['drifts'][:]) if _flg > 0])
                             _spots_list = np.array([_spots[_spots[:,0] > 0] for _flg, _spots in zip(_flags, _grp['spots'][:]) if _flg > 0])
-                            _channels = [str(_ch) for _flg, _ch in zip(_flags, _grp['channels'][:]) if _flg > 0]
+                            _channels = [_ch.decode('utf8') for _flg, _ch in zip(_flags, _grp['channels'][:]) if _flg > 0]
                             if _load_image:
                                 _ims = _grp['ims'][:]
                         else:
@@ -1560,8 +1573,10 @@ class Field_of_View():
             
             # save new chromosome image
             if _save:
-                self._save_to_file('fov_info', _save_attr_list=['chrom_im'],
-                                _verbose=_verbose)
+                self._save_to_file('fov_info', 
+                    _save_attr_list=['chrom_im'],
+                    _overwrite=_overwrite,        
+                    _verbose=_verbose)
         
         return _chrom_im
 

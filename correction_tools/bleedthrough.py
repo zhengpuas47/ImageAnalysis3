@@ -82,7 +82,7 @@ def find_bleedthrough_pairs(filename, channel,
     _tar_channels = [_ch for _ch, _im in zip(corr_channels, _ims) if _ch != _channel]
     _tar_ims = [_im for _ch, _im in zip(corr_channels, _ims) if _ch != _channel]
     
-    _ref_spots = fit_fov_image(_ref_im, _channel, normalize_backgroud=True,
+    _ref_spots = fit_fov_image(_ref_im, _channel, #normalize_background=True,
                                **fitting_args, verbose=verbose)
     # threshold intensities
     _ref_spots = _ref_spots[_ref_spots[:,0] >= intensity_th]
