@@ -1231,8 +1231,8 @@ class Field_of_View():
 
                     # Create other features
                     for _attr_name in dir(self):
-                        if _attr_name[0] != '_' and _type in _attr_name:
-                            _attr_feature = _attr_name.split(_type)[1][1:]
+                        if _attr_name[0] != '_' and _type+'_' in _attr_name:
+                            _attr_feature = _attr_name.split(_type+'_')[1][1:]
 
                             if _attr_feature not in _grp.keys():
                                 _grp[_attr_name] = getattr(self, _attr_name)
