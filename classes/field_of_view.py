@@ -1830,46 +1830,38 @@ class Field_of_View():
                 print(f"directly return existing attribute.")
             _dapi_im = getattr(self, 'dapi_im')
         else:
-            _select_dapi = False
             _use_ref_im = False
             # find DAPI in color_usage
+            _dapi_fds = []
             for _fd, _infos in self.color_dic.items():
                 if len(_infos) >= self.dapi_channel_index+1 and _infos[self.dapi_channel_index] == 'DAPI':
-                    _dapi_fds = [_full_fd for _full_fd in self.annotated_folders if os.path.basename(
-                        _full_fd) == _fd]
-                    # choose dapi folder
-                    if len(_dapi_fd) == 1 or _dapi_id is None:
-                        _dapi_fd = _dapi_fds[0]
-                    elif isinstance(_dapi_id, int) or isinstance(_dapi_id, np.int):
-                        _dapi_fd = _dapi_fds[_dapi_id]
-                    else:
-                        raise TypeError(f"Wrong input type: {type(_dapi_id)} for _dapi_id.")
-
-                    if _verbose:
-                        print(f"-- choose dapi images from folder: {_dapi_fd[0]}.")
-                    _dapi_fd = _dapi_fd[0]
-                    _select_dapi = True  # successfully selected dapi
-                    _dapi_fd_ind = self.annotated_folders.index(_dapi_fd)
-                    if _dapi_fd_ind != self.ref_id:                                
-                        if not hasattr(self, 'ref_im'):
-                            self._load_reference_image(_verbose=_verbose)
-                        _use_ref_im = True
-                    else:
-                        _use_ref_im = False 
-
-            # find DAPI
-            for _fd, _info in self.color_dic.items():
-                if len(_info) >= self.dapi_channel_index+1 and _info[self.dapi_channel_index] == 'DAPI':
-                    _dapi_fd = [_full_fd for _full_fd in self.annotated_folders if os.path.basename(
-                        _full_fd) == _fd]
-                    if len(_dapi_fd) == 1:
-                        if _verbose:
-                            print(f"-- choose dapi images from folder: {_dapi_fd[0]}.")
-                        _dapi_fd = _dapi_fd[0]
-                        _select_dapi = True  # successfully selected dapi
-            if not _select_dapi:
-                print('No DAPI detected in color usage!')
-                
+                    _full_fd = [_a_fd for _a_fd in self.annotated_folders if os.path.basename(_a_fd)==_fd]
+                    if len(_full_fd) == 1:
+                        _dapi_fds.append(_full_fd[0])
+            
+            if len(_dapi_fds) == 0:
+                print('No DAPI detected in color usage, exit!')
+                return None
+            else:
+                # choose dapi folder
+                if len(_dapi_fds) == 1 or (len(_dapi_fds) > 1 and _dapi_id is None): 
+                    _dapi_fd = _dapi_fds[0]
+                elif isinstance(_dapi_id, int) or isinstance(_dapi_id, np.int):
+                    _dapi_fd = _dapi_fds[_dapi_id]
+                else:
+                    raise TypeError(f"Wrong input type: {type(_dapi_id)} for _dapi_id.")
+                if _verbose:
+                    print(f"-- choose dapi images from folder: {_dapi_fd}.")
+                # decide whether use extra reference id
+                _dapi_fd_ind = list(self.annotated_folders).index((_dapi_fd))
+                if _dapi_fd_ind != self.ref_id:                                
+                    if not hasattr(self, 'ref_im'):
+                        self._load_reference_image(_verbose=_verbose)
+                    _use_ref_im = True
+                else:
+                    _use_ref_im = False 
+            
+            # assemble filename
             _dapi_filename = os.path.join(_dapi_fd, self.fov_name)
             _dapi_channel = self.channels[self.dapi_channel_index]
 
@@ -1898,13 +1890,13 @@ class Field_of_View():
                                         z_shift_corr=self.shared_parameters['corr_Z_shift'],
                                         verbose=_verbose,
                                         )[0][0]
-
             setattr(self, 'dapi_im', _dapi_im)
             
             # save new chromosome image
             if _save:
                 self._save_to_file('fov_info', _save_attr_list=['dapi_im'],
-                                _verbose=_verbose)
+                    _overwrite=_overwrite,
+                    _verbose=_verbose)
         
         return _dapi_im
 
