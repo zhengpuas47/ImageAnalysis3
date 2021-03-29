@@ -2,6 +2,8 @@ import numpy as np
 import sys, os, glob, time
 import pickle
 import scipy.sparse as ss
+from tqdm import tqdm
+import multiprocessing as mp 
 
 from Bio.SeqRecord import SeqRecord
 from Bio.SeqUtils import MeltingTemp
@@ -70,7 +72,7 @@ class countTable():
             else:
                 self.matrix = ss.csr_matrix((1,self.max_size), dtype=np.uint16)
         else:
-            self.matrix = np.zeros(self.max_size,dtype=np.uint16)
+            self.matrix = np.zeros(self.max_size, dtype=np.uint16)
     def save(self):
         if self.save_file is not None:
             if self.sparse:
@@ -91,6 +93,7 @@ class countTable():
         self.create_matrix()
         pos,cts = np.unique(self.ints,return_counts=True)
         countTable_values = np.array(np.clip(cts, 0, 2**16-1), dtype='uint16')#clip and recast as uint16
+        countTable_indices = np.array(pos, dtype=np.uint64)
         if verbose:
             end=time.time()
             print('Time to compute unique and clip:',end-start)
@@ -100,17 +103,18 @@ class countTable():
         if self.sparse:
             self.matrix = self.matrix.tolil()
             if self.max_sparse_ind<=self.max_size:
-                pos_col = pos/self.max_sparse_ind
-                pos_row = pos-pos_col*self.max_sparse_ind
+                pos_col = int(pos/self.max_sparse_ind)
+                pos_row = int(pos-pos_col*self.max_sparse_ind)
                 self.matrix[pos_col,pos_row] = countTable_values
             else:
                 self.matrix[0,pos] = countTable_values
             self.matrix = self.matrix.tocoo()
         else:
-            self.matrix[pos]=countTable_values
+            self.matrix[countTable_indices]=countTable_values
         if verbose:
             end=time.time()
             print('Time to update matrix:',end-start)
+
     def read(self,files):
         """Read fasta files and store the names and seqs in self.names, self.seqs"""
         if type(files) is str:
@@ -121,23 +125,31 @@ class countTable():
             sqs = [sq.upper() for sq in sqs]
             self.names.extend(nms)
             self.seqs.extend(sqs)
-    def consume_batch(self,batch=1000000,reset=False):
+
+    def consume_loaded(self, parallel=True, num_threads=12):
         """Having self.seqs,self.names this updates the self.matrix with size 4**word and counts capped up to 2**16"""
-        self.matrix = np.zeros(self.max_size,dtype=np.uint16)
-        word= self.word
-        for nm,sq in zip(self.names,self.seqs):
-            for isq in range(int(len(sq)/batch)+1):
-                if self.verbose:
-                    print(nm+'_batch:'+str(isq))
-                sq_ = sq[isq*batch:(isq+1)*batch]
-                sq_word = [sq_[i:i+word] for i in range(len(sq_)-word)]
-                if len(sq_word)>0:
-                    ints = list(map(seq2Int,sq_word))
-                    pos,cts = np.unique(ints,return_counts=True)
-                    self.pos,self.cts = pos,cts
-                    ints_vals = np.array(self.matrix[pos],dtype='uint64')
-                    ints_vals_ = np.array(np.clip(ints_vals+cts, 0, 2**16-1),dtype='uint16')
-                    self.matrix[pos] = ints_vals_
+
+        word = self.word
+
+        # prepare args
+        _consume_args = [(_seq, int(word), self.verbose) for _seq in self.seqs]
+        if self.verbose:
+            print(f"- Start multi-processing comsume {len(_consume_args)} sequences {num_threads} threads", end=', ')
+            _start_time = time.time()
+        with mp.Pool(int(num_threads)) as _comsume_pool:
+            _result_ints = _comsume_pool.starmap(consume_sequence_to_int, _consume_args, chunksize=1)
+            _comsume_pool.close()
+            _comsume_pool.join()
+            _comsume_pool.terminate()
+        if self.verbose:
+            print(f"finish in {time.time()-_start_time:.3f}s")
+        
+        for _ints in _result_ints:
+            self.ints.extend(_ints)
+
+        if self.verbose:
+            print(f"- Total sequences loaded: {len(self.ints)}")
+
     def consume_batch_file(self,batch=1000000,reset=False):
         assert(self.save_file is not None)
         if reset:
@@ -449,7 +461,7 @@ Key information:
                 # skip any sequence contain N
                 if skip_invalid and 'N' in _cand_seq:
                     continue                 
-                # if design forward strand:
+                # if design forward strand only:
                 if not input_rev_com or input_two_stranded:
                     # get forward strand sequence
                     _seq = _cand_seq
@@ -653,10 +665,11 @@ Key information:
             _kept_scores = []
             # loop through probes
             for _pb in _sel_reg_pb_dic:
+                # extract probe information and its score
                 _info = _sel_reg_pb_dic[_pb]
                 _pb_score = _pb_score_dict[_pb]
                 # extract the index of a certain probe
-
+                
                 
                 
                 #print(_pb_score)
@@ -789,4 +802,35 @@ def pick_cand_probes(pb_dict, pb_score_dict,
     return _kept_pbs, _kept_flags
     
     
-    
+def consume_sequence_to_int(seq, word_len=17, verbose=False):
+    """Function to comsume a sequence, slice it into pieces of word_len, 
+    and apply seq2int to convert into integer
+    Input Args:
+        seq: string of sequence (from genome assembly etc.), string of string of byte
+        word_len: length of each unit, int (default: 17, 17**4 > genome size)
+        verbose: report messages!, bool (default: False)
+    Outputs:
+        seq_ints: converted integers representing sequences, list of ints
+    """
+    if len(seq) > word_len:
+        if verbose:
+            print(f"-- converting seq of length={len(seq)} into ints.")
+        # extract sequences
+        seq_pieces = []
+        for i in range(len(seq)-word_len+1):
+            _seq = seq[i:i+word_len]
+            if isinstance(_seq, str):
+                seq_pieces.append(_seq.encode())
+            elif isinstance(_seq, bytes):
+                seq_pieces.append(_seq)
+            else:
+                raise TypeError(f"Wrong input type for sequence:{_seq}")
+        if verbose:
+            start = time.time()
+        seq_ints = list(map(seq2Int,seq_pieces))
+        if verbose:
+            end=time.time()
+            print('-- time to compute seq2Int:',end-start)
+        return seq_ints
+    else:
+        return []
