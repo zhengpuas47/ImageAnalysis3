@@ -265,9 +265,8 @@ class pb_reports_class:
                 'isoforms':{'file':None,'rev_com':True,'force_list':True,'two_stranded':False},
                 'self_sequences':{'file':None,'rev_com':False,'force_list':True,'two_stranded':False}},
         save_file=None,
-        params_dic={'word_size':17,'pb_len':42,
-                    'buffer_len':2,'max_count':2**16-1,
-                    'check_on_go':False,'auto':False},
+        params_dic={'word_size':17,'pb_len':42,'buffer_len':2,
+                    'auto':False},
         check_dic={('transcriptome','isoforms'):3,
                 ('genome','self_sequence'):75,
                 'rep_transcriptome':0,'rep_genome':0,
@@ -313,9 +312,6 @@ class pb_reports_class:
         if self.params_dic['auto']:
             self.computeOTmaps()
             self.compute_pb_report()
-            if not self.check_on_go:
-                self.perform_check_end()
-    
 
     def __str__(self):
         _info_str = f"""
@@ -422,11 +418,10 @@ Key information:
         if self.verbose:
             print(f"--- finish {map_key} in {time.time()-_start_time:.3f}s.")
 
-    def compute_pb_report(self, skip_invalid=True):
+    def compute_pb_report(self):
         block = self.word_size
         pb_len = self.pb_len
         #buffer_len = self.buffer_len
-        #check_on_go = self.check_on_go
         #gen_seqs,gen_names = self.input_seqs,self.input_names
         input_rev_com = self.sequence_dic.get('rev_com',False)
         input_two_stranded = self.sequence_dic.get('two_stranded',False)
@@ -441,11 +436,7 @@ Key information:
             if self.verbose:
                 print(f"-- designing region: {_name}", end=' ')
                 _design_start = time.time()
-            # mask Ns in sequence
-            if not skip_invalid:
-                _masked_seq = _seq.replace('N','A')
-            else:
-                _masked_seq = _seq
+
             # compute this input file (fasta) into OTMap
             _input_map_dic = {_k:_v for _k,_v in self.map_dic['self_sequences'].items()}
             _input_map_dic['file'] = _file
@@ -453,30 +444,31 @@ Key information:
 
             self.files_to_OTmap('map_self_sequences', _input_map_dic)
             # initialize kept flag (for two-strands)
-            _kept_flags = np.zeros((len(_masked_seq)-pb_len+1)*2)
-            for _i in range(len(_masked_seq)-pb_len+1):
+            _kept_flags = np.zeros((len(_seq)-pb_len+1)*2)
+            for _i in range(len(_seq)-pb_len+1):
                 # extract sequence
-                _cand_seq = _masked_seq[_i:_i+pb_len]
-                _rev_com_cand_seq = seqrc(_cand_seq)
+                _cand_seq = _seq[_i:_i+pb_len]
+                _rc_cand_seq = seqrc(_cand_seq)
+
                 # skip any sequence contain N
-                if skip_invalid and 'N' in _cand_seq:
-                    continue                 
-                # if design forward strand only:
+                if 'N' in _cand_seq:
+                    continue   
+
+                # if design forward strand:
                 if not input_rev_com or input_two_stranded:
                     # get forward strand sequence
-                    _seq = _cand_seq
-                    if isinstance(_seq, str):
-                        _seq = _seq.encode()
+                    if isinstance(_cand_seq, str):
+                        _cand_seq = _cand_seq.encode()
                     if _kept_flags[_i] == 0:
-                        pb_reports[_seq] = constant_zero_dict()
-                        pb_reports[_seq].update(
+                        pb_reports[_cand_seq] = constant_zero_dict()
+                        pb_reports[_cand_seq].update(
                             {'name':f'{_name}_pb_{_i}',
                             'reg_index':_reg_id,
                             'reg_name':_name,
                             'pb_index': _i,
                             'strand':'+',
-                            'gc':gc(_seq),
-                            'tm':tm(_seq),}
+                            'gc':gc(_cand_seq),
+                            'tm':tm(_cand_seq),}
                         )
                     # update map_keys
                     for _key, _curr_dic in self.map_dic.items():
@@ -490,41 +482,38 @@ Key information:
                             for _map in _maps:
                                 # forward from maps
                                 if not _map_rev_com or _map_two_stranded:
-                                    pb_reports[_seq][_map_key]+= _map.get(_seq)
+                                    pb_reports[_cand_seq][_map_key]+= _map.get(_cand_seq)
                                 # reverse from maps
                                 if _map_rev_com or _map_two_stranded:
-                                    pb_reports[_seq][_map_key]+= _map.get(_seq, rc=True)
+                                    pb_reports[_cand_seq][_map_key]+= _map.get(_cand_seq, rc=True)
                         # not use kmer:
                         else:
                             #Iterate through block regions:
                             for j in range(pb_len-block+1):
-                                _blk = _seq[j:j+block]
+                                _blk = _cand_seq[j:j+block]
                                 for _map in _maps:
                                     # forward from maps
                                     if not _map_rev_com or _map_two_stranded:
-                                        #blks.append(_seq)
-                                        pb_reports[_seq][_map_key] += _map.get(_blk)
+                                        pb_reports[_cand_seq][_map_key] += _map.get(_blk)
                                     # reverse from maps
                                     if _map_rev_com or _map_two_stranded:
-                                        pb_reports[_seq][_map_key]+= _map.get(seqrc(_blk))
-
+                                        pb_reports[_cand_seq][_map_key] += _map.get(seqrc(_blk))
 
                 # if design reverse streand:
                 if input_rev_com or input_two_stranded:
                     # get forward strand sequence
-                    _seq = _rev_com_cand_seq
-                    if isinstance(_seq, str):
-                        _seq = _seq.encode()
+                    if isinstance(_rc_cand_seq, str):
+                        _rc_cand_seq = _rc_cand_seq.encode()
                     if _kept_flags[_i] == 0:
-                        pb_reports[_seq] = constant_zero_dict()
-                        pb_reports[_seq].update(
+                        pb_reports[_rc_cand_seq] = constant_zero_dict()
+                        pb_reports[_rc_cand_seq].update(
                             {'name':f'{_name}_pb_{_i}',
                             'reg_index':_reg_id,
                             'reg_name':_name,
                             'pb_index': _i,
                             'strand':'-',
-                            'gc':gc(_seq),
-                            'tm':tm(_seq),}
+                            'gc':gc(_rc_cand_seq),
+                            'tm':tm(_rc_cand_seq),}
                         )
                     # update map_keys
                     for _key, _curr_dic in self.map_dic.items():
@@ -538,23 +527,23 @@ Key information:
                             for _map in _maps:
                                 # forward from maps
                                 if not _map_rev_com or _map_two_stranded:
-                                    pb_reports[_seq][_map_key]+= _map.get(_seq)
+                                    pb_reports[_rc_cand_seq][_map_key]+= _map.get(_rc_cand_seq)
                                 # reverse from maps
                                 if _map_rev_com or _map_two_stranded:
-                                    pb_reports[_seq][_map_key]+= _map.get(_seq, rc=True)
+                                    pb_reports[_rc_cand_seq][_map_key]+= _map.get(_rc_cand_seq, rc=True)
                         # not use kmer:
                         else:
                             #Iterate through block regions:
                             for j in range(pb_len-block+1):
-                                _blk = _seq[j:j+block]
+                                _blk = _rc_cand_seq[j:j+block]
                                 for _map in _maps:
                                     # forward from maps
                                     if not _map_rev_com or _map_two_stranded:
-                                        #blks.append(_seq)
-                                        pb_reports[_seq][_map_key] += _map.get(_blk)
+                                        #blks.append(_rc_cand_seq)
+                                        pb_reports[_rc_cand_seq][_map_key] += _map.get(_blk)
                                     # reverse from maps
                                     if _map_rev_com or _map_two_stranded:
-                                        pb_reports[_seq][_map_key]+= _map.get(seqrc(_blk))
+                                        pb_reports[_rc_cand_seq][_map_key]+= _map.get(seqrc(_blk))
                 
             self.cand_probes = pb_reports
             self.save_to_file()
@@ -568,6 +557,9 @@ Key information:
         if _check_dic is None:
             _check_dic = getattr(self, 'check_dic', {})
         
+        if not hasattr(self, 'kept_probes'):
+            setattr(self, 'kept_probes', {})
+
         # iterate across multiple regions (input seqs)
         for _reg_id, (_name, _seq, _file) in enumerate(zip(self.input_names, self.input_seqs, self.input_files)):
 
@@ -660,22 +652,56 @@ Key information:
                 print(f"--- {len(_sel_reg_pb_dic)} probes passed check_dic, GC and Tm selection.")
             ## after calculating all scores, selecte the best probes
             # initialize kept flag (for two-strands)
-            _kept_flags = np.zeros((len(_seq)-self.pb_len+1)*2)
-            _kept_pb_dict = {}
-            _kept_scores = []
-            # loop through probes
-            for _pb in _sel_reg_pb_dic:
-                # extract probe information and its score
-                _info = _sel_reg_pb_dic[_pb]
-                _pb_score = _pb_score_dict[_pb]
-                # extract the index of a certain probe
-                
-                
-                
-                #print(_pb_score)
-            if self.verbose:
-                print(f"finish in {time.time()-_check_start:.3f}s")
+            _kept_flags = -1 * np.ones([2, len(_seq)], dtype=np.int)
+            _kept_pbs = []
+            
+            # extract probes and scores
 
+            _pbs = np.array(list(_sel_reg_pb_dic.keys()))
+            _scores = np.array(list(_pb_score_dict.values()))
+            # calculate unique scores, pick amoung thess good probes
+            _unique_scores = np.unique(_scores)
+
+            # pick highest-scored probes first:
+            for _s in _unique_scores[::-1]:
+                # find probes with certain high score:
+                _indices = np.where(_scores==_s)[0]
+                _sel_pbs = _pbs[_indices]
+                _sel_pb_indices = np.array([_sel_reg_pb_dic[_pb]['pb_index'] for _pb in _sel_pbs])
+                # sort based on pb_index
+                _sel_pbs = _sel_pbs[np.argsort(_sel_pb_indices)]
+                _sel_pb_indices = np.array([_sel_reg_pb_dic[_pb]['pb_index'] for _pb in _sel_pbs])
+
+                # add these probes into kept pbs if distances premit
+                for _pb, _ind in zip(_sel_pbs, _sel_pb_indices):
+                    # determine start and end point in kept_flags
+                    _start = _ind
+                    _end = _ind+self.params_dic['pb_len']+self.params_dic['buffer_len']
+                    _occupied_flags = _kept_flags[:, _start:_end]
+                    # determine strand
+                    _info = _sel_reg_pb_dic[_pb]
+                    if _info['strand'] == '+':
+                        _strand = 1
+                    elif _info['strand'] == '-':
+                        _strand = 0
+                    else:
+                        raise ValueError(f"strand information for probe: {_pb} should be either + or -, {_info['strand']} was given.")
+                    # if no probes assigned in the neighborhood, pick this probe:
+                    if (_occupied_flags < 0).all():
+                        # append this probe:
+                        _kept_pbs.append(_pb)
+                        # update the kept_flags
+                        _kept_flags[_strand, _start:_end] = _pb_score_dict[_pb]
+                        
+
+            if self.verbose:
+                print(f"finish in {time.time()-_check_start:.3f}s, {len(_kept_pbs)} probes kept.")
+            # update kept_probes
+            _kept_pb_indices = np.array([_sel_reg_pb_dic[_pb]['pb_index'] for _pb in _kept_pbs])
+
+            self.kept_probes.update(
+                {_pb:_sel_reg_pb_dic[_pb] for _pb in np.array(_kept_pbs)[np.argsort(_kept_pb_indices)] }
+                )
 
         return _sel_reg_pb_dic, _pb_score_dict
 
@@ -741,7 +767,8 @@ Key information:
 
 def pick_cand_probes(pb_dict, pb_score_dict, 
                      buffer_len=2, rev_com_ratio=0.8, kept_score_ratio=3.6):
-    """Function to pick probes from a dictionary of candidate probe
+    """NOT FINISHED
+    Function to pick probes from a dictionary of candidate probe
     Inputs:
         pb_dict: probe dictionary, probe_sequence -> probe_information, dict
         pb_score_dict: probe dictionary, probe_sequence -> probe_score, dict

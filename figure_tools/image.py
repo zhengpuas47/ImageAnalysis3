@@ -26,6 +26,7 @@ _color_dict={
 
 def visualize_2d_projection(im, kept_axes=(1,2), ax=None, 
                             crop=None, cmap='gray', color_limits=None, figure_alpha=1, 
+                            projection_type='mean',
                             add_colorbar=False, add_reference_bar=True, 
                             reference_bar_length=_ref_bar_length, reference_bar_color=[1,1,1], 
                             figure_width=_single_col_width, figure_dpi=_dpi, imshow_kwargs={},
@@ -62,7 +63,7 @@ def visualize_2d_projection(im, kept_axes=(1,2), ax=None,
             raise ValueError(f"Wrong kept axis value {_a}, should be less than image dimension:{len(_im.shape)}")
     # project image
     _proj_axes = tuple([_i for _i in range(len(_im.shape)) if _i not in kept_axes])
-    _im = np.mean(_im, axis=_proj_axes)
+    _im = getattr(np, projection_type)(_im, axis=_proj_axes)
     # crops
     if crop is None:
         crop_slice = tuple([slice(0, _im.shape[0]), slice(0, _im.shape[1])])
@@ -75,30 +76,31 @@ def visualize_2d_projection(im, kept_axes=(1,2), ax=None,
     _im = _im[crop_slice] # crop image
     # color_limits
     if color_limits is None:
-        color_limits = [0, np.max(_im)]
+        _min, _max = np.min(_im), np.max(_im)
+        color_limits = [_min+0.1*(_max-_min), _max-0.1*(_max-_min)]
     elif len(color_limits) < 2:
         raise IndexError(f"Wrong input length of color_limits:{color_limits}, should have at least 2 elements.")
     ## create axis if necessary
     if ax is None:
         fig, ax = plt.subplots(figsize=(figure_width, figure_width*_im.shape[0]/im.shape[1]*(5/6)**add_colorbar),
                                dpi=figure_dpi)
-        #grid = plt.GridSpec(3, 1, height_ratios=[5,1,1], hspace=0., wspace=0.2)
-        _im_obj = ax.imshow(_im, cmap=cmap, 
-                            vmin=min(color_limits), vmax=max(color_limits), 
-                            alpha=figure_alpha, **imshow_kwargs)
-        ax.axis('off')
-        #ax.tick_params('both', width=ticklabel_width, length=0, labelsize=ticklabel_size)
-        #ax.get_xaxis().set_ticklabels([])
-        #ax.get_yaxis().set_ticklabels([])
-        if add_colorbar:
-            cbar = plt.colorbar(_im_obj, ax=ax, shrink=0.9)
-        if add_reference_bar:
-            if isinstance(reference_bar_color, list) or isinstance(reference_bar_color, np.ndarray):
-                _ref_color = reference_bar_color[:3]
-            else:
-                _ref_color = matplotlib.cm.get_cmap(cmap)(255)
-            ax.hlines(y=_im.shape[0]-10, xmin=_im.shape[1]-10-reference_bar_length, 
-                      xmax=_im.shape[1]-10, color=_ref_color, linewidth=2, visible=True)
+    #grid = plt.GridSpec(3, 1, height_ratios=[5,1,1], hspace=0., wspace=0.2)
+    _im_obj = ax.imshow(_im, cmap=cmap, 
+                        vmin=min(color_limits), vmax=max(color_limits), 
+                        alpha=figure_alpha, **imshow_kwargs)
+    ax.axis('off')
+    #ax.tick_params('both', width=ticklabel_width, length=0, labelsize=ticklabel_size)
+    #ax.get_xaxis().set_ticklabels([])
+    #ax.get_yaxis().set_ticklabels([])
+    if add_colorbar:
+        cbar = plt.colorbar(_im_obj, ax=ax, shrink=0.9)
+    if add_reference_bar:
+        if isinstance(reference_bar_color, list) or isinstance(reference_bar_color, np.ndarray):
+            _ref_color = reference_bar_color[:3]
+        else:
+            _ref_color = matplotlib.cm.get_cmap(cmap)(255)
+        ax.hlines(y=_im.shape[0]-10, xmin=_im.shape[1]-10-reference_bar_length, 
+                    xmax=_im.shape[1]-10, color=_ref_color, linewidth=2, visible=True)
     
     if save:
         save_basename = f"axis-{kept_axes}"+'_'+save_basename
