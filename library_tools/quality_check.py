@@ -43,26 +43,49 @@ def Screen_probe_by_hit(library_folder, probe_source, num_probes_per_region,
     
     ## start screening
     _kept_pb_dict = {}
-    for _reg_name, _pb_obj in _pb_dict.items():
-        if verbose:
-            print(f"-- filtering region:{_reg_name}", end=', ')
-        if len(_pb_obj.pb_reports_keep) <= n_probes:
+    if hasattr(list(_pb_dict.values())[0], 'pb_reports_keep'):
+        for _reg_name, _pb_obj in _pb_dict.items():
             if verbose:
-                print(f"directly append {len(_pb_obj.pb_reports_keep)} probes")
-            _kept_pb_dict[_reg_name] = _pb_obj
-        else:
+                print(f"-- filtering region:{_reg_name}", end=', ')
+            if len(_pb_obj.pb_reports_keep) <= n_probes:
+                if verbose:
+                    print(f"directly append {len(_pb_obj.pb_reports_keep)} probes")
+                _kept_pb_dict[_reg_name] = _pb_obj
+            else:
+                if verbose:
+                    print(f"screen {hit_type} to keep {n_probes} probes")
+
+                _hits =  [int(_pb[hit_type]) for _seq, _pb in _pb_obj.pb_reports_keep.items()]
+                _kept_inds = np.argsort(_hits)[:n_probes]
+                _kept_reports_dict = {_seq:_pb for _i, (_seq,_pb) \
+                                    in enumerate(_pb_obj.pb_reports_keep.items()) \
+                                    if _i in _kept_inds}
+                _new_pb_obj = copy(_pb_obj)
+                _new_pb_obj.pb_reports_keep = _kept_reports_dict
+                # append to kept_pb_dict
+                _kept_pb_dict[_reg_name] = _new_pb_obj
+    elif hasattr(list(_pb_dict.values())[0], 'kept_probes'):
+        for _reg_name, _pb_obj in _pb_dict.items():
             if verbose:
-                print(f"screen {hit_type} to keep {n_probes} probes")
-            _hits =  [int(_pb[hit_type]) for _seq, _pb in _pb_obj.pb_reports_keep.items()]
-            _kept_inds = np.argsort(_hits)[:n_probes]
-            _kept_reports_dict = {_seq:_pb for _i, (_seq,_pb) \
-                                  in enumerate(_pb_obj.pb_reports_keep.items()) \
-                                  if _i in _kept_inds}
-            _new_pb_obj = copy(_pb_obj)
-            _new_pb_obj.pb_reports_keep = _kept_reports_dict
-            # append to kept_pb_dict
-            _kept_pb_dict[_reg_name] = _new_pb_obj
-    
+                print(f"-- filtering region:{_reg_name}", end=', ')
+            if len(_pb_obj.kept_probes) <= n_probes:
+                if verbose:
+                    print(f"directly append {len(_pb_obj.kept_probes)} probes")
+                _kept_pb_dict[_reg_name] = _pb_obj
+            else:
+                if verbose:
+                    print(f"screen {hit_type} to keep {n_probes} probes")
+
+                _hits =  [int(_pb[hit_type]) for _seq, _pb in _pb_obj.kept_probes.items()]
+                _kept_inds = np.argsort(_hits)[:n_probes]
+                _kept_reports_dict = {_seq:_pb for _i, (_seq,_pb) \
+                                    in enumerate(_pb_obj.kept_probes.items()) \
+                                    if _i in _kept_inds}
+                _new_pb_obj = copy(_pb_obj)
+                _new_pb_obj.kept_probes = _kept_reports_dict
+                # append to kept_pb_dict
+                _kept_pb_dict[_reg_name] = _new_pb_obj
+
     return _kept_pb_dict
 
 def split_probe_by_gene(pb_records, species_marker='gene_'):
