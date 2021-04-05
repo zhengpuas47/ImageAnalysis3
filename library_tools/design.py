@@ -74,6 +74,8 @@ class countTable():
         else:
             self.matrix = np.zeros(self.max_size, dtype=np.uint16)
     def save(self):
+        if self.verbose:
+            print(f"- start saving to file: {self.save_file}")
         if self.save_file is not None:
             if self.sparse:
                 ss.save_npz(self.save_file.split(os.path.extsep)[0], self.matrix)
@@ -321,7 +323,7 @@ by Pu Zheng, 2020.11
 
 Major changes:
     1. allow design of two strands
-    2. separate reverse_compliment (rev_com) and from two strands (two_stranded) as 
+    2. separate reverse_complement (rev_com) and from two strands (two_stranded) as 
     two different inputs for map_dic and sequence_dic
     3. replace 'local_genome' with 'self_sequences' to be more explicit, and only 
     exclude the counts for the corresponding self_sequence within each input. 
@@ -705,7 +707,7 @@ Key information:
 
         return _sel_reg_pb_dic, _pb_score_dict
 
-                    
+                   
 
 
 
@@ -726,6 +728,8 @@ Key information:
                 if not load_probes_only or 'probes' in key:
                     setattr(self,key,dic_save[key])
                     print(key)
+                    if key =='kept_probes':
+                        print(len(dic_save[key]))
 
             # set inputs
             if not load_probes_only:
@@ -764,6 +768,8 @@ Key information:
             if self.verbose:
                 print(f"- Fail to save into file: {filename}, invalid directory.")
 
+    def plot_reports(self, bin):
+        pass 
 
 def pick_cand_probes(pb_dict, pb_score_dict, 
                      buffer_len=2, rev_com_ratio=0.8, kept_score_ratio=3.6):

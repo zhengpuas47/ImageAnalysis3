@@ -123,7 +123,15 @@ def Screen_probe_against_fasta(report_folder, ref_fasta, word_size=17, allowed_h
     _kept_flag_dict = {_reg_name: [] for _reg_name in _pb_dict}
 
     for _reg_name, _pb_obj in _filtered_pb_dict.items():
-        _seqs = list(_pb_obj.pb_reports_keep.keys())
+        
+        if hasattr(_pb_obj, 'pb_reports_keep'):
+            _probe_dict = getattr(_pb_obj, 'pb_reports_keep')
+        elif hasattr(_pb_obj, 'kept_probes'):
+            _probe_dict = getattr(_pb_obj, 'kept_probes')
+        else:
+            raise AttributeError('No probe attribute exists.')
+
+        _seqs = list(_probe_dict.keys())
         _seq_lens = [len(_seq) for _seq in _seqs]
         if check_rc:
             _hits = [_ref_table.get(_seq, rc=True) +
@@ -134,9 +142,12 @@ def Screen_probe_against_fasta(report_folder, ref_fasta, word_size=17, allowed_h
         _keep_filter = [_h <= allowed_hits for _h in _hits]
         # save
         _kept_pbs = {_s: _info for (_s, _info), _keep in zip(
-            _pb_obj.pb_reports_keep.items(), _keep_filter) if _keep}
-
-        _filtered_pb_dict[_reg_name].pb_reports_keep = _kept_pbs
+            _probe_dict.items(), _keep_filter) if _keep}
+            
+        if hasattr(_pb_obj, 'pb_reports_keep'):
+            _filtered_pb_dict[_reg_name].pb_reports_keep = _kept_pbs
+        elif hasattr(_pb_obj, 'kept_probes'):
+            _filtered_pb_dict[_reg_name].kept_probes = _kept_pbs
         _kept_flag_dict[_reg_name] = np.array(_keep_filter, dtype=np.bool)
         if verbose:
             print(
@@ -152,19 +163,20 @@ def Screen_probe_against_fasta(report_folder, ref_fasta, word_size=17, allowed_h
 
 
 # load
-def load_readouts(_num_readouts, _type='NDB', _num_colors=3,
+def load_readouts(_num_readouts, _type='NDB', _num_colors=3, _start_channel=0, 
                   _readout_folder=_readout_folder, _start_id=0, _verbose=True):
     """Function to load readouts into a list"""
     # get target files
     _readout_files = glob.glob(os.path.join(
         _readout_folder, _type) + '_*.fasta')
+    
     if len(_readout_files) < _num_colors:
         raise IOError(
             "Not enough readout files in given readout folder compared to num-colors specified")
     _num_per_color = int(np.ceil(_num_readouts / _num_colors))
     # load readouts
     _multi_readout_lists = []
-    for _rd_fl in _readout_files[:_num_colors]:
+    for _rd_fl in _readout_files[::-1][int(_start_channel):int(_start_channel+_num_colors)]:
         _readout_list = []
         with open(_rd_fl, 'r') as _rd_handle:
             for _readout in SeqIO.parse(_rd_handle, "fasta"):
@@ -202,23 +214,25 @@ def load_primers(_picked_sets, _primer_folder=_primer_folder,
 
 def _assemble_single_probe(_target, _readout_list, _fwd_primer, _rev_primer,
                            _primer_len=20, _readout_len=20, _target_len=42,
-                           _add_random_gap=0):
+                           _add_rand_gap=0):
     """Assemble one probe sequence
-    All required inputs are SeqRecords """
+    All required inputs are SeqRecords
+    The reversal funciton is: quality_check._parsing_probe_sequence
+     """
     # initialize final sequence with fwd primer
     _seq = _fwd_primer[-_primer_len:]
     # append half of readouts on 5'
     for _i in range(int(len(_readout_list)/2)):
         _seq += _readout_list[_i][-_readout_len:].reverse_complement()
-        _seq += _rand_seq_generator(_add_random_gap)
+        _seq += _rand_seq_generator(_add_rand_gap)
     # append target region
     _seq += _target[-_target_len:]
-    _seq += _rand_seq_generator(_add_random_gap)
+    _seq += _rand_seq_generator(_add_rand_gap)
     # append other half of readouts on 3'
     for _i in range(int(len(_readout_list)/2), len(_readout_list)):
         _seq += _readout_list[_i][-_readout_len:].reverse_complement()
         if _i < len(_readout_list)-1:
-            _seq += _rand_seq_generator(_add_random_gap)
+            _seq += _rand_seq_generator(_add_rand_gap)
     # append reverse_complement
     _seq += _rev_primer[-_primer_len:].reverse_complement()
     _seq.description = ''
@@ -227,17 +241,22 @@ def _assemble_single_probe(_target, _readout_list, _fwd_primer, _rev_primer,
 
 def _assemble_single_probename(_pb_info, _readout_name_list, _pb_id):
     """Assemble one probe name by given probe info
-    _pb_info is one of values in pb_designer.pb_reports_keep"""
+    _pb_info is one of values in pb_designer.pb_reports_keep or pb_designer.kept_probes"""
     _name = [_pb_info['reg_name'].split('_')[0],
              'gene_'+_pb_info['reg_name'].split('_')[2],
              'pb_'+str(_pb_id),
-             'pos_'+str(_pb_info['pb_index']),
-             'readouts_[' + ','.join(_readout_name_list) + ']']
+             'pos_'+str(_pb_info['pb_index']),]
+    # if strand specified, add
+    if 'strand' in _pb_info:
+        _name.append('strand_'+str(_pb_info['strand']))
+    # append readout
+    _name.append('readouts_[' + ','.join(_readout_name_list) + ']')
+             
     return '_'.join(_name)
 
 # function to assemble probes in the whole library
 def Assemble_probes(library_folder, probe_source, gene_readout_dict, readout_dict, primers,
-                    rc_targets=False, add_random_gap=0,
+                    rc_targets=False, add_rand_gap=0,
                     primer_len=20, readout_len=20, target_len=42,
                     save=True, save_name='candidate_probes.fasta', save_folder=None,
                     overwrite=True, verbose=True):
@@ -249,7 +268,7 @@ def Assemble_probes(library_folder, probe_source, gene_readout_dict, readout_dic
         readout_dict: dict of readout_type ('u'|'c'|'m') -> list of readout SeqRecords
         primers: list of two SeqRecords for forward and reverse primers, list of SeqRecords
         rc_targets: whether reverse-complement target sequences, bool (default: False)
-        add_random_gap: number of random sequence added between readout biding sites, int (default: 0)
+        add_rand_gap: number of random sequence added between readout biding sites, int (default: 0)
         save: whether save result probes as fasta, bool (default: True)
         save_name: file basename of saved fasta file, str (default: 'candidate_probes.fasta')
         save_folder: folder for saved fasta file, str (default: None, which means library_folder)
@@ -294,8 +313,7 @@ def Assemble_probes(library_folder, probe_source, gene_readout_dict, readout_dic
             if _mk[0] not in _readout_types:
                 _readout_types.append(_mk[0])
                 if _mk[0] not in readout_dict:
-                    raise KeyError(
-                        f"{_mk[0]} type readout is not included in readout_dict")
+                    raise KeyError(f"{_mk[0]} type readout is not included in readout_dict")
     if verbose:
         print(f"-- included readout types: {_readout_types}")
     if save_folder is None:
@@ -321,15 +339,22 @@ def Assemble_probes(library_folder, probe_source, gene_readout_dict, readout_dic
             _sel_readout = readout_dict[_type][_ind]
             _reg_readouts.append(_sel_readout)
             _reg_readout_names.append(_sel_readout.id + '_' + _type)
-            print(readout_summary[_type][_reg_name], _sel_readout)
+            #print(readout_summary[_type][_reg_name], _sel_readout)
             if len(readout_summary[_type][_reg_name])==0 \
                 or _sel_readout.id not in [_rd.id for _rd in readout_summary[_type][_reg_name]]:
                 readout_summary[_type][_reg_name].append(_sel_readout)
+
         if isinstance(_pb_obj, ld.pb_reports_class):
+            if hasattr(_pb_obj, 'pb_reports_keep'):
+                _probe_dict = getattr(_pb_obj, 'pb_reports_keep')
+            elif hasattr(_pb_obj, 'kept_probes'):
+                _probe_dict = getattr(_pb_obj, 'kept_probes')
+            else:
+                raise AttributeError('No probe attribute exists.')
+
             if verbose:
-                print(
-                    f"--- assemblying {len(_pb_obj.pb_reports_keep)} probes in region: {_reg_name}")
-            for _i, (_seq, _info) in enumerate(_pb_obj.pb_reports_keep.items()):
+                print(f"--- assemblying {len(_probe_dict)} probes in region: {_reg_name}")
+            for _i, (_seq, _info) in enumerate(_probe_dict.items()):
                 if isinstance(_seq, bytes):
                     _seq = _seq.decode()
                 if rc_targets:
@@ -337,9 +362,11 @@ def Assemble_probes(library_folder, probe_source, gene_readout_dict, readout_dic
                         Seq(_seq), id=_info['name']).reverse_complement()
                 else:
                     _target = SeqRecord(Seq(_seq), id=_info['name'])
+                #print([_r.id for _r in _reg_readouts], _sel_readout.id)
+
                 _probe = _assemble_single_probe(_target, _reg_readouts, fwd_primer, rev_primer,
                                                 _primer_len=primer_len, _readout_len=readout_len, 
-                                                _target_len=target_len, _add_random_gap=add_random_gap)
+                                                _target_len=target_len, _add_rand_gap=add_rand_gap)
                 _name = _assemble_single_probename(_info, _reg_readout_names, _i)
                 _probe.id = _name
                 _probe.name, _probe.description = '', ''
@@ -356,7 +383,7 @@ def Assemble_probes(library_folder, probe_source, gene_readout_dict, readout_dic
                     _target = SeqRecord(Seq(_info['sequence']))
                 # probe
                 _probe = _assemble_single_probe(_target, _reg_readouts, fwd_primer, rev_primer,
-                                                _add_random_gap=add_random_gap)
+                                                _add_rand_gap=add_rand_gap)
                 _name = _info['region']+'_gene_'+_info['gene']+'_pb_'+str(_i) +\
                        '_pos_'+str(_info['position'])+'_readouts_[' + \
                        ','.join(_reg_readout_names) + ']'
@@ -553,3 +580,97 @@ def Replace_primers(input_probes, primers, primer_len=20, primer_nametag='primer
             SeqIO.write(_updated_records, _output_handle, "fasta")
 
     return _updated_records
+
+
+def replace_gene_specifc_readouts(probe_records, gene_2_readout_dict, swap_ratio, 
+                                  swap_position=0, region_pb_lower_limit=75,
+                                  primer_len=20, readout_len=20, target_len=42, add_rand_gap=0,
+                                  save=True, save_name='candidate_probes_swapped.fasta', save_folder=None,
+                                  overwrite=True, verbose=True):
+    """Function to swap in gene_specific readouts for assembled probes
+    
+    """
+    if isinstance(probe_records, str):
+        if os.path.isfile(probe_records):
+            with open(probe_records, 'r') as _handle:
+                _pb_records = []
+                for _record in SeqIO.parse(_handle, "fasta"):
+                    _pb_records.append(_record)
+    elif isinstance(probe_records, list):
+        _pb_records = [_r for _r in probe_records]
+    
+    # split probes by region
+    _region_2_pbs = quality_check.split_probe_by_gene(_pb_records)
+    _gene_2_readout_2_pbs = {}
+    # split regions by gene
+    for _reg, _pbs in _region_2_pbs.items():
+        _ind = int(_reg.split('-')[-1])
+        _gene = _reg[:-len(str(_ind))-1]
+        # create if not exist
+        if _gene not in _gene_2_readout_2_pbs:
+            _gene_2_readout_2_pbs[_gene] = {}
+        # append
+        _gene_2_readout_2_pbs[_gene][_ind] = _pbs
+    # initialize new probe list    
+    _new_pb_records = []
+    # start
+    for _gene, _readout_2_pbs in _gene_2_readout_2_pbs.items():
+        # initialize
+        _gene_readout = gene_2_readout_dict[_gene]
+        _swapped_gene_pb_num = 0
+        if verbose:
+            print(f"- replace {swap_ratio} of {_gene} probes with readout: {_gene_readout.id}")
+        for _ind in sorted(_readout_2_pbs):
+            _pbs = _readout_2_pbs[_ind]
+            if len(_pbs) > region_pb_lower_limit:
+                _num_pb_swapped = int(len(_pbs) * swap_ratio)
+                # if there is at least one probe to be replaced:
+                if _num_pb_swapped > 0:
+                    _swapped_gene_pb_num += _num_pb_swapped
+                    # select swapped indices
+                    _swap_pb_inds = np.arange(0, len(_pbs), int(len(_pbs)/_num_pb_swapped))
+                    if verbose:
+                        print(f"-- {len(_swap_pb_inds)} probes in gene:{_gene}, reg:{_ind}")
+                    for _pb_ind in _swap_pb_inds:
+                        _pb = _pbs[_pb_ind]
+                        _target, _readouts, _fp, _rp = \
+                            quality_check._parsing_probe_sequence(
+                                _pb, 
+                                primer_len=primer_len, readout_len=readout_len,
+                                target_len=target_len, add_rand_gap=add_rand_gap)
+                        _info, _rd_names, _pid = \
+                            quality_check._parse_probe_name(_pb)
+                        # swap readouts
+                        _readouts[swap_position] = _gene_readout.seq[-readout_len:]
+                        _rd_names[swap_position] = _gene_readout.id + _rd_names[swap_position][-2:]
+                        # reassemble
+                        _new_pb = _assemble_single_probe(
+                            _target, _readouts, _fp, _rp,
+                            _primer_len=primer_len, _readout_len=readout_len, 
+                            _target_len=target_len, _add_rand_gap=add_rand_gap,)
+                        _new_name = _assemble_single_probename(
+                            _info, _rd_names, _pid)
+                        _new_pb.id = _new_name
+                        _new_pb.name = ''
+                        _new_pb.description = ''
+                        # replace
+                        _pbs[_pb_ind] = _new_pb
+                else:
+                    if verbose:
+                        print(f"-- skip gene:{_gene}, reg:{_ind} with {len(_pbs)} probes")
+            else:
+                # dont replace if this region don't have enough probes
+                if verbose:
+                    print(f"-- skip gene:{_gene}, reg:{_ind} with {len(_pbs)} probes")
+
+            # add probes of this region into the new probe list
+            _new_pb_records.extend(_pbs)
+            
+
+        if verbose:
+            print(f"- {_swapped_gene_pb_num} probes for {_gene} replaced.")
+            
+    return _new_pb_records
+        
+    
+    

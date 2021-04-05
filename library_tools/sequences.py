@@ -2,161 +2,168 @@ import numpy as np
 import sys, os, glob, time
 from . import LibraryDesigner as ld
 from . import LibraryTools as lt
-def Batch_Extract_Sequences(library_folder, genome_folder,
-                            reg_filename =r'Regions.txt', save_dir='sequences',
-                            merge=True, save=True, resolution=50000, flanking=0):
-    '''Function to extract sequences for all regions written in a file
+# biopython imports
+from Bio import SeqIO
+from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
+
+def read_region_file(filename, verbose=True):
+    '''Sub-function to read region file'''
+    if verbose:
+        print (f'Input region file is: {filename}')
+    
+    if 
+
+    _reg_file = open(filename, 'r')
+    # start reading
+    _lines = _reg_file.read().split('\n')
+    _titles = _lines[0].split('\t')
+    # save a list of dictionaries
+    _reg_list = []
+    for _line in _lines[1:]:
+        _reg_dic = {} # dinctionary to save all informations
+        _info = _line.split('\t') # split informations
+        if len(_info) != len(_titles): # sanity check to make sure they are of the same size
+            continue
+        for _i in range(len(_info)): # save info to dic
+            _reg_dic[_titles[_i]] = _info[_i]
+        _reg_list.append(_reg_dic) # save dic to list
+    _reg_file.close()
+    return _reg_list
+
+def parse_region(reg_dic):
+    '''given a dictionary of one region, 
+    report:
+        _chrom: str
+        _start: int
+        _stop: int'''
+    region_str = reg_dic['Region']
+    # grab chromosome
+    _chrom = region_str.split(':')[0]
+    _locus = region_str.split(':')[1]
+    # grab start and stop positions
+    _start, _stop = _locus.split('-')
+    _start = int(_start.replace(',', ''))
+    _stop = int(_stop.replace(',', ''))
+    # return in this order:
+    return _chrom, _start, _stop
+
+
+def extract_sequence(reg_dicts, genome_reference, 
+                     resolution=10000, flanking=0, 
+                     split_gene_folder=False, merge=False, verbose=True,
+                     save=True, save_folder=None,
+                     ):
+    '''sub-function to extract sequences of one locus
     Given:
+    reg_dic: dic for region info, dictionary
+    genome_reference: dir for genome files, str
+    resolution: resolution of each region in bp, int
+    flanking: upstream and downstream included in bp, int
+    save: if save as fasta files, bool
+    Return:
+    dic of sequences of designed regions
+    Dependencies:
+    ld.fastaread, ld.fastawrite, ./parse_region'''
+    # check input
+    if save and save_folder is None:
+        raise ValueError(f"save_folder should be given if save is specified.")    
+    if isinstance(reg_dicts, dict):
+        reg_dicts = [reg_dicts]
+    elif isinstance(reg_dicts, list):
+        pass
+    else:
+        raise TypeError("Wrong input type for reg_dicts")
+        
+    # load all fasta files from given genomic folder
+    if isinstance(genome_reference, list) \
+        and len(genome_reference) > 0 \
+        and isinstance(genome_reference[0], SeqRecord):
+        _all_fasta_files = genome_reference
+    elif isinstance(genome_reference, str) and os.path.isdir(genome_reference):
+        _all_fasta_files = [os.path.join(genome_reference, _fl) 
+                            for _fl in os.listdir(genome_reference) \
+                            if _fl.split(os.extsep)[-1]== 'fa' or _fl.split(os.extsep)[-1]== 'fasta']
+    else:
+        raise ValueError(f"genome_reference should be either list of SeqReord or pwd of a folder.")
+        
+    if verbose:
+        print(f"-- searching among {len(_all_fasta_files)} references")
     
-    merge: if merge all regions together and arrange region id, bool'''
-    save_folder = os.path.join(library_folder, save_dir)
-    if not isinstance(library_folder, str) and not isinstance(reg_filename, str) and not isinstance(genome_folder, str):
-        raise ValueError('wrong input format!')
-
-    def read_region_file(library_folder=library_folder, reg_filename=reg_filename):
-        '''Sub-function to read region file'''
-        # region filename
-        _reg_filename = library_folder + os.sep + reg_filename
-        _reg_file = open(_reg_filename, 'r')    
-        print ('Input region file is: '+ _reg_filename)
-        # start reading
-        _lines = _reg_file.read().split('\n')
-        _titles = _lines[0].split('\t')
-        # save a list of dictionaries
-        _reg_list = []
-        for _line in _lines[1:]:
-            _reg_dic = {} # dinctionary to save all informations
-            _info = _line.split('\t') # split informations
-            if len(_info) != len(_titles): # sanity check to make sure they are of the same size
-                continue
-            for _i in range(len(_info)): # save info to dic
-                _reg_dic[_titles[_i]] = _info[_i]
-            _reg_list.append(_reg_dic) # save dic to list
-        _reg_file.close()
-        return _reg_list
-
-    def parse_region(reg_dic):
-        '''given a dictionary of one region, 
-        report:
-            _chrom: str
-            _start: int
-            _stop: int'''
-        region_str = reg_dic['Region']
-        # grab chromosome
-        _chrom = region_str.split(':')[0]
-        _locus = region_str.split(':')[1]
-        # grab start and stop positions
-        _start, _stop = _locus.split('-')
-        _start = int(_start.replace(',', ''))
-        _stop = int(_stop.replace(',', ''))
-        # return in this order:
-        return _chrom, _start, _stop
+    # initialize kept records
+    kept_seqs_dict = {'all':[]}
     
-    def extract_sequence(reg_dic, genome_folder=genome_folder, \
-                         resolution=resolution, flanking=flanking, \
-                         save_folder=save_folder, save=save, merge=merge):
-        from math import ceil
-        '''sub-function to extract sequences of one locus
-        Given:
-        reg_dic: dic for region info, dictionary
-        genome_folder: dir for genome files, str
-        resolution: resolution of each region in bp, int
-        flanking: upstream and downstream included in bp, int
-        save: if save as fasta files, bool
-        Return:
-        dic of sequences of designed regions
-        Dependencies:
-        ld.fastaread, ld.fastawrite, ./parse_region'''
-        # get chromosome, start and stop information
-        _chrom, _start, _stop = parse_region(reg_dic)
-        # dir to store sequences, this will be returned
-        _seq_dic = {}
-        _seqs = []
-        _names = []
-        if not flanking:
-            flanking=0
-        # read chromosome seq
-        # load all fa files;
-        _all_files = os.listdir(genome_folder)
-        _all_fasta_files = [_fl for _fl in _all_files 
-                            if _fl[-3:]=='.fa' or _fl[-6:]=='.fasta']
-        print(_all_fasta_files)
-        _wholechr = None
+    # loop thorugh regions
+    for _reg_dict in reg_dicts:
+        _chrom, _start, _stop = parse_region(_reg_dict)
+        # search all genomic files to match this region
+        _wholechr = None 
         for _filename in _all_fasta_files:
-            _ref_names, _ref_seqs = ld.fastaread(os.path.join(genome_folder, _filename))
-            for _n, _seq in zip(_ref_names, _ref_seqs):
-                if _n == _chrom:
-                    print(_filename)
-                    _wholechr = _seq
-                    break
+            # load fasta file
+            with open(_filename, 'r') as _handle:
+                for _record in SeqIO.parse(_handle, "fasta"):
+                    if _record.id == _chrom:    
+                        if verbose:
+                            print(f"-- a match found in file: {_filename}.")
+                        _wholechr = _record.seq
+                        break
             # stop searching if chromosome already exists    
             if _wholechr is not None:
-                break
+                break     
+        # report error if this region not found
         if _wholechr is None:
-            raise ValueError(f"Chromosome: {_chrom} doesn't exist in genome folder: {genome_folder}.")
+            raise ValueError(f"Chromosome: {_chrom} doesn't exist in genome reference.")
         # number of regions
-        _n_reg = int(np.ceil( float(_stop+flanking - (_start-flanking)) / resolution))
+        _gene_start = np.max([0, np.int(_start-flanking)])
+        _gene_stop = np.min([len(_wholechr), np.int(_stop+flanking)])
+        _n_reg = int(np.ceil( float(_gene_stop - _gene_start) / resolution))
         # extract all required seq
-        _whole_seq = _wholechr[_start-flanking: min(_start-flanking+_n_reg*resolution, len(_wholechr))]
+        #_whole_seq = _wholechr[_gene_start: min(_gene_start+_n_reg*resolution, len(_wholechr))]
+        # extract each region
+        _kept_seqs = []
         for _i in range(_n_reg):
             # end location
-            _end_loc = min((_i+1)*resolution, len(_wholechr))
+            _reg_start = int(_gene_start + _i * resolution)
+            _reg_end = np.min([_reg_start+resolution, len(_wholechr)])
+            #_end_loc = min((_i+1)*resolution, len(_wholechr))
             # extract sequence for this region
-            _seq = _whole_seq[_i*resolution:_end_loc]
-            _name = _chrom+':'+str(_start-flanking+_i*resolution)+'-'+\
-                     str(_start-flanking+_end_loc)+'_reg_'+str(_i+1)
-            _seq_dic[_name] = _seq
-            _seqs.append(_seq)
-            _names.append(_name)
-            if _end_loc == len(_wholechr):
-                break
-        # if Save
-        if save:                
-            # mkdir if not exist for save folder
-            if not os.path.exists(save_folder):
-                os.makedirs(save_folder)
-                
-            print ('-writing region number:' + str(_n_reg))
-            
-            if merge: # NOTICE! this will never overwrite!
-                save_sub_folder = save_folder+os.sep+'merged'
-                if not os.path.exists(save_sub_folder):
-                    os.makedirs(save_sub_folder)
-                ex_file_num = len(glob.glob(save_sub_folder+os.sep+r'*'))
-                # writing files
-                for _i, (_name, _seq) in enumerate(zip(_names, _seqs)):
-                    _filename = save_sub_folder + os.sep + 'reg_' + str(ex_file_num+_i+1) + '.fasta'
-                    # save as fasta
-                    if 'Gene' in reg_dic.keys():
-                        ld.fastawrite(_filename, [_name+'_gene_'+reg_dic['Gene']], [_seq.upper()])
-                    else:
-                        ld.fastawrite(_filename, [_name], [_seq.upper()])
-                print ('Number of region: '+str(len(glob.glob(save_sub_folder+os.sep+r'*'))))
-            else:
-                # assign correct name of the sub folder
-                if 'Gene' in reg_dic.keys():
-                    save_sub_folder = save_folder+os.sep+reg_dic['Gene']
-                else:
-                    save_sub_folder = save_folder+os.sep+_chrom+str(_start)
-                # mkdir if not exist for this region
-                if not os.path.exists(save_sub_folder):
-                    os.makedirs(save_sub_folder)
-                # writing files
-                for _i in range(_n_reg):
-                    _filename = save_sub_folder + os.sep + 'reg_' + str(_i+1) + '.fasta'
-                    # save as fasta
-                    ld.fastawrite(_filename, [_names[_i]], [_seqs[_i].upper()])
-                
-        return _seq_dic
-        
-    ## read region file
-    reg_list = read_region_file()
+            _seq = _wholechr[_reg_start:_reg_end]
+            _name = f"{_chrom}:{_reg_start}-{_reg_end}_reg_"
+            if "Gene" in _reg_dict:
+                _name += _reg_dict['Gene']+'-'
+            _name += str(_i+1)
+            # append
+            _record = SeqRecord(_seq, id=_name, name='', description='')
+            _kept_seqs.append(_record)
+        if "Gene" in _reg_dict:
+            kept_seqs_dict[_reg_dict['Gene']] = _kept_seqs
+        else:
+            kept_seqs_dict['all'].extend(_kept_seqs)
     
-    # extract sequences and save!
-    seq_dic_list = []
-    for reg_dic in reg_list:
-        seqs = extract_sequence(reg_dic, save=save)
-        seq_dic_list.append(seqs)
-        
-    return seq_dic_list, reg_list
-        
+    # save
+    if save:
+        if verbose:
+            print(f"-- saving sequences into folder: {save_folder}")
+    
+    for _gene, _records in kept_seqs_dict.items():
+        # decide savefolder for this gene
+        if split_gene_folder:
+            _gene_save_folder = os.path.join(save_folder, _gene)
+        else:
+            _gene_save_folder = save_folder
+        # save
+        if merge:
+            _save_filename = os.path.join(_gene_save_folder, f"{_gene}_reg_1-{len(_records)}.fasta")
+            if verbose:
+                print(f"-- save to file: {_save_filename}")
+            with open(_save_filename, 'w') as _output_handle:
+                SeqIO.write(_records, _output_handle, "fasta")
+        else:
+            for _i, _record in enumerate(_records):
+                _save_filename = os.path.join(_gene_save_folder, f"{_gene}_reg_{_i+1}.fasta")
+                if verbose:
+                    print(f"-- save to file: {_save_filename}")
+                with open(_save_filename, 'w') as _output_handle:
+                    SeqIO.write([_record], _output_handle, "fasta")
+    
+    return kept_seqs_dict
