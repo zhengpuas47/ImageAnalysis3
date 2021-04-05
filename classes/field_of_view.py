@@ -1513,7 +1513,7 @@ class Field_of_View():
                         _chrom_fd = [_full_fd for _full_fd in self.annotated_folders 
                                     if os.path.basename(_full_fd) == _fd][0]
                         if _verbose:
-                            print(f"-- choose chrom images from folder: {_chrom_fd[0]}.")
+                            print(f"-- choose chrom images from folder: {_chrom_fd}.")
                         _chrom_channel = _ch
                         _chrom_fd_ind = self.annotated_folders.index(_chrom_fd)
                         # load reference of chromosome image
