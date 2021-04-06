@@ -43,7 +43,7 @@ def read_region_file(filename, verbose=True):
                 _dict = {'Chr': _info[0],
                          'Start': _info[1],
                          'End': _info[2],
-                         'Name': _info[3],
+                         'Name': _info[3].replace('_','-'),
                          } 
                 if len(_info) >= 5:
                     _dict['Score'] = _info[4]      
@@ -155,29 +155,44 @@ def extract_sequence(reg_dicts, genome_reference,
         # number of regions
         _gene_start = np.max([0, np.int(_start-flanking)])
         _gene_stop = np.min([len(_wholechr), np.int(_stop+flanking)])
-        _n_reg = int(np.ceil( float(_gene_stop - _gene_start) / resolution))
-        # extract all required seq
-        #_whole_seq = _wholechr[_gene_start: min(_gene_start+_n_reg*resolution, len(_wholechr))]
-        # extract each region
-        _kept_seqs = []
-        for _i in range(_n_reg):
-            # end location
-            _reg_start = int(_gene_start + _i * resolution)
-            _reg_end = np.min([_reg_start+resolution, len(_wholechr)])
-            #_end_loc = min((_i+1)*resolution, len(_wholechr))
-            # extract sequence for this region
-            _seq = _wholechr[_reg_start:_reg_end]
-            _name = f"{_chrom}:{_reg_start}-{_reg_end}_reg_"
+
+        # case 1: resolution specified
+        if resolution > 0:
+            _n_reg = int(np.ceil( float(_gene_stop - _gene_start) / resolution))
+            # extract all required seq
+            #_whole_seq = _wholechr[_gene_start: min(_gene_start+_n_reg*resolution, len(_wholechr))]
+            # extract each region
+            _kept_seqs = []
+            for _i in range(_n_reg):
+                # end location
+                _reg_start = int(_gene_start + _i * resolution)
+                _reg_end = np.min([_reg_start+resolution, len(_wholechr)])
+                #_end_loc = min((_i+1)*resolution, len(_wholechr))
+                # extract sequence for this region
+                _seq = _wholechr[_reg_start:_reg_end]
+                _name = f"{_chrom}:{_reg_start}-{_reg_end}_reg_"
+                if "Gene" in _reg_dict:
+                    _name += _reg_dict['Gene']+'-'
+                _name += str(_i+1)
+                # append
+                _record = SeqRecord(_seq, id=_name, name='', description='')
+                _kept_seqs.append(_record)
             if "Gene" in _reg_dict:
-                _name += _reg_dict['Gene']+'-'
-            _name += str(_i+1)
+                kept_seqs_dict[_reg_dict['Gene']] = _kept_seqs
+            else:
+                kept_seqs_dict['all'].extend(_kept_seqs)
+        # case 2: no valid resolution give, get the whole sequence
+        elif resolution <= 0:
+            _seq = _wholechr[_gene_start:_gene_stop]
+            _name = f"{_chrom}:{_gene_start}-{_gene_stop}_reg_"
+            if "Gene" in _reg_dict:
+                    _name += _reg_dict['Gene']
             # append
             _record = SeqRecord(_seq, id=_name, name='', description='')
-            _kept_seqs.append(_record)
-        if "Gene" in _reg_dict:
-            kept_seqs_dict[_reg_dict['Gene']] = _kept_seqs
-        else:
-            kept_seqs_dict['all'].extend(_kept_seqs)
+            if "Gene" in _reg_dict:
+                kept_seqs_dict[_reg_dict['Gene']] = [_record]
+            else:
+                kept_seqs_dict['all'].extend([_record])
     
     # save
     if save:

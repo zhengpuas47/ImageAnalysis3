@@ -503,7 +503,7 @@ Key information:
 
                 # if design reverse streand:
                 if input_rev_com or input_two_stranded:
-                    # get forward strand sequence
+                    # get reverse strand sequence
                     if isinstance(_rc_cand_seq, str):
                         _rc_cand_seq = _rc_cand_seq.encode()
                     if _kept_flags[_i] == 0:
