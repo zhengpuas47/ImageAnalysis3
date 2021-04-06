@@ -12,23 +12,62 @@ def read_region_file(filename, verbose=True):
     if verbose:
         print (f'Input region file is: {filename}')
     
-    if 
+    # option 1: split txt region files
+    if filename.split(os.extsep)[-1] == 'txt':
+        with open(filename, 'r') as _reg_file:
+            # start reading
+            _lines = _reg_file.read().split('\n')
+            _titles = _lines[0].split('\t')
+            # save a list of dictionaries
+            _reg_list = []
+            for _line in _lines[1:]:
+                _reg_dic = {} # dinctionary to save all informations
+                _info = _line.split('\t') # split informations
+                if len(_info) != len(_titles): # sanity check to make sure they are of the same size
+                    continue
+                for _i in range(len(_info)): # save info to dic
+                    _reg_dic[_titles[_i]] = _info[_i]
+                _reg_list.append(_reg_dic) # save dic to list
+    # option 2: split rna txt file
+    elif filename.split(os.extsep)[-1] == 'bed':
+        _reg_list = []
+        with open(filename, 'r') as _reg_file:
+            # start reading
+            _lines = _reg_file.read().split('\n')
+            for _line in _lines:
+                _info = _line.split('\t') # split informations
+                if len(_info) < 4:
+                    continue 
+                
+                # directly parse
+                _dict = {'Chr': _info[0],
+                         'Start': _info[1],
+                         'End': _info[2],
+                         'Name': _info[3],
+                         } 
+                if len(_info) >= 5:
+                    _dict['Score'] = _info[4]      
+                if len(_info) >= 6:
+                    _dict['Strand'] = _info[5]      
+                # try to match Txt version:
+                if 'chr' in _info[0]:
+                    _cname = _info[0].split('chr')[1]
+                else:
+                    _cname = _info[0]
+                _dict.update(
+                    {
+                        'Gene': _dict['Name'],
+                        'Region': f"{_cname}:{_dict['Start']}-{_dict['End']}",
+                    }
+                )
+                _reg_list.append(_dict)
 
-    _reg_file = open(filename, 'r')
-    # start reading
-    _lines = _reg_file.read().split('\n')
-    _titles = _lines[0].split('\t')
-    # save a list of dictionaries
-    _reg_list = []
-    for _line in _lines[1:]:
-        _reg_dic = {} # dinctionary to save all informations
-        _info = _line.split('\t') # split informations
-        if len(_info) != len(_titles): # sanity check to make sure they are of the same size
-            continue
-        for _i in range(len(_info)): # save info to dic
-            _reg_dic[_titles[_i]] = _info[_i]
-        _reg_list.append(_reg_dic) # save dic to list
-    _reg_file.close()
+    else:
+        raise IOError(f"input file type not supported.")
+
+    if verbose:
+        print(f"- {len(_reg_list)} regions loaded from file: {os.path.basename(filename)}")
+
     return _reg_list
 
 def parse_region(reg_dic):
