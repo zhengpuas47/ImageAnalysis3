@@ -1803,7 +1803,7 @@ def generate_reference_from_population(picked_hzxys_list, picked_ids=None,
         _args = [(_picked_hzxys, picked_ids, _ref_hzxys, ref_ids, _chr_ct, split_channels, ref_channels, neighbor_len)
                  for _picked_hzxys, _ref_hzxys, _chr_ct in zip(picked_hzxys_list, ref_hzxys_list, ref_chr_cts)]
         with mp.Pool( int(num_threads) ) as ref_pool:
-            ref_results = ref_pool.starmap(_generate_ref_of_chr, _args)
+            ref_results = ref_pool.starmap(_generate_ref_of_chr, _args, chunksize=1)
             ref_pool.close()
             ref_pool.join()
             ref_pool.terminate()
