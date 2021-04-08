@@ -1583,21 +1583,63 @@ def chromosome_center_dists(cand_hzxys, ref_center=None,
     if ref_channels is not None and len(ref_channels) != len(cand_hzxys):
         raise ValueError(f"ref_channels should have the same length as cand_hzxys")
 
+    _ref_ct_dict = {}
     # generate ref_zxy
     if ref_center is None:
         if split_channels:
-            pass
+            for _ch in np.unique(ref_channels):
+                _ch_hzxys = []
+                for _ind in np.where(np.array(ref_channels)==_ch)[0]:
+                    _cands = cand_hzxys[_ind]
+                    if len(_cands) > 0:
+                        if len(np.shape(np.array(_cands))) == 1:
+                            _ch_hzxys.append(_cands)
+                        else:
+                            _ch_hzxys.extend(list(_cands))
+                # calculate center     
+                _ref_ct_dict[_ch] = np.nanmean(_ch_hzxys, axis=0)[1:4]
+        else:
+            _ch_hzxys = []
+            for _cands in cand_hzxys:
+                if len(_cands) > 0:
+                    if len(np.shape(np.array(_cands))) == 1:
+                        _ch_hzxys.append(_cands)
+                    else:
+                        _ch_hzxys.extend(list(_cands))
+            # calculate center     
+            _ref_ct_dict['all'] = np.nanmean(_ch_hzxys, axis=0)[1:4]
 
-    _ct_dists = []
-
-    if len(ref_center) > 3:
-        _ref_zxy = np.array(ref_center[1:4])
-    elif len(ref_center) == 3:
-        _ref_zxy = np.array(ref_center)
+    elif isinstance(ref_center, list) or isinstance(ref_center, np.ndarray):
+        if split_channels:
+            for _ch in np.unique(ref_channels):
+                if len(ref_center) > 3:
+                    _ref_ct_dict[_ch] = np.array(ref_center)[1:4]
+                elif len(ref_center) == 3:
+                    _ref_ct_dict[_ch] = np.array(ref_center)
+                else:
+                    raise IndexError(f"ref_center should at least have 3 elements")
+        else:
+            if len(ref_center) > 3:
+                _ref_ct_dict['all'] = np.array(ref_center)[1:4]
+            elif len(ref_center) == 3:
+                _ref_ct_dict['all'] = np.array(ref_center)
+            else:
+                raise IndexError(f"ref_center should at least have 3 elements")
+    elif isinstance(ref_center, dict):
+        pass
     else:
-        raise IndexError(f"ref_zxy should at least have 3 elements")
+        raise TypeError(f"Wrong input type for ref_center: {type(ref_center)}")
+    print(_ref_ct_dict)
+    # initialize
+    _ct_dists = []
     # loop through regions
-    for _hzxys in cand_hzxys:
+    for _i, _hzxys in enumerate(cand_hzxys):
+        # generate corresponding ref_zxy
+        if split_channels:
+            _ref_zxy = _ref_ct_dict[ref_channels[_i]]
+        else:
+            _ref_zxy = _ref_ct_dict['all']
+        ## check different shapes
         if len(_hzxys) == 0:
             _ct_dists.append(np.array([np.nan]))
         # only one spot per region
@@ -1614,9 +1656,14 @@ def chromosome_center_dists(cand_hzxys, ref_center=None,
     return _ct_dists
 
 def local_center_dists(cand_hzxys, cand_ids, ref_hzxys, 
-                       ref_ids=None, neighbor_len=5):
+                       ref_ids=None, neighbor_len=5,
+                       split_channels=False, ref_channels=None):
     """Function to calculate neighboring center"""
-    from scipy.spatial.distance import cdist
+    if split_channels and ref_channels is None:
+        raise ValueError(f"ref_channels should be given if split_channels is True")
+    if ref_channels is not None and len(ref_channels) != len(cand_hzxys):
+        raise ValueError(f"ref_channels should have the same length as cand_hzxys")
+
     # candidate ids
     if cand_ids is None:
         cand_ids = np.arange(len(cand_hzxys))
@@ -1626,12 +1673,12 @@ def local_center_dists(cand_hzxys, cand_ids, ref_hzxys,
         raise IndexError(f"cand_hzxys should have same length as cand_ids")
     # reference ids
     if ref_ids is None:
-        ref_ids == np.arange(len(ref_hzxys))
+        ref_ids = np.arange(len(ref_hzxys))
     if len(ref_hzxys) != len(ref_ids):
         raise IndexError(f"ref_hzxys should have same length as ref_ids")
     _nc_dists = []
     # loop through zxys
-    for _hzxys, _id in zip(cand_hzxys, cand_ids):
+    for _j, (_hzxys, _id) in enumerate(zip(cand_hzxys, cand_ids)):
         
         if len(_hzxys) == 0:
             _nc_dists.append([])
@@ -1645,6 +1692,13 @@ def local_center_dists(cand_hzxys, cand_ids, ref_hzxys,
             _sel_local_ids = np.intersect1d(_sel_local_ids, ref_ids)
             # conert into indices
             _sel_local_inds = [list(ref_ids).index(_id) for _id in _sel_local_ids]
+            print(_sel_local_inds)
+            if split_channels:
+                _ch = ref_channels[_j]
+                _sel_local_inds = np.intersect1d(_sel_local_inds,
+                    np.where(np.array(ref_channels)==_ch)[0] )
+                print(_sel_local_inds)
+            # calculate local center
             _nc_ct = np.nanmean(np.array(ref_hzxys)[_sel_local_inds], axis=0)
             #for _ri in range(_start, _end):
             #    if _ri in ref_ids:
@@ -1693,17 +1747,17 @@ def pick_spots_by_intensities(cand_spot_list, pix_size=_distance_zxy):
     return np.stack(hzxys_list)
 
 def _generate_ref_of_chr(_picked_hzxys, _picked_ids,
-                         _ref_hzxys, _ref_ids, _chr_ct=None,
-                         _neighbor_len=5):
+                         _ref_hzxys, _ref_ids, _ref_center=None,
+                         _split_channel=False, _ref_channels=None,
+                         _neighbor_len=10,):
     # distance to chr center
-    if _chr_ct is None:
-        _ct = np.nanmean(_ref_hzxys,axis=0)
-    else:
-        _ct = np.array(_chr_ct)
-    _ct_dists = chromosome_center_dists(_picked_hzxys, _ct)
+    _ct_dists = chromosome_center_dists(_picked_hzxys, _ref_center, 
+        split_channels=_split_channel, ref_channels=_ref_channels,)
     # distance to local neighbors
     _local_dists = local_center_dists(_picked_hzxys, _picked_ids, 
-                                      _ref_hzxys, _ref_ids, neighbor_len=_neighbor_len)
+                                      _ref_hzxys, _ref_ids, 
+                                      split_channels=_split_channel, ref_channels=_ref_channels,
+                                      neighbor_len=_neighbor_len)
     # intensity
     _ints = np.array(_picked_hzxys)[:,0]
     
@@ -1713,7 +1767,7 @@ def generate_reference_from_population(picked_hzxys_list, picked_ids=None,
                                        ref_hzxys_list=None, ref_ids=None, 
                                        ref_channels=None, ref_chr_cts=None,
                                        parallel=True, num_threads=12,
-                                       neighbor_len=5, 
+                                       neighbor_len=7, 
                                        collapse_regions=True, 
                                        split_channels=True,
                                        sort=True,
@@ -1732,7 +1786,9 @@ def generate_reference_from_population(picked_hzxys_list, picked_ids=None,
         ref_ids = picked_ids
     if ref_chr_cts is None:
         ref_chr_cts = [None for hzxys in picked_hzxys_list]
-    # channels
+    # channels    
+    if split_channels and ref_channels is None:
+        raise ValueError(f"ref_channels should be given if split_channels is True")
     if ref_channels is not None:
         if len(ref_channels) != len(picked_ids):
             raise IndexError(f"wrong length of ref_channels, length should match picked_ids")
@@ -1744,7 +1800,7 @@ def generate_reference_from_population(picked_hzxys_list, picked_ids=None,
         if verbose:
             _mp_time = time.time()
             print(f"--- multiprocessing expectation step with {num_threads} threads", end=', ')
-        _args = [(_picked_hzxys, picked_ids, _ref_hzxys, ref_ids, _chr_ct, neighbor_len)
+        _args = [(_picked_hzxys, picked_ids, _ref_hzxys, ref_ids, _chr_ct, split_channels, ref_channels, neighbor_len)
                  for _picked_hzxys, _ref_hzxys, _chr_ct in zip(picked_hzxys_list, ref_hzxys_list, ref_chr_cts)]
         with mp.Pool( int(num_threads) ) as ref_pool:
             ref_results = ref_pool.starmap(_generate_ref_of_chr, _args)
@@ -1767,6 +1823,7 @@ def generate_reference_from_population(picked_hzxys_list, picked_ids=None,
             # calculeate ref for chr
             _ct_dists, _local_dists, _ints = _generate_ref_of_chr(_picked_hzxys, picked_ids, 
                 _ref_hzxys, ref_ids, _chr_ct,  
+                split_channels, ref_channels, 
                 neighbor_len)
             # append to references
             _ct_dists_list.append(_ct_dists)
@@ -1792,7 +1849,10 @@ def generate_reference_from_population(picked_hzxys_list, picked_ids=None,
                 _ct_dists_ref[_ch] = _ct_dists_ref[_ch][np.isnan(_ct_dists_ref[_ch])==False]
                 _local_dists_ref[_ch] = np.array(_local_dists_list)[:, np.where(_ref_chs==_ch)[0]]
                 _local_dists_ref[_ch] = _local_dists_ref[_ch][np.isnan(_local_dists_ref[_ch])==False]
-
+            # still keep all
+            _ints_ref['all'] = np.concatenate(list(_ints_ref.values()))
+            _ct_dists_ref['all'] = np.concatenate(list(_ct_dists_ref.values()))
+            _local_dists_ref['all'] = np.concatenate(list(_local_dists_ref.values()))
         else:
             _ints_ref['all'] = np.array(_ints_list)[np.isnan(_ints_list)==False]
             _ct_dists_ref['all'] = np.array(_ct_dists_list)[np.isnan(_ct_dists_list)==False]
@@ -1843,22 +1903,23 @@ def slow_cum_val(ref_vals, target):
 
 def _maximize_score_spot_picking_of_chr(cand_hzxys, cand_ids, ref_hzxys, ref_ids, 
                                         ref_ct_dists, ref_local_dists, ref_ints, 
-                                        cand_channels=None, ref_channels=None,
-                                        neighbor_len=5, 
+                                        ref_channels=None, ref_center=None, 
+                                        neighbor_len=7, 
                                         center_weight=1., local_weight=1.,
                                         collapse_regions=True, 
-                                        split_channels=True,
+                                        split_intensity_channels=False,
+                                        split_distance_channels=False,
                                         ):
     """single function to process data"""
     ## calculate stats for 
     # chr center distance
-    if center_weight != 0:
-        _cand_ct_dists = chromosome_center_dists(cand_hzxys, np.nanmean(ref_hzxys,axis=0))
+    _cand_ct_dists = chromosome_center_dists(cand_hzxys, ref_center,
+        split_channels=split_distance_channels, ref_channels=ref_channels)
     # local distances
-    if local_weight != 0:
-        _cand_local_dists = local_center_dists(cand_hzxys, cand_ids, 
-                                               ref_hzxys, ref_ids, 
-                                               neighbor_len=neighbor_len)
+    _cand_local_dists = local_center_dists(
+        cand_hzxys, cand_ids, ref_hzxys, ref_ids, 
+        split_channels=split_distance_channels, ref_channels=ref_channels,
+        neighbor_len=neighbor_len)
     # intensities                                            
     _cand_ints = extract_intensities(cand_hzxys)
 
@@ -1878,27 +1939,27 @@ def _maximize_score_spot_picking_of_chr(cand_hzxys, cand_ids, ref_hzxys, ref_ids
         elif len(np.shape(np.array(_hzxys))) == 1:
             # intensity score
             _int = _cand_ints[_rid]
-            if collapse_regions and split_channels:
-                _sc = np.log(cum_val(ref_ints[cand_channels[_rid]], _int))
-            elif collapse_regions and not split_channels:
+            if collapse_regions and split_intensity_channels:
+                _sc = np.log(cum_val(ref_ints[ref_channels[_rid]], _int))
+            elif collapse_regions and not split_intensity_channels:
                 _sc = np.log(cum_val(ref_ints['all'], _int))
             else:
                 _sc = np.log(cum_val(ref_ints[_id], _int))
             # center dist
             if center_weight != 0:
                 _ctdst = _cand_ct_dists[_rid]
-                if collapse_regions and split_channels:
-                    _sc += center_weight * np.log(1 - cum_val(ref_ct_dists[cand_channels[_rid]], _ctdst) )
-                elif collapse_regions and not split_channels:
+                if collapse_regions and split_distance_channels:
+                    _sc += center_weight * np.log(1 - cum_val(ref_ct_dists[ref_channels[_rid]], _ctdst) )
+                elif collapse_regions and not split_distance_channels:
                     _sc += center_weight * np.log(1 - cum_val(ref_ct_dists['all'], _ctdst) )
                 else:
                     _sc += center_weight * np.log(1 - cum_val(ref_ct_dists[_id], _ctdst) )
             # local dist
             if local_weight != 0:
                 _lcdst = _cand_local_dists[_rid]
-                if collapse_regions and split_channels:
-                    _sc += local_weight * np.log(1 - cum_val(ref_local_dists[cand_channels[_rid]], _lcdst) )                                    
-                elif collapse_regions and not split_channels:
+                if collapse_regions and split_distance_channels:
+                    _sc += local_weight * np.log(1 - cum_val(ref_local_dists[ref_channels[_rid]], _lcdst) )                                    
+                elif collapse_regions and not split_distance_channels:
                     _sc += local_weight * np.log(1 - cum_val(ref_local_dists['all'], _lcdst) )
                 else:
                     _sc += local_weight * np.log(1 - cum_val(ref_local_dists[_id], _lcdst) )
@@ -1914,27 +1975,27 @@ def _maximize_score_spot_picking_of_chr(cand_hzxys, cand_ids, ref_hzxys, ref_ids
             for _sid in range(len(_hzxys)):
                 # intensity score
                 _int = _cand_ints[_rid][_sid]
-                if collapse_regions and split_channels:
-                    _sc = np.log(cum_val(ref_ints[cand_channels[_rid]], _int))
-                elif collapse_regions and not split_channels:
+                if collapse_regions and split_intensity_channels:
+                    _sc = np.log(cum_val(ref_ints[ref_channels[_rid]], _int))
+                elif collapse_regions and not split_intensity_channels:
                     _sc = np.log(cum_val(ref_ints['all'], _int))
                 else:
                     _sc = np.log(cum_val(ref_ints[_id], _int))
                 # center dist
                 if center_weight != 0:
                     _ctdst = _cand_ct_dists[_rid][_sid]
-                    if collapse_regions and split_channels:
-                        _sc += center_weight * np.log(1 - cum_val(ref_ct_dists[cand_channels[_rid]], _ctdst) )
-                    elif collapse_regions and not split_channels:
+                    if collapse_regions and split_distance_channels:
+                        _sc += center_weight * np.log(1 - cum_val(ref_ct_dists[ref_channels[_rid]], _ctdst) )
+                    elif collapse_regions and not split_distance_channels:
                         _sc += center_weight * np.log(1 - cum_val(ref_ct_dists['all'], _ctdst) )
                     else:
                         _sc += center_weight * np.log(1 - cum_val(ref_ct_dists[_id], _ctdst) )
                 # local dist
                 if local_weight != 0:
                     _lcdst = _cand_local_dists[_rid][_sid]
-                    if collapse_regions and split_channels:
-                        _sc += local_weight * np.log(1 - cum_val(ref_local_dists[cand_channels[_rid]], _lcdst) )
-                    elif collapse_regions and not split_channels:
+                    if collapse_regions and split_distance_channels:
+                        _sc += local_weight * np.log(1 - cum_val(ref_local_dists[ref_channels[_rid]], _lcdst) )
+                    elif collapse_regions and not split_distance_channels:
                         _sc += local_weight * np.log(1 - cum_val(ref_local_dists['all'], _lcdst) )
                     else:
                         _sc += local_weight * np.log(1 - cum_val(ref_local_dists[_id], _lcdst) )
@@ -1952,14 +2013,16 @@ def _maximize_score_spot_picking_of_chr(cand_hzxys, cand_ids, ref_hzxys, ref_ids
 
 
 def pick_spots_by_scores(cand_hzxys_list, cand_ids=None, 
-                         cand_channels=None,
-                         ref_hzxys_list=None, ref_ids=None, ref_channels=None,
+                         ref_channels=None,
+                         ref_hzxys_list=None, ref_ids=None, ref_centers=None,
                          ref_ct_dists=None, ref_local_dists=None, ref_ints=None, 
                          ref_chr_cts=None,
                          parallel=True, num_threads=12,
-                         neighbor_len=5, center_weight=1., local_weight=1.,
+                         neighbor_len=7, center_weight=1., local_weight=1.,
                          pix_size=_distance_zxy, 
-                         collapse_regions=True, split_channels=True, 
+                         collapse_regions=True,                                         
+                         split_intensity_channels=False,
+                         split_distance_channels=False,
                          return_other_scores=False,
                          sort=True, verbose=True,
                         ):
@@ -1971,8 +2034,10 @@ def pick_spots_by_scores(cand_hzxys_list, cand_ids=None,
     if cand_ids is None:
         cand_ids = np.arange(len(cand_hzxys_list[0]))
     # cand channels
-    if cand_channels is None and split_channels:
-        raise ValueError(f"split_channels is turned on but cand_channels are not given, exit")
+    if ref_channels is None and split_intensity_channels:
+        raise ValueError(f"split_intensity_channels is turned on but ref_channels are not given, exit")
+    if ref_channels is None and split_distance_channels:
+        raise ValueError(f"split_distance_channels is turned on but ref_channels are not given, exit")
     # reference hzxys
     if ref_hzxys_list is None:
         if verbose:
@@ -1980,8 +2045,10 @@ def pick_spots_by_scores(cand_hzxys_list, cand_ids=None,
         ref_hzxys_list = pick_spots_by_intensities(cand_hzxys_list, pix_size=pix_size)
     if ref_ids is None:
         ref_ids = cand_ids
-    if ref_channels is None:
-        ref_channels = cand_channels
+
+    if split_distance_channels or split_intensity_channels:
+        split_channels = True
+
     # reference distributions
     if (ref_ints is None) \
         or (ref_ct_dists is None) \
@@ -1997,21 +2064,29 @@ def pick_spots_by_scores(cand_hzxys_list, cand_ids=None,
             collapse_regions=collapse_regions, 
             split_channels=split_channels,
             sort=sort, verbose=verbose,)
-    
+
+    # prepare args
+    _args = []
+    for _i, (_cand_hzxys, _ref_hzxys) in enumerate(zip(cand_hzxys_list, ref_hzxys_list)):
+        if ref_centers is not None:
+            _ref_ct = ref_centers[_i]
+        else:
+            _ref_ct = None
+        _args.append(
+            (_cand_hzxys, cand_ids, _ref_hzxys, ref_ids, 
+             ref_ct_dists, ref_local_dists, ref_ints,
+             ref_channels, _ref_ct,
+             neighbor_len, center_weight, local_weight, 
+             collapse_regions, split_intensity_channels, split_distance_channels)
+        )
     # pick spots
     if parallel:
         if verbose:
             _mp_time = time.time()
             print(f"--- multiprocessing maximization step with {int(num_threads)} threads", end=', ')
-        _args = [(_cand_hzxys, cand_ids, _ref_hzxys, ref_ids, 
-                  ref_ct_dists, ref_local_dists, ref_ints,
-                  cand_channels, ref_channels,
-                  neighbor_len, center_weight, local_weight, 
-                  collapse_regions, split_channels)
-                 for _cand_hzxys, _ref_hzxys in zip(cand_hzxys_list, ref_hzxys_list)]
         
         with mp.Pool(int(num_threads)) as ref_pool:
-            ref_results = ref_pool.starmap(_maximize_score_spot_picking_of_chr, _args)
+            ref_results = ref_pool.starmap(_maximize_score_spot_picking_of_chr, _args, chunksize=1)
             ref_pool.close()
             ref_pool.join()
             ref_pool.terminate()
@@ -2028,13 +2103,9 @@ def pick_spots_by_scores(cand_hzxys_list, cand_ids=None,
         # init
         sel_hzxys_list, sel_scores_list, all_scores_list = [], [], []
         # loop
-        for _cand_hzxys, _ref_hzxys in tqdm(zip(cand_hzxys_list, ref_hzxys_list)):
-            _hzxys, _sel_scores, _all_scores = _maximize_score_spot_picking_of_chr(
-                _cand_hzxys, cand_ids, _ref_hzxys, ref_ids, 
-                ref_ct_dists, ref_local_dists, ref_ints,
-                cand_channels, ref_channels,
-                neighbor_len, center_weight, local_weight, 
-                collapse_regions, split_channels)
+        for _i, _arg in enumerate(_args):
+            # apply parameters
+            _hzxys, _sel_scores, _all_scores = _maximize_score_spot_picking_of_chr(*_arg)
             # append
             sel_hzxys_list.append(_hzxys)
             sel_scores_list.append(_sel_scores)
@@ -2242,7 +2313,7 @@ def screen_RNA_based_on_refs(rna_cand_hzxys_list, rna_region_ids,
                     _sel_cand_list.append(np.array(_cand_hzxys)[_dists <= dist_th,:])
     return _sel_cand_list
 
-def convert_spots_to_hzxys(spot_list, pix_size=_distance_zxy):
+def convert_spots_to_hzxys(spot_list, pix_size=_distance_zxy, normalize_spot_background=False):
     """Function to convert spot list into hzxys list"""
     _hzxys_list = []
     pix_size = np.array(pix_size)
@@ -2254,10 +2325,15 @@ def convert_spots_to_hzxys(spot_list, pix_size=_distance_zxy):
             if len(np.shape(_spots)) == 1:
                 _hzxy = _spots[:1+len(pix_size)]
                 _hzxy[1:1+len(pix_size)] = _hzxy[1:1+len(pix_size)] * pix_size
+                if normalize_spot_background:
+                    print(_spots[2+len(pix_size)])
+                    _hzxy[0] = _hzxy[0] / _spots[1+len(pix_size)]
                 _hzxys_list.append(_hzxy)
             elif len(np.shape(_spots)) == 2:
                 _hzxys = _spots[:, :1+len(pix_size)]
                 _hzxys[:,1:1+len(pix_size)] = _hzxys[:,1:1+len(pix_size)] * pix_size
+                if normalize_spot_background:
+                    _hzxys[:,0] = _hzxys[:,0] / _spots[:,1+len(pix_size)]
                 _hzxys_list.append(_hzxys)
             else:
                 raise IndexError(f"_spots should be 1d or 2d array.")
