@@ -292,10 +292,8 @@ class Field_of_View():
             self._init_save_file(_save_filename=_save_filename, 
                                  **_savefile_kwargs)                        
         # if decided to overwrite savefile info with what this initiation gives, do it:
-        if _save_info_to_file:
+        if _save_info_to_file and not _new_savefile and not _prioritize_saved_attrs:
             self._save_to_file('fov_info', _overwrite=(not _prioritize_saved_attrs), _verbose=_verbose)
-
-        
 
 
     ## Load basic info
@@ -1901,14 +1899,14 @@ class Field_of_View():
         return _dapi_im
 
     ## load bead image, for checking purposes
-    def _load_bead_image(self, _bead_id,
+    def _load_bead_image(self, _bead_id, _drift=None,
                         _overwrite=False, _verbose=True):
         """Function to load bead image for fov class
         
         """
 
         if 'correct_fov_image' not in locals():
-            from ImageAnalysis3.io_tools.load import correct_fov_image
+            from ..io_tools.load import correct_fov_image
 
         if isinstance(_bead_id, int) or isinstance(_bead_id, np.int):
             _ind = int(_bead_id)
@@ -1919,6 +1917,11 @@ class Field_of_View():
                     break
         _bead_filename = os.path.join(self.annotated_folders[_ind], self.fov_name)
         _bead_channel = self.channels[self.bead_channel_index]
+        # load from Dax file
+        if hasattr(self, 'ref_im'):
+            _drift_ref = getattr(self, 'ref_im')
+        else:
+            _drift_ref = getattr(self, 'ref_filename')
         # load this beads image
         _bead_im = correct_fov_image(_bead_filename, 
                                     [_bead_channel],
@@ -1926,9 +1929,9 @@ class Field_of_View():
                                     all_channels=self.channels,
                                     num_buffer_frames=self.shared_parameters['num_buffer_frames'],
                                     num_empty_frames=self.shared_parameters['num_empty_frames'],
-                                    drift=None, calculate_drift=False,
+                                    drift=_drift, calculate_drift=False,
                                     drift_channel=_bead_channel,
-                                    ref_filename=None,
+                                    ref_filename=_drift_ref,
                                     correction_folder=self.correction_folder,
                                     warp_image=True,
                                     illumination_corr=self.shared_parameters['corr_illumination'],

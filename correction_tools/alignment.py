@@ -408,10 +408,10 @@ def cross_correlation_align_single_image(im, ref_im, precision_fold=100,
                                       **_correction_args)[0][0]
     
     # align by cross-correlation
-    from skimage.feature import register_translation
+    from skimage.registration import phase_cross_correlation
     _start_time = time.time()
-    _drift, _error, _phasediff = register_translation(_ref_im, _im, 
-                                                      upsample_factor=precision_fold)
+    _drift, _error, _phasediff = phase_cross_correlation(_ref_im, _im, 
+                                                         upsample_factor=precision_fold)
     
     # return
     if return_all:
@@ -541,24 +541,22 @@ def align_image(
     ref_im:np.ndarray, 
     crop_list=None,
     use_autocorr=True, precision_fold=100, 
-    drift_diff_th=1.,
+    min_good_drifts=3, drift_diff_th=1.,
     all_channels=_allowed_colors, 
     ref_all_channels=None, 
     drift_channel='488',
     correction_args={},
     fitting_args={},
     match_distance_th=2.,
-    return_all=False,
-    verbose=True, detailed_verbose=False,                      
+    verbose=True, 
+    detailed_verbose=False,                      
     ):
     """Function to align one image by either FFT or spot_finding"""
     
-    from scipy.spatial.distance import cdist, pdist, squareform
     from ..io_tools.load import correct_fov_image
-    from ..alignment_tools import fft3d_from2d
     from ..spot_tools.fitting import fit_fov_image
     from ..spot_tools.fitting import select_sparse_centers
-    from skimage.feature import register_translation
+    from skimage.registration import phase_cross_correlation
     ## check inputs
     # correciton keywords
     _correction_args = {_k:_v for _k,_v in _default_align_corr_args.items()}
@@ -630,30 +628,21 @@ def align_image(
     ## crop images
     _crop_src_ims, _crop_ref_ims = [], []
     for _crop in crop_list:
-        _s = ([slice(*np.array(_c,dtype=np.int)) for _c in _crop])
+        _s = tuple([slice(*np.array(_c,dtype=np.int)) for _c in _crop])
         _crop_src_ims.append(_src_im[_s])
         _crop_ref_ims.append(_ref_im[_s])
         
     ## align two images
-    _drifts, _errors, _diffs = [], [], []
-    if use_autocorr:
-        if verbose:
-            print("--- use auto correlation to calculate drift.")
-        for _i, (_sim, _rim) in enumerate(zip(_crop_src_ims, _crop_ref_ims)):
-            _start_time = time.time()
-            _drift, _error, _phasediff = register_translation(_sim, _rim, 
-                                                              upsample_factor=precision_fold)
-            # append
-            _drifts.append(_drift)
-            _errors.append(_error)
-            _diffs.append(_phasediff)
+    _drifts = []
+    for _i, (_sim, _rim) in enumerate(zip(_crop_src_ims, _crop_ref_ims)):
+        _start_time = time.time()
+        if use_autocorr:
             if verbose:
-                print(f"--- align image {_i} in {time.time()-_start_time:.3f}s.")
-    else:
-        if verbose:
-            print("--- use spot finding to calculate drift.")
-        for _i, (_sim, _rim) in enumerate(zip(_crop_src_ims, _crop_ref_ims)):
-            _start_time = time.time()
+                print("--- use auto correlation to calculate drift.")
+            # calculate drift with autocorr
+            _dft, _error, _phasediff = phase_cross_correlation(_sim, _rim, 
+                                                            upsample_factor=precision_fold)
+        else:
             # source
             _src_spots = fit_fov_image(_sim, _drift_channel, 
                 verbose=detailed_verbose,
@@ -663,7 +652,8 @@ def align_image(
             _ref_spots = fit_fov_image(_rim, _drift_channel, 
                 verbose=detailed_verbose,
                 **_fitting_args)
-            _sp_ref_cts = select_sparse_centers(_ref_spots[:,1:4], match_distance_th) # select sparse ref spots
+            _sp_ref_cts = select_sparse_centers(_ref_spots[:,1:4], match_distance_th, 
+                                                verbose=detailed_verbose) # select sparse ref spots
             #print(_sp_src_cts, _sp_ref_cts)
             
             # align
@@ -675,11 +665,27 @@ def align_image(
                 return_paired_cts=True,
                 verbose=detailed_verbose,
             )
-            _drifts.append(_dft)
-            _errors.append(0)
-            _diffs.append(0)
-            if verbose:
-                print(f"--- align image {_i} in {time.time()-_start_time:.3f}s.")
-                print(_dft)
-                
-    return np.nanmean(_drifts, axis=0) #, _errors, _diffs
+        # append
+        _drifts.append(_dft)
+        if verbose:
+            print(f"--- align image {_i} in {time.time()-_start_time:.3f}s.")
+            if detailed_verbose:
+                print(f"--- drift: {_dft}")
+
+        # detect variance within existing drifts
+        _mean_dft = np.nanmean(_drifts, axis=0)
+        if len(_drifts) >= min_good_drifts:
+            _dists = np.linalg.norm(_drifts-_mean_dft, axis=1)
+            _kept_drift_inds = np.where(_dists <= drift_diff_th)[0]
+            if len(_kept_drift_inds) >= min_good_drifts:
+                _updated_mean_dft = np.nanmean(np.array(_drifts)[_kept_drift_inds], axis=0)
+                if detailed_verbose:
+                    print(f"--- drifts for {_kept_drift_inds} pass the thresold, exit cycle.")
+                break
+    
+    if '_updated_mean_dft' not in locals():
+        if verbose:
+            print(f"-- return a sub-optimal drift")
+        _updated_mean_dft = np.nanmean(_drifts, axis=0)
+
+    return  _updated_mean_dft
