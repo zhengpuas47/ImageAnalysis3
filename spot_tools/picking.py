@@ -1629,7 +1629,7 @@ def chromosome_center_dists(cand_hzxys, ref_center=None,
         pass
     else:
         raise TypeError(f"Wrong input type for ref_center: {type(ref_center)}")
-    print(_ref_ct_dict)
+    
     # initialize
     _ct_dists = []
     # loop through regions
@@ -2325,7 +2325,7 @@ def convert_spots_to_hzxys(spot_list, pix_size=_distance_zxy, normalize_spot_bac
                 _hzxy = _spots[:1+len(pix_size)]
                 _hzxy[1:1+len(pix_size)] = _hzxy[1:1+len(pix_size)] * pix_size
                 if normalize_spot_background:
-                    print(_spots[2+len(pix_size)])
+                    #print(_spots[2+len(pix_size)])
                     _hzxy[0] = _hzxy[0] / _spots[1+len(pix_size)]
                 _hzxys_list.append(_hzxy)
             elif len(np.shape(_spots)) == 2:
