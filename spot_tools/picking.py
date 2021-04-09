@@ -1696,9 +1696,12 @@ def local_center_dists(cand_hzxys, cand_ids, ref_hzxys,
                 _ch = ref_channels[_j]
                 _sel_local_inds = np.intersect1d(_sel_local_inds,
                     np.where(np.array(ref_channels)==_ch)[0] )
-                
-            # calculate local center
-            _nc_ct = np.nanmean(np.array(ref_hzxys)[_sel_local_inds], axis=0)
+            _nc_hzxys = np.array(ref_hzxys)[_sel_local_inds]
+             # calculate local center
+            if (np.isnan(_nc_hzxys)==False).any():
+                _nc_ct = np.nanmean(_nc_hzxys, axis=0)
+            else:
+                _nc_ct = np.nan * np.ones(np.shape(_nc_hzxys)[1])
             #for _ri in range(_start, _end):
             #    if _ri in ref_ids:
             #        _nc_hzxys.append(ref_hzxys[list(ref_ids).index(_ri)])
