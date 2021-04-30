@@ -7,6 +7,7 @@ import multiprocessing as mp
 
 from Bio.SeqRecord import SeqRecord
 from Bio.SeqUtils import MeltingTemp
+from Bio.SeqUtils import GC
 # variables from local
 from . import _fasta_ext
 sys.path.append(os.getcwd())
@@ -22,11 +23,11 @@ from .LibraryTools import OTTable
 def tm(string):
     if isinstance(string, bytes):
         string = string.decode()
-    return MeltingTemp.Tm_NN(string, nn_table=MeltingTemp.DNA_NN4,Na=330)#330 for 2xSSC
+    return MeltingTemp.Tm_NN(string, nn_table=MeltingTemp.DNA_NN4, Na=390) #390mM for 2xSSC, 300mM from NaCl, 90mM from (tri)sodium citrate
 def gc(string):
     if isinstance(string, bytes):
         string = string.decode()
-    return float(string.count('g')+string.count('G')+string.count('c')+string.count('C'))/len(string)
+    return GC(string) / 100.
 
 def str_to_list(var):
     "Converst a string to a list"
@@ -547,10 +548,13 @@ Key information:
                                     if _map_rev_com or _map_two_stranded:
                                         pb_reports[_rc_cand_seq][_map_key]+= _map.get(seqrc(_blk))
                 
-            self.cand_probes = pb_reports
-            self.save_to_file()
+            
             if self.verbose:
                 print(f"in {time.time()-_design_start:.3f}s.")
+        # add to attribute
+        self.cand_probes = pb_reports
+        # save
+        self.save_to_file()
 
     def check_probes(self, _cand_probes=None, _check_dic=None):
         # load candidate probes
@@ -585,20 +589,20 @@ Key information:
                     if isinstance(_check_dic['gc'], list) or isinstance(_check_dic['gc'], tuple):
                         if _info['gc'] > np.max(_check_dic['gc']) or _info['gc'] < np.min(_check_dic['gc']):
                             _check_gc = False
-                            continue 
                     else:
                         if _info['gc'] < _check_dic['gc']:
                             _check_gc = False
-                            continue
                 if 'tm' in _check_dic:
                     if isinstance(_check_dic['tm'], list) or isinstance(_check_dic['tm'], tuple):
                         if _info['tm'] > np.max(_check_dic['tm']) or _info['tm'] < np.min(_check_dic['tm']):
                             _check_tm = False
-                            continue 
                     else:
                         if _info['tm'] < _check_dic['tm']:
                             _check_tm = False
-                            continue
+                if not _check_gc or not _check_tm:
+                    #print(_info['tm'], _check_tm, _info['gc'], _check_gc)
+                    continue
+
                 # calculate map values
                 _map_score_dict = {}
                 _map_check = True
@@ -707,11 +711,6 @@ Key information:
 
         return _sel_reg_pb_dic, _pb_score_dict
 
-                   
-
-
-
-
 
     def load_from_file(self, filename=None, load_probes_only=False):
         "load probes from the report file"
@@ -727,7 +726,6 @@ Key information:
             for key in list(dic_save.keys()):
                 if not load_probes_only or 'probes' in key:
                     setattr(self,key,dic_save[key])
-                    print(key)
                     if key =='kept_probes':
                         print(len(dic_save[key]))
 
@@ -739,7 +737,6 @@ Key information:
                 #internalize paramaters in params_dic
                 for key in list(self.params_dic.keys()):
                     setattr(self,key,self.params_dic[key])
-
             return True
         # otherwise
         else:

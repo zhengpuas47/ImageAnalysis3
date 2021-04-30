@@ -687,6 +687,7 @@ class pb_reports_class:
             else:
                 tm_ch=pb_report['tm']>=dic_check['tm']
         return off_maps and gc_ch and tm_ch
+        
     def perform_check_end(self):
         print("Picking non-overlaping sequences.")
         start = time.time()
