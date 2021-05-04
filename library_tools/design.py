@@ -36,6 +36,14 @@ def str_to_list(var):
     else:
         return var
 
+def find_sub_sequence(string, sub_string):
+    if isinstance(string, bytes):
+        string = string.decode()
+    if isinstance(sub_string, bytes):
+        sub_string = sub_string.decode()    
+    return sub_string.upper() in string.upper()
+
+
 def check_extension(files,extensions=_fasta_ext):
     "Checks if file/(all files in list) have the same extension/extensions"
     _files = str_to_list(files)
@@ -262,19 +270,27 @@ class pb_reports_class:
     def __init__(self,
         sequence_dic={'file':None,'rev_com':False,'two_stranded':False},
         map_dic={'transcriptome':{'file':None,'rev_com':True,'two_stranded':False},
-                'genome':{'file':None,'rev_com':False,'two_stranded':True},
-                'rep_transcriptome':{'file':None,'rev_com':True,'two_stranded':False},
-                'rep_genome':{'file':None,'rev_com':False,'two_stranded':True},
-                'isoforms':{'file':None,'rev_com':True,'force_list':True,'two_stranded':False},
-                'self_sequences':{'file':None,'rev_com':False,'force_list':True,'two_stranded':False}},
+                 'genome':{'file':None,'rev_com':False,'two_stranded':True},
+                 'rep_genome':{'file':None,'rev_com':False,'two_stranded':True},
+                 'isoforms':{'file':None,'rev_com':True,'force_list':True,'two_stranded':False},
+                 'self_sequences':{'file':None,'rev_com':False,'force_list':True,'two_stranded':False}
+                 },
         save_file=None,
-        params_dic={'word_size':17,'pb_len':42,'buffer_len':2,
-                    'auto':False},
-        check_dic={('transcriptome','isoforms'):3,
-                ('genome','self_sequence'):75,
-                'rep_transcriptome':0,'rep_genome':0,
-                'gc':(0.25,0.75),'tm':70},
-        overwrite=False, verbose=True):
+        params_dic={'word_size':17,
+                    'pb_len':40, # 40 mer targeting sequences
+                    'buffer_len':2,
+                    'auto':False,
+                    },
+        check_dic={('transcriptome','isoforms'): 3, # extra hits outside of isoforms
+                   ('genome','self_sequence'): (40-17+1)*2, #  
+                   'rep_genome': 0,
+                   'gc': (0.25,0.75),
+                   'tm': 47+0.61*50+5, 
+                   'masks': ['AAAA','TTTT','CCCC','GGGG', # Quartet-repeats
+                             'GAATTC','CTTAAG', # EcoRI sites
+                             'GGTACC','CCATGG',], # KpnI sites
+                  },
+        debugging=False, overwrite=False, verbose=True):
         """
         Create Probe designer derived from Bogdan Bintu:
         https://github.com/BogdanBintu/ChromatinImaging/blob/master/LibraryDesign/LibraryDesigner.py
@@ -306,6 +322,7 @@ class pb_reports_class:
         self.save_file = save_file
         self.overwrite = overwrite
         self.verbose = verbose 
+        self.debugging = debugging
         # initialize probes
         self.cand_probes = {}
         self.kept_probes = {}
@@ -334,7 +351,6 @@ Key information:
     - save_file location: {self.save_file}
 """
         return _info_str
-
 
     def load_sequence_file(self):
         sequence_file = self.sequence_dic.get('file',None)
@@ -421,6 +437,14 @@ Key information:
         if self.verbose:
             print(f"--- finish {map_key} in {time.time()-_start_time:.3f}s.")
 
+    def release_OTmaps(self,):
+        start = time.time()
+        for key in list(self.map_dic.keys()):
+            if key != 'self_sequences':
+                _map_key = "map_"+key
+                delattr(self, _map_key)
+        print(f"Time to release OTmaps: {time.time()-start:.3f}s. ")
+
     def compute_pb_report(self):
         block = self.word_size
         pb_len = self.pb_len
@@ -439,7 +463,10 @@ Key information:
             if self.verbose:
                 print(f"-- designing region: {_name}", end=' ')
                 _design_start = time.time()
-
+            if len(_seq) <= pb_len:
+                if self.verbose:
+                    print(f"Too short the sequence, skip.")
+                continue
             # compute this input file (fasta) into OTMap
             _input_map_dic = {_k:_v for _k,_v in self.map_dic['self_sequences'].items()}
             _input_map_dic['file'] = _file
@@ -556,7 +583,7 @@ Key information:
         # save
         self.save_to_file()
 
-    def check_probes(self, _cand_probes=None, _check_dic=None):
+    def check_probes(self, _cand_probes=None, _check_dic=None, pick_probe_by_hits=True):
         # load candidate probes
         if _cand_probes is None:
             _cand_probes = getattr(self, 'cand_probes', {})
@@ -602,12 +629,19 @@ Key information:
                 if not _check_gc or not _check_tm:
                     #print(_info['tm'], _check_tm, _info['gc'], _check_gc)
                     continue
-
+                # calculate mask
+                if 'masks' in _check_dic:
+                    # get existence
+                    _mask_exists = [find_sub_sequence(_pb, _str) for _str in _check_dic['masks']]
+                    if np.sum(_mask_exists) > 0:
+                        # skip this probe if masked
+                        #print(f"mask {_mask_exists}")
+                        continue
                 # calculate map values
                 _map_score_dict = {}
                 _map_check = True
                 for _check_key, _thres in _check_dic.items():
-                    if _check_key not in ['gc', 'tm']:
+                    if _check_key not in ['gc', 'tm', 'masks']:
                         if isinstance(_check_key, str):
                             _check_map_key = f"map_{_check_key}"
                             _pb_map_value = _info[_check_map_key]
@@ -655,56 +689,81 @@ Key information:
                     #_pb_score_dict[_pb] = _map_score_dict # debug
                 
             if self.verbose:
-                print(f"--- {len(_sel_reg_pb_dic)} probes passed check_dic, GC and Tm selection.")
-            ## after calculating all scores, selecte the best probes
+                print(f"--- {len(_sel_reg_pb_dic)} probes passed check_dic selection.")
+                
             # initialize kept flag (for two-strands)
             _kept_flags = -1 * np.ones([2, len(_seq)], dtype=np.int)
             _kept_pbs = []
-            
-            # extract probes and scores
+            if pick_probe_by_hits:
+                ## after calculating all scores, selecte the best probes
+                # extract probes and scores
+                _pbs = np.array(list(_sel_reg_pb_dic.keys()))
+                _scores = np.array(list(_pb_score_dict.values()))
+                # calculate unique scores, pick amoung thess good probes
+                _unique_scores = np.unique(_scores)
 
-            _pbs = np.array(list(_sel_reg_pb_dic.keys()))
-            _scores = np.array(list(_pb_score_dict.values()))
-            # calculate unique scores, pick amoung thess good probes
-            _unique_scores = np.unique(_scores)
+                # pick highest-scored probes first:
+                for _s in _unique_scores[::-1]:
+                    # find probes with certain high score:
+                    _indices = np.where(_scores==_s)[0]
+                    _sel_pbs = _pbs[_indices]
+                    _sel_pb_indices = np.array([_sel_reg_pb_dic[_pb]['pb_index'] for _pb in _sel_pbs])
+                    # sort based on pb_index
+                    _sel_pbs = _sel_pbs[np.argsort(_sel_pb_indices)]
+                    _sel_pb_indices = np.array([_sel_reg_pb_dic[_pb]['pb_index'] for _pb in _sel_pbs])
 
-            # pick highest-scored probes first:
-            for _s in _unique_scores[::-1]:
-                # find probes with certain high score:
-                _indices = np.where(_scores==_s)[0]
-                _sel_pbs = _pbs[_indices]
-                _sel_pb_indices = np.array([_sel_reg_pb_dic[_pb]['pb_index'] for _pb in _sel_pbs])
-                # sort based on pb_index
-                _sel_pbs = _sel_pbs[np.argsort(_sel_pb_indices)]
-                _sel_pb_indices = np.array([_sel_reg_pb_dic[_pb]['pb_index'] for _pb in _sel_pbs])
+                    # add these probes into kept pbs if distances premit
+                    for _pb, _ind in zip(_sel_pbs, _sel_pb_indices):
+                        # determine start and end point in kept_flags
+                        _start = _ind
+                        _end = _ind+self.params_dic['pb_len']+self.params_dic['buffer_len']
+                        _occupied_flags = _kept_flags[:, _start:_end]
+                        # determine strand
+                        _info = _sel_reg_pb_dic[_pb]
+                        if _info['strand'] == '+':
+                            _strand = 1
+                        elif _info['strand'] == '-':
+                            _strand = 0
+                        else:
+                            raise ValueError(f"strand information for probe: {_pb} should be either + or -, {_info['strand']} was given.")
+                        # if no probes assigned in the neighborhood, pick this probe:
+                        if (_occupied_flags < 0).all():
+                            # append this probe:
+                            _kept_pbs.append(_pb)
+                            # update the kept_flags
+                            _kept_flags[_strand, _start:_end] = _pb_score_dict[_pb]
 
-                # add these probes into kept pbs if distances premit
-                for _pb, _ind in zip(_sel_pbs, _sel_pb_indices):
+                if self.verbose:
+                    print(f"finish in {time.time()-_check_start:.3f}s, {len(_kept_pbs)} probes kept.")
+                # update kept_probes
+                _kept_pb_indices = np.array([_sel_reg_pb_dic[_pb]['pb_index'] for _pb in _kept_pbs])
+            else:
+                # directly loop through probes
+                for _pb, _info in sorted(_sel_reg_pb_dic.items(), key=lambda v:int(v[1]['pb_index'])):
                     # determine start and end point in kept_flags
-                    _start = _ind
-                    _end = _ind+self.params_dic['pb_len']+self.params_dic['buffer_len']
+                    _start = _info['pb_index']
+                    _end = _start+self.params_dic['pb_len']+self.params_dic['buffer_len']
+                    #print(_start, _end)
                     _occupied_flags = _kept_flags[:, _start:_end]
                     # determine strand
-                    _info = _sel_reg_pb_dic[_pb]
                     if _info['strand'] == '+':
                         _strand = 1
                     elif _info['strand'] == '-':
                         _strand = 0
                     else:
                         raise ValueError(f"strand information for probe: {_pb} should be either + or -, {_info['strand']} was given.")
-                    # if no probes assigned in the neighborhood, pick this probe:
                     if (_occupied_flags < 0).all():
                         # append this probe:
                         _kept_pbs.append(_pb)
                         # update the kept_flags
                         _kept_flags[_strand, _start:_end] = _pb_score_dict[_pb]
                         
+                if self.verbose:
+                    print(f"finish in {time.time()-_check_start:.3f}s, {len(_kept_pbs)} probes kept.")
+                # update kept_probes
+                _kept_pb_indices = np.array([_sel_reg_pb_dic[_pb]['pb_index'] for _pb in _kept_pbs])
 
-            if self.verbose:
-                print(f"finish in {time.time()-_check_start:.3f}s, {len(_kept_pbs)} probes kept.")
-            # update kept_probes
-            _kept_pb_indices = np.array([_sel_reg_pb_dic[_pb]['pb_index'] for _pb in _kept_pbs])
-
+            # append probes for this region/gene
             self.kept_probes.update(
                 {_pb:_sel_reg_pb_dic[_pb] for _pb in np.array(_kept_pbs)[np.argsort(_kept_pb_indices)] }
                 )
