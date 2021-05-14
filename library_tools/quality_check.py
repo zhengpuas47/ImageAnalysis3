@@ -453,7 +453,7 @@ def acquire_blast_counts(blast_record, hard_thres=30, soft_thres=17, verbose=Fal
 
 def Blast_probes(probes, library_folder, blast_subfolder='blast',
                  num_threads=12, blast_db=os.path.join(_genome_folder, 'hg38'),
-                 blast_evalue=500, blast_word_size=10,
+                 blast_evalue=100, blast_word_size=10,
                  overwrite=True, verbose=True):
     """Function to blast probes"""
     ## check inputs

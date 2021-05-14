@@ -391,8 +391,7 @@ Key information:
         force_list = curr_dic.get('force_list',False)
         save_file = curr_dic.get('save_file',None)
         use_kmer = curr_dic.get('use_kmer',True)
-        #rev_com = curr_dic.get('rev_com',False)
-        #two_stranded = curr_dic.get('two_stranded',False)
+        merge = curr_dic.get('merge', False)
 
         if files is not None:
             _files = str_to_list(files)
@@ -411,8 +410,11 @@ Key information:
                 if not force_list:
                     names =[names]
                     seqs = [seqs]
-                OTmaps = [OTmap(seq_,word_size=17,use_kmer=use_kmer,progress_report=False,save_file=save_file)
-                          for seq_ in seqs]
+                if merge:
+                    OTmaps = [OTmap(seqs,word_size=17,use_kmer=use_kmer,progress_report=False,save_file=save_file)]
+                else:
+                    OTmaps = [OTmap(seq_,word_size=17,use_kmer=use_kmer,progress_report=False,save_file=save_file)
+                              for seq_ in seqs]
                 setattr(self,map_key,OTmaps)
             # for pre-existing tables, load
             elif len(_files)==1 and check_extension(files, 'npy'):
@@ -442,7 +444,8 @@ Key information:
         for key in list(self.map_dic.keys()):
             if key != 'self_sequences':
                 _map_key = "map_"+key
-                delattr(self, _map_key)
+                if hasattr(self, _map_key):
+                    delattr(self, _map_key)
         print(f"Time to release OTmaps: {time.time()-start:.3f}s. ")
 
     def compute_pb_report(self):
@@ -757,7 +760,7 @@ Key information:
                         _kept_pbs.append(_pb)
                         # update the kept_flags
                         _kept_flags[_strand, _start:_end] = _pb_score_dict[_pb]
-                        
+
                 if self.verbose:
                     print(f"finish in {time.time()-_check_start:.3f}s, {len(_kept_pbs)} probes kept.")
                 # update kept_probes

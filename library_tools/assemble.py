@@ -242,22 +242,36 @@ def _assemble_single_probe(_target, _readout_list, _fwd_primer, _rev_primer,
 def _assemble_single_probename(_pb_info, _readout_name_list, _pb_id):
     """Assemble one probe name by given probe info
     _pb_info is one of values in pb_designer.pb_reports_keep or pb_designer.kept_probes"""
-    _name = [_pb_info['reg_name'].split('_')[0],
-             'gene_'+_pb_info['reg_name'].split('_')[2],
-             'pb_'+str(_pb_id),
-             'pos_'+str(_pb_info['pb_index']),]
+    # region
+    _name = ['loc']
+    if 'loc_' in _pb_info['reg_name']:
+        _name.append( _pb_info['reg_name'].split('loc_')[1].split('_')[0] )
+    else:
+        _name.append(_pb_info['reg_name'].split('_')[0])
+    # gene
+    if 'gene_' in _pb_info['reg_name']:
+        _name.extend(['gene', _pb_info['reg_name'].split('gene_')[1].split('_')[0]])
+    # gene
+    elif 'reg_' in _pb_info['reg_name']:
+        _name.extend(['gene', _pb_info['reg_name'].split('reg_')[1].split('_')[0]])
+    # pb_index
+    _name.extend(['pb', str(_pb_id)])
+    # probe position
+    _name.extend(['pos', str(_pb_info['pb_index'])])
     # if strand specified, add
     if 'strand' in _pb_info:
-        _name.append('strand_'+str(_pb_info['strand']))
+        _name.extend( ['strand', str(_pb_info['strand'])] )
     # append readout
-    _name.append('readouts_[' + ','.join(_readout_name_list) + ']')
+    _name.extend( ['readouts', '[' + ','.join(_readout_name_list) + ']'] )
              
     return '_'.join(_name)
 
 # function to assemble probes in the whole library
-def Assemble_probes(library_folder, probe_source, gene_readout_dict, readout_dict, primers,
+def Assemble_probes(library_folder, probe_source, gene_readout_dict, 
+                    readout_dict, primers,
                     rc_targets=False, add_rand_gap=0,
                     primer_len=20, readout_len=20, target_len=42,
+                    num_readout_per_probe=None, unique_readout_per_probe=False,
                     save=True, save_name='candidate_probes.fasta', save_folder=None,
                     overwrite=True, verbose=True):
     """Function to Assemble_probes by given probe_soruce, gene_readout_dict, readout_dict and primers,
@@ -269,6 +283,11 @@ def Assemble_probes(library_folder, probe_source, gene_readout_dict, readout_dic
         primers: list of two SeqRecords for forward and reverse primers, list of SeqRecords
         rc_targets: whether reverse-complement target sequences, bool (default: False)
         add_rand_gap: number of random sequence added between readout biding sites, int (default: 0)
+        primer_len: length of primer sequence, int (default: 20)
+        readout_len: length of each readout-binding site, int (default: 20)
+        target_len: length of targeting region, int (default: 42)
+        num_readout_per_probe: number of readouts in individual probes, int (default: None, all readouts given in gene_readout_dict)
+        unique_readout_per_probe: whether individual probe has only one unique readout, bool (default: False)
         save: whether save result probes as fasta, bool (default: True)
         save_name: file basename of saved fasta file, str (default: 'candidate_probes.fasta')
         save_folder: folder for saved fasta file, str (default: None, which means library_folder)
@@ -316,6 +335,13 @@ def Assemble_probes(library_folder, probe_source, gene_readout_dict, readout_dic
                     raise KeyError(f"{_mk[0]} type readout is not included in readout_dict")
     if verbose:
         print(f"-- included readout types: {_readout_types}")
+    # check number of readouts_per_probe
+    if num_readout_per_probe is None:
+        _num_readouts = None
+    else:
+        _num_readouts = int(num_readout_per_probe)
+    _unique_readout_pb = bool(unique_readout_per_probe)
+    # check savefile
     if save_folder is None:
         save_folder = library_folder
         if not os.path.exists(save_folder):
@@ -345,32 +371,50 @@ def Assemble_probes(library_folder, probe_source, gene_readout_dict, readout_dic
                 readout_summary[_type][_reg_name].append(_sel_readout)
 
         if isinstance(_pb_obj, ld.pb_reports_class):
-            if hasattr(_pb_obj, 'pb_reports_keep'):
-                _probe_dict = getattr(_pb_obj, 'pb_reports_keep')
-            elif hasattr(_pb_obj, 'kept_probes'):
+            # new version of probe_designer
+            if hasattr(_pb_obj, 'kept_probes'):
                 _probe_dict = getattr(_pb_obj, 'kept_probes')
+            # old version of probe_designer
+            elif hasattr(_pb_obj, 'pb_reports_keep'):
+                _probe_dict = getattr(_pb_obj, 'pb_reports_keep')
             else:
                 raise AttributeError('No probe attribute exists.')
 
             if verbose:
                 print(f"--- assemblying {len(_probe_dict)} probes in region: {_reg_name}")
+            # loop through probes
             for _i, (_seq, _info) in enumerate(_probe_dict.items()):
                 if isinstance(_seq, bytes):
                     _seq = _seq.decode()
                 if rc_targets:
-                    _target = SeqRecord(
-                        Seq(_seq), id=_info['name']).reverse_complement()
+                    _target = SeqRecord(Seq(_seq), id=_info['name']).reverse_complement()
                 else:
                     _target = SeqRecord(Seq(_seq), id=_info['name'])
-                #print([_r.id for _r in _reg_readouts], _sel_readout.id)
-
-                _probe = _assemble_single_probe(_target, _reg_readouts, fwd_primer, rev_primer,
+                # decide readout used in this probe
+                if _num_readouts is None:
+                    if _unique_readout_pb:
+                        _pb_readouts = [_reg_readouts[_i%len(_reg_readouts)]] * len(_reg_readouts)
+                        _pb_readout_names = [_reg_readout_names[_i%len(_reg_readouts)]] * len(_reg_readouts)
+                    else:
+                        _pb_readouts = _reg_readouts
+                        _pb_readout_names = _reg_readout_names
+                else:
+                    if _unique_readout_pb:
+                        _pb_readouts = [_reg_readouts[_i%len(_reg_readouts)]] * _num_readouts
+                        _pb_readout_names = [_reg_readout_names[_i%len(_reg_readouts)]] * _num_readouts
+                    else:
+                        _pb_readouts = [_rd for _j, _rd in enumerate(_reg_readouts) if (_j+_i)%len(_reg_readouts) < _num_readouts ]
+                        _pb_readout_names = [_name for _j, _name in enumerate(_reg_readout_names) if (_j+_i)%len(_reg_readouts) < _num_readouts ]
+                
+                # Assemble the probe
+                _probe = _assemble_single_probe(_target, _pb_readouts, fwd_primer, rev_primer,
                                                 _primer_len=primer_len, _readout_len=readout_len, 
                                                 _target_len=target_len, _add_rand_gap=add_rand_gap)
-                _name = _assemble_single_probename(_info, _reg_readout_names, _i)
+                _name = _assemble_single_probename(_info, _pb_readout_names, _i)
                 _probe.id = _name
                 _probe.name, _probe.description = '', ''
                 cand_probes.append(_probe)
+    
         elif isinstance(_pb_obj, list):
             if verbose:
                 print( f"--- assemblying {len(_pb_obj)} probes in region: {_reg_name}")
@@ -381,12 +425,30 @@ def Assemble_probes(library_folder, probe_source, gene_readout_dict, readout_dic
                     _target = SeqRecord(Seq(_info['sequence'])).reverse_complement()
                 else:
                     _target = SeqRecord(Seq(_info['sequence']))
-                # probe
-                _probe = _assemble_single_probe(_target, _reg_readouts, fwd_primer, rev_primer,
-                                                _add_rand_gap=add_rand_gap)
-                _name = _info['region']+'_gene_'+_info['gene']+'_pb_'+str(_i) +\
-                       '_pos_'+str(_info['position'])+'_readouts_[' + \
-                       ','.join(_reg_readout_names) + ']'
+                # decide readout used in this probe
+                if _num_readouts is None:
+                    if _unique_readout_pb:
+                        _pb_readouts = [_reg_readouts[_i%len(_reg_readouts)]] * len(_reg_readouts)
+                        _pb_readout_names = [_reg_readout_names[_i%len(_reg_readouts)]] * len(_reg_readouts)
+                    else:
+                        _pb_readouts = _reg_readouts
+                        _pb_readout_names = _reg_readout_names
+                else:
+                    if _unique_readout_pb:
+                        _pb_readouts = [_reg_readouts[_i%len(_reg_readouts)]] * _num_readouts
+                        _pb_readout_names = [_reg_readout_names[_i%len(_reg_readouts)]] * _num_readouts
+                    else:
+                        _pb_readouts = [_rd for _j, _rd in enumerate(_reg_readouts) if (_j+_i)%len(_reg_readouts) < _num_readouts ]
+                        _pb_readout_names = [_name for _j, _name in enumerate(_reg_readout_names) if (_j+_i)%len(_reg_readouts) < _num_readouts ]
+                
+                # Assemble the probe
+                _probe = _assemble_single_probe(_target, _pb_readouts, fwd_primer, rev_primer,
+                                                _primer_len=primer_len, _readout_len=readout_len, 
+                                                _target_len=target_len, _add_rand_gap=add_rand_gap)
+                _name = _assemble_single_probename(_info, _pb_readout_names, _i)
+                #_name = _info['region']+'_gene_'+_info['gene']+'_pb_'+str(_i) +\
+                #       '_pos_'+str(_info['position'])+'_readouts_[' + \
+                #       ','.join(_pb_readout_names) + ']'
                 _probe.id = _name
                 _probe.name, _probe.description = '', ''
                 cand_probes.append(_probe)
