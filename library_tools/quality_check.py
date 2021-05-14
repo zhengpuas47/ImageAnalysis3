@@ -130,10 +130,11 @@ def _check_region_size(pb_records, species_marker='gene_', min_size=24, verbose=
         else:
             _probe_num_dic[_reg_id] += 1  # otherwise, add count
     for _reg_id, _reg_size in _probe_num_dic.items():
-        if _reg_size <= min_size:
+        if _reg_size < min_size:
             _size_marker = False
         if verbose:
             print(f"{species_marker.split('_')[0]}: {_reg_id} -> {_reg_size}")
+
     return _probe_num_dic, _size_marker
 
 # check number of readouts used for each region/speciespo
@@ -151,8 +152,8 @@ def _check_region_to_readouts(pb_records, readout_dict,
             'Stv_([0-9]+?)_[a-z\]|,]', record.id, re.DOTALL)
         ndb_matches = re.findall(
             'NDB_([0-9]+?)_[a-z\]|,]', record.id, re.DOTALL)
-        stv_names = ['Stv_'+str(stv_id) for stv_id in stv_matches]
-        ndb_names = ['NDB_'+str(ndb_id) for ndb_id in ndb_matches]
+        stv_names = ['Stv_'+str(stv_id) for stv_id in np.unique(stv_matches)]
+        ndb_names = ['NDB_'+str(ndb_id) for ndb_id in np.unique(ndb_matches)]
         if reg_id not in _reg_to_barcode:
             _reg_to_barcode[reg_id] = stv_names+ndb_names
         else:
@@ -333,7 +334,7 @@ def _construct_internal_map(pb_records, library_folder, word_size=17, save=True,
     # initialize internal map
     _full_savename = os.path.join(
         library_folder, save_filename)+'_'+str(word_size)
-    _int_map = ld.countTable(save_file=_full_savename, word=word_size)
+    _int_map = design.countTable(save_file=_full_savename, word=word_size)
     # feed in sequences
     for _record in pb_records:
         _int_map.consume(str(_record.seq))
@@ -480,7 +481,7 @@ def Blast_probes(probes, library_folder, blast_subfolder='blast',
     # loop through each gene and do blast
     for _gene, _pbs in sorted(pb_dic.items()):
         if verbose:
-            print(f"--- processing region: {_gene} with {len(_pbs)} probes")
+            print(f"-- processing region: {_gene} with {len(_pbs)} probes")
             _start = time.time()
         _infile = os.path.join(blast_folder, f'probe_gene_{_gene}.fasta')
         _outfile = os.path.join(blast_folder, f'blast_gene_{_gene}.xml')
@@ -492,7 +493,7 @@ def Blast_probes(probes, library_folder, blast_subfolder='blast',
                 SeqIO.write(_pbs, _output_handle, "fasta")
             # blast
             if verbose:
-                print(f"-- *blasting region: {_gene}")
+                print(f"--- *blasting region: {_gene}")
             # Run BLAST and parse the output as XML
             output = NcbiblastnCommandline(query=_infile,
                                            num_threads=num_threads,
@@ -502,8 +503,7 @@ def Blast_probes(probes, library_folder, blast_subfolder='blast',
                                            out=_outfile,
                                            outfmt=5)()[0]
             if verbose:
-                print(
-                    f"--- total time for blast {_gene}: {time.time()-_start}")
+                print(f"--- total time for blast {_gene}: {time.time()-_start}")
                     
 # screen blast results
 def Screening_Probes_by_Blast(library_folder, probe_per_region, keep_mode='center', 
