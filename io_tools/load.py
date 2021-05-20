@@ -390,7 +390,7 @@ def correct_fov_image(dax_filename, sel_channels,
         if 'align_image' not in locals():
             from ..correction_tools.alignment import align_image
         # update drift_args
-        _updated_drift_args = {_k:_v for _k,_v in drift_args}
+        _updated_drift_args = {_k:_v for _k,_v in drift_args.items()}
         _updated_drift_args.update({
             'all_channels': all_channels,
             'ref_all_channels': all_channels,
