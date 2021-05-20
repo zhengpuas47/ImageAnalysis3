@@ -10,6 +10,7 @@ from Bio.Blast.Applications import NcbiblastnCommandline
 from Bio.Blast import NCBIXML
 # import library designer
 from . import LibraryDesigner as ld
+from . import design
 from .LibraryTools import fastaread, fastawrite, fastacombine
 from . import _primer_folder, _readout_folder, _genome_folder
 def __init__():
@@ -205,7 +206,7 @@ def _parsing_probe_sequence(record, add_rand_gap=0, primer_len=20, readout_len=2
         raise ValueError(
             "Length of probe doesn't match given element length! ")
     # trim readouts in the front
-    for i in range(int(np.ceil(_readout_num/2))):
+    for _i in range(int(_readout_num/2)):
         readout_list.append(_main_seq[:readout_len].reverse_complement())
         _main_seq = _main_seq[(readout_len+add_rand_gap):]
     # trim all readouts from the beginning
@@ -253,13 +254,14 @@ def _finding_readout_name(readout_list, readout_dict, readout_len=20,
         else:
             _match_site = _site
         for readout in _all_readouts:
-            
             if readout.seq[-readout_len:] == _match_site:
                 _name_list.append(readout.id)
                 break
     # check
     if len(_name_list) != probe_readout_num:
-        print("-- Number of readouts on this probe doesn't match")
+        print(f"-- Number of readouts on this probe doesn't match, {len(_name_list)} detected, {probe_readout_num} expected.")
+        print(_name_list)
+        print(readout_list)
         return False
     return _name_list
 
@@ -366,8 +368,7 @@ def _check_readout_in_probes(readout_to_reg, reg_size_dic, int_map,
                 break
         if readout is None:
             return False
-        readout_hits = int_map.get(
-            str(readout.seq[-readout_len:].reverse_complement()).upper())
+        readout_hits = int_map.get(str(readout.seq[-readout_len:].reverse_complement()).upper().encode())
         regs, reg_cts = np.unique(regs, return_counts=True)
         readout_in_probe = 0
         for reg, ct in zip(regs, reg_cts):
@@ -394,7 +395,7 @@ def _check_between_probes(pb_records, int_map, _max_internal_hits=50,
     _kept_pb_records = []
     _removed_count = 0
     for record in pb_records:
-        target_seq = str(__extract_targeting_sequence(record)).upper()
+        target_seq = str(__extract_targeting_sequence(record)).upper().encode()
         _rec_hits = int_map.get(target_seq) + int_map.get(target_seq, rc=True)
         _internal_hits.append(_rec_hits) 
         if _rec_hits <= _max_internal_hits:
@@ -580,7 +581,7 @@ def Screening_Probes_by_Blast(library_folder, probe_per_region, keep_mode='cente
         if sum(_keep_dic[_reg]) > probe_per_region:
             if keep_mode == 'center':
                 if verbose:
-                    print("--- keep probes from beginning")
+                    print("--- keep probes in the center")
                 _start, _end = _pbs[0].id.split(
                     ':')[1].split('_')[0].split('-')
                 _start, _end = int(_start), int(_end)
