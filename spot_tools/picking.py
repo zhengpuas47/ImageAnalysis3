@@ -2341,3 +2341,8 @@ def convert_spots_to_hzxys(spot_list, pix_size=_distance_zxy, normalize_spot_bac
                 raise IndexError(f"_spots should be 1d or 2d array.")
     return _hzxys_list
 
+
+# pick spots within a given mask
+def selelct_spots_in_mask(spots, binary_mask, interpolation='nearest'):
+    """Function to select spots within a certain mask"""
+    _mask = np.array(binary_mask>0)

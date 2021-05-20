@@ -3,6 +3,12 @@ import numpy as np
 from .. import _allowed_colors, _image_size, _num_buffer_frames, _num_empty_frames, _image_dtype
 from .. import _correction_folder
 
+def _find_boundary(_ct, _radius, _im_size):
+    _bds = []
+    for _c, _sz in zip(_ct, _im_size):
+        _bds.append([max(_c-_radius, 0), min(_c+_radius, _sz)])
+    
+    return np.array(_bds, dtype=np.int)
 
 def generate_drift_crops(single_im_size=_image_size, coord_sel=None, drift_size=None):
     """Function to generate drift crop from a selected center and given drift size
@@ -22,35 +28,35 @@ def generate_drift_crops(single_im_size=_image_size, coord_sel=None, drift_size=
     if drift_size is None:
         drift_size = int(np.max(_single_im_size)/3)
         
+    # generate crop centers
+    crop_cts = [
+        np.array([coord_sel[-3]/2, 
+                  coord_sel[-2]/2, 
+                  coord_sel[-1]/2,]),
+        np.array([coord_sel[-3]/2, 
+                  (coord_sel[-2]+_single_im_size[-2])/2, 
+                  (coord_sel[-1]+_single_im_size[-1])/2,]),
+        np.array([coord_sel[-3]/2, 
+                  (coord_sel[-2]+_single_im_size[-2])/2, 
+                  coord_sel[-1]/2,]),
+        np.array([coord_sel[-3]/2, 
+                  coord_sel[-2]/2, 
+                  (coord_sel[-1]+_single_im_size[-1])/2,]),
+        np.array([coord_sel[-3]/2, 
+                  coord_sel[-2], 
+                  coord_sel[-1]/2,]),
+        np.array([coord_sel[-3]/2, 
+                  coord_sel[-2], 
+                  (coord_sel[-1]+_single_im_size[-1])/2,]),
+        np.array([coord_sel[-3]/2, 
+                  coord_sel[-2]/2, 
+                  coord_sel[-1],]),
+        np.array([coord_sel[-3]/2, 
+                  (coord_sel[-2]+_single_im_size[-2])/2, 
+                  coord_sel[-1],]),                               
+    ]
     # generate boundaries
-    crop_0_bds = np.array([[0, _single_im_size[0]],
-                           [0, coord_sel[-2]],
-                           [0, coord_sel[-1]],
-                          ], dtype=np.int)
-    crop_1_bds = np.array([[0, _single_im_size[0]],
-                           [0, coord_sel[-2]],
-                           [coord_sel[-1], _single_im_size[-1]],
-                          ], dtype=np.int)
-    crop_2_bds = np.array([[0, _single_im_size[0]],
-                           [coord_sel[-2], _single_im_size[-2]],
-                           [0, coord_sel[-1]],
-                          ], dtype=np.int)
-    crop_3_bds = np.array([[0, _single_im_size[0]],
-                           [coord_sel[-2], _single_im_size[-2]],
-                           [coord_sel[-1], _single_im_size[-1]],
-                          ], dtype=np.int)
-    # generate crops
-    crops = []
-    for _bd in [crop_0_bds, crop_1_bds, crop_2_bds, crop_3_bds]:
-        _ct = np.mean(_bd, axis=1).astype(np.int)
-        
-        _crop = np.array([_bd[0],
-                      [max(_ct[-2]-drift_size/2, _bd[-2,0]), 
-                       min(_ct[-2]+drift_size/2, _bd[-2,1])],
-                      [max(_ct[-1]-drift_size/2, _bd[-1,0]), 
-                       min(_ct[-1]+drift_size/2, _bd[-1,1])], 
-                     ], dtype=np.int)
-        crops.append(_crop)
+    crops = [_find_boundary(_ct, _radius=drift_size/2, _im_size=single_im_size) for _ct in crop_cts]
         
     return np.array(crops)
 
@@ -590,7 +596,7 @@ def align_image(
         _src_im = src_im
         if np.shape(_src_im) != tuple(_correction_args['single_im_size']):
             _size = tuple(_correction_args['single_im_size'])
-            raise IndexError(f"shape of target image:{np.shape(_ref_im)} and single_im_size:{_size} doesnt match!")
+            raise IndexError(f"shape of target image:{np.shape(_src_im)} and single_im_size:{_size} doesnt match!")
     elif isinstance(src_im, str):
         if verbose:
             print(f"-- start aligning file {src_im}.", end=' ')
@@ -631,18 +637,19 @@ def align_image(
         _s = tuple([slice(*np.array(_c,dtype=np.int)) for _c in _crop])
         _crop_src_ims.append(_src_im[_s])
         _crop_ref_ims.append(_ref_im[_s])
-        
     ## align two images
     _drifts = []
     for _i, (_sim, _rim) in enumerate(zip(_crop_src_ims, _crop_ref_ims)):
         _start_time = time.time()
         if use_autocorr:
-            if verbose:
+            if detailed_verbose:
                 print("--- use auto correlation to calculate drift.")
             # calculate drift with autocorr
-            _dft, _error, _phasediff = phase_cross_correlation(_sim, _rim, 
-                                                            upsample_factor=precision_fold)
+            _dft, _error, _phasediff = phase_cross_correlation(_rim, _sim, 
+                                                               upsample_factor=precision_fold)
         else:
+            if detailed_verbose:
+                print("--- use beads fitting to calculate drift.")
             # source
             _src_spots = fit_fov_image(_sim, _drift_channel, 
                 verbose=detailed_verbose,
@@ -665,8 +672,9 @@ def align_image(
                 return_paired_cts=True,
                 verbose=detailed_verbose,
             )
+            _dft = _dft * -1 # beads center is the opposite as cross correlation
         # append
-        _drifts.append(_dft)
+        _drifts.append(_dft) 
         if verbose:
             print(f"--- align image {_i} in {time.time()-_start_time:.3f}s.")
             if detailed_verbose:
@@ -680,7 +688,7 @@ def align_image(
             if len(_kept_drift_inds) >= min_good_drifts:
                 _updated_mean_dft = np.nanmean(np.array(_drifts)[_kept_drift_inds], axis=0)
                 if detailed_verbose:
-                    print(f"--- drifts for {_kept_drift_inds} pass the thresold, exit cycle.")
+                    print(f"--- drifts for crops:{_kept_drift_inds} pass the thresold, exit cycle.")
                 break
     
     if '_updated_mean_dft' not in locals():

@@ -2,6 +2,9 @@
 #Date: 6/3/2019
 # Fitting tools
 import numpy as np
+import pyfftw
+from pyfftw.interfaces.numpy_fft import rfftn,irfftn
+from scipy import fftpack
 
 #gaussian functions
 from scipy import signal
@@ -38,9 +41,7 @@ def best_rotation(zns_zxy,zos_zxy):
     #np.dot(R,zns_zxy)+t==zos_zxy
     return t,R
 
-import pyfftw
-from pyfftw.interfaces.numpy_fft import rfftn,irfftn
-from scipy import fftpack
+
 def _centered(arr, newshape):
     # Return the center newshape portion of the array.
     newshape = np.asarray(newshape)
