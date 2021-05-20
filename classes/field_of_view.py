@@ -33,7 +33,8 @@ class Field_of_View():
 
     """
     def __init__(self, parameters, 
-                 _fov_id=None, _fov_name=None,
+                 _fov_id=None, _fov_name=None, 
+                 _parallel=True,
                  _color_info_kwargs={},
                  _save_filename=None, 
                  _savefile_kwargs={},
@@ -42,16 +43,22 @@ class Field_of_View():
                  _load_correction=True,
                  _load_segmentation=True, 
                  _prioritize_saved_attrs=True,
+                 _force_initialize_savefile=False, 
                  _save_info_to_file=True, 
+                 _debug=False, 
                  _verbose=True,
                  ):
         ## Initialize key attributes:
+        self.verbose = _verbose
+        self.debug = _debug
         #: attributes for unprocessed images:
 
         # correction profiles 
         self.correction_profiles = {'bleed':None,
                                     'chromatic':{},
                                     'illumination':{},}
+        # parallel
+        self.parallel = bool(_parallel)
         # drifts
         self.drift = {}
         # rotations
@@ -219,16 +226,18 @@ class Field_of_View():
             self.shared_parameters['max_num_seeds'] = _max_num_seeds
         if 'min_num_seeds' not in self.shared_parameters:
             self.shared_parameters['min_num_seeds'] = _min_num_seeds
-        if 'drift_use_fft' not in self.shared_parameters:
-            self.shared_parameters['drift_use_fft'] = True 
+        if 'drift_use_autocorr' not in self.shared_parameters:
+            self.shared_parameters['drift_use_autocorr'] = True 
         if 'drift_sequential' not in self.shared_parameters:
             self.shared_parameters['drift_sequential'] = False 
         if 'good_drift_th' not in self.shared_parameters:
             self.shared_parameters['good_drift_th'] = 1. 
-        if 'drift_precision_fold' not in self.shared_parameters:
-            self.shared_parameters['drift_precision_fold'] = 100 # 0.01 pixel precision
-        if 'drift_correction_args' not in self.shared_parameters:
-            self.shared_parameters['drift_correction_args'] = {} # use defaults for drift
+        if 'drift_args' not in self.shared_parameters:
+            self.shared_parameters['drift_args'] = {
+                'precision_fold': 100, # 0.01 pixel sampling
+                'min_good_drifts': 3, # at least 3 drifts calculated
+                'drift_diff_th': 1., # difference between drifts within 1 pixel
+            } # use defaults for drift
             
         # param for spot_finding
         if 'spot_seeding_th' not in self.shared_parameters:
@@ -263,7 +272,7 @@ class Field_of_View():
         self.save_filename = _save_filename
     
         # if savefile already exists, load attributes from it        
-        if os.path.isfile(self.save_filename):
+        if os.path.isfile(self.save_filename) and not _force_initialize_savefile:
             _new_savefile = False 
             # load attributes
             if _load_fov_info:
@@ -287,8 +296,9 @@ class Field_of_View():
                     _load_from_savefile_first=False,
                     _verbose=_verbose)
             if _load_segmentation:
+                ### REQUIRES DEVELOPMENT###
                 pass 
-
+            # create savefile
             self._init_save_file(_save_filename=_save_filename, 
                                  **_savefile_kwargs)                        
         # if decided to overwrite savefile info with what this initiation gives, do it:
@@ -364,10 +374,12 @@ class Field_of_View():
         # acquire valid types
         _type_dic = _color_dic_stat(self.color_dic, 
                                     self.channels, 
-                                    self.shared_parameters['allowed_data_types']
+                                    self.shared_parameters['allowed_data_types'],
                                    )
+        print(_type_dic.keys())
         # create
         for _type, _dict in _type_dic.items():
+            print(f'save type: {_type}"')
             self._save_to_file(_type, _overwrite=_overwrite, _verbose=_verbose)
         
         return
@@ -467,7 +479,12 @@ class Field_of_View():
                                 if _chromatic_constants_key in _grp:
                                     _info_dict= {}
                                     for _key in _grp[_chromatic_constants_key].keys():
-                                        _info_dict[_key] = _grp[_chromatic_constants_key][_key][:]
+                                        if _key == 'constants':
+                                            _saved_consts = _grp[_chromatic_constants_key][_key][:]
+                                            _consts = [_row[np.isnan(_row)==False] for _row in _saved_consts]
+                                            _info_dict[_key] = _consts
+                                        else:
+                                            _info_dict[_key] = _grp[_chromatic_constants_key][_key][:]
                                     # append
                                     if len(_info_dict) > 0:
                                         _pf_dict[str(_ch)] = _info_dict
@@ -597,8 +614,6 @@ class Field_of_View():
                     _key = str(_ch)+"_chromatic_constants"
 
                     # create dataset
-
-
                     if _key not in _grp.keys():
                         _dat = _grp.create_group(_key)
                     elif _overwrite:
@@ -613,9 +628,16 @@ class Field_of_View():
                             # write updating keys
                             if _k not in _dat.keys():
                                 _updated_info.append(_k)
-                                _info = _dat.create_dataset(_k, 
-                                                            np.shape(np.array(_v)), dtype='f')
-                                _info[:] = np.array(_v)
+                                if np.array(_v).dtype == 'O':
+                                    _size = max([len(_row) for _row in _v])
+                                    _save_consts = np.ones([len(_v), _size]) * np.nan
+                                    for _irow, _row in enumerate(_v):
+                                        _save_consts[_irow, :len(_row)] = _row
+                                    _info = _dat.create_dataset(_k, np.shape(_save_consts), dtype='f')
+                                    _info[:] = _save_consts
+                                else:
+                                    _info = _dat.create_dataset(_k, np.shape(np.array(_v)), dtype='f')
+                                    _info[:] = np.array(_v)
                     if _verbose:
                         if len(_updated_info) > 0:
                             print(f"-- saving {_key} profile with {_updated_info} to save_file: {self.save_filename}.")
@@ -913,8 +935,8 @@ class Field_of_View():
         # required parameters for drift correction
         _drift_args.update({
             'drift_channel': self.channels[self.bead_channel_index],
-            'precision_fold': self.shared_parameters['drift_precision_fold'],
-            'drift_correction_args': self.shared_parameters['drift_correction_args'],
+            'use_autocorr': self.shared_parameters['drift_use_autocorr'],
+            'drift_args': self.shared_parameters['drift_args'],
         })
         # required parameters for fitting
         _fitting_args.update({

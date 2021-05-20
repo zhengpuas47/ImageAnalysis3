@@ -170,7 +170,7 @@ def correct_fov_image(dax_filename, sel_channels,
                       num_buffer_frames=10, num_empty_frames=0, 
                       drift=None, calculate_drift=False, 
                       drift_channel='488', ref_filename=None,  
-                      precision_fold=100, drift_correction_args={},
+                      use_autocorr=True, drift_args={},
                       corr_channels=_corr_channels, correction_folder=_correction_folder,
                       warp_image=True, 
                       hot_pixel_corr=True, hot_pixel_th=4, z_shift_corr=False,
@@ -387,22 +387,30 @@ def correct_fov_image(dax_filename, sel_channels,
         if verbose:
             print(f"-- apply bead_drift calculate for channel: {_drift_channel}")
             _drift_time = time.time()
-        if 'cross_correlation_align_single_image' not in locals():
-            from ..correction_tools.alignment import cross_correlation_align_single_image
-        _drift, _error, _diff = cross_correlation_align_single_image(
+        if 'align_image' not in locals():
+            from ..correction_tools.alignment import align_image
+        # update drift_args
+        _updated_drift_args = {_k:_v for _k,_v in drift_args.items()}
+        _updated_drift_args.update({
+            'all_channels': all_channels,
+            'ref_all_channels': all_channels,
+            'drift_channel': drift_channel,
+        })
+        _drift_corr_args = {
+            'single_im_size': single_im_size,
+            'num_buffer_frames':num_buffer_frames,
+            'num_empty_frames':num_empty_frames,
+            'correction_folder':correction_folder,
+        }
+        _drift = align_image(
             _ims[_load_channels.index(_drift_channel)],
-            ref_filename, precision_fold=precision_fold,
-            all_channels=all_channels,
-            ref_all_channels=all_channels, 
-            drift_channel=_drift_channel,
-            single_im_size=single_im_size,
-            num_buffer_frames=num_buffer_frames,
-            num_empty_frames=num_empty_frames,
-            correction_folder=correction_folder, 
-            correction_args=drift_correction_args,
-            return_all=True,
-            verbose=verbose, detailed_verbose=False)
-
+            ref_filename, 
+            use_autocorr=use_autocorr, 
+            correction_args=_drift_corr_args,
+            verbose=verbose,
+            **_updated_drift_args,
+        )
+        
         if verbose:
             print(f"--- finish drift in {time.time()-_drift_time:.3f}s")
             print(f"-- drift: {_drift}")

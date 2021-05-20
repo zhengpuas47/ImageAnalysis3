@@ -27,10 +27,30 @@ _bleedthrough_default_correction_args = {
     'chromatic_corr':False,
 }
 
-_bleedthrough_default_fitting_args = {'max_num_seeds':1000,
-    'th_seed': 500,
+_bleedthrough_default_fitting_args = {
+    'max_num_seeds':500,
+    'th_seed': 300,
     'use_dynamic_th':True,
 }
+
+def check_bleedthrough_info(
+    _info, 
+    _rsq_th=0.81, _intensity_th=150., 
+    _check_center_position=True, _center_radius=1.):
+    """Function to check one bleedthrough pair"""
+    if _info['rsquare'] < _rsq_th:
+        return False
+    elif 'spot' in _info and _info['spot'][0] < _intensity_th:
+        return False
+    elif _check_center_position:
+        _max_inds = np.array(np.unravel_index(np.argmax(_info['ref_im']), np.shape(_info['ref_im'])))
+        _im_ct_inds = (np.array(np.shape(_info['ref_im']))-1)/2
+        if (_max_inds < _im_ct_inds-_center_radius).all() or (_max_inds > _im_ct_inds+_center_radius).all():
+            return False
+
+    return True
+
+
 
 def find_bleedthrough_pairs(filename, channel,
                             corr_channels=_bleedthrough_channels,
@@ -38,6 +58,7 @@ def find_bleedthrough_pairs(filename, channel,
                             fitting_args=_bleedthrough_default_fitting_args, 
                             intensity_th=1.,
                             crop_size=9, rsq_th=0.81, 
+                            check_center_position=True,
                             save_temp=True, save_name=None,
                             overwrite=True, verbose=True,
                             ):
@@ -59,7 +80,11 @@ def find_bleedthrough_pairs(filename, channel,
             _temp_filename = os.path.join(os.path.dirname(filename), _basename)
             if os.path.isfile(_temp_filename) and not overwrite:
                 _infos = pickle.load(open(_temp_filename, 'rb'))
-                _kept_infos = [_info for _info in _infos if _info['rsquare'] >= rsq_th]
+                _kept_infos = [_info for _info in _infos 
+                    if check_bleedthrough_info(_info, _rsq_th=rsq_th, 
+                                               _intensity_th=intensity_th, 
+                                               _check_center_position=check_center_position)]
+
                 _info_dict[f"{_channel}_to_{_ch}"] = _kept_infos
                 _load_flags.append(1)
             else:
@@ -85,7 +110,7 @@ def find_bleedthrough_pairs(filename, channel,
     _ref_spots = fit_fov_image(_ref_im, _channel, #normalize_background=True,
                                **fitting_args, verbose=verbose)
     # threshold intensities
-    _ref_spots = _ref_spots[_ref_spots[:,0] >= intensity_th]
+    #_ref_spots = _ref_spots[_ref_spots[:,0] >= intensity_th]
     ## crop
     for _ch, _im in zip(_tar_channels, _tar_ims):
         _key = f"{_channel}_to_{_ch}"
@@ -105,6 +130,7 @@ def find_bleedthrough_pairs(filename, channel,
 
             _info = {
                 'coord': _spot[1:4],
+                'spot': _spot,
                 'ref_im': _rim,
                 'bleed_im': _cim,
                 'rsquare': _rsq,
@@ -132,7 +158,11 @@ def find_bleedthrough_pairs(filename, channel,
     # only return the information with rsquare large enough
     _kept_info_dict = {_key:[] for _key in _info_dict}
     for _key, _infos in _info_dict.items():
-        _kept_info_dict[_key] = [_info for _info in _infos if _info['rsquare']>= rsq_th]
+        _kept_infos = [_info for _info in _infos 
+            if check_bleedthrough_info(_info, _rsq_th=rsq_th, 
+                                        _intensity_th=intensity_th, 
+                                        _check_center_position=check_center_position)]
+        _kept_info_dict[_key] = _kept_infos
 
     return _kept_info_dict
 
@@ -206,7 +236,7 @@ def interploate_bleedthrough_correction_from_channel(
     check_info=True, check_params={},
     max_num_spots=1000, min_num_spots=100, 
     single_im_size=_image_size, ref_center=None,
-    fitting_order=2, 
+    fitting_order=2, allow_intercept=True,
     save_temp=True, save_folder=None, 
     make_plots=True, save_plots=True,
     overwrite=False, verbose=True,
@@ -325,8 +355,8 @@ def Generate_bleedthrough_correction(bleed_folders,
                                      correction_args={'single_im_size':_image_size,
                                                       'illumination_corr':False,
                                                       'chromatic_corr':False},
-                                     fitting_args={}, intensity_th=1.,
-                                     crop_size=9, rsq_th=0.81, 
+                                     fitting_args={}, intensity_th=150.,
+                                     crop_size=9, rsq_th=0.81, check_center=True,
                                      fitting_order=2, generate_2d=True,
                                      interpolate_args={},
                                      make_plots=True, save_plots=True, 
@@ -389,6 +419,7 @@ def Generate_bleedthrough_correction(bleed_folders,
                         intensity_th,
                         crop_size,
                         rsq_th,
+                        check_center,
                         True, None,
                         overwrite_temp, verbose,
                     )
