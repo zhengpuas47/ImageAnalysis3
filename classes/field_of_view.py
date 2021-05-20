@@ -234,7 +234,7 @@ class Field_of_View():
             self.shared_parameters['good_drift_th'] = 1. 
         if 'drift_args' not in self.shared_parameters:
             self.shared_parameters['drift_args'] = {
-                'precision_fold': 100 # 0.01 pixel sampling
+                'precision_fold': 100, # 0.01 pixel sampling
                 'min_good_drifts': 3, # at least 3 drifts calculated
                 'drift_diff_th': 1., # difference between drifts within 1 pixel
             } # use defaults for drift

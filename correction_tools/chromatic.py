@@ -29,7 +29,7 @@ _chromatic_default_correction_args={
 }
 _chromatic_default_drift_args={
     'drift_channel': _drift_channel,
-    'precision_fold':100,
+    'use_autocorr':True,
 }
 _chromatic_default_fitting_args={
     'th_seed':400,
