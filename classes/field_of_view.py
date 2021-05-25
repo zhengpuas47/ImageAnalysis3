@@ -251,9 +251,6 @@ class Field_of_View():
         if 'empty_value' not in self.shared_parameters:
             self.shared_parameters['empty_value'] = 0
 
-
-
-        
         ## Drift
         # update ref_filename
         self.ref_filename = os.path.join(self.annotated_folders[self.ref_id], self.fov_name)
@@ -710,8 +707,7 @@ class Field_of_View():
         if _verbose:
             print(f"+ load reference image from file:{_ref_filename}")
         if 'correct_fov_image' not in locals():
-            from ImageAnalysis3.io_tools.load import correct_fov_image
-
+            from ..io_tools.load import correct_fov_image
         
         if hasattr(self, 'ref_im') and not _overwrite:
             if _verbose:
@@ -844,7 +840,6 @@ class Field_of_View():
 
 
     def _process_image_to_spots(self, _data_type, _sel_folders=[], _sel_ids=[], 
-                                _parallel=True, 
                                 _load_common_correction_profiles=True, 
                                 _load_common_reference=True, 
                                 _load_with_multiple=True, 
@@ -1033,7 +1028,7 @@ class Field_of_View():
         if len(_processing_arg_list) > 0:
             from .batch_functions import batch_process_image_to_spots, killchild
             # multi-processing
-            if _parallel:
+            if self.parallel:
                 with mp.Pool(self.num_threads) as _processing_pool:
                     if _verbose:
                         print(f"+ Start multi-processing of pre-processing for {len(_processing_arg_list)} images with {self.num_threads} threads")
