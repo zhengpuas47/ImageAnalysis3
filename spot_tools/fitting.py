@@ -167,7 +167,8 @@ def fit_fov_image(im, channel, seeds=None, max_num_seeds=500,
                   fit_radius=5, #init_sigma=_sigma_zxy, weight_sigma=0, 
                   normalize_background=False, normalize_local=False, 
                   background_args={}, 
-                  fitting_args={}, verbose=True):
+                  fitting_args={}, 
+                  remove_boundary_points=True, verbose=True):
     """Function to merge seeding and fitting for the whole fov image"""
 
     ## check inputs
@@ -206,7 +207,12 @@ def fit_fov_image(im, channel, seeds=None, max_num_seeds=500,
     # get spots
     _spots = np.array(_fitter.ps)
     _spots = _spots[np.sum(np.isnan(_spots),axis=1)==0] # remove NaNs
-
+    # remove all boundary points
+    if remove_boundary_points:
+        _kept_flags = (_spots[:,1:4] > np.zeros(3)).all(1) \
+            * (_spots[:, 1:4] < np.array(np.shape(im))).all(1)
+        _spots = _spots[np.where(_kept_flags)[0]]
+        pass 
     # normalize intensity if applicable
     if normalize_background and not normalize_local:
         from ..io_tools.load import find_image_background 

@@ -1037,7 +1037,7 @@ class Field_of_View():
                 with mp.Pool(self.num_threads) as _processing_pool:
                     if _verbose:
                         print(f"+ Start multi-processing of pre-processing for {len(_processing_arg_list)} images with {self.num_threads} threads")
-                        print(f"++ processed {_data_type} ids: {np.sort(np.concatenate(_processing_id_list))}", end=' ')
+                        print(f"++ processing {_data_type} ids: {np.sort(np.concatenate(_processing_id_list))}", end=' ')
                         _start_time = time.time()
                     # Multi-proessing!
                     _spot_results = _processing_pool.starmap(
@@ -1051,7 +1051,7 @@ class Field_of_View():
                 # clear
                 killchild()        
                 if _verbose:
-                    print(f"in {time.time()-_start_time:.2f}s.")
+                    print(f", finish in {time.time()-_start_time:.2f}s.")
             else:
                 # initialize
                 _spot_results = []
