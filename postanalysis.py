@@ -225,7 +225,7 @@ def Bootstrap_regions_in_domain(chrom_zxy_list, region_index, domain_indices,
         except:
             raise TypeError(f"Wrong input region_index:{region_index}, cannot convert to int.")
     # convert domain indices into array with ints
-    domain_indices = np.array(domain_indices, dtype=np.int)
+    domain_indices = np.array(domain_indices, dtype=np.int32)
     if np.max(domain_indices) > len(chrom_zxy_list[0]):
         raise ValueError(f"Wrong input for domain_indices, no indices should be larger than zxy length")
     if verbose:

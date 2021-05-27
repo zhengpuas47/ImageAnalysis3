@@ -496,7 +496,7 @@ def fast_align_centers(target_centers, ref_centers, cutoff=3., norm=2,
     if not return_inds:
         return _aligned_target_centers, _aligned_ref_centers
     else:
-        _target_inds = np.array(_target_inds, dtype=np.int)
-        _ref_inds = np.array(_ref_inds, dtype=np.int)
+        _target_inds = np.array(_target_inds, dtype=np.int32)
+        _ref_inds = np.array(_ref_inds, dtype=np.int32)
         return _aligned_target_centers, _aligned_ref_centers, _target_inds, _ref_inds
 

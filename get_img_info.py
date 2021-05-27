@@ -742,7 +742,7 @@ def shuffle_channel_order(im_after, channels_before, channels_after, zlims):
     minz, maxz = np.sort(zlims)[:2]
     zstep = len(channels_before)
     _start_layers = minz + \
-        np.array([(_z+1-minz) % zstep for _z in np.arange(zstep)], dtype=np.int)
+        np.array([(_z+1-minz) % zstep for _z in np.arange(zstep)], dtype=np.int32)
     for _i, _s in enumerate(_start_layers):
         if _s == minz:
             _start_layers[_i] += zstep
