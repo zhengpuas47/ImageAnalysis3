@@ -100,7 +100,7 @@ def crop_neighboring_area(im, center, crop_sizes,
     _center = np.array(center)[:_dim]
     # crop size
     if isinstance(crop_sizes, int) or isinstance(crop_sizes, np.int32):
-        _crop_sizes = np.ones(_dim, dtype=np.int)*int(crop_sizes)
+        _crop_sizes = np.ones(_dim, dtype=np.int32)*int(crop_sizes)
     elif isinstance(crop_sizes, list) or isinstance(crop_sizes, np.ndarray):
         _crop_sizes = np.array(crop_sizes)[:_dim]
     
