@@ -1,5 +1,7 @@
 import sys,glob,os
 import numpy as np
+import re
+
 from . import _correction_folder, _temp_folder, _distance_zxy, _sigma_zxy, _image_size, _allowed_colors
 
 def get_hybe(folder):
@@ -86,7 +88,7 @@ def get_img_hyb(folders, fovs, hyb_id=0, verbose=True):
 
 ## Load file Color_Usage in dataset folder
 def Load_Color_Usage(master_folder, color_filename='Color_Usage', color_format='csv',
-                     DAPI_hyb_name="H0R0", return_color=True):
+                     DAPI_hyb_name="H0R0", return_color=True, verbose=True):
     '''Function to load standard Color_Usage file:
     Inputs:
         master_folder: master directory of this dataset, path(string)
@@ -98,11 +100,11 @@ def Load_Color_Usage(master_folder, color_filename='Color_Usage', color_format='
         '''
     # initialize as default
     _color_usage = {}
-
+    _full_name = master_folder+os.sep+color_filename+os.extsep+color_format
+    if verbose:
+        print(f"- Importing {color_format} format color_usage file: {_full_name}")
     # process with csv format
     if color_format == 'csv':
-        _full_name = master_folder+os.sep+color_filename+"."+'csv'
-        print("- Importing csv file:", _full_name)
         import csv
         with open(_full_name, 'r') as handle:
             _reader = csv.reader(handle)
@@ -114,10 +116,20 @@ def Load_Color_Usage(master_folder, color_filename='Color_Usage', color_format='
                 if len(_content) > 1:
                     _hyb = _content.pop(0)
                     _color_usage[_hyb] = _content
+    if color_format == 'tsv':
+        import csv
+        with open(_full_name, 'r') as handle:
+            _reader = csv.reader(handle, delimiter='\t', )
+            _header = next(_reader)
+            print("- header:", _header)
+            for _content in _reader:
+                while len(_content)>0 and _content[-1] == '':
+                    _content = _content[:-1]
+                if len(_content) > 1:
+                    _hyb = _content.pop(0)
+                    _color_usage[_hyb] = _content
     # process with txt format (\t splitted)
     elif color_format == 'txt':
-        _full_name = master_folder+os.sep+color_filename+"."+'txt'
-        print("- Importing txt file:", _full_name)
         with open(_full_name, 'r') as handle:
             _line = handle.readline().rstrip()
             _header = _line.split('\t')
@@ -476,9 +488,11 @@ def match_Enhancer_to_DNA(enhancer_dic, region_dic):
 
 # function for finding bead_channel given color_usage profile
 def find_bead_channel(__color_dic, __bead_mark='beads'):
+    print(__color_dic.keys())
     '''Given a color_dic loaded from Color_Usage file, return bead channel if applicable'''
     __bead_channels = []
-    for __name, __info in sorted(list(__color_dic.items()), key=lambda k_v:int(k_v[0].split('H')[1].split('R')[0])):
+    for __name in sorted(__color_dic.keys(), key=lambda _v:int( re.split(r'^H([0-9]+)[RQBU](.*)', _v)[1] ) ):
+        __info = __color_dic[__name]
         __bead_channels.append(__info.index(__bead_mark))
     __unique_channel = np.unique(__bead_channels)
     if len(__unique_channel) == 1:
@@ -490,7 +504,8 @@ def find_bead_channel(__color_dic, __bead_mark='beads'):
 def find_dapi_channel(__color_dic, __dapi_mark='DAPI'):
     '''Given a color_dic loaded from Color_Usage file, return bead channel if applicable'''
     __dapi_channels = []
-    for __name, __info in sorted(list(__color_dic.items()), key=lambda k_v:int(k_v[0].split('H')[1].split('R')[0])):
+    for __name in sorted(__color_dic.keys(), key=lambda _v:int( re.split(r'^H([0-9]+)[RQBU](.*)', _v)[1] ) ):
+        __info = __color_dic[__name]
         if __dapi_mark in __info:
             __dapi_channels.append(__info.index(__dapi_mark))
     __unique_channel = np.unique(__dapi_channels)
