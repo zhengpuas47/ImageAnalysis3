@@ -245,7 +245,7 @@ def Generate_chromatic_abbrevation(chromatic_folder, ref_folder,
         # fitting order
         _dim = np.shape(_shift_dists)[1]
         if isinstance(fitting_orders, int) or isinstance(fitting_orders, np.int32):
-            _fitting_orders = np.ones(_dim, dtype=np.int)*int(fitting_orders)
+            _fitting_orders = np.ones(_dim, dtype=np.int32)*int(fitting_orders)
         elif isinstance(fitting_orders, list) or isinstance(fitting_orders, np.ndarray):
             _fitting_orders = np.array(fitting_orders)[:_dim]
         else:
