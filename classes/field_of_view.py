@@ -6,6 +6,10 @@ import copy
 import numpy as np
 import pickle as pickle
 import multiprocessing as mp
+# fix mp reducer 4GB limit
+from ..required_files import pickle2reducer
+ctx = mp.get_context()
+ctx.reducer = pickle2reducer.Pickle2Reducer()
 # saving
 import h5py
 import ast
