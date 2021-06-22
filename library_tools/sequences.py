@@ -5,6 +5,43 @@ from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 
+
+class fasta_reader():
+    """Basic class to read fasta files and parse into SeqRecord"""
+    def __init__(self, in_files, verbose=False):
+        # inherit
+        super().__init__()
+        
+        self.verbose = verbose
+        if isinstance(in_files, list):
+            self.in_files = in_files
+        elif isinstance(in_files, str):
+            self.in_files = [in_files]
+        else:
+            if self.verbose:
+                print(f"No valid in_files given.")
+            self.in_files = []
+        return
+
+    def load(self):
+        if self.verbose:
+            print(f"loading {len(self.in_files)} fasta files")
+        if not hasattr(self, 'records'):
+            self.records = []
+
+        for _in_file in self.in_files:
+            with open(_in_file, 'r') as _fp:
+                if self.verbose:
+                    print(f"- loading from file: {_in_file}")
+                _records = []
+                for _r in SeqIO.parse(_fp, "fasta"):
+                    _records.append(_r)
+                self.records.extend(_records)
+        return self.records
+
+
+
+
 def read_region_file(filename, verbose=True):
     '''Sub-function to read region file'''
     if verbose:

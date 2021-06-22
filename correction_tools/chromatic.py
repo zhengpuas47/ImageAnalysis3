@@ -121,7 +121,7 @@ def Generate_chromatic_abbrevation(chromatic_folder, ref_folder,
                                    ref_channel=_chromatic_ref_channel,
                                    drift_channel=_drift_channel,
                                    parallel=True, num_threads=12, 
-                                   start_fov=1, num_images=40,
+                                   start_fov=0, num_images=40,
                                    correction_args={'correction_folder': _correction_folder,
                                                     'single_im_size':_image_size,
                                                     'all_channels':_allowed_colors,
@@ -208,19 +208,26 @@ def Generate_chromatic_abbrevation(chromatic_folder, ref_folder,
             overwrite_temp, verbose) for _fov in sel_fov_names]
 
         ## 4. multi-processing
-        with mp.Pool(num_threads) as _ca_pool:
+        if parallel:
+            with mp.Pool(num_threads) as _ca_pool:
+                if verbose:
+                    print(f"++ generating chromatic info for {len(_chromatic_args)} images in {num_threads} threads in", end=' ')
+                    _multi_start = time.time()
+                spot_infos = _ca_pool.starmap(find_chromatic_spot_pairs, 
+                                            _chromatic_args, chunksize=1)
+                
+                _ca_pool.close()
+                _ca_pool.join()
+                _ca_pool.terminate()
             if verbose:
-                print(f"++ generating chromatic info for {len(_chromatic_args)} images in {num_threads} threads in", end=' ')
+                print(f"{time.time()-_multi_start:.3f}s.")    
+        else:
+            if verbose:
+                print(f"++ generating chromatic info for {len(_chromatic_args)} images in", end=' ')
                 _multi_start = time.time()
-            spot_infos = _ca_pool.starmap(find_chromatic_spot_pairs, 
-                                        _chromatic_args, chunksize=1)
-            
-            _ca_pool.close()
-            _ca_pool.join()
-            _ca_pool.terminate()
-        if verbose:
-            print(f"{time.time()-_multi_start:.3f}s.")    
-
+            _spot_infos = [find_chromatic_spot_pairs(*_arg) for _arg in _chromatic_args]
+            if verbose:
+                print(f"{time.time()-_multi_start:.3f}s.")    
         ## 5. summarize spots from multiple fovs
         _shift_dists = []
         _ref_coords = []
