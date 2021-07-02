@@ -1,6 +1,7 @@
 # Functions used in batch processing
 import os, h5py, pickle, psutil, time
 import numpy as np
+from scipy.sparse.extract import find
 
 from . import _allowed_kwds, _image_dtype
 from ..io_tools.load import correct_fov_image
@@ -499,4 +500,6 @@ def create_drift_file(drift_filename, ref_filename,
             print(f"-- no updates in drift file:{drift_filename}, skip.")
     
     return True 
+
+
 

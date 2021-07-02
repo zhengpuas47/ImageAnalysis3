@@ -9,6 +9,8 @@ def _calculate_binary_center(_binary_label):
         _coord.append(np.mean(_l[_l>0]))
     return np.array(_coord)
 
+
+
 def find_candidate_chromosomes(_chrom_im, 
                                _adjust_layers=False, 
                                _filt_size=3, 
@@ -151,3 +153,84 @@ def select_candidate_chromosomes(_cand_chrom_coords,
         print(f"-- {len(_chrom_coords)} chromosomes are kept.")
 
     return _chrom_coords
+
+
+def identify_chromosomes(chrom_im, dapi_im=None, 
+                         seed_gfilt_size=0.75, background_gfilt_size=7.5, 
+                         chrom_snr_th=1.5, dapi_snr_th=2,
+                         morphology_size=1, min_label_size=25,
+                         num_threads=12,
+                         return_seed_im=False,
+                         verbose=True):
+    """Function to identify chromosomes"""
+    from ..io_tools.load import find_image_background
+    from ..segmentation_tools.chromosome import _calculate_binary_center
+    from scipy.ndimage.filters import gaussian_filter
+    from scipy import ndimage
+    from skimage import morphology
+    from skimage.segmentation import random_walker
+    import multiprocessing as mp
+    # 1. generate seeding image
+    if verbose:
+        print(f"-- generate seeding image.")
+    _chrom_im = chrom_im.copy()
+    _signal_im = np.array(gaussian_filter(_chrom_im, seed_gfilt_size), dtype=np.float)
+    _background_im = np.array(gaussian_filter(_chrom_im, background_gfilt_size), dtype=np.float)
+    _seed_im = _signal_im - _background_im
+    
+    # 2. binarize image
+    if verbose:
+        print(f"-- binarize image with chromosome SNR: {chrom_snr_th}")
+    _binary_im = (_seed_im >= np.abs(chrom_snr_th-1) * find_image_background(chrom_im))
+    if isinstance(dapi_im, np.ndarray):
+        _binary_im *= (dapi_im > dapi_snr_th * find_image_background(dapi_im) )
+    ## 3. erosion and dialation
+    if verbose:
+        print(f"-- erosion and dialation with size={morphology_size}.")
+    _binary_label = _binary_im.copy()
+    _binary_label = ndimage.binary_erosion(_binary_label, morphology.ball(morphology_size))
+    _binary_label = ndimage.binary_dilation(_binary_label, morphology.ball(morphology_size))
+    _binary_label = ndimage.binary_fill_holes(_binary_label, structure=morphology.ball(morphology_size))
+    ## 4. find object
+    if verbose:
+        print(f"-- find close objects.")
+    _open_objects = morphology.opening(_binary_label, morphology.ball(0))
+    _close_objects = morphology.closing(_open_objects, morphology.ball(1))
+    _label, _num = ndimage.label(_close_objects)
+    _label[_label==0] = -1
+    ## 5. segmentation
+    _random_walk_beta = 10
+    if verbose:
+        print(f"-- random walk segmentation, beta={_random_walk_beta}.")
+    _seg_label = random_walker(_seed_im, _label, beta=_random_walk_beta, mode='cg_mg')
+    _seg_label[_seg_label < 0] = 0
+    ## 6. keep objects
+    if verbose:
+        print(f"-- find objects larger than size={min_label_size}")
+    _kept_label = morphology.remove_small_objects(_seg_label, min_label_size).astype(np.uint16)
+    _label_ids = np.unique(_kept_label)
+    _label_ids = _label_ids[_label_ids > 0]
+    ## 7. calculate chr centers    
+    _chrom_args = [(_kept_label==_id,) for _id in _label_ids]
+
+    with mp.Pool(num_threads,) as _chrom_pool:
+        if verbose:
+            print(f"-- start multiprocessing caluclate chromosome coordinates with {num_threads} threads", end=' ')
+            _multi_time = time.time()
+        # Multi-proessing!
+        _chrom_coords = _chrom_pool.starmap(_calculate_binary_center, _chrom_args, chunksize=1)
+        # close multiprocessing
+        _chrom_pool.close()
+        _chrom_pool.join()
+        _chrom_pool.terminate()
+        if verbose:
+            print(f"in {time.time()-_multi_time:.3f}s.")
+
+    _chrom_coords = np.array(_chrom_coords)
+    if verbose:
+        print(f"-- {len(_chrom_coords)} chromosomes identified")
+
+    if return_seed_im:
+        return _chrom_coords, _seed_im
+    else:
+        return _chrom_coords
