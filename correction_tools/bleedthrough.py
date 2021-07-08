@@ -25,6 +25,7 @@ _bleedthrough_default_correction_args = {
     'bleed_corr':False,
     'illumination_corr':False,
     'chromatic_corr':False,
+    'z_shift_corr':True,
 }
 
 _bleedthrough_default_fitting_args = {
@@ -351,7 +352,8 @@ def interploate_bleedthrough_correction_from_channel(
 # Final function to be called to generate bleedthrough correction
 def Generate_bleedthrough_correction(bleed_folders, 
                                      corr_channels=_bleedthrough_channels, 
-                                     num_threads=12, start_fov=1, num_images=40,
+                                     parallel=True, num_threads=12, 
+                                     start_fov=1, num_images=40,
                                      correction_args={'single_im_size':_image_size,
                                                       'illumination_corr':False,
                                                       'chromatic_corr':False},
@@ -426,19 +428,26 @@ def Generate_bleedthrough_correction(bleed_folders,
                 )
                 
         ## 4. multi-processing
-        with mp.Pool(num_threads) as _ca_pool:
+        if parallel:
+            with mp.Pool(num_threads) as _ca_pool:
+                if verbose:
+                    print(f"++ generating bleedthrough info for {len(sel_fov_names)} images with {num_threads} threads in", end=' ')
+                    _multi_start = time.time()
+                _info_dicts = _ca_pool.starmap(find_bleedthrough_pairs, 
+                                            _bleed_args, chunksize=1)
+                
+                _ca_pool.close()
+                _ca_pool.join()
+                _ca_pool.terminate()
             if verbose:
-                print(f"++ generating bleedthrough info for {len(sel_fov_names)} images in {num_threads} threads in", end=' ')
+                print(f"{time.time()-_multi_start:.3f}s.")    
+        else:
+            if verbose:
+                print(f"++ generating bleedthrough info for {len(sel_fov_names)} images in", end=' ')
                 _multi_start = time.time()
-            _info_dicts = _ca_pool.starmap(find_bleedthrough_pairs, 
-                                           _bleed_args, chunksize=1)
-            
-            _ca_pool.close()
-            _ca_pool.join()
-            _ca_pool.terminate()
-        if verbose:
-            print(f"{time.time()-_multi_start:.3f}s.")    
-    
+            _info_dicts = [find_bleedthrough_pairs(*_arg) for _arg in _bleed_args]
+            if verbose:
+                print(f"{time.time()-_multi_start:.3f}s.")    
         ## 5. generate_the_whole_profile
         profile_shape = np.concatenate([np.array([len(corr_channels),
                                                  len(corr_channels)]),
