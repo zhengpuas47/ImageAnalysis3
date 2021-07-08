@@ -103,7 +103,7 @@ class countTable():
             start = time.time()
         self.create_matrix()
         pos,cts = np.unique(self.ints,return_counts=True)
-        countTable_values = np.array(np.clip(cts, 0, 2**16-1), dtype='uint16')#clip and recast as uint16
+        countTable_values = np.array(np.clip(cts, 0, np.iinfo(np.uint16).max), dtype=np.uint16)#clip and recast as uint16
         countTable_indices = np.array(pos, dtype=np.uint64)
         if verbose:
             end=time.time()
