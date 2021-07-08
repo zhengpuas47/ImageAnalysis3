@@ -699,24 +699,29 @@ class Field_of_View():
 
     ## generate reference images and reference centers
     def _load_reference_image(self, 
-                              _ref_filename=None,
+                              _data_type="",
                               _save=True, 
                               _overwrite=False, 
                               _verbose=True):
         """Function to load ref image for fov class"""
         # check ref_filename
         
-        if _ref_filename is None:
-            _ref_filename = self.ref_filename
+        _ref_filename = getattr(self, f'{_data_type}_ref_filename', "")
+        if _ref_filename == "":
+            _ref_id = getattr(self, f'{_data_type}_ref_id', None)
+            if _ref_id is None:
+                raise AttributeError(f"data_type: {_data_type} ref_filename or ref_id should be given!")
+            _ref_filename = os.path.join(self.annotated_folders[int(_ref_id)], self.fov_name)
+
         if _verbose:
             print(f"+ load reference image from file:{_ref_filename}")
         if 'correct_fov_image' not in locals():
             from ..io_tools.load import correct_fov_image
         
-        if hasattr(self, 'ref_im') and not _overwrite:
+        if hasattr(self, f'{_data_type}_ref_im') and not _overwrite:
             if _verbose:
                 print(f"++ directly return existing attribute.")
-            _ref_im = getattr(self, 'ref_im')
+            _ref_im = getattr(self, f'{_data_type}_ref_im')
         else:
             # load
             _ref_im = correct_fov_image(_ref_filename, 
@@ -736,11 +741,11 @@ class Field_of_View():
                                         verbose=_verbose,
                                         )[0][0]
 
-            setattr(self, 'ref_im', _ref_im)
+            setattr(self, f'{_data_type}_ref_im', _ref_im)
 
             # save new chromosome image
             if _save:
-                self._save_to_file('fov_info', _save_attr_list=['ref_im'],
+                self._save_to_file('fov_info', _save_attr_list=[f'{_data_type}_ref_im'],
                                 _verbose=_verbose)
 
         return _ref_im
@@ -898,12 +903,12 @@ class Field_of_View():
             self._load_correction_profiles()
 
         ## load shared drift references
-        if _load_common_reference and not hasattr(self, 'ref_im'):
-            self._load_reference_image(_verbose=_verbose)
-        if hasattr(self, 'ref_im'):
-            _drift_reference = getattr(self, 'ref_im')
+        if _load_common_reference and not hasattr(self, f'{_data_type}_ref_im'):
+            self._load_reference_image(_data_type=_data_type, _verbose=_verbose)
+        if hasattr(self, f'{_data_type}_ref_im'):
+            _drift_reference = getattr(self, f'{_data_type}_ref_im')
         else:
-            _drift_reference = getattr(self, 'ref_filename')
+            _drift_reference = getattr(self, f'{_data_type}_ref_filename')
             #self._prepare_dirft_references(_verbose=_verbose)
 
         ## multi-processing for correct_splice_images

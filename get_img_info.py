@@ -491,7 +491,7 @@ def find_bead_channel(__color_dic, __bead_mark='beads'):
     print(__color_dic.keys())
     '''Given a color_dic loaded from Color_Usage file, return bead channel if applicable'''
     __bead_channels = []
-    for __name in sorted(__color_dic.keys(), key=lambda _v:int( re.split(r'^H([0-9]+)[RQBU](.*)', _v)[1] ) ):
+    for __name in sorted(__color_dic.keys(), key=lambda _v:int( re.split(r'^H([0-9]+)[RQBUGC](.*)', _v)[1] ) ):
         __info = __color_dic[__name]
         __bead_channels.append(__info.index(__bead_mark))
     __unique_channel = np.unique(__bead_channels)
@@ -504,7 +504,7 @@ def find_bead_channel(__color_dic, __bead_mark='beads'):
 def find_dapi_channel(__color_dic, __dapi_mark='DAPI'):
     '''Given a color_dic loaded from Color_Usage file, return bead channel if applicable'''
     __dapi_channels = []
-    for __name in sorted(__color_dic.keys(), key=lambda _v:int( re.split(r'^H([0-9]+)[RQBU](.*)', _v)[1] ) ):
+    for __name in sorted(__color_dic.keys(), key=lambda _v:int( re.split(r'^H([0-9]+)[RQBUGC](.*)', _v)[1] ) ):
         __info = __color_dic[__name]
         if __dapi_mark in __info:
             __dapi_channels.append(__info.index(__dapi_mark))
