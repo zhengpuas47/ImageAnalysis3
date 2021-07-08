@@ -627,7 +627,7 @@ def align_image(
                                     all_channels=_ref_all_channels,
                                     calculate_drift=False, 
                                     return_drift=False, verbose=detailed_verbose,
-                                    **_correction_args)[0]
+                                    **_correction_args)[0][0]
     else:
         raise IOError(f"Wrong input ref file type, {type(ref_im)} should be .dax file or np.ndarray")
     
@@ -678,7 +678,7 @@ def align_image(
         if verbose:
             print(f"--- align image {_i} in {time.time()-_start_time:.3f}s.")
             if detailed_verbose:
-                print(f"--- drift: {_dft}")
+                print(f"--- drift {_i}: {np.around(_dft, 2)}")
 
         # detect variance within existing drifts
         _mean_dft = np.nanmean(_drifts, axis=0)
@@ -687,7 +687,7 @@ def align_image(
             _kept_drift_inds = np.where(_dists <= drift_diff_th)[0]
             if len(_kept_drift_inds) >= min_good_drifts:
                 _updated_mean_dft = np.nanmean(np.array(_drifts)[_kept_drift_inds], axis=0)
-                if detailed_verbose:
+                if verbose:
                     print(f"--- drifts for crops:{_kept_drift_inds} pass the thresold, exit cycle.")
                 break
     

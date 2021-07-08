@@ -20,7 +20,7 @@ def __init__():
 def get_seeds(im, max_num_seeds=None, th_seed=150, 
               th_seed_per=95, use_percentile=False,
               sel_center=None, seed_radius=30,
-              gfilt_size=0.75, background_gfilt_size=8.,
+              gfilt_size=0.75, background_gfilt_size=7.5,
               filt_size=3, min_edge_distance=2,
               use_dynamic_th=True, dynamic_niters=10, min_dynamic_seeds=1,
               remove_hot_pixel=True, hot_pixel_th=3,
@@ -63,12 +63,12 @@ def get_seeds(im, max_num_seeds=None, th_seed=150,
         _lims = np.array(np.transpose(np.stack([_llims, _rlims])), dtype=np.int)
         _lim_crops = tuple([slice(_l,_r) for _l,_r in _lims])
         # crop image
-        _im = im[_lim_crops].copy()
+        _im = im[_lim_crops]
         # get local centers for adjustment
         _local_edges = _llims
     else:
         _local_edges = np.zeros(len(np.shape(im)))
-        _im = im.copy()
+        _im = im
         
 
     # get threshold
@@ -89,18 +89,24 @@ def get_seeds(im, max_num_seeds=None, th_seed=150,
         dynamic_niters = int(dynamic_niters)
     # front filter:
     if gfilt_size:
-        _max_im = np.array(gaussian_filter(_im, gfilt_size), dtype=np.float)
+        _max_im = np.array(gaussian_filter(_im, gfilt_size), dtype=_im.dtype)
     else:
-        _max_im = _im.astype(np.float)
-    _max_ft = np.array(maximum_filter(_max_im, int(filt_size)), dtype=np.float)
+        _max_im = np.array(_im, dtype=_im.dtype)
+    _max_ft = np.array(maximum_filter(_max_im, int(filt_size)) == _max_im, dtype=np.bool)
+
     # background filter
     if background_gfilt_size:
-        _min_im = np.array(gaussian_filter(_im, background_gfilt_size), dtype=np.float)
+        _min_im = np.array(gaussian_filter(_im, background_gfilt_size), dtype=_im.dtype)
     else:
-        _min_im = _im.astype(np.float)
-    _min_ft = np.array(minimum_filter(_min_im, int(filt_size)), dtype=np.float)
-
-    #return _max_ft, _min_ft, _max_im, _min_im
+        _min_im = np.array(_im, dtype=_im.dtype)
+    _min_ft = np.array(minimum_filter(_min_im, int(filt_size)) != _min_im, dtype=np.bool)
+    
+    # generate map
+    _local_maximum_mask = (_max_ft & _min_ft).astype(np.bool)
+    _diff_ft = (_max_im.astype(np.int32) - _min_im.astype(np.int32))
+    # clear RAM immediately
+    del(_max_im, _min_im)
+    del(_max_ft, _min_ft) 
 
     # iteratively select seeds
     for _iter in range(dynamic_niters):
@@ -108,7 +114,7 @@ def get_seeds(im, max_num_seeds=None, th_seed=150,
         _current_seed_th = _th_seed * (1-_iter/dynamic_niters)
         #print(_iter, _current_seed_th)
         # should be: local max, not local min, differences large than threshold
-        _coords = np.where((_max_ft == _max_im) & (_min_ft != _min_im) & (_max_ft-_min_ft >= _current_seed_th))
+        _coords = np.where(_local_maximum_mask & (_diff_ft >= _current_seed_th))
         # remove edges
         if min_edge_distance > 0:
             _keep_flags = remove_edge_points(_im, _coords, min_edge_distance)
@@ -130,7 +136,7 @@ def get_seeds(im, max_num_seeds=None, th_seed=150,
                              for _xy in _xy_str],dtype=bool)
         _coords = tuple(_cs[_keep_hot] for _cs in _coords)
     # get heights
-    _hs = (_max_ft - _min_ft)[_coords]
+    _hs = _diff_ft[_coords]
     _final_coords = np.array(_coords) + _local_edges[:, np.newaxis] # adjust to absolute coordinates
     if return_h: # patch heights if returning it
         _final_coords = np.concatenate([_final_coords, _hs[np.newaxis,:]])
