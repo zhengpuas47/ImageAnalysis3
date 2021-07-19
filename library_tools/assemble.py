@@ -263,7 +263,8 @@ def _assemble_single_probename(_pb_info, _readout_name_list, _pb_id):
         _name.extend( ['strand', str(_pb_info['strand'])] )
     # append readout
     _name.extend( ['readouts', '[' + ','.join(_readout_name_list) + ']'] )
-             
+    # append primer
+    
     return '_'.join(_name)
 
 # function to assemble probes in the whole library

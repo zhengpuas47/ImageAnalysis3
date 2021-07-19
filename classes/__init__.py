@@ -23,7 +23,7 @@ _allowed_kwds = {'combo': 'c',
                 'unique': 'u', 
                 'relabeled_unique':'l',
                 'merfish': 'm', 
-                'rna-unique':'r', 
+                #'rna-unique':'r', 
                 'rna': 'r', # long term used label, because "-" is creating issue in python
                 'gene':'g'}
 _max_num_seeds = 500 
@@ -34,6 +34,7 @@ from . import field_of_view
 
 # initialize pool
 init_dic = {}
+
 def _init_unique_pool(_ic_profile_dic, _cac_profile_dic, _ic_shape, _cac_shape):
     """initialize pool, function used to put data into shared memory"""
     print(f"- Initialize core with illumination correction profiles for {list(_ic_profile_dic.keys())}")

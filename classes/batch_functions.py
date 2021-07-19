@@ -1,6 +1,7 @@
 # Functions used in batch processing
 import os, h5py, pickle, psutil, time
 import numpy as np
+from scipy.sparse.extract import find
 
 from . import _allowed_kwds, _image_dtype
 from ..io_tools.load import correct_fov_image
@@ -66,9 +67,9 @@ def batch_process_image_to_spots(dax_filename, sel_channels,
                                  drift_filename=None, 
                                  drift_file_lock=None, 
                                  overwrite_drift=False, 
+                                 fit_spots=True, 
                                  fitting_args={}, save_spots=True, 
                                  spot_file_lock=None, overwrite_spot=False, 
-                                 return_drift=False,
                                  verbose=False):
     """run by multi-processing to batch process images to spots
     Inputs:
@@ -131,7 +132,7 @@ def batch_process_image_to_spots(dax_filename, sel_channels,
             _process_flags.append(True)
             _process_sel_channels.append(_ch)
         else:
-            if (_im != empty_value).any() and (_drift!= empty_value).any() and _flg-1 == int(warp_image):
+            if (_im != empty_value).any()  and _flg-1 == int(warp_image): # and (_drift!= empty_value).any() # remove this drift requirement, because it could be zero
                 # image exist, no need to process from beginning
                 _process_flags.append(False)
                 _carryover_ims.append(_im.copy() )
@@ -248,40 +249,41 @@ def batch_process_image_to_spots(dax_filename, sel_channels,
             drift_file_lock.release()
 
     ## multi-fitting
-    _raw_spot_list = []
-    _spot_list = []
-    for _ich, (_im, _ch) in enumerate(zip(_sel_ims, sel_channels)):
-        _raw_spots = fit_fov_image(
-            _im, _ch, verbose=verbose, 
-            **fitting_args,
-        )
-        if not warp_image:
-            # update spot coordinates given warp functions, if image was not warpped.
-            _func = _warp_funcs[_ich]
-            _spots = _func(_raw_spots)
-            #print(f"type: {type(_spots)} for {dax_filename}, region {region_ids[_ich]} channel {_ch}, {_func}")
-        else:
-            _spots = _raw_spots.copy()
-        # append 
-        _spot_list.append(_spots)
-        _raw_spot_list.append(_raw_spots)
-    ## save fitted_spots if specified
-    if save_spots:
-        # initiate lock
-        if spot_file_lock is not None:
-            spot_file_lock.acquire()
-        # run saving
-        _save_spt_success = save_spots_to_fov_file(
-            save_filename, _spot_list, data_type, region_ids, 
-            raw_spot_list=_raw_spot_list,
-            overwrite=overwrite_spot, verbose=verbose)
-        # release lock
-        if spot_file_lock is not None:
-            spot_file_lock.release()
-    if return_drift:
-        return _spot_list, _drift
+    if fit_spots:
+        _raw_spot_list = []
+        _spot_list = []
+        for _ich, (_im, _ch) in enumerate(zip(_sel_ims, sel_channels)):
+            _raw_spots = fit_fov_image(
+                _im, _ch, verbose=verbose, 
+                **fitting_args,
+            )
+            if not warp_image:
+                # update spot coordinates given warp functions, if image was not warpped.
+                _func = _warp_funcs[_ich]
+                _spots = _func(_raw_spots)
+                #print(f"type: {type(_spots)} for {dax_filename}, region {region_ids[_ich]} channel {_ch}, {_func}")
+            else:
+                _spots = _raw_spots.copy()
+            # append 
+            _spot_list.append(_spots)
+            _raw_spot_list.append(_raw_spots)
+        ## save fitted_spots if specified
+        if save_spots:
+            # initiate lock
+            if spot_file_lock is not None:
+                spot_file_lock.acquire()
+            # run saving
+            _save_spt_success = save_spots_to_fov_file(
+                save_filename, _spot_list, data_type, region_ids, 
+                raw_spot_list=_raw_spot_list,
+                overwrite=overwrite_spot, verbose=verbose)
+            # release lock
+            if spot_file_lock is not None:
+                spot_file_lock.release()
     else:
-        return _spot_list
+        _spot_list = np.array([])
+
+    return
 
 # save image to fov file
 def save_image_to_fov_file(filename, ims, data_type, region_ids, 
@@ -499,4 +501,6 @@ def create_drift_file(drift_filename, ref_filename,
             print(f"-- no updates in drift file:{drift_filename}, skip.")
     
     return True 
+
+
 

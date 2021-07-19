@@ -699,24 +699,34 @@ class Field_of_View():
 
     ## generate reference images and reference centers
     def _load_reference_image(self, 
-                              _ref_filename=None,
+                              _data_type="",
                               _save=True, 
                               _overwrite=False, 
                               _verbose=True):
         """Function to load ref image for fov class"""
         # check ref_filename
-        
-        if _ref_filename is None:
-            _ref_filename = self.ref_filename
+        if _data_type == "":
+            _ref_filename = getattr(self, f'ref_filename', "")
+        else:
+            _ref_filename = getattr(self, f'{_data_type}_ref_filename', "")
+        if _ref_filename == "":
+            if _data_type == "":
+                _ref_id = getattr(self, f'ref_id', "")
+            else:
+                _ref_id = getattr(self, f'{_data_type}_ref_id', None)
+            if _ref_id is None:
+                raise AttributeError(f"data_type: {_data_type}_ref_filename or {_data_type}_ref_id should be given!")
+            _ref_filename = os.path.join(self.annotated_folders[int(_ref_id)], self.fov_name)
+
         if _verbose:
             print(f"+ load reference image from file:{_ref_filename}")
         if 'correct_fov_image' not in locals():
             from ..io_tools.load import correct_fov_image
         
-        if hasattr(self, 'ref_im') and not _overwrite:
+        if hasattr(self, f'{_data_type}_ref_im') and not _overwrite:
             if _verbose:
                 print(f"++ directly return existing attribute.")
-            _ref_im = getattr(self, 'ref_im')
+            _ref_im = getattr(self, f'{_data_type}_ref_im')
         else:
             # load
             _ref_im = correct_fov_image(_ref_filename, 
@@ -736,11 +746,11 @@ class Field_of_View():
                                         verbose=_verbose,
                                         )[0][0]
 
-            setattr(self, 'ref_im', _ref_im)
+            setattr(self, f'{_data_type}_ref_im', _ref_im)
 
             # save new chromosome image
             if _save:
-                self._save_to_file('fov_info', _save_attr_list=['ref_im'],
+                self._save_to_file('fov_info', _save_attr_list=[f'{_data_type}_ref_im'],
                                 _verbose=_verbose)
 
         return _ref_im
@@ -854,6 +864,7 @@ class Field_of_View():
                                 _save_fitted_spots=True, 
                                 _correction_args={},
                                 _drift_args={}, 
+                                _fit_spots=True,
                                 _fitting_args={},
                                 _overwrite_drift=False, 
                                 _overwrite_image=False, 
@@ -898,12 +909,12 @@ class Field_of_View():
             self._load_correction_profiles()
 
         ## load shared drift references
-        if _load_common_reference and not hasattr(self, 'ref_im'):
-            self._load_reference_image(_verbose=_verbose)
-        if hasattr(self, 'ref_im'):
-            _drift_reference = getattr(self, 'ref_im')
+        if _load_common_reference and not hasattr(self, f'{_data_type}_ref_im'):
+            self._load_reference_image(_data_type=_data_type, _verbose=_verbose)
+        if hasattr(self, f'{_data_type}_ref_im'):
+            _drift_reference = getattr(self, f'{_data_type}_ref_im')
         else:
-            _drift_reference = getattr(self, 'ref_filename')
+            _drift_reference = getattr(self, f'{_data_type}_ref_filename')
             #self._prepare_dirft_references(_verbose=_verbose)
 
         ## multi-processing for correct_splice_images
@@ -989,6 +1000,9 @@ class Field_of_View():
                     _exist_spots, _exist_drifts, _exist_flags, _exist_ims =  self._check_exist_data(_data_type, _reg_ids, _check_im=True, _verbose=_verbose)
                     # take overwrite into consideration
                     _exist_spots = _exist_spots & (not _overwrite_spot)
+                    # if not required to fit spots, set flag to be exist
+                    if not _fit_spots:
+                        _exit_spots = True
                     _exist_ims = _exist_ims & (not _overwrite_image)
                     # select channels based on exist spots and ims
                     _sel_channels = [_ch for _ch, _es, _ei in zip(_sel_channels, _exist_spots, _exist_ims)
@@ -1000,6 +1014,9 @@ class Field_of_View():
                     _exist_spots, _exist_drifts, _exist_flags =  self._check_exist_data(_data_type, _reg_ids, _check_im=False, _verbose=_verbose)
                     # take overwrite into consideration
                     _exist_spots = _exist_spots & (not _overwrite_spot)
+                    # if not required to fit spots, set flag to be exist
+                    if not _fit_spots:
+                        _exit_spots = True
                     # select channels based on exist spots and ims
                     _sel_channels = [_ch for _ch, _es in zip(_sel_channels, _exist_spots)
                                     if not _es] # if spot not exist, process sel_channel
@@ -1022,9 +1039,11 @@ class Field_of_View():
                         self.drift_filename,
                         _drift_file_lock, 
                         _overwrite_drift,
-                        _fitting_args, _save_fitted_spots,
-                        _fov_savefile_lock, _overwrite_spot, 
-                        False, 
+                        _fit_spots,
+                        _fitting_args, 
+                        _save_fitted_spots,
+                        _fov_savefile_lock, 
+                        _overwrite_spot, 
                         _verbose,)
                 _processing_arg_list.append(_args)
                 _processing_id_list.append(_reg_ids)
@@ -1039,7 +1058,7 @@ class Field_of_View():
                         print(f"++ processing {_data_type} ids: {np.sort(np.concatenate(_processing_id_list))}", end=' ')
                         _start_time = time.time()
                     # Multi-proessing!
-                    _spot_results = _processing_pool.starmap(
+                    _processing_pool.starmap(
                         batch_process_image_to_spots,
                         _processing_arg_list, 
                         chunksize=1)
@@ -1052,28 +1071,18 @@ class Field_of_View():
                 if _verbose:
                     print(f", finish in {time.time()-_start_time:.2f}s.")
             else:
-                # initialize
-                _spot_results = []
                 if _verbose:
                     print(f"+ Start sequential pre-processing for {len(_processing_arg_list)} images")
                     print(f"++ processed {_data_type} ids: {np.sort(np.concatenate(_processing_id_list))}", end=' ')
                     _start_time = time.time()
                 for _ids, _args in zip(_processing_id_list, _processing_arg_list):
-                    _spots = batch_process_image_to_spots(*_args)
-                    _spot_results.append(_spots)
+                    batch_process_image_to_spots(*_args)
                 if _verbose:
                     print(f"in {time.time()-_start_time:.2f}s.")
         else:
-            return [], []
-        # unravel and append process
-        for _ids, _spot_list in zip(_processing_id_list, _spot_results):
-            _final_ids += list(_ids)
-            _final_spots += list(_spot_list)
-         # sort processed spots according to ids
-        _ps_ids = [_id for _id,_spots in sorted(zip(_final_ids, _final_spots))]
-        _ps_spots = [_spots for _id,_spots in sorted(zip(_final_ids, _final_spots))]
-  
-        return _ps_ids, _ps_spots
+            if _verbose:
+                print(f"- No {_data_type} images and spots requires processing, skip.")
+
 
         
 
@@ -1437,8 +1446,11 @@ class Field_of_View():
                             _value =  _f.attrs[_attr]
                             # convert dicts
                             if isinstance(_value, str) and _value[0] == '{' and _value[-1] == '}':
-                                print(_attr)
-                                _value = ast.literal_eval(_value)
+                                try:
+                                    print(f"try loading: {_attr}")
+                                    _value = ast.literal_eval(str(_value))
+                                except:
+                                    continue
                             setattr(self, _attr, _value)
                             _loaded_attrs.append(_attr)
 
@@ -1886,9 +1898,9 @@ class Field_of_View():
 
             # load from Dax file
             if hasattr(self, 'ref_im'):
-                _drift_ref = getattr(self, 'ref_im')
+                _drift_ref = getattr(self, 'ref_im', None)
             else:
-                _drift_ref = getattr(self, 'ref_filename')
+                _drift_ref = getattr(self, 'ref_filename', None)
 
             # load
             _dapi_im = correct_fov_image(_dapi_filename, 

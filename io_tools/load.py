@@ -205,9 +205,9 @@ def correct_fov_image(dax_filename, sel_channels,
     num_empty_frames = int(num_empty_frames)
     # drift
     if drift is None:
-        drift = np.zeros(len(single_im_size), dtype=np.float)
+        drift = np.zeros(len(single_im_size), dtype=np.float32)
     else:
-        drift = np.array(drift, dtype=np.float)
+        drift = np.array(drift, dtype=np.float32)
     if len(drift) != len(single_im_size):
         raise IndexError(f"drift should have the same dimension as single_im_size.")
     
@@ -258,7 +258,7 @@ def correct_fov_image(dax_filename, sel_channels,
                                 correction_folder=correction_folder, all_channels=all_channels,
                                 ref_channel=chromatic_ref_channel, im_size=single_im_size, verbose=verbose)
         else:
-            bleed_profile = np.array(bleed_profile, dtype=np.float)
+            bleed_profile = np.array(bleed_profile, dtype=np.float32)
             if bleed_profile.shape != (len(corr_channels),len(corr_channels),single_im_size[-2], single_im_size[-1]) and bleed_profile.shape != tuple([len(corr_channels),len(corr_channels)]+list(single_im_size)):
                 raise IndexError(f"Wrong input shape for bleed_profile: {bleed_profile.shape}, should be {(len(corr_channels),len(corr_channels),single_im_size[-2], single_im_size[-1])}")
     # load chromatic or chromatic_constants depends on whether do warpping
@@ -288,7 +288,7 @@ def correct_fov_image(dax_filename, sel_channels,
     ## check output data-type
     # if normalization, output should be float
     if normalization and output_dtype==np.uint16:
-        output_dtype = np.float 
+        output_dtype = np.float32 
     # otherwise keep original dtype
     else:
         pass
@@ -318,6 +318,7 @@ def correct_fov_image(dax_filename, sel_channels,
     del(_im)
     if verbose:
         print(f" in {time.time()-_load_time:.3f}s")
+
     ## hot-pixel removal
     if hot_pixel_corr:
         if verbose:
@@ -325,7 +326,7 @@ def correct_fov_image(dax_filename, sel_channels,
             _hot_time = time.time()
         # loop through and correct
         for _i, (_ch, _im) in enumerate(zip(_load_channels, _ims)):
-            _nim = corrections.Remove_Hot_Pixels(_im.astype(np.float),
+            _nim = corrections.Remove_Hot_Pixels(_im.astype(np.float32),
                 dtype=output_dtype, hot_th=hot_pixel_th)
             _ims[_i] = _nim
         if verbose:
@@ -337,7 +338,7 @@ def correct_fov_image(dax_filename, sel_channels,
             print(f"-- correct Z-shifts for channels:{_load_channels}", end=' ')
             _z_time = time.time()
         for _i, (_ch, _im) in enumerate(zip(_load_channels, _ims)):
-            _ims[_i] = corrections.Z_Shift_Correction(_im.astype(np.float),
+            _ims[_i] = corrections.Z_Shift_Correction(_im.astype(np.float32),
                 dtype=output_dtype, normalization=False)
         if verbose:
             print(f"in {time.time()-_z_time:.3f}s")
@@ -376,7 +377,7 @@ def correct_fov_image(dax_filename, sel_channels,
         for _i, (_im,_ch) in enumerate(zip(_ims, _load_channels)):
             if verbose:
                 print(f"{_ch}", end=', ')
-            _ims[_i] = (_im.astype(np.float) / illumination_profile[_ch][np.newaxis,:]).astype(output_dtype)
+            _ims[_i] = (_im.astype(np.float32) / illumination_profile[_ch][np.newaxis,:]).astype(output_dtype)
         # clear
         del(illumination_profile)
         if verbose:
@@ -412,8 +413,7 @@ def correct_fov_image(dax_filename, sel_channels,
         )
         
         if verbose:
-            print(f"--- finish drift in {time.time()-_drift_time:.3f}s")
-            print(f"-- drift: {_drift}")
+            print(f"--- finish drift: {np.around(_drift,2)} in {time.time()-_drift_time:.3f}s")
     else:
         _drift = drift.copy()
         
@@ -432,7 +432,7 @@ def correct_fov_image(dax_filename, sel_channels,
                 if verbose:
                     print(f"{_ch}", end=', ')
                     # 0. get old image
-                    _im = _ims[_load_channels.index(_ch)].copy().astype(np.float)
+                    _im = _ims[_load_channels.index(_ch)]
                     # 1. get coordiates to be mapped
                     _coords = np.meshgrid( np.arange(single_im_size[0]), 
                             np.arange(single_im_size[1]), 
@@ -447,11 +447,11 @@ def correct_fov_image(dax_filename, sel_channels,
                         _coords = _coords - _drift[:, np.newaxis,np.newaxis,np.newaxis]
                     # 4. map coordinates
                     _corr_im = map_coordinates(_im, 
-                                                _coords.reshape(_coords.shape[0], -1),
-                                                mode='nearest')
+                                               _coords.reshape(_coords.shape[0], -1),
+                                               mode='nearest').astype(output_dtype)
                     _corr_im = _corr_im.reshape(np.shape(_im))
                     # append 
-                    _ims[_load_channels.index(_ch)] = _corr_im.astype(output_dtype).copy()
+                    _ims[_load_channels.index(_ch)] = _corr_im.copy()
                     # local clear
                     del(_coords, _im, _corr_im)
         # clear
@@ -489,7 +489,7 @@ def correct_fov_image(dax_filename, sel_channels,
     ## normalization
     if normalization:
         for _i, _im in enumerate(_ims):
-            _ims[_i] = _im.astype(np.float) / np.median(_im)
+            _ims[_i] = _im.astype(np.float32) / np.median(_im)
     
     ## summarize and report selected_ims
     _sel_ims = []
