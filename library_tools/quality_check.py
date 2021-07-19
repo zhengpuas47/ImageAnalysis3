@@ -144,21 +144,25 @@ def _check_region_to_readouts(pb_records, readout_dict,
                               verbose=True):
     '''Generate map from region id to barcodes used in this region'''
     import re
+    ## 1. extract region_to_barcode map from probes
     _reg_to_barcode = {}
     for record in pb_records:
         # region id
         reg_id = record.id.split(species_marker)[1].split('_')[0]
         # barcode ids
         stv_matches = re.findall(
-            'Stv_([0-9]+?)_[a-z\]|,]', record.id, re.DOTALL)
+            '(Stv_[0-9]+?)_[a-z\]|,]', record.id, re.DOTALL)
         ndb_matches = re.findall(
-            'NDB_([0-9]+?)_[a-z\]|,]', record.id, re.DOTALL)
-        stv_names = ['Stv_'+str(stv_id) for stv_id in np.unique(stv_matches)]
-        ndb_names = ['NDB_'+str(ndb_id) for ndb_id in np.unique(ndb_matches)]
+            '(NDB_[0-9]+?)_[a-z\]|,]', record.id, re.DOTALL)
+        merfish_matches = re.findall(
+            '(RS[0-9]+?_bit-[0-9]+?)_[a-z\]|,]', record.id, re.DOTALL)
+        # summarize names
+        _rd_names = list(np.unique(stv_matches)) + list(np.unique(ndb_matches)) + list(np.unique(merfish_matches))
+
         if reg_id not in _reg_to_barcode:
-            _reg_to_barcode[reg_id] = stv_names+ndb_names
+            _reg_to_barcode[reg_id] = _rd_names
         else:
-            for _name in stv_names+ndb_names:
+            for _name in _rd_names:
                 if _name not in _reg_to_barcode[reg_id]:
                     _reg_to_barcode[reg_id].append(_name)
     ## barcode check
@@ -168,15 +172,15 @@ def _check_region_to_readouts(pb_records, readout_dict,
     for _type, _readouts in readout_dict.items():
         rd_names += [_r.id for _r in _readouts]
     # search through previous dictionary
-    for reg, readouts in _reg_to_barcode.items():
+    for reg, _rd_names in _reg_to_barcode.items():
         # sort the names
-        _stvs = [_rd for _rd in readouts if 'Stv' in _rd]
-        _ndbs = [_rd for _rd in readouts if 'NDB' in _rd]
-        _reg_to_barcode[reg] = sorted(_stvs, key=lambda r: int(
-            r.split('_')[-1])) + sorted(_ndbs, key=lambda r: int(r.split('_')[-1]))
+        _stvs = [_rd for _rd in _rd_names if 'Stv' in _rd]
+        _ndbs = [_rd for _rd in _rd_names if 'NDB' in _rd]
+        _merfish_bits = [_rd for _rd in _rd_names if 'bit-' in _rd]
+        _reg_to_barcode[reg] = _stvs + _ndbs + _merfish_bits
         # check total number of readout seq used for each species
-        for rd in readouts:
-            if len(readouts) != total_readout_num:
+        for rd in _rd_names:
+            if len(_rd_names) != total_readout_num:
                 print("-- Error in barcode number for region:", reg)
                 _barcode_check = False
                 break
@@ -296,7 +300,8 @@ def _check_readout_to_region(reg_to_readout, pb_records, readout_dict,
         print(" > Done.")
     # sort _readout_to_reg
     _readout_keys = sorted([_r for _r in _readout_to_reg if 'Stv' in _r], key=lambda r:int(r.split('_')[-1]) ) + \
-                    sorted([_r for _r in _readout_to_reg if 'NDB' in _r], key=lambda r:int(r.split('_')[-1]) )
+                    sorted([_r for _r in _readout_to_reg if 'NDB' in _r], key=lambda r:int(r.split('_')[-1]) ) + \
+                    sorted([_r for _r in _readout_to_reg if 'bit-' in _r], key=lambda r:int(r.split('bit-')[1].split('_')[0]) ) 
     _regions = [_readout_to_reg[_r] for _r in _readout_keys]
     _readout_to_reg = dict(zip(_readout_keys, _regions))
     
@@ -388,14 +393,12 @@ def _check_between_probes(pb_records, int_map, _max_internal_hits=50,
                           add_rand_gap=0,
                           _make_plot=False, _verbose=True):
     """Function to check k-mer appreance between probes"""
-    def __extract_targeting_sequence(record, primer_len=primer_len, target_len=target_len,
-                                     readout_len=readout_len, add_rand_gap=add_rand_gap):
-        return record.seq[-(readout_len+add_rand_gap)*2-primer_len-target_len: -(readout_len+add_rand_gap)*2-primer_len]
+
     _internal_hits = []
     _kept_pb_records = []
     _removed_count = 0
     for record in pb_records:
-        target_seq = str(__extract_targeting_sequence(record)).upper().encode()
+        target_seq = str(_parsing_probe_sequence(record, primer_len=primer_len, readout_len=readout_len, target_len=target_len)[0]).upper().encode()
         _rec_hits = int_map.get(target_seq) + int_map.get(target_seq, rc=True)
         _internal_hits.append(_rec_hits) 
         if _rec_hits <= _max_internal_hits:

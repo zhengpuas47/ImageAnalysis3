@@ -329,9 +329,10 @@ class Field_of_View():
         self.use_dapi = _use_dapi
         self.channels = [str(ch) for ch in _channels]
         # channel for beads
-        _bead_channel = find_bead_channel(_color_dic)
-        self.bead_channel_index = _bead_channel
+        _drift_channel = find_bead_channel(_color_dic)
+        self.drift_channel = self.channels[_drift_channel]
         _dapi_channel = find_dapi_channel(_color_dic)
+        self.dapi_channel = self.channels[_dapi_channel]
         self.dapi_channel_index = _dapi_channel
 
         # get annotated folders by color usage
@@ -514,9 +515,9 @@ class Field_of_View():
             if 'illumination' in self.correction_profiles and self.correction_profiles['illumination'] is not None and len(self.correction_profiles['illumination']) > 0 and not _overwrite:
                 print(f"++ illumination correction profile already exist, skip.")
             else:
-                bead_channel = str(self.channels[self.bead_channel_index])
-                dapi_channel = str(self.channels[self.dapi_channel_index])
-                _illumination_channels = self.shared_parameters['corr_channels']+[bead_channel, dapi_channel]
+                drift_channel = str(self.drift_channel)
+                dapi_channel = str(self.dapi_channel)
+                _illumination_channels = self.shared_parameters['corr_channels']+[drift_channel, dapi_channel]
                 ## illumination profiles
                 _savefile_load_illumination = False
                 if _load_from_savefile_first:
@@ -717,6 +718,13 @@ class Field_of_View():
             if _ref_id is None:
                 raise AttributeError(f"data_type: {_data_type}_ref_filename or {_data_type}_ref_id should be given!")
             _ref_filename = os.path.join(self.annotated_folders[int(_ref_id)], self.fov_name)
+            _info = self.color_dic[os.path.basename(self.annotated_folders[int(_ref_id)])]
+            _used_channels = []
+            for _mk, _ch in zip(_info, self.channels):
+                if _mk.lower() == 'null':
+                    continue
+                else:
+                    _used_channels.append(_ch)
 
         if _verbose:
             print(f"+ load reference image from file:{_ref_filename}")
@@ -730,13 +738,13 @@ class Field_of_View():
         else:
             # load
             _ref_im = correct_fov_image(_ref_filename, 
-                                        [self.channels[self.bead_channel_index]], 
+                                        [self.drift_channel], 
                                         single_im_size=self.shared_parameters['single_im_size'],
-                                        all_channels=self.channels,
+                                        all_channels=_used_channels,
                                         num_buffer_frames=self.shared_parameters['num_buffer_frames'],
                                         num_empty_frames=self.shared_parameters['num_empty_frames'],
                                         drift=None, calculate_drift=False,
-                                        drift_channel=self.channels[self.bead_channel_index],
+                                        drift_channel=self.drift_channel,
                                         correction_folder=self.correction_folder,
                                         warp_image=False,
                                         illumination_corr=True,
@@ -751,7 +759,8 @@ class Field_of_View():
             # save new chromosome image
             if _save:
                 self._save_to_file('fov_info', _save_attr_list=[f'{_data_type}_ref_im'],
-                                _verbose=_verbose)
+                                   _overwrite=_overwrite,
+                                   _verbose=_verbose)
 
         return _ref_im
 
@@ -944,7 +953,7 @@ class Field_of_View():
                 'chromatic_profile':self.correction_profiles['chromatic_constants'],})
         # required parameters for drift correction
         _drift_args.update({
-            'drift_channel': self.channels[self.bead_channel_index],
+            'drift_channel': self.drift_channel,
             'use_autocorr': self.shared_parameters['drift_use_autocorr'],
             'drift_args': self.shared_parameters['drift_args'],
         })
@@ -983,16 +992,21 @@ class Field_of_View():
             _dax_filename = os.path.join(_fd, self.fov_name)
             # get selected channels
             _info = self.color_dic[os.path.basename(_fd)]
-            _sel_channels = []
+            _used_channels = [] # all used channels in this round
+            _sel_channels = [] # selected channels to be processed in this round
             _reg_ids = []
             # loop through color_dic to collect selected channels and ids
             for _mk, _ch in zip(_info, self.channels):
-                if _dtype_mk in _mk:
-                    _id = int(_mk.split(_dtype_mk)[1])
-                    if _id in _sel_ids:
-                        # append sel_channels and reg_ids for now
-                        _sel_channels.append(_ch)
-                        _reg_ids.append(_id)
+                if _mk.lower() == 'null':
+                    continue
+                else:
+                    _used_channels.append(_ch)
+                    if _dtype_mk in _mk:
+                        _id = int(_mk.split(_dtype_mk)[1])
+                        if _id in _sel_ids:
+                            # append sel_channels and reg_ids for now
+                            _sel_channels.append(_ch)
+                            _reg_ids.append(_id)
             # check existence of these candidate selected ids
             if len(_sel_channels) > 0:
                 # Case 1: if trying to use existing images 
@@ -1022,7 +1036,10 @@ class Field_of_View():
                                     if not _es] # if spot not exist, process sel_channel
                     _reg_ids = [_id for _id, _es in zip(_reg_ids, _exist_spots)
                                 if not _es] # if spot not exist, process reg_id
-
+            # update a correction_args with used_channel for this round
+            print(f"used_channels: {_used_channels}")
+            _round_correction_args = {_k:_v for _k,_v in _correction_args.items()}
+            _round_correction_args.update({'all_channels':_used_channels})
             # append if any channels selected
             if len(_sel_channels) > 0:
                 _args = (_dax_filename, _sel_channels, 
@@ -1030,8 +1047,10 @@ class Field_of_View():
                         _data_type, _reg_ids, 
                         _drift_reference,
                         _load_file_lock,
-                        _warp_images, _correction_args, 
-                        _save_images, self.shared_parameters['empty_value'],
+                        _warp_images, 
+                        _round_correction_args, 
+                        _save_images, 
+                        self.shared_parameters['empty_value'],
                         _fov_savefile_lock, 
                         _overwrite_image, 
                         _drift_args, 
@@ -1583,7 +1602,7 @@ class Field_of_View():
                                     num_buffer_frames=self.shared_parameters['num_buffer_frames'],
                                     num_empty_frames=self.shared_parameters['num_empty_frames'],
                                     drift=None, calculate_drift=_use_ref_im, 
-                                    drift_channel=self.channels[self.bead_channel_index],
+                                    drift_channel=self.drift_channel,
                                     ref_filename=_drift_ref,
                                     correction_folder=self.correction_folder,
                                     corr_channels=self.shared_parameters['corr_channels'],
@@ -1862,10 +1881,13 @@ class Field_of_View():
             _dapi_im = getattr(self, 'dapi_im')
         else:
             _use_ref_im = False
+
+
+
             # find DAPI in color_usage
             _dapi_fds = []
             for _fd, _infos in self.color_dic.items():
-                if len(_infos) >= self.dapi_channel_index+1 and _infos[self.dapi_channel_index] == 'DAPI':
+                if len(_infos) >= len(self.channels) and _infos[self.dapi_channel_index] == 'DAPI':
                     _full_fd = [_a_fd for _a_fd in self.annotated_folders if os.path.basename(_a_fd)==_fd]
                     if len(_full_fd) == 1:
                         _dapi_fds.append(_full_fd[0])
@@ -1891,10 +1913,19 @@ class Field_of_View():
                     _use_ref_im = True
                 else:
                     _use_ref_im = False 
-            
+                # get used_channels for this dapi folder:
+                _info = self.color_dic[os.path.basename(_dapi_fd)]
+                _used_channels = []
+                for _mk, _ch in zip(_info, self.channels):
+                    if _mk.lower() == 'null':
+                        continue
+                    else:
+                        _used_channels.append(_ch)
+
+
             # assemble filename
             _dapi_filename = os.path.join(_dapi_fd, self.fov_name)
-            _dapi_channel = self.channels[self.dapi_channel_index]
+            _dapi_channel = self.dapi_channel
 
             # load from Dax file
             if hasattr(self, 'ref_im'):
@@ -1906,11 +1937,11 @@ class Field_of_View():
             _dapi_im = correct_fov_image(_dapi_filename, 
                                         [_dapi_channel],
                                         single_im_size=self.shared_parameters['single_im_size'],
-                                        all_channels=self.channels,
+                                        all_channels=_used_channels,
                                         num_buffer_frames=self.shared_parameters['num_buffer_frames'],
                                         num_empty_frames=self.shared_parameters['num_empty_frames'],
                                         drift=None, calculate_drift=_use_ref_im,
-                                        drift_channel=self.channels[self.bead_channel_index],
+                                        drift_channel=self.drift_channel,
                                         ref_filename=_drift_ref,
                                         correction_folder=self.correction_folder,
                                         corr_channels=self.shared_parameters['corr_channels'],
@@ -1949,7 +1980,7 @@ class Field_of_View():
                     _ind = _i
                     break
         _bead_filename = os.path.join(self.annotated_folders[_ind], self.fov_name)
-        _bead_channel = self.channels[self.bead_channel_index]
+        _drift_channel = self.drift_channel
         # load from Dax file
         if hasattr(self, 'ref_im'):
             _drift_ref = getattr(self, 'ref_im')
@@ -1957,13 +1988,13 @@ class Field_of_View():
             _drift_ref = getattr(self, 'ref_filename')
         # load this beads image
         _bead_im = correct_fov_image(_bead_filename, 
-                                    [_bead_channel],
+                                    [_drift_channel],
                                     single_im_size=self.shared_parameters['single_im_size'],
                                     all_channels=self.channels,
                                     num_buffer_frames=self.shared_parameters['num_buffer_frames'],
                                     num_empty_frames=self.shared_parameters['num_empty_frames'],
                                     drift=_drift, calculate_drift=False,
-                                    drift_channel=_bead_channel,
+                                    drift_channel=_drift_channel,
                                     ref_filename=_drift_ref,
                                     correction_folder=self.correction_folder,
                                     warp_image=True,

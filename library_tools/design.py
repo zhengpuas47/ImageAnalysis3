@@ -23,7 +23,8 @@ from .LibraryTools import OTTable
 def tm(string):
     if isinstance(string, bytes):
         string = string.decode()
-    return MeltingTemp.Tm_NN(string, nn_table=MeltingTemp.DNA_NN4, Na=390) #390mM for 2xSSC, 300mM from NaCl, 90mM from (tri)sodium citrate
+    return MeltingTemp.Tm_NN(string, nn_table=MeltingTemp.DNA_NN4, 
+                             Na=390, dnac1=1, dnac2=0) #390mM Na from 2xSSC: 300mM from NaCl, 90mM from (tri)sodium citrate
 def gc(string):
     if isinstance(string, bytes):
         string = string.decode()
@@ -74,7 +75,7 @@ class countTable():
         self.seqs,self.names = [],[]
     def create_matrix(self):
         if self.sparse:
-            self.max_sparse_ind = 2**31#scipy.sparse decided to encoded in indeces in int32. Correct!
+            self.max_sparse_ind = 2**31 #scipy.sparse decided to encoded in indeces in int32. Correct!
             self.nrows = int(self.max_size/self.max_sparse_ind)
             if self.nrows>0:
                 self.matrix = ss.csr_matrix((self.nrows,self.max_sparse_ind), dtype=np.uint16)
@@ -94,7 +95,7 @@ class countTable():
         if self.save_file is not None:
             if self.sparse:
                 self.matrix = ss.load_npz(self.save_file)
-                self.max_sparse_ind = 2**31#scipy.sparse decided to encoded in indeces in int32. Correct!
+                self.max_sparse_ind = 2**31 #scipy.sparse decided to encoded in indeces in int32. Correct!
             else:
                 self.matrix = np.fromfile(self.save_file,dtype=np.uint16)
     def complete(self,verbose=False):
@@ -411,20 +412,20 @@ Key information:
                     names =[names]
                     seqs = [seqs]
                 if merge:
-                    OTmaps = [OTmap(seqs,word_size=17,use_kmer=use_kmer,progress_report=False,save_file=save_file)]
+                    OTmaps = [OTmap(seqs,word_size=self.params_dic['word_size'],use_kmer=use_kmer,progress_report=False,save_file=save_file)]
                 else:
-                    OTmaps = [OTmap(seq_,word_size=17,use_kmer=use_kmer,progress_report=False,save_file=save_file)
+                    OTmaps = [OTmap(seq_,word_size=self.params_dic['word_size'],use_kmer=use_kmer,progress_report=False,save_file=save_file)
                               for seq_ in seqs]
                 setattr(self,map_key,OTmaps)
             # for pre-existing tables, load
             elif len(_files)==1 and check_extension(files, 'npy'):
-                OTMap_ = countTable(word=17,sparse=False,save_file=_files[0])
+                OTMap_ = countTable(word=self.params_dic['word_size'],sparse=False,save_file=_files[0])
                 OTMap_.load()
                 OTmaps = [OTMap_]
                 setattr(self,map_key,OTmaps)
             # for pre-existing tables, load
             elif len(_files)==1 and check_extension(files, 'npz'):
-                OTMap_ = countTable(word=17,sparse=True,save_file=_files[0])
+                OTMap_ = countTable(word=self.params_dic['word_size'],sparse=True,save_file=_files[0])
                 OTMap_.load()
                 OTmaps = [OTMap_]
                 setattr(self,map_key,OTmaps)
@@ -449,8 +450,8 @@ Key information:
         print(f"Time to release OTmaps: {time.time()-start:.3f}s. ")
 
     def compute_pb_report(self):
-        block = self.word_size
-        pb_len = self.pb_len
+        block = self.params_dic['word_size']
+        pb_len = self.params_dic['pb_len']
         #buffer_len = self.buffer_len
         #gen_seqs,gen_names = self.input_seqs,self.input_names
         input_rev_com = self.sequence_dic.get('rev_com',False)
@@ -473,7 +474,7 @@ Key information:
             # compute this input file (fasta) into OTMap
             _input_map_dic = {_k:_v for _k,_v in self.map_dic['self_sequences'].items()}
             _input_map_dic['file'] = _file
-            print(f"{_reg_id}, input file: {_input_map_dic['file']}")
+            print(f"region: {_reg_id}, input file: {_input_map_dic['file']}")
 
             self.files_to_OTmap('map_self_sequences', _input_map_dic)
             # initialize kept flag (for two-strands)

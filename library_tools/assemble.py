@@ -239,7 +239,7 @@ def _assemble_single_probe(_target, _readout_list, _fwd_primer, _rev_primer,
     return _seq
 
 
-def _assemble_single_probename(_pb_info, _readout_name_list, _pb_id):
+def _assemble_single_probename(_pb_info, _readout_name_list, _pb_id, _fwd_primer, _rev_primer):
     """Assemble one probe name by given probe info
     _pb_info is one of values in pb_designer.pb_reports_keep or pb_designer.kept_probes"""
     # region
@@ -264,7 +264,8 @@ def _assemble_single_probename(_pb_info, _readout_name_list, _pb_id):
     # append readout
     _name.extend( ['readouts', '[' + ','.join(_readout_name_list) + ']'] )
     # append primer
-    
+    _name.extend( ['primers', '[' + ','.join([_fwd_primer.id, _rev_primer.id]) + ']'] )
+
     return '_'.join(_name)
 
 # function to assemble probes in the whole library
@@ -411,7 +412,7 @@ def Assemble_probes(library_folder, probe_source, gene_readout_dict,
                 _probe = _assemble_single_probe(_target, _pb_readouts, fwd_primer, rev_primer,
                                                 _primer_len=primer_len, _readout_len=readout_len, 
                                                 _target_len=target_len, _add_rand_gap=add_rand_gap)
-                _name = _assemble_single_probename(_info, _pb_readout_names, _i)
+                _name = _assemble_single_probename(_info, _pb_readout_names, _i, fwd_primer, rev_primer)
                 _probe.id = _name
                 _probe.name, _probe.description = '', ''
                 cand_probes.append(_probe)
@@ -446,7 +447,7 @@ def Assemble_probes(library_folder, probe_source, gene_readout_dict,
                 _probe = _assemble_single_probe(_target, _pb_readouts, fwd_primer, rev_primer,
                                                 _primer_len=primer_len, _readout_len=readout_len, 
                                                 _target_len=target_len, _add_rand_gap=add_rand_gap)
-                _name = _assemble_single_probename(_info, _pb_readout_names, _i)
+                _name = _assemble_single_probename(_info, _pb_readout_names, _i, fwd_primer, rev_primer)
                 #_name = _info['region']+'_gene_'+_info['gene']+'_pb_'+str(_i) +\
                 #       '_pos_'+str(_info['position'])+'_readouts_[' + \
                 #       ','.join(_pb_readout_names) + ']'
@@ -712,7 +713,7 @@ def replace_gene_specifc_readouts(probe_records, gene_2_readout_dict, swap_ratio
                             _primer_len=primer_len, _readout_len=readout_len, 
                             _target_len=target_len, _add_rand_gap=add_rand_gap,)
                         _new_name = _assemble_single_probename(
-                            _info, _rd_names, _pid)
+                            _info, _rd_names, _pid, _fp, _rp)
                         _new_pb.id = _new_name
                         _new_pb.name = ''
                         _new_pb.description = ''
