@@ -11,6 +11,154 @@ def _calculate_binary_center(_binary_label):
 
 
 
+
+# alternative method to find candidate chromosome @ Shiwei Liu
+# including main features as below:
+# 1. dna/dapi rough mask is used to filtering out the non-cell/non-nucleus region when calculating the intensity distribution of chr signal;
+# 2. initial chr labels are seperated by their voxel size, which are subjected to subsequent binary operations using different parameters.
+# 3. the specified chr/gene id is returned as the 4th element in the output (chrom_coords) in addition to the zyx, which would be used for simutaneous spots assigment to multiple genes.
+
+def find_candidate_chromosomes_in_nucleus (_chrom_im, _dna_im, _chr_id = 0,
+                                           _percent_th_3chr = 97.5,
+                                           _percent_th_2chr = 85, 
+                                           _std_ratio = 3,
+                                           _morphology_size=1, 
+                                           _min_label_size=20, 
+                                           _random_walk_beta=15, 
+                                           _num_threads=4, 
+                                           _verbose=True):
+    '''Function to find candidate chromosome centers given
+    Inputs:
+        _chrom_im: image where chromosomes are lighted,
+            it could be directly from experimental result, or assembled by stacking over images,
+            np.ndarray(shape equal to single_im_size)_
+        _dna_im: DNA/nuclei/cell image that are used for filtering out the non-cell/non-nucleus region
+        _chr_id: the id number for the chr (gene) selected; default is 0
+        _percent_th_3chr: the percentile th (for voxel size) as indicated for grouping large chr seeds that are likely formed by more than one chr
+        _percent_th_3chr: the percentile th (for voxel size) as indicated for grouping large chr seeds that are likely formed by two chr
+        _std_ratio: the number of std to be used to find the lighted chromosome
+        _morphology_size: the size for erosion/dilation for single chr candidate; 
+            this size is adjusted further for erosion/dilation for larger chr seeds that are likely formed by multiple chr candidate
+        _min_label_size: size for removal of small objects; note that this is typically smaller than what is used in the [find_candidate_chromosomes] function below
+        _random_walk_beta: the higher the beta, the more difficult the diffusion is.
+        _verbose: say something!, bool (default: True)
+    Output:
+         cand_chrom_coords: list of chrom coordinates in zxy pixels + the chr/gene id as the fourth element'''
+
+    from skimage import morphology
+    #from scipy.stats import scoreatpercentile
+    from scipy import ndimage
+    from skimage import measure
+    from skimage import filters
+
+
+     ## 1. process image to find chr seeds with edge exclusion
+
+    _dna_im_zmax = np.max(_dna_im,axis=0)
+    _dna_rough_mask =  _dna_im_zmax > filters.threshold_otsu (_dna_im_zmax)
+     # extract the signal within the cell/nuclei
+    _chrom_im_filtered =  np.max(_chrom_im,axis=0) * morphology.dilation (_dna_rough_mask, morphology.disk(10) )
+    _chrom_im_filtered = np.array([_i for _i in _chrom_im_filtered.flatten() if _i >0])
+     # use mean + std * 3 (or other ratio factor) to find the th for image binarization
+    _chrom_im_th =  np.mean(_chrom_im_filtered) + np.std(_chrom_im_filtered) * _std_ratio  # (default is mean + 3*std)
+    if _verbose:
+        print(f"-- binarize image with threshold: {_chrom_im_th}")
+    _binary_im = _chrom_im > _chrom_im_th
+     # exclude edges
+    _filt_size=3
+    _edge = int(np.ceil(_filt_size/2))
+    _binary_im[:_edge] = 0
+    _binary_im[-_edge:] = 0
+    _binary_im[:,:_edge] = 0
+    _binary_im[:,-_edge:] = 0
+    _binary_im[:,:,:_edge] = 0
+    _binary_im[:,:,-_edge:] = 0
+
+     ## 2. binary operations for chr seeds with different voxel size
+    
+     # calculate the rough size for single chr seed
+    _label_chr,_num_chr = ndimage.label(_binary_im)
+    _rois_chr = measure.regionprops(_label_chr)
+    _chr_size = []
+    for _roi in _rois_chr:
+        _chr_size.append(_roi.area)  # append the voxel area for each seed 
+    _size_th_2chr = np.percentile(np.array(_chr_size),_percent_th_2chr)  # size th for large (or intermediate) seed
+    _size_th_3chr = np.percentile(np.array(_chr_size),_percent_th_3chr)  # size th for larger seed
+     # separate chr seeds based on their rough size
+    _3chr_binary_im = morphology.remove_small_objects(_binary_im, _size_th_3chr).astype(np.uint16)   # larger seed  
+    _minus_binary_im = _binary_im - _3chr_binary_im
+    _2chr_binary_im = morphology.remove_small_objects(_minus_binary_im, _size_th_2chr).astype(np.uint16)   # large (or intermediate) seed  
+    _1chr_binary_im = _minus_binary_im - _2chr_binary_im  # small seed  
+    # erosion/dilation and closing/opening for different groups of chr seeds
+    if _verbose:
+        print(f"-- process small chromosome seeds with size={_morphology_size}.")
+    _binary_label = _1chr_binary_im.copy()
+    _binary_label = ndimage.binary_erosion(_binary_label, morphology.ball(_morphology_size))
+    _binary_label = ndimage.binary_dilation(_binary_label, morphology.ball(_morphology_size))
+    _binary_label = ndimage.binary_fill_holes(_binary_label, structure=morphology.ball(_morphology_size))
+    _open_objects = morphology.opening(_binary_label, morphology.ball(1))
+    _1chr_close_objects = morphology.closing(_open_objects, morphology.ball(1))
+    if _verbose:
+        print(f"-- process large/intermediate chromosome seeds with size={_morphology_size+1}.")
+    _binary_label = _2chr_binary_im.copy()
+    _binary_label = ndimage.binary_erosion(_binary_label, morphology.ball(_morphology_size+1))
+    _binary_label = ndimage.binary_dilation(_binary_label, morphology.ball(_morphology_size))
+    _binary_label = ndimage.binary_fill_holes(_binary_label, structure=morphology.ball(_morphology_size+1))
+    _open_objects = morphology.opening(_binary_label, morphology.ball(1))
+    _2chr_close_objects = morphology.closing(_open_objects, morphology.ball(1))
+    if _verbose:
+        print(f"-- process larger chromosome seeds with size={_morphology_size+1}. closing seeds with size=2")
+    _binary_label = _3chr_binary_im.copy()
+    _binary_label = ndimage.binary_erosion(_binary_label, morphology.ball(_morphology_size+1))
+    _binary_label = ndimage.binary_dilation(_binary_label, morphology.ball(_morphology_size))
+    _binary_label = ndimage.binary_fill_holes(_binary_label, structure=morphology.ball(_morphology_size+1))
+    _open_objects = morphology.opening(_binary_label, morphology.ball(2))
+    _3chr_close_objects = morphology.closing(_open_objects, morphology.ball(1))
+    # combine all masks above
+    _close_objects = _1chr_close_objects + _2chr_close_objects + _3chr_close_objects
+    # remove small objects
+    _close_objects= morphology.remove_small_objects(_close_objects, _min_label_size).astype(np.uint16)  # use smaller_label_size since seeds are eroded in size.
+
+    ## 3. segmentation
+    _label, _num = ndimage.label(_close_objects)
+    _label[_label==0] = -1
+    if _verbose:
+        print(f"-- random walk segmentation, beta={_random_walk_beta}.")
+    from skimage.segmentation import random_walker
+    _seg_label = random_walker(_chrom_im, _label, beta=_random_walk_beta, mode='cg_mg')
+    _seg_label[_seg_label < 0] = 0
+    _kept_label = _seg_label.astype(np.uint16)
+    _label_ids = np.unique(_kept_label)
+    _label_ids = _label_ids[_label_ids > 0]
+    if _verbose:
+        print(f"-- {len(_label_ids)} objects are found by segmentation.")
+    
+    ## 7. calculate chr centers    
+    _chrom_args = [(_kept_label==_id,) for _id in _label_ids]
+
+    with mp.Pool(_num_threads,) as _chrom_pool:
+        if _verbose:
+            print(f"- Start multiprocessing caluclate chromosome coordinates with {_num_threads} threads", end=' ')
+            _multi_time = time.time()
+        # Multi-proessing!
+        _chrom_coords = _chrom_pool.starmap(_calculate_binary_center, _chrom_args, chunksize=1)
+        # close multiprocessing
+        _chrom_pool.close()
+        _chrom_pool.join()
+        _chrom_pool.terminate()
+        if _verbose:
+            print(f"in {time.time()-_multi_time:.3f}s.")
+            
+    _chrom_coords = np.array(_chrom_coords)
+    _chr_id_col = np.ones([len(_chrom_coords),1]) * int(_chr_id)
+
+    _chrom_coords = np.hstack ((_chrom_coords, _chr_id_col))
+    
+    return _chrom_coords
+    
+
+
+
 def find_candidate_chromosomes(_chrom_im, 
                                _adjust_layers=False, 
                                _filt_size=3, 
@@ -78,7 +226,8 @@ def find_candidate_chromosomes(_chrom_im,
     if _verbose:
         print(f"-- random walk segmentation, beta={_random_walk_beta}.")
     from skimage.segmentation import random_walker
-    _seg_label = random_walker(adj_chrom_im, _label, beta=10, mode='cg_mg')
+    #_seg_label = random_walker(adj_chrom_im, _label, beta=10, mode='cg_mg')   #parameter input was not used for the actual function. correction see below -- Shiwei
+    _seg_label = random_walker(adj_chrom_im, _label, beta=_random_walk_beta, mode='cg_mg')
     _seg_label[_seg_label < 0] = 0
     ## 6. keep objects
     if _verbose:

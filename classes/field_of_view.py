@@ -1727,6 +1727,115 @@ class Field_of_View():
                                 _verbose=_verbose)
             
         return _chrom_im #, _shifted_ims
+    
+
+    
+
+
+    # alternative batch method to find candidate chromosome @ Shiwei Liu
+    # including main features as below:
+    # 1. dna/dapi rough mask is used to filtering out the non-cell/non-nucleus region when calculating the intensity distribution of chr signal;
+    # 2. initial chr labels are seperated by their voxel size, which are subjected to subsequent binary operations using different parameters.
+    # 3. the specified chr/gene id is returned as the 4th element in the output (chrom_coords) in addition to the zyx, which would be used for simutaneous spots assigment to multiple genes.
+
+    def _find_all_candidate_chromosomes_in_nucleus (self, 
+                                                _chrom_ims=None, 
+                                                _dna_im=None, 
+                                                _chr_ids = [0], 
+                                                _percent_th_3chr = 97.5,
+                                                _percent_th_2chr = 85, 
+                                                _std_ratio = 3,
+                                                _morphology_size=1, 
+                                                _min_label_size=20, 
+                                                _random_walk_beta=15, 
+                                                _num_threads=4,
+                                                _save=True,
+                                                _overwrite=False, 
+                                                _verbose=True):
+        '''Function to find all candidate chromosome centers for input genes given
+        Inputs:
+            _chrom_ims: images where chromosomes are lighted for different genes [num_of_genes * (z,y,x)],
+               it could be directly from experimental result, or assembled by stacking over images,
+               np.ndarray(shape equal to single_im_size)_
+            _dna_im: DNA/nuclei/cell image that are used for filtering out the non-cell/non-nucleus region
+            _chr_id: the id number for the chr (gene) selected; default is 0
+            _percent_th_3chr: the percentile th (for voxel size) as indicated for grouping large chr seeds that are likely formed by more than one chr
+            _percent_th_3chr: the percentile th (for voxel size) as indicated for grouping large chr seeds that are likely formed by two chr
+            _std_ratio: the number of std to be used to find the lighted chromosome
+            _morphology_size: the size for erosion/dilation for single chr candidate; 
+               this size is adjusted further for erosion/dilation for larger chr seeds that are likely formed by multiple chr candidate
+            _min_label_size: size for removal of small objects; note that this is typically smaller than what is used in the [find_candidate_chromosomes] function below
+            _random_walk_beta: the higher the beta, the more difficult the diffusion is.
+            _verbose: say something!, bool (default: True)
+        Output:
+            cand_chrom_coords_all: array of chrom coordinates in zxy pixels + the chr/gene id as the fourth element (for all selected genes)'''
+
+        from skimage import morphology
+        #from scipy.stats import scoreatpercentile
+        from scipy import ndimage
+        from skimage import measure
+        from skimage import filters
+        if hasattr(self, 'cand_chrom_coords_alt') and not _overwrite:
+            if _verbose:
+                print(f"+ directly use current chromsome coordinates alternative.")
+                return getattr(self, 'cand_chrom_coords_alt')
+        elif not _overwrite:
+            self._load_from_file('fov_info', _load_attr_list=['cand_chrom_coords_alt'],
+                                _overwrite=_overwrite, _verbose=_verbose, )
+            if hasattr(self, 'cand_chrom_coords_alt'):
+                if _verbose:
+                    print(f"+ use chromsome coordinates alternative from savefile: {os.path.basename(self.save_filename)}.")
+                return getattr(self, 'cand_chrom_coords_alt')
+        
+        ## 1. generate chromosome images from saved HDF file for all genes or selected genes if not specified
+        if _chrom_ims is None:
+            with h5py.File(self.save_filename, "r", libver='latest') as _f:
+              _grp = _f['gene']
+              gene_ims = _grp['ims'][:]
+              gene_ids = _grp['ids'][:]
+            _chrom_ims = gene_ims  
+            _chr_ids = gene_ids
+        # convert chromosome image for one gene into compatible shape
+        if isinstance(_chrom_ims, np.ndarray):
+            if len(_chrom_ims.shape) == 3:
+                _chrom_ims = np.array([_chrom_ims])
+        if len(_chrom_ims) != len(_chr_ids):
+            print ('Number of chromsome images do not match with number of genes. Note that the function is intended for multiple images/genes.')
+            return None
+        ## 2. perform chromosome identification    
+        # load dna image if not specified
+        from ..segmentation_tools.chromosome import find_candidate_chromosomes_in_nucleus
+        if _dna_im = None:
+            if hasattr(self, 'dapi_im') and not _overwrite:
+                if _verbose:
+                    print(f"+ directly use current dapi image.")
+                    _dna_im = getattr(self, 'dapi_im')
+            else:
+                _dna_im = self._load_dapi_image(_dapi_id=0, _overwrite=True, _save=False)
+        # call find_candidate_chromosomes_in_nucleus function
+        _chrom_coords_all = []
+
+        for _chrom_im, _chr_id in zip(_chrom_ims,_chr_ids):
+            _chrom_coords = find_candidate_chromosomes_in_nucleus (
+                _chrom_im, _dna_im = _dna_im, _chr_id = _chr_id, _percent_th_3chr =_percent_th_3chr, _percent_th_2chr=_percent_th_2chr,_std_ratio=_std_ratio,_morphology_size=_morphology_size,
+                _min_label_size=_min_label_size, _random_walk_beta=_random_walk_beta,_num_threads=_num_threads,_verbose=_verbose)
+                # append _chrom_coords with their gene/chr id
+            for _chr in _chrom_coords:
+                _chrom_coords_all.append(_chr)
+
+        _chrom_coords_all =np.array(_chrom_coords_all)
+
+        ## 3. set attributes
+        setattr(self, 'cand_chrom_coords_alt', _chrom_coords_all)
+        if _save:
+            self._save_to_file('fov_info', _save_attr_list=['cand_chrom_coords_alt'],
+                                _overwrite=_overwrite,
+                                _verbose=_verbose)
+        
+        return _chrom_coords_all
+
+    
+
 
 
     def _find_candidate_chromosomes_by_segmentation(self, 
