@@ -1738,6 +1738,13 @@ class Field_of_View():
     # 2. initial chr labels are seperated by their voxel size, which are subjected to subsequent binary operations using different parameters.
     # 3. the specified chr/gene id is returned as the 4th element in the output (chrom_coords) in addition to the zyx, which would be used for simutaneous spots assigment to multiple genes.
 
+
+    # Some notes for adjusting the parameters:
+    # Test _morphology_size first so majority of single chromosome foci were correctly labeled;
+    # Next, increase or decrease _percent_th_3chr and _percent_th_2chr if too much over-splitting or merging of chr seeds
+    # If oversplitting happens (especially on relatively condensed small foci) while merging is also frequent, try increase the _min_label_size. 
+    # Increase of _min_label_size decrease overspliting though it may lead to some detection loss for small chromosome seeds.
+
     def _find_all_candidate_chromosomes_in_nucleus (self, 
                                                 _chrom_ims=None, 
                                                 _dna_im=None, 
@@ -1746,7 +1753,7 @@ class Field_of_View():
                                                 _percent_th_2chr = 85, 
                                                 _std_ratio = 3,
                                                 _morphology_size=1, 
-                                                _min_label_size=20, 
+                                                _min_label_size=30, 
                                                 _random_walk_beta=15, 
                                                 _num_threads=4,
                                                 _save=True,
@@ -1800,12 +1807,12 @@ class Field_of_View():
             if len(_chrom_ims.shape) == 3:
                 _chrom_ims = np.array([_chrom_ims])
         if len(_chrom_ims) != len(_chr_ids):
-            print ('Number of chromsome images do not match with number of genes. Note that the function is intended for multiple images/genes.')
+            print ('Error: Number of chromsome images do not match with number of genes. Note that the function is intended for multiple images/genes.')
             return None
         ## 2. perform chromosome identification    
         # load dna image if not specified
         from ..segmentation_tools.chromosome import find_candidate_chromosomes_in_nucleus
-        if _dna_im = None:
+        if _dna_im is None:
             if hasattr(self, 'dapi_im') and not _overwrite:
                 if _verbose:
                     print(f"+ directly use current dapi image.")
@@ -1816,6 +1823,8 @@ class Field_of_View():
         _chrom_coords_all = []
 
         for _chrom_im, _chr_id in zip(_chrom_ims,_chr_ids):
+            if _verbose:
+                print (f'+ start analyzing the chr/gene {_chr_id}')
             _chrom_coords = find_candidate_chromosomes_in_nucleus (
                 _chrom_im, _dna_im = _dna_im, _chr_id = _chr_id, _percent_th_3chr =_percent_th_3chr, _percent_th_2chr=_percent_th_2chr,_std_ratio=_std_ratio,_morphology_size=_morphology_size,
                 _min_label_size=_min_label_size, _random_walk_beta=_random_walk_beta,_num_threads=_num_threads,_verbose=_verbose)
@@ -1835,6 +1844,44 @@ class Field_of_View():
         return _chrom_coords_all
 
     
+
+    def _save_chromosome_coords_to_file (self, _chrom_coords, _overwrite=False, _save=True, _verbose=True):
+        '''Function to save chromosome coordinate array directly into HDF5 file and as class attr'''
+        # load attr if not overwrite and if attr is saved
+        if hasattr(self, 'cand_chrom_coords_alt') and not _overwrite:
+            if _verbose:
+                print(f"+ directly use current chromsome coordinates alternative.")
+                return getattr(self, 'cand_chrom_coords_alt')
+        elif not _overwrite:
+            self._load_from_file('fov_info', _load_attr_list=['cand_chrom_coords_alt'],
+                                _overwrite=_overwrite, _verbose=_verbose, )
+            if hasattr(self, 'cand_chrom_coords_alt'):
+                if _verbose:
+                    print(f"+ use chromsome coordinates alternative from savefile: {os.path.basename(self.save_filename)}.")
+                return getattr(self, 'cand_chrom_coords_alt')
+
+        # if save attr 
+        if isinstance(_chrom_coords, np.ndarray):
+            if len(_chrom_coords.shape) == 2 and  _chrom_coords.shape[-1] == 4:
+                setattr(self, 'cand_chrom_coords_alt', _chrom_coords)
+                if _save:
+                    self._save_to_file('fov_info', _save_attr_list=['cand_chrom_coords_alt'], _overwrite=_overwrite, _verbose=_verbose)
+                    return _chrom_coords
+        else:
+            print ('Incorrect array for chromosome coordinate. It should be np.array with shape of (num_of_chr, 4)')
+            return None
+        
+
+
+
+
+
+
+
+
+
+
+
 
 
 

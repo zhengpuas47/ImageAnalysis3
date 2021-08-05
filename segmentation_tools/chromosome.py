@@ -18,12 +18,19 @@ def _calculate_binary_center(_binary_label):
 # 2. initial chr labels are seperated by their voxel size, which are subjected to subsequent binary operations using different parameters.
 # 3. the specified chr/gene id is returned as the 4th element in the output (chrom_coords) in addition to the zyx, which would be used for simutaneous spots assigment to multiple genes.
 
+
+# Some notes for adjusting the parameters:
+# Test _morphology_size first so majority of single chromosome foci were correctly labeled;
+# Next, increase or decrease _percent_th_3chr and _percent_th_2chr if too much over-splitting or merging, respectively happened for chr seeds
+# If oversplitting happens (especially on relatively condensed small foci) while merging is also frequent, try increase the _min_label_size. 
+# Increase of _min_label_size decrease overspliting though it may lead to some detection loss for small chromosome seeds.
+
 def find_candidate_chromosomes_in_nucleus (_chrom_im, _dna_im, _chr_id = 0,
                                            _percent_th_3chr = 97.5,
                                            _percent_th_2chr = 85, 
                                            _std_ratio = 3,
                                            _morphology_size=1, 
-                                           _min_label_size=20, 
+                                           _min_label_size=30, 
                                            _random_walk_beta=15, 
                                            _num_threads=4, 
                                            _verbose=True):
