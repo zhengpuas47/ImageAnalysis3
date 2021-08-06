@@ -1740,7 +1740,7 @@ class Field_of_View():
 
 
     # Some notes for adjusting the parameters:
-    # Test _morphology_size first so majority of single chromosome foci were correctly labeled;
+    # Test _chr_seed_size first so majority of single chromosome foci were correctly labeled;
     # Next, increase or decrease _percent_th_3chr and _percent_th_2chr if too much over-splitting or merging of chr seeds
     # If oversplitting happens (especially on relatively condensed small foci) while merging is also frequent, try increase the _min_label_size. 
     # Increase of _min_label_size decrease overspliting though it may lead to some detection loss for small chromosome seeds.
@@ -1749,6 +1749,7 @@ class Field_of_View():
                                                 _chrom_ims=None, 
                                                 _dna_im=None, 
                                                 _chr_ids = [0], 
+                                                _chr_seed_size = 200,
                                                 _percent_th_3chr = 97.5,
                                                 _percent_th_2chr = 85, 
                                                 _std_ratio = 3,
@@ -1766,12 +1767,13 @@ class Field_of_View():
                np.ndarray(shape equal to single_im_size)_
             _dna_im: DNA/nuclei/cell image that are used for filtering out the non-cell/non-nucleus region
             _chr_id: the id number for the chr (gene) selected; default is 0
+            _chr_seed_size: the rough min seed size for the initial seed
             _percent_th_3chr: the percentile th (for voxel size) as indicated for grouping large chr seeds that are likely formed by more than one chr
             _percent_th_3chr: the percentile th (for voxel size) as indicated for grouping large chr seeds that are likely formed by two chr
             _std_ratio: the number of std to be used to find the lighted chromosome
             _morphology_size: the size for erosion/dilation for single chr candidate; 
                this size is adjusted further for erosion/dilation for larger chr seeds that are likely formed by multiple chr candidate
-            _min_label_size: size for removal of small objects; note that this is typically smaller than what is used in the [find_candidate_chromosomes] function below
+            _min_label_size: size for removal of small objects after binary operations; note that this is typically smaller than what is used in the [find_candidate_chromosomes] function below
             _random_walk_beta: the higher the beta, the more difficult the diffusion is.
             _verbose: say something!, bool (default: True)
         Output:
@@ -1821,12 +1823,13 @@ class Field_of_View():
                 _dna_im = self._load_dapi_image(_dapi_id=0, _overwrite=True, _save=False)
         # call find_candidate_chromosomes_in_nucleus function
         _chrom_coords_all = []
-
+        
+        # current output is np.array; can also be modified to use dict or nested list if necessary.
         for _chrom_im, _chr_id in zip(_chrom_ims,_chr_ids):
             if _verbose:
                 print (f'+ start analyzing the chr/gene {_chr_id}')
             _chrom_coords = find_candidate_chromosomes_in_nucleus (
-                _chrom_im, _dna_im = _dna_im, _chr_id = _chr_id, _percent_th_3chr =_percent_th_3chr, _percent_th_2chr=_percent_th_2chr,_std_ratio=_std_ratio,_morphology_size=_morphology_size,
+                _chrom_im, _dna_im = _dna_im, _chr_id = _chr_id, _chr_seed_size = _chr_seed_size, _percent_th_3chr =_percent_th_3chr, _percent_th_2chr=_percent_th_2chr,_std_ratio=_std_ratio,_morphology_size=_morphology_size,
                 _min_label_size=_min_label_size, _random_walk_beta=_random_walk_beta,_num_threads=_num_threads,_verbose=_verbose)
                 # append _chrom_coords with their gene/chr id
             for _chr in _chrom_coords:
@@ -1844,6 +1847,10 @@ class Field_of_View():
         return _chrom_coords_all
 
     
+    
+    # TEMP Function to save candidate chromosome @ Shiwei Liu; can also just set attr?
+    # Included since the batch process above is overall slow and may need adjusting of the parameters for each gene/chr.
+    # This function allows saving generated chromosome coord arrays (for 1 or more genes, if pre-compiled) directly into file.
 
     def _save_chromosome_coords_to_file (self, _chrom_coords, _overwrite=False, _save=True, _verbose=True):
         '''Function to save chromosome coordinate array directly into HDF5 file and as class attr'''
@@ -1871,15 +1878,6 @@ class Field_of_View():
             print ('Incorrect array for chromosome coordinate. It should be np.array with shape of (num_of_chr, 4)')
             return None
         
-
-
-
-
-
-
-
-
-
 
 
 

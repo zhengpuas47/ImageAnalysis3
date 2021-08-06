@@ -20,12 +20,14 @@ def _calculate_binary_center(_binary_label):
 
 
 # Some notes for adjusting the parameters:
-# Test _morphology_size first so majority of single chromosome foci were correctly labeled;
+# Test _chr_seed_size first so majority of single chromosome foci were correctly labeled;
 # Next, increase or decrease _percent_th_3chr and _percent_th_2chr if too much over-splitting or merging, respectively happened for chr seeds
 # If oversplitting happens (especially on relatively condensed small foci) while merging is also frequent, try increase the _min_label_size. 
 # Increase of _min_label_size decrease overspliting though it may lead to some detection loss for small chromosome seeds.
 
 def find_candidate_chromosomes_in_nucleus (_chrom_im, _dna_im, _chr_id = 0,
+                                           _chr_seed_size = 200,
+                                           _num_of_iter = 10,
                                            _percent_th_3chr = 97.5,
                                            _percent_th_2chr = 85, 
                                            _std_ratio = 3,
@@ -41,12 +43,14 @@ def find_candidate_chromosomes_in_nucleus (_chrom_im, _dna_im, _chr_id = 0,
             np.ndarray(shape equal to single_im_size)_
         _dna_im: DNA/nuclei/cell image that are used for filtering out the non-cell/non-nucleus region
         _chr_id: the id number for the chr (gene) selected; default is 0
+        _chr_seed_size: the rough min seed size for the initial seed
+        _num_of_iter: numer of iteration to adjust the initial binary seeds to match the min chr seed size
         _percent_th_3chr: the percentile th (for voxel size) as indicated for grouping large chr seeds that are likely formed by more than one chr
         _percent_th_3chr: the percentile th (for voxel size) as indicated for grouping large chr seeds that are likely formed by two chr
         _std_ratio: the number of std to be used to find the lighted chromosome
         _morphology_size: the size for erosion/dilation for single chr candidate; 
             this size is adjusted further for erosion/dilation for larger chr seeds that are likely formed by multiple chr candidate
-        _min_label_size: size for removal of small objects; note that this is typically smaller than what is used in the [find_candidate_chromosomes] function below
+        _min_label_size: size for removal of small objects after binary operation; note that this is typically smaller than what is used in the [find_candidate_chromosomes] function below
         _random_walk_beta: the higher the beta, the more difficult the diffusion is.
         _verbose: say something!, bool (default: True)
     Output:
@@ -71,6 +75,7 @@ def find_candidate_chromosomes_in_nucleus (_chrom_im, _dna_im, _chr_id = 0,
     if _verbose:
         print(f"-- binarize image with threshold: {_chrom_im_th}")
     _binary_im = _chrom_im > _chrom_im_th
+    
      # exclude edges
     _filt_size=3
     _edge = int(np.ceil(_filt_size/2))
@@ -89,21 +94,38 @@ def find_candidate_chromosomes_in_nucleus (_chrom_im, _dna_im, _chr_id = 0,
     _chr_size = []
     for _roi in _rois_chr:
         _chr_size.append(_roi.area)  # append the voxel area for each seed 
+
+     # test if majority of generated seeds are smaller than expected
+    if np.median(_chr_size) < _chr_seed_size:
+        # this is typically caused by decrease of signal within expected seeds; connect them by dilation first with iteration to reach expected size
+        for _iter in range(_num_of_iter):
+            if _verbose == True:
+                print ('-- iterative dilation to increase initial binary seed size')
+            _binary_im = morphology.dilation(_binary_im,morphology.ball(1))
+            _label_chr,_num_chr = ndimage.label(_binary_im)
+            _rois_chr = measure.regionprops(_label_chr)
+            _chr_size = []
+            for _roi in _rois_chr:
+                _chr_size.append(_roi.area)
+            if np.median(_chr_size) >= _chr_seed_size:
+                break
+    
     _size_th_2chr = np.percentile(np.array(_chr_size),_percent_th_2chr)  # size th for large (or intermediate) seed
     _size_th_3chr = np.percentile(np.array(_chr_size),_percent_th_3chr)  # size th for larger seed
+
      # separate chr seeds based on their rough size
     _3chr_binary_im = morphology.remove_small_objects(_binary_im, _size_th_3chr).astype(np.uint16)   # larger seed  
     _minus_binary_im = _binary_im - _3chr_binary_im
     _2chr_binary_im = morphology.remove_small_objects(_minus_binary_im, _size_th_2chr).astype(np.uint16)   # large (or intermediate) seed  
     _1chr_binary_im = _minus_binary_im - _2chr_binary_im  # small seed  
-    # erosion/dilation and closing/opening for different groups of chr seeds
+    # (3d) erosion/dilation and closing/opening for different groups of chr seeds
     if _verbose:
         print(f"-- process small chromosome seeds with size={_morphology_size}.")
     _binary_label = _1chr_binary_im.copy()
     _binary_label = ndimage.binary_erosion(_binary_label, morphology.ball(_morphology_size))
     _binary_label = ndimage.binary_dilation(_binary_label, morphology.ball(_morphology_size))
     _binary_label = ndimage.binary_fill_holes(_binary_label, structure=morphology.ball(_morphology_size))
-    _open_objects = morphology.opening(_binary_label, morphology.ball(1))
+    _open_objects = morphology.opening(_binary_label, morphology.ball(0))
     _1chr_close_objects = morphology.closing(_open_objects, morphology.ball(1))
     if _verbose:
         print(f"-- process large/intermediate chromosome seeds with size={_morphology_size+1}.")
@@ -157,6 +179,17 @@ def find_candidate_chromosomes_in_nucleus (_chrom_im, _dna_im, _chr_id = 0,
             print(f"in {time.time()-_multi_time:.3f}s.")
             
     _chrom_coords = np.array(_chrom_coords)
+    
+    # remove empty celement from somehow failed [_calculate_binary_center]
+    _chrom_coords_kept = []
+    for _chr in _chrom_coords:
+        if isinstance(_chr, np.ndarray):
+            if len(_chr) ==3:
+                _chrom_coords_kept.append(_chr)
+    
+    # add chr/gene id to the output
+    _chrom_coords = np.array(_chrom_coords_kept)     
+
     _chr_id_col = np.ones([len(_chrom_coords),1]) * int(_chr_id)
 
     _chrom_coords = np.hstack ((_chrom_coords, _chr_id_col))
