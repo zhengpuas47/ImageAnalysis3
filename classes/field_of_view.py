@@ -1748,6 +1748,7 @@ class Field_of_View():
     def _find_all_candidate_chromosomes_in_nucleus (self, 
                                                 _chrom_ims=None, 
                                                 _dna_im=None, 
+                                                _dna_mask=None,
                                                 _chr_ids = [0], 
                                                 _chr_seed_size = 200,
                                                 _percent_th_3chr = 97.5,
@@ -1766,6 +1767,7 @@ class Field_of_View():
                it could be directly from experimental result, or assembled by stacking over images,
                np.ndarray(shape equal to single_im_size)_
             _dna_im: DNA/nuclei/cell image that are used for filtering out the non-cell/non-nucleus region
+            _dna_mask: if use DNA/cell mask provided from elsewhere, define such mask here
             _chr_id: the id number for the chr (gene) selected; default is 0
             _chr_seed_size: the rough min seed size for the initial seed
             _percent_th_3chr: the percentile th (for voxel size) as indicated for grouping large chr seeds that are likely formed by more than one chr
@@ -1829,7 +1831,7 @@ class Field_of_View():
             if _verbose:
                 print (f'+ start analyzing the chr/gene {_chr_id}')
             _chrom_coords = find_candidate_chromosomes_in_nucleus (
-                _chrom_im, _dna_im = _dna_im, _chr_id = _chr_id, _chr_seed_size = _chr_seed_size, _percent_th_3chr =_percent_th_3chr, _percent_th_2chr=_percent_th_2chr,_std_ratio=_std_ratio,_morphology_size=_morphology_size,
+                _chrom_im, _dna_im = _dna_im, _dna_mask=_dna_mask, _chr_id = _chr_id, _chr_seed_size = _chr_seed_size, _percent_th_3chr =_percent_th_3chr, _percent_th_2chr=_percent_th_2chr,_std_ratio=_std_ratio,_morphology_size=_morphology_size,
                 _min_label_size=_min_label_size, _random_walk_beta=_random_walk_beta,_num_threads=_num_threads,_verbose=_verbose)
                 # append _chrom_coords with their gene/chr id
             for _chr in _chrom_coords:
@@ -1845,39 +1847,6 @@ class Field_of_View():
                                 _verbose=_verbose)
         
         return _chrom_coords_all
-
-    
-    
-    # TEMP Function to save candidate chromosome @ Shiwei Liu; can also just set attr?
-    # Included since the batch process above is overall slow and may need adjusting of the parameters for each gene/chr.
-    # This function allows saving generated chromosome coord arrays (for 1 or more genes, if pre-compiled) directly into file.
-
-    def _save_chromosome_coords_to_file (self, _chrom_coords, _overwrite=False, _save=True, _verbose=True):
-        '''Function to save chromosome coordinate array directly into HDF5 file and as class attr'''
-        # load attr if not overwrite and if attr is saved
-        if hasattr(self, 'cand_chrom_coords_alt') and not _overwrite:
-            if _verbose:
-                print(f"+ directly use current chromsome coordinates alternative.")
-                return getattr(self, 'cand_chrom_coords_alt')
-        elif not _overwrite:
-            self._load_from_file('fov_info', _load_attr_list=['cand_chrom_coords_alt'],
-                                _overwrite=_overwrite, _verbose=_verbose, )
-            if hasattr(self, 'cand_chrom_coords_alt'):
-                if _verbose:
-                    print(f"+ use chromsome coordinates alternative from savefile: {os.path.basename(self.save_filename)}.")
-                return getattr(self, 'cand_chrom_coords_alt')
-
-        # if save attr 
-        if isinstance(_chrom_coords, np.ndarray):
-            if len(_chrom_coords.shape) == 2 and  _chrom_coords.shape[-1] == 4:
-                setattr(self, 'cand_chrom_coords_alt', _chrom_coords)
-                if _save:
-                    self._save_to_file('fov_info', _save_attr_list=['cand_chrom_coords_alt'], _overwrite=_overwrite, _verbose=_verbose)
-                    return _chrom_coords
-        else:
-            print ('Incorrect array for chromosome coordinate. It should be np.array with shape of (num_of_chr, 4)')
-            return None
-        
 
 
 

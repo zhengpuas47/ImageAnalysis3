@@ -20,12 +20,12 @@ def _calculate_binary_center(_binary_label):
 
 
 # Some notes for adjusting the parameters:
-# Test _chr_seed_size first so majority of single chromosome foci were correctly labeled;
+# Test _chr_seed_size first so majority of single chromosome foci can be detected;
 # Next, increase or decrease _percent_th_3chr and _percent_th_2chr if too much over-splitting or merging, respectively happened for chr seeds
 # If oversplitting happens (especially on relatively condensed small foci) while merging is also frequent, try increase the _min_label_size. 
 # Increase of _min_label_size decrease overspliting though it may lead to some detection loss for small chromosome seeds.
 
-def find_candidate_chromosomes_in_nucleus (_chrom_im, _dna_im, _chr_id = 0,
+def find_candidate_chromosomes_in_nucleus (_chrom_im, _dna_im, _dna_mask = None,_chr_id = 0,
                                            _chr_seed_size = 200,
                                            _num_of_iter = 10,
                                            _percent_th_3chr = 97.5,
@@ -42,6 +42,7 @@ def find_candidate_chromosomes_in_nucleus (_chrom_im, _dna_im, _chr_id = 0,
             it could be directly from experimental result, or assembled by stacking over images,
             np.ndarray(shape equal to single_im_size)_
         _dna_im: DNA/nuclei/cell image that are used for filtering out the non-cell/non-nucleus region
+        _dna_mask: if use DNA/cell mask provided from elsewhere, define such mask here
         _chr_id: the id number for the chr (gene) selected; default is 0
         _chr_seed_size: the rough min seed size for the initial seed
         _num_of_iter: numer of iteration to adjust the initial binary seeds to match the min chr seed size
@@ -67,14 +68,25 @@ def find_candidate_chromosomes_in_nucleus (_chrom_im, _dna_im, _chr_id = 0,
 
     _dna_im_zmax = np.max(_dna_im,axis=0)
     _dna_rough_mask =  _dna_im_zmax > filters.threshold_otsu (_dna_im_zmax)
+
+    # if use provided dna mask
+    if _dna_mask is not None and isinstance(_dna_mask, np.ndarray):
+        if _dna_mask.shape == _chrom_im[0].shape:
+            _dna_rough_mask = _dna_mask
+            if _verbose:
+                print (f"-- use provided DNA/cell mask.")
+    
+    _dna_rough_mask = morphology.dilation (_dna_rough_mask, morphology.disk(10))  # to include foci on the edge of nuclei
+    
+
      # extract the signal within the cell/nuclei
-    _chrom_im_filtered =  np.max(_chrom_im,axis=0) * morphology.dilation (_dna_rough_mask, morphology.disk(10) )
+    _chrom_im_filtered =  np.max(_chrom_im,axis=0) * _dna_rough_mask
     _chrom_im_filtered = np.array([_i for _i in _chrom_im_filtered.flatten() if _i >0])
      # use mean + std * 3 (or other ratio factor) to find the th for image binarization
     _chrom_im_th =  np.mean(_chrom_im_filtered) + np.std(_chrom_im_filtered) * _std_ratio  # (default is mean + 3*std)
     if _verbose:
         print(f"-- binarize image with threshold: {_chrom_im_th}")
-    _binary_im = _chrom_im > _chrom_im_th
+    _binary_im = _chrom_im * _dna_rough_mask > _chrom_im_th   # also exclude the non-cell (xy max projection) area
     
      # exclude edges
     _filt_size=3
@@ -95,9 +107,10 @@ def find_candidate_chromosomes_in_nucleus (_chrom_im, _dna_im, _chr_id = 0,
     for _roi in _rois_chr:
         _chr_size.append(_roi.area)  # append the voxel area for each seed 
 
-     # test if majority of generated seeds are smaller than expected
+    # test if majority of generated seeds are smaller than expected
     if np.median(_chr_size) < _chr_seed_size:
         # this is typically caused by decrease of signal within expected seeds; connect them by dilation first with iteration to reach expected size
+        # in addition, if seed size is < ~100-200, such seeds will be eliminated by 3d erosion using ball size of 1 below
         for _iter in range(_num_of_iter):
             if _verbose == True:
                 print ('-- iterative dilation to increase initial binary seed size')
@@ -113,8 +126,9 @@ def find_candidate_chromosomes_in_nucleus (_chrom_im, _dna_im, _chr_id = 0,
     _size_th_2chr = np.percentile(np.array(_chr_size),_percent_th_2chr)  # size th for large (or intermediate) seed
     _size_th_3chr = np.percentile(np.array(_chr_size),_percent_th_3chr)  # size th for larger seed
 
-     # separate chr seeds based on their rough size
-    _3chr_binary_im = morphology.remove_small_objects(_binary_im, _size_th_3chr).astype(np.uint16)   # larger seed  
+    # separate chr seeds based on their rough size
+    _3chr_binary_im = morphology.remove_small_objects(_binary_im, _size_th_3chr).astype(np.uint16)   # larger seed  [convert bool to 1 so '-' operation can be done later]; 
+    # note that astype(uint16) should be done after remove_small_objects; otherwise the small object size is somehow scaled differently and no longer comparable to the _chr_size (voxel) above
     _minus_binary_im = _binary_im - _3chr_binary_im
     _2chr_binary_im = morphology.remove_small_objects(_minus_binary_im, _size_th_2chr).astype(np.uint16)   # large (or intermediate) seed  
     _1chr_binary_im = _minus_binary_im - _2chr_binary_im  # small seed  
