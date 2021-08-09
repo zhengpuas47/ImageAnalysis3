@@ -10,13 +10,36 @@ def _calculate_binary_center(_binary_label):
     return np.array(_coord)
 
 
+### add procedures to generate and return the area for a binary image/label @ Shiwei Liu
+### this allow chr candidates to be filtered by their label area after coords are generated in the function [find_candidate_chromosomes_in_nucleus] below
+def _calculate_binary_center_and_return_label_area (_binary_label):
+    """Function to calculate center of mass for a binary image; additionaly, the area is returned for the label"""
+    _pixel_inds = np.indices(np.shape(_binary_label)).astype(np.uint16)
+    _coord = []
+    for _l in (_pixel_inds * _binary_label):
+        _coord.append(np.mean(_l[_l>0]))
+    
+    _coord = np.array(_coord)
+
+    # two value binary image
+    _binary_label_copy = _binary_label.copy()
+    if np.max(_binary_label_copy) >1:
+        _binary_label_copy[_binary_label_copy>0]=1
+    _label_area = np.sum(_binary_label_copy)
+    _coord_info = np.hstack ((_coord, _label_area))
+
+    return _coord_info
+
+
+
 
 
 # alternative method to find candidate chromosome @ Shiwei Liu
 # including main features as below:
 # 1. dna/dapi rough mask is used to filtering out the non-cell/non-nucleus region when calculating the intensity distribution of chr signal;
 # 2. initial chr labels are seperated by their voxel size, which are subjected to subsequent binary operations using different parameters.
-# 3. the specified chr/gene id is returned as the 4th element in the output (chrom_coords) in addition to the zyx, which would be used for simutaneous spots assigment to multiple genes.
+# 3. the label area for each cand chr is returned as the 4th element in the output (chrom_coords) in addition to the zyx, which can be used to filter chr coords posthoc
+# (deprecated) 3. the specified chr/gene id is returned as the 4th element in the output (chrom_coords) in addition to the zyx, which would be used for simutaneous spots assigment to multiple genes.
 
 
 # Some notes for adjusting the parameters:
@@ -25,8 +48,9 @@ def _calculate_binary_center(_binary_label):
 # If oversplitting happens (especially on relatively condensed small foci) while merging is also frequent, try increase the _min_label_size. 
 # Increase of _min_label_size decrease overspliting though it may lead to some detection loss for small chromosome seeds.
 
-def find_candidate_chromosomes_in_nucleus (_chrom_im, _dna_im, _dna_mask = None,_chr_id = 0,
+def find_candidate_chromosomes_in_nucleus (_chrom_im, _dna_im, _dna_mask = None,
                                            _chr_seed_size = 200,
+                                           _filt_size =3, 
                                            _num_of_iter = 10,
                                            _percent_th_3chr = 97.5,
                                            _percent_th_2chr = 85, 
@@ -43,8 +67,9 @@ def find_candidate_chromosomes_in_nucleus (_chrom_im, _dna_im, _dna_mask = None,
             np.ndarray(shape equal to single_im_size)_
         _dna_im: DNA/nuclei/cell image that are used for filtering out the non-cell/non-nucleus region
         _dna_mask: if use DNA/cell mask provided from elsewhere, define such mask here
-        _chr_id: the id number for the chr (gene) selected; default is 0
+        # (deprecated) _chr_id: the id number for the chr (gene) selected; default is 0
         _chr_seed_size: the rough min seed size for the initial seed
+        _filt_size =3: filter size for max and min filters as well as edge exclusion 
         _num_of_iter: numer of iteration to adjust the initial binary seeds to match the min chr seed size
         _percent_th_3chr: the percentile th (for voxel size) as indicated for grouping large chr seeds that are likely formed by more than one chr
         _percent_th_3chr: the percentile th (for voxel size) as indicated for grouping large chr seeds that are likely formed by two chr
@@ -59,6 +84,7 @@ def find_candidate_chromosomes_in_nucleus (_chrom_im, _dna_im, _dna_mask = None,
 
     from skimage import morphology
     #from scipy.stats import scoreatpercentile
+    from scipy.ndimage.filters import maximum_filter, minimum_filter
     from scipy import ndimage
     from skimage import measure
     from skimage import filters
@@ -79,14 +105,21 @@ def find_candidate_chromosomes_in_nucleus (_chrom_im, _dna_im, _dna_mask = None,
     _dna_rough_mask = morphology.dilation (_dna_rough_mask, morphology.disk(10))  # to include foci on the edge of nuclei
     
 
-     # extract the signal within the cell/nuclei
-    _chrom_im_filtered =  np.max(_chrom_im,axis=0) * _dna_rough_mask
-    _chrom_im_filtered = np.array([_i for _i in _chrom_im_filtered.flatten() if _i >0])
+     # generate initial seed image after applying filters
+    _filt_size =3 
+    adj_chrom_im = np.array([_lyr/np.median(_lyr) for _lyr in _chrom_im])
+    _max_ft = maximum_filter(adj_chrom_im, _filt_size, mode='nearest')
+    _min_ft = minimum_filter(adj_chrom_im, _filt_size, mode='nearest')
+    _seed_im = _max_ft - _min_ft
+
+    # extract the seed signal within the cell/nuclei
+    _seed_im_filtered =  np.max(_seed_im,axis=0) * _dna_rough_mask
+    _seed_im_filtered = np.array([_i for _i in _seed_im_filtered.flatten() if _i >0])
      # use mean + std * 3 (or other ratio factor) to find the th for image binarization
-    _chrom_im_th =  np.mean(_chrom_im_filtered) + np.std(_chrom_im_filtered) * _std_ratio  # (default is mean + 3*std)
+    _seed_im_th =  np.mean(_seed_im_filtered) + np.std(_seed_im_filtered) * _std_ratio  # (default is mean + 3*std)
     if _verbose:
-        print(f"-- binarize image with threshold: {_chrom_im_th}")
-    _binary_im = _chrom_im * _dna_rough_mask > _chrom_im_th   # also exclude the non-cell (xy max projection) area
+        print(f"-- binarize image with threshold: {_seed_im_th}")
+    _binary_im = _seed_im * _dna_rough_mask > _seed_im_th   # also exclude the non-cell (xy max projection) area
     
      # exclude edges
     _filt_size=3
@@ -122,7 +155,9 @@ def find_candidate_chromosomes_in_nucleus (_chrom_im, _dna_im, _dna_mask = None,
                 _chr_size.append(_roi.area)
             if np.median(_chr_size) >= _chr_seed_size:
                 break
-    
+
+    if _verbose:
+        print(f"-- there are {_num_chr} objects after initial segmentation")
     _size_th_2chr = np.percentile(np.array(_chr_size),_percent_th_2chr)  # size th for large (or intermediate) seed
     _size_th_3chr = np.percentile(np.array(_chr_size),_percent_th_3chr)  # size th for larger seed
 
@@ -176,15 +211,16 @@ def find_candidate_chromosomes_in_nucleus (_chrom_im, _dna_im, _dna_mask = None,
     if _verbose:
         print(f"-- {len(_label_ids)} objects are found by segmentation.")
     
-    ## 7. calculate chr centers    
-    _chrom_args = [(_kept_label==_id,) for _id in _label_ids]
+
+    ## 4. calculate chr centers    
+    _chrom_args = [(_kept_label==_id,) for _id in _label_ids]  # mask for individual chr
 
     with mp.Pool(_num_threads,) as _chrom_pool:
         if _verbose:
             print(f"- Start multiprocessing caluclate chromosome coordinates with {_num_threads} threads", end=' ')
             _multi_time = time.time()
         # Multi-proessing!
-        _chrom_coords = _chrom_pool.starmap(_calculate_binary_center, _chrom_args, chunksize=1)
+        _chrom_coords = _chrom_pool.starmap(_calculate_binary_center_and_return_label_area, _chrom_args, chunksize=1)
         # close multiprocessing
         _chrom_pool.close()
         _chrom_pool.join()
@@ -194,19 +230,19 @@ def find_candidate_chromosomes_in_nucleus (_chrom_im, _dna_im, _dna_mask = None,
             
     _chrom_coords = np.array(_chrom_coords)
     
-    # remove empty celement from somehow failed [_calculate_binary_center]
+    # remove empty celement from somehow failed [_calculate_binary_center_and_return_label_area] function
     _chrom_coords_kept = []
     for _chr in _chrom_coords:
         if isinstance(_chr, np.ndarray):
-            if len(_chr) ==3:
+            if len(_chr) ==4:     # zxy + area for chr label
                 _chrom_coords_kept.append(_chr)
     
-    # add chr/gene id to the output
-    _chrom_coords = np.array(_chrom_coords_kept)     
+    # add chr/gene id to the output as dict
+    _chrom_coords = np.array(_chrom_coords_kept)  
 
-    _chr_id_col = np.ones([len(_chrom_coords),1]) * int(_chr_id)
+    #_chr_id_col = np.ones([len(_chrom_coords),1]) * int(_chr_id)
 
-    _chrom_coords = np.hstack ((_chrom_coords, _chr_id_col))
+    #_chrom_coords = np.hstack ((_chrom_coords, _chr_id_col))
     
     return _chrom_coords
     

@@ -1736,7 +1736,7 @@ class Field_of_View():
     # including main features as below:
     # 1. dna/dapi rough mask is used to filtering out the non-cell/non-nucleus region when calculating the intensity distribution of chr signal;
     # 2. initial chr labels are seperated by their voxel size, which are subjected to subsequent binary operations using different parameters.
-    # 3. the specified chr/gene id is returned as the 4th element in the output (chrom_coords) in addition to the zyx, which would be used for simutaneous spots assigment to multiple genes.
+    # 3. the specified chr/gene id is returned as the dict.key in the output (chrom_coords) in addition to the zyx, which would be used for simutaneous spots assigment to multiple genes.
 
 
     # Some notes for adjusting the parameters:
@@ -1746,10 +1746,10 @@ class Field_of_View():
     # Increase of _min_label_size decrease overspliting though it may lead to some detection loss for small chromosome seeds.
 
     def _find_all_candidate_chromosomes_in_nucleus (self, 
-                                                _chrom_ims=None, 
+                                                #_chrom_ims=None, 
                                                 _dna_im=None, 
                                                 _dna_mask=None,
-                                                _chr_ids = [0], 
+                                                _chr_ids = [], 
                                                 _chr_seed_size = 200,
                                                 _percent_th_3chr = 97.5,
                                                 _percent_th_2chr = 85, 
@@ -1763,12 +1763,12 @@ class Field_of_View():
                                                 _verbose=True):
         '''Function to find all candidate chromosome centers for input genes given
         Inputs:
-            _chrom_ims: images where chromosomes are lighted for different genes [num_of_genes * (z,y,x)],
+            # {(not defined as input anymore; defined by _chr_ids below) _chrom_ims: images where chromosomes are lighted for different genes [num_of_genes * (z,y,x)],
                it could be directly from experimental result, or assembled by stacking over images,
-               np.ndarray(shape equal to single_im_size)_
+               np.ndarray(shape equal to single_im_size)_}
             _dna_im: DNA/nuclei/cell image that are used for filtering out the non-cell/non-nucleus region
             _dna_mask: if use DNA/cell mask provided from elsewhere, define such mask here
-            _chr_id: the id number for the chr (gene) selected; default is 0
+            _chr_id: the id number for the chr (gene) selected; default is empty, which will load all chr saved in gene_ids
             _chr_seed_size: the rough min seed size for the initial seed
             _percent_th_3chr: the percentile th (for voxel size) as indicated for grouping large chr seeds that are likely formed by more than one chr
             _percent_th_3chr: the percentile th (for voxel size) as indicated for grouping large chr seeds that are likely formed by two chr
@@ -1779,7 +1779,7 @@ class Field_of_View():
             _random_walk_beta: the higher the beta, the more difficult the diffusion is.
             _verbose: say something!, bool (default: True)
         Output:
-            cand_chrom_coords_all: array of chrom coordinates in zxy pixels + the chr/gene id as the fourth element (for all selected genes)'''
+            cand_chrom_coords_all: dict of arrays of chrom coordinates in zxy pixels + the chr label area used for segmentation for all selected genes (as dict.key))'''
 
         from skimage import morphology
         #from scipy.stats import scoreatpercentile
@@ -1797,25 +1797,8 @@ class Field_of_View():
                 if _verbose:
                     print(f"+ use chromsome coordinates alternative from savefile: {os.path.basename(self.save_filename)}.")
                 return getattr(self, 'cand_chrom_coords_alt')
-        
-        ## 1. generate chromosome images from saved HDF file for all genes or selected genes if not specified
-        if _chrom_ims is None:
-            with h5py.File(self.save_filename, "r", libver='latest') as _f:
-              _grp = _f['gene']
-              gene_ims = _grp['ims'][:]
-              gene_ids = _grp['ids'][:]
-            _chrom_ims = gene_ims  
-            _chr_ids = gene_ids
-        # convert chromosome image for one gene into compatible shape
-        if isinstance(_chrom_ims, np.ndarray):
-            if len(_chrom_ims.shape) == 3:
-                _chrom_ims = np.array([_chrom_ims])
-        if len(_chrom_ims) != len(_chr_ids):
-            print ('Error: Number of chromsome images do not match with number of genes. Note that the function is intended for multiple images/genes.')
-            return None
-        ## 2. perform chromosome identification    
-        # load dna image if not specified
-        from ..segmentation_tools.chromosome import find_candidate_chromosomes_in_nucleus
+
+        ## 1. assign and load _dna_image if not specified
         if _dna_im is None:
             if hasattr(self, 'dapi_im') and not _overwrite:
                 if _verbose:
@@ -1823,21 +1806,33 @@ class Field_of_View():
                     _dna_im = getattr(self, 'dapi_im')
             else:
                 _dna_im = self._load_dapi_image(_dapi_id=0, _overwrite=True, _save=False)
-        # call find_candidate_chromosomes_in_nucleus function
-        _chrom_coords_all = []
-        
-        # current output is np.array; can also be modified to use dict or nested list if necessary.
-        for _chrom_im, _chr_id in zip(_chrom_ims,_chr_ids):
+
+        ## 2. process each spot images from saved HDF file for all hybs or selected hybs if not specified
+        if isinstance (_chr_ids, list) or isinstance (_chr_ids, np.ndarray):
+            if _chr_ids == []:
+                if hasattr(self, 'gene_ids') and not _overwrite:
+                    _chr_ids  = getattr(self, 'gene_ids')
+                else:
+                    self._load_from_file('gene')
+                    _chr_ids  = getattr(self, 'gene_ids')
+
+        # _chr_intensity_th dict to store all coordinates
+        _chrom_coords_all = {}
+
+        # load spot_im for one hyb at a time to save memory
+        for _chr_id in _chr_ids:
             if _verbose:
                 print (f'+ start analyzing the chr/gene {_chr_id}')
-            _chrom_coords = find_candidate_chromosomes_in_nucleus (
-                _chrom_im, _dna_im = _dna_im, _dna_mask=_dna_mask, _chr_id = _chr_id, _chr_seed_size = _chr_seed_size, _percent_th_3chr =_percent_th_3chr, _percent_th_2chr=_percent_th_2chr,_std_ratio=_std_ratio,_morphology_size=_morphology_size,
-                _min_label_size=_min_label_size, _random_walk_beta=_random_walk_beta,_num_threads=_num_threads,_verbose=_verbose)
-                # append _chrom_coords with their gene/chr id
-            for _chr in _chrom_coords:
-                _chrom_coords_all.append(_chr)
+            with h5py.File(self.save_filename, "r", libver='latest') as _f:
+                _grp = _f['gene']
+                _chrom_im = _grp ['ims'][_chr_id-1]
+                #_gene_id = _grp ['ids'][_chr_id-1]
 
-        _chrom_coords_all =np.array(_chrom_coords_all)
+                from ..segmentation_tools.chromosome import find_candidate_chromosomes_in_nucleus
+                _chrom_coords = find_candidate_chromosomes_in_nucleus (
+                _chrom_im, _dna_im = _dna_im, _dna_mask=_dna_mask, _chr_seed_size = _chr_seed_size, _percent_th_3chr =_percent_th_3chr, _percent_th_2chr=_percent_th_2chr,_std_ratio=_std_ratio,_morphology_size=_morphology_size,
+                _min_label_size=_min_label_size, _random_walk_beta=_random_walk_beta,_num_threads=_num_threads,_verbose=_verbose)
+                _chrom_coords_all [_chr_id] = _chrom_coords
 
         ## 3. set attributes
         setattr(self, 'cand_chrom_coords_alt', _chrom_coords_all)
@@ -1919,6 +1914,100 @@ class Field_of_View():
                                 _verbose=_verbose)
         
         return _chrom_coords
+
+
+
+
+    ### Class function to estimate the spot_th for picking candidate spots from fitted spots, whose intensity are background substracted @ Shiwei Liu
+    ### Use spot/region ids as prioritzied input to select image to process.
+
+    ### Note: if region ids starts from 0, the corresponding image would be 0-1 = -1, which is the last hyb image. 
+    def _find_itensity_th_for_selected_spots_in_nucleus(self, _region_ids = [], 
+                               _dna_im = None, 
+                               _dna_mask = None, 
+                               _std_ratio = 3, 
+                               _return_signal_and_background = False, 
+                               _verbose = True, 
+                               #_num_threads=4, 
+                               _save=True, 
+                               _overwrite=False):
+
+        """Function to estimate spot intensity and spot background (excluding non-cell regions) given
+           Input:
+             _region_ids: the spot region ids used for selecting spot images, for example from each hyb
+             _dna_im: dna image or cell boundary image to exlcude non-nuclear/non-cell area
+             _dna_mask: if use provided dna mask [one z-slice]
+             _std_ratio: the number_of_std to be applied to find the spot th
+             _return_signal_and_background: if False, return the background substracted signal
+             _verbose: bool; say sth
+           Output:
+             _spot_intensity_th: background substracted spot th for spot picking for selected regions/spots"""
+
+
+        from skimage import morphology
+        #from scipy.stats import scoreatpercentile
+        #from scipy import ndimage
+        from skimage import filters
+        if hasattr(self, 'spot_intensity_th') and not _overwrite:
+            if _verbose:
+                print(f"+ directly use current spot intensity thresholds.")
+                return getattr(self, 'spot_intensity_th')
+        elif not _overwrite:
+            self._load_from_file('fov_info', _load_attr_list=['spot_intensity_th'],
+                                _overwrite=_overwrite, _verbose=_verbose, )
+            if hasattr(self, 'spot_intensity_th'):
+                if _verbose:
+                    print(f"+ use spot intensity thresholds from savefile: {os.path.basename(self.save_filename)}.")
+                return getattr(self, 'spot_intensity_th')
+
+        ## 1. assign and load _dna_image if not specified
+        if _dna_im is None:
+            if hasattr(self, 'dapi_im') and not _overwrite:
+                if _verbose:
+                    print(f"+ directly use current dapi image.")
+                    _dna_im = getattr(self, 'dapi_im')
+            else:
+                _dna_im = self._load_dapi_image(_dapi_id=0, _overwrite=True, _save=False)
+
+        ## 2. process each spot images from saved HDF file for all hybs or selected hybs if not specified
+        if isinstance (_region_ids, list) or isinstance (_region_ids, np.ndarray):
+            if _region_ids == []:
+                if hasattr(self, 'combo_ids') and not _overwrite:
+                    _region_ids = getattr(self, 'combo_ids')
+                else:
+                    self._load_from_file('combo')
+                    _region_ids = getattr(self, 'combo_ids')
+        
+        # _spot_intensity_th dict to store all estimates
+        _spot_intensity_th = {}
+
+        # load spot_im for one hyb at a time to save memory
+        for _region_id in _region_ids:
+            if _verbose:
+                print(f"+ estimate intensity threshold for region {_region_id}.")
+                if _region_id == 0:
+                    print ("note that the spot image with index of '-1' is loaded for region_id == 0")
+            with h5py.File(self.save_filename, "r", libver='latest') as _f:
+                _grp = _f['combo']
+                _spot_im = _grp ['ims'][_region_id-1]
+                #_combo_id = _grp ['ids'][_region_id-1]
+
+                from ..spot_tools.picking import find_spot_intensity_th_and_background_in_nucleus
+                _spot_intensity_th_each = find_spot_intensity_th_and_background_in_nucleus (_spot_im = _spot_im, _dna_im = _dna_im, _dna_mask =_dna_mask, _std_ratio = _std_ratio, 
+                _return_signal_and_background =_return_signal_and_background, _verbose = _verbose)
+
+                _spot_intensity_th [_region_id] = _spot_intensity_th_each
+
+        ## 3. set attributes
+        setattr(self, 'spot_intensity_th', _spot_intensity_th)
+        if _save:
+            self._save_to_file('fov_info', _save_attr_list=['spot_intensity_th'],
+                                _overwrite=_overwrite,
+                                _verbose=_verbose)
+        
+        return _spot_intensity_th
+
+
 
     def _select_chromosome_by_candidate_spots(self, 
                                             _spot_type='unique',
