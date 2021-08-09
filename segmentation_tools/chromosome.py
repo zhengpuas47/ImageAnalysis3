@@ -54,6 +54,9 @@ def find_candidate_chromosomes_in_nucleus (_chrom_im, _dna_im, _dna_mask = None,
                                            _num_of_iter = 10,
                                            _percent_th_3chr = 97.5,
                                            _percent_th_2chr = 85, 
+                                           _use_percent_chr_area = False,
+                                           _fold_3chr = 5,
+                                           _fold_2chr = 3,
                                            _std_ratio = 3,
                                            _morphology_size=1, 
                                            _min_label_size=30, 
@@ -71,8 +74,11 @@ def find_candidate_chromosomes_in_nucleus (_chrom_im, _dna_im, _dna_mask = None,
         _chr_seed_size: the rough min seed size for the initial seed
         _filt_size =3: filter size for max and min filters as well as edge exclusion 
         _num_of_iter: numer of iteration to adjust the initial binary seeds to match the min chr seed size
-        _percent_th_3chr: the percentile th (for voxel size) as indicated for grouping large chr seeds that are likely formed by more than one chr
+        _percent_th_3chr: the percentile th (for voxel size) as indicated for grouping large chr seeds that are likely formed by more than two chr
         _percent_th_3chr: the percentile th (for voxel size) as indicated for grouping large chr seeds that are likely formed by two chr
+        _use_percent_chr_area: use percentile or the fold number to estimate large multi-chr foci
+        _fold_3chr: the fold of median (single) chr size to be considered as large multi-chr seed
+        _fold_2chr: the fold of median (single) chr size to be considered as large dual-chr seed
         _std_ratio: the number of std to be used to find the lighted chromosome
         _morphology_size: the size for erosion/dilation for single chr candidate; 
             this size is adjusted further for erosion/dilation for larger chr seeds that are likely formed by multiple chr candidate
@@ -158,8 +164,14 @@ def find_candidate_chromosomes_in_nucleus (_chrom_im, _dna_im, _dna_mask = None,
 
     if _verbose:
         print(f"-- there are {_num_chr} objects after initial segmentation")
-    _size_th_2chr = np.percentile(np.array(_chr_size),_percent_th_2chr)  # size th for large (or intermediate) seed
-    _size_th_3chr = np.percentile(np.array(_chr_size),_percent_th_3chr)  # size th for larger seed
+    
+    # define size filter for multi-chr seeds
+    if _use_percent_chr_area:
+        _size_th_2chr = np.percentile(np.array(_chr_size),_percent_th_2chr)  # size th for large (or intermediate) seed
+        _size_th_3chr = np.percentile(np.array(_chr_size),_percent_th_3chr)  # size th for larger seed
+    else:
+        _size_th_2chr = np.median(_chr_size) * _fold_2chr
+        _size_th_3chr = np.median(_chr_size) * _fold_3chr
 
     # separate chr seeds based on their rough size
     _3chr_binary_im = morphology.remove_small_objects(_binary_im, _size_th_3chr).astype(np.uint16)   # larger seed  [convert bool to 1 so '-' operation can be done later]; 

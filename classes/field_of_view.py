@@ -1753,6 +1753,9 @@ class Field_of_View():
                                                 _chr_seed_size = 200,
                                                 _percent_th_3chr = 97.5,
                                                 _percent_th_2chr = 85, 
+                                                _use_percent_chr_area = False,
+                                                _fold_3chr = 5,
+                                                _fold_2chr = 3,
                                                 _std_ratio = 3,
                                                 _morphology_size=1, 
                                                 _min_label_size=30, 
@@ -1772,6 +1775,9 @@ class Field_of_View():
             _chr_seed_size: the rough min seed size for the initial seed
             _percent_th_3chr: the percentile th (for voxel size) as indicated for grouping large chr seeds that are likely formed by more than one chr
             _percent_th_3chr: the percentile th (for voxel size) as indicated for grouping large chr seeds that are likely formed by two chr
+            _use_percent_chr_area: use percentile or the fold number to estimate large multi-chr foci
+            _fold_3chr: the fold of median (single) chr size to be considered as large multi-chr seed
+            _fold_2chr: the fold of median (single) chr size to be considered as large dual-chr seed
             _std_ratio: the number of std to be used to find the lighted chromosome
             _morphology_size: the size for erosion/dilation for single chr candidate; 
                this size is adjusted further for erosion/dilation for larger chr seeds that are likely formed by multiple chr candidate
@@ -1830,7 +1836,8 @@ class Field_of_View():
 
                 from ..segmentation_tools.chromosome import find_candidate_chromosomes_in_nucleus
                 _chrom_coords = find_candidate_chromosomes_in_nucleus (
-                _chrom_im, _dna_im = _dna_im, _dna_mask=_dna_mask, _chr_seed_size = _chr_seed_size, _percent_th_3chr =_percent_th_3chr, _percent_th_2chr=_percent_th_2chr,_std_ratio=_std_ratio,_morphology_size=_morphology_size,
+                _chrom_im, _dna_im = _dna_im, _dna_mask=_dna_mask, _chr_seed_size = _chr_seed_size, _percent_th_3chr =_percent_th_3chr, _percent_th_2chr=_percent_th_2chr, 
+                _use_percent_chr_area= _use_percent_chr_area, _fold_3chr=_fold_3chr, _fold_2chr = _fold_2chr, _std_ratio=_std_ratio,_morphology_size=_morphology_size,
                 _min_label_size=_min_label_size, _random_walk_beta=_random_walk_beta,_num_threads=_num_threads,_verbose=_verbose)
                 _chrom_coords_all [_chr_id] = _chrom_coords
 

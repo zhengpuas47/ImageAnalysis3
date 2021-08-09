@@ -2351,8 +2351,8 @@ def selelct_spots_in_mask(spots, binary_mask, interpolation='nearest'):
 
 
 ### Function to estimate the spot_th for picking candidate spots from fitted spots, whose intensity are background substracted @ Shiwei Liu
-
-def find_spot_th_and_background_in_nucleus (_spot_im,
+### Use spot image as input instead of region id for flexibity of testing (as compared to using spot/region id as input for the FOV class function)
+def find_spot_intensity_th_and_background_in_nucleus (_spot_im,
                                             _dna_im, 
                                             _dna_mask = None,
                                             _std_ratio = 3,
