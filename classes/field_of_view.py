@@ -1138,6 +1138,7 @@ class Field_of_View():
                 else:
                     _grp = _f['signal']
 
+               
                 # create chrom_coords subgroup
                 if 'chrom_coords' not in _grp:
                     _subgrp = _f.create_group('signal/chrom_coords')
@@ -1145,17 +1146,24 @@ class Field_of_View():
                 _subgrp = _f['signal']['chrom_coords']
                 if hasattr(self,'chrom_coords'):
                     _chrom_coords = getattr(self, 'chrom_coords')
+                    # check if dset exist
                     if len(_save_attr_list) > 0 and _save_attr_list is not None:
-                        if type(_chrom_coords) == dict:
-                            if 'chrom_coords' in _save_attr_list and _overwrite:
-                            # delete existing dataset first if overwrite
-                                if len(_subgrp.keys()) >0:
-                                    for _dset in _subgrp.keys():
-                                        del _subgrp[_dset]
+                        if 'chrom_coords' in _save_attr_list:
+                            if not len(_subgrp.keys()) >0 and type(_chrom_coords) == dict:
                                 # save new dataset
                                 for _chr_key, _chr_coord in _chrom_coords.items():
                                     _dset = _subgrp.create_dataset (_chr_key, tuple(_chr_coord.shape))
                                     _dset [:] =  _chr_coord
+
+                            elif len(_subgrp.keys()) >0 and type(_chrom_coords) == dict:
+                                if _overwrite:
+                                     # delete existing dataset first if overwrite
+                                    for _dset in _subgrp.keys():
+                                         del _subgrp[_dset]
+                                    # save new dataset
+                                    for _chr_key, _chr_coord in _chrom_coords.items():
+                                        _dset = _subgrp.create_dataset (_chr_key, tuple(_chr_coord.shape))
+                                        _dset [:] =  _chr_coord
                 
                 # create spot_intensity_th subgroup
                 if 'spot_intensity_th' not in _grp:
@@ -1165,17 +1173,25 @@ class Field_of_View():
                 if hasattr(self,'spot_intensity_th'):
                     _spot_intensity_th = getattr(self, 'spot_intensity_th')
                     if len(_save_attr_list) > 0 and _save_attr_list is not None:
-                        if type(_spot_intensity_th) == dict:
-                            if 'spot_intensity_th' in _save_attr_list and _overwrite:
-                            # delete existing dataset first if overwrite
-                                if len(_subgrp.keys()) >0:
-                                    for _dset in _subgrp.keys():
-                                        del _subgrp[_dset]
-                           # save new dataset
+                        if 'spot_intensity_th' in _save_attr_list:
+                            # check if dset exist
+                            if not len(_subgrp.keys()) >0 and type(_spot_intensity_th) == dict:
+                                # save new dataset
                                 for _region_key, _spot_th in _spot_intensity_th.items():
                                     _spot_th = np.array([_spot_th])     
                                     _dset = _subgrp.create_dataset (_region_key, tuple(_spot_th.shape))
                                     _dset [:] =  _spot_th
+
+                            elif len(_subgrp.keys()) >0 and type(_spot_intensity_th) == dict:
+                                if _overwrite:
+                                    # delete existing dataset first if overwrite
+                                    for _dset in _subgrp.keys():
+                                        del _subgrp[_dset]
+                                     # save new dataset
+                                    for _region_key, _spot_th in _spot_intensity_th.items():
+                                        _spot_th = np.array([_spot_th])     
+                                        _dset = _subgrp.create_dataset (_region_key, tuple(_spot_th.shape))
+                                        _dset [:] =  _spot_th
                ### new signal group above 
 
             ## segmentation
@@ -1497,7 +1513,7 @@ class Field_of_View():
                                     setattr(self,'chrom_coords', _chrom_coords)
                                     _loaded_attrs.append('chrom_coords')
 
-                                                    # check signal group exist or not
+                                                    
 
                 # check spot_intensity_th subgroup exist or not
                     if 'spot_intensity_th' not in _grp:
@@ -1977,7 +1993,7 @@ class Field_of_View():
         
         else:
             if _verbose:
-                print(f"+ no valid chromsome coordinates alternative. exist")
+                print(f"+ no valid chromsome coordinates alternative. generate chrom coords first.")
             return None
 
         _all_chrom_coords = []
