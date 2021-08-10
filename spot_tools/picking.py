@@ -2354,6 +2354,8 @@ def selelct_spots_in_mask(spots, binary_mask, interpolation='nearest'):
 ### Use spot image as input instead of region id for flexibity of testing (as compared to using spot/region id as input for the FOV class function)
 def find_spot_intensity_th_and_background_in_nucleus (_spot_im,
                                             _dna_im, 
+                                            _spot_id = None,
+                                            _spot_im_filename = None,
                                             _dna_mask = None,
                                             _std_ratio = 3,
                                             _return_signal_and_background = False,
@@ -2364,6 +2366,8 @@ def find_spot_intensity_th_and_background_in_nucleus (_spot_im,
            _spot_im: the spot images, for example from each hyb; can also be chrom images or other images where there are bright foci desired to be detected/picked
            _dna_im: dna image or cell boundary image to exlcude non-nuclear/non-cell area
            _dna_mask: if use provided dna mask [one z-slice]
+           _spot_id: if used, will return dict with _spot_id as key; for fov class usage (preferably only)
+           _spot_im_filename: hdf5 savefile for combo ims loading; for fov class usage (preferably only)
            _std_ratio: the number_of_std to be applied to find the spot th
            _return_signal_and_background: if False, return the background substracted signal
            _verbose: bool; say sth
@@ -2391,6 +2395,14 @@ def find_spot_intensity_th_and_background_in_nucleus (_spot_im,
     _dna_rough_mask = morphology.dilation (_dna_rough_mask, morphology.disk(10))  # to include foci on the edge of nuclei
     
     ## 2. extract the signal within the cell/nuclei
+    # if load _spot_im from hdf5 file with _chr_id given while _spot_im is not directly defined
+    if _spot_im is None and _spot_id is not None:
+        if os.path.exist(_spot_im_filename):
+            import h5py
+            with h5py.File(self.save_filename, "r", libver='latest') as _f:
+                _grp = _f['combo']
+                _spot_im = _grp ['ims'][_spot_id-1]
+
     _spot_im_zmax = np.max(_spot_im,axis=0)
     _spot_im_filtered =  _spot_im_zmax * _dna_rough_mask
     _spot_im_filtered = np.array([_i for _i in _spot_im_filtered.flatten() if _i >0])
@@ -2414,9 +2426,18 @@ def find_spot_intensity_th_and_background_in_nucleus (_spot_im,
     # [substract background because fitted spots are background substracted]
     _substracted_spot_th = _spot_im_th - _spot_background_mean
     
-    if _return_signal_and_background:
-        if _verbose:
-            print (f"-- return absolute signal and background, respectively.")
-        return [_spot_im_th, _spot_background_mean]
+    if _spot_id is None:
+        if _return_signal_and_background:
+            if _verbose:
+                print (f"-- return absolute signal and background, respectively.")
+            return [_spot_im_th, _spot_background_mean]
+        else:
+            return _substracted_spot_th
+    
     else:
-        return _substracted_spot_th
+        if _return_signal_and_background:
+            if _verbose:
+                print (f"-- return absolute signal and background, respectively.")
+            return {str(_spot_id): [_spot_im_th, _spot_background_mean]}
+        else:
+            return {str(_spot_id): _substracted_spot_th}

@@ -1112,7 +1112,7 @@ class Field_of_View():
         ## check inputs:
         _type = str(_type).lower()
         # only allows saving the following types:
-        _allowed_save_types = ['fov_info', 'segmentation', 'correction'] \
+        _allowed_save_types = ['fov_info', 'segmentation', 'correction', 'signal'] \
                               + list(self.shared_parameters['allowed_data_types'].keys())
         if _type not in _allowed_save_types:
             raise ValueError(f"Wrong input for _type:{_type}, should be within:{_allowed_save_types}.")
@@ -1128,6 +1128,55 @@ class Field_of_View():
             _save_start = time.time()
         
         with h5py.File(self.save_filename, "a", libver='latest') as _f:
+
+            ### add signal as a temporary group to store chrom_coords and spot intensity th for each hyb @ Shiwei Liu
+            ## signal 
+            if _type == 'signal':
+                # create signal group if not exist 
+                if 'signal' not in _f.keys():
+                    _grp = _f.create_group('signal') # create signal group
+                else:
+                    _grp = _f['signal']
+
+                # create chrom_coords subgroup
+                if 'chrom_coords' not in _grp:
+                    _subgrp = _f.create_group('signal/chrom_coords')
+                # save chrom_coords as dataset under the subgroup
+                _subgrp = _f['signal']['chrom_coords']
+                if hasattr(self,'chrom_coords'):
+                    _chrom_coords = getattr(self, 'chrom_coords')
+                    if len(_save_attr_list) > 0 and _save_attr_list is not None:
+                        if type(_chrom_coords) == dict:
+                            if 'chrom_coords' in _save_attr_list and _overwrite:
+                            # delete existing dataset first if overwrite
+                                if len(_subgrp.keys()) >0:
+                                    for _dset in _subgrp.keys():
+                                        del _subgrp[_dset]
+                                # save new dataset
+                                for _chr_key, _chr_coord in _chrom_coords.items():
+                                    _dset = _subgrp.create_dataset (_chr_key, tuple(_chr_coord.shape))
+                                    _dset [:] =  _chr_coord
+                
+                # create spot_intensity_th subgroup
+                if 'spot_intensity_th' not in _grp:
+                    _subgrp = _f.create_group('signal/spot_intensity_th')
+                # save spot_intensity_th as dataset under the subgroup
+                _subgrp = _f['signal']['spot_intensity_th']
+                if hasattr(self,'spot_intensity_th'):
+                    _spot_intensity_th = getattr(self, 'spot_intensity_th')
+                    if len(_save_attr_list) > 0 and _save_attr_list is not None:
+                        if type(_spot_intensity_th) == dict:
+                            if 'spot_intensity_th' in _save_attr_list and _overwrite:
+                            # delete existing dataset first if overwrite
+                                if len(_subgrp.keys()) >0:
+                                    for _dset in _subgrp.keys():
+                                        del _subgrp[_dset]
+                           # save new dataset
+                                for _region_key, _spot_th in _spot_intensity_th.items():
+                                    _spot_th = np.array([_spot_th])     
+                                    _dset = _subgrp.create_dataset (_region_key, tuple(_spot_th.shape))
+                                    _dset [:] =  _spot_th
+               ### new signal group above 
 
             ## segmentation
             if _type == 'segmentation':
@@ -1219,7 +1268,7 @@ class Field_of_View():
                         _data_attrs.append('ids')
                     elif len(_dict['ids']) != len(_grp['ids']):
                         _change_size_flag.append('id')
-                        _old_size=len(_grp['ids'])
+                        _old_size=len(_grp['ids'])                   
 
                     # channels
                     if 'channels' not in _grp:
@@ -1406,7 +1455,7 @@ class Field_of_View():
         ## check inputs:
         _type = str(_type).lower()
         # only allows loading the following types:
-        _allowed_save_types = ['fov_info', 'segmentation', 'correction'] \
+        _allowed_save_types = ['fov_info', 'segmentation', 'correction', 'signal'] \
                             + list(self.shared_parameters['allowed_data_types'].keys())
         if _type not in _allowed_save_types:
             raise ValueError(f"Wrong input for _type:{_type}, should be within:{_allowed_save_types}.")
@@ -1422,6 +1471,52 @@ class Field_of_View():
         _loaded_attrs = []
         
         with h5py.File(self.save_filename, "a", libver='latest') as _f:
+
+            ### add loading for the new signal group, which is a temporary group to store chrom_coords and spot intensity th for each hyb @ Shiwei Liu
+
+            ## signal
+            if _type == 'signal':
+                # check signal group exist or not
+                if 'signal' not in _f.keys():
+                    print(f"signal group doesn't exist in save_file:{self.save_filename}, exit.")
+                else:
+                    _grp = _f['signal']
+                # check chrom_coords subgroup exist or not
+                    if 'chrom_coords' not in _grp:
+                        print(f"chrom_coords subgroup doesn't exist in save_file:{self.save_filename}, exit.")
+                     # load chrom_coords as dataset under the subgroup
+                    else:
+                        if not hasattr(self, 'chrom_coords') or _overwrite:
+                            if (len(_load_attr_list) > 0 and 'chrom_coords' in _load_attr_list):
+                                _subgrp = _f['signal']['chrom_coords']
+                                _chrom_coords = {}
+                                if len(_subgrp.keys()) >0:
+                                    # load dataset as a dict and set attr accordingly
+                                    for _dset in _subgrp.keys():
+                                        _chrom_coords[_dset] = _subgrp[_dset][:]
+                                    setattr(self,'chrom_coords', _chrom_coords)
+                                    _loaded_attrs.append('chrom_coords')
+
+                                                    # check signal group exist or not
+
+                # check spot_intensity_th subgroup exist or not
+                    if 'spot_intensity_th' not in _grp:
+                        print(f"spot_intensity_th subgroup doesn't exist in save_file:{self.save_filename}, exit.")
+                     # load spot_intensity_th as dataset under the subgroup
+                    else:
+                        if not hasattr(self,'spot_intensity_th') or _overwrite:
+                            if (len(_load_attr_list) > 0 and 'spot_intensity_th' in _load_attr_list):
+                                _subgrp = _f['signal']['spot_intensity_th']
+                                _spot_intensity_th = {}
+                                if len(_subgrp.keys()) >0:
+                                    for _dset in _subgrp.keys():
+                                        _spot_intensity_th[_dset] = float(_subgrp[_dset][:])
+                                    setattr(self,'spot_intensity_th', _spot_intensity_th)
+                                    _loaded_attrs.append('spot_intensity_th')
+
+            ### loading for new signal group above 
+
+  
             ## segmentation
             if _type == 'segmentation':
                 # create segmentation group if not exist 
@@ -1457,19 +1552,29 @@ class Field_of_View():
                 return self._load_correction_profiles(_overwrite=_overwrite,
                                                     _verbose=_verbose)
             
-            ## save basic attributes as info
+            ## save basic attributes as info     # load
             elif _type == 'fov_info':
                 for _attr in _f.attrs:
                     if not hasattr(self, _attr) or _overwrite:
                         if _attr in _load_attr_list or len(_load_attr_list) == 0:
                             _value =  _f.attrs[_attr]
+
+                            # There seems a SyntaxError, because continue not used properly in while/for loop @ Shiwei
+                            # minor fix below using while loop
+                            # str representation of dict can be loaded if the original dict is generated with str as keys
                             # convert dicts
                             if isinstance(_value, str) and _value[0] == '{' and _value[-1] == '}':
-                                try:
-                                    print(f"try loading: {_attr}")
-                                    _value = ast.literal_eval(str(_value))
-                                except:
-                                    continue
+                                _convert_dict_bool = True
+                                while _convert_dict_bool:
+                                    try:
+                                        print(f"try loading: {_attr}")
+                                        _value = ast.literal_eval(str(_value))    # original dict should be str to be able to load
+                                        _convert_dict_bool = False
+                                    except:
+                                        _convert_dict_bool = False
+                                        continue
+                                        
+
                             setattr(self, _attr, _value)
                             _loaded_attrs.append(_attr)
 
@@ -1754,8 +1859,8 @@ class Field_of_View():
                                                 _percent_th_3chr = 97.5,
                                                 _percent_th_2chr = 85, 
                                                 _use_percent_chr_area = False,
-                                                _fold_3chr = 5,
-                                                _fold_2chr = 3,
+                                                _fold_3chr = 7,
+                                                _fold_2chr = 5,
                                                 _std_ratio = 3,
                                                 _morphology_size=1, 
                                                 _min_label_size=30, 
@@ -1792,17 +1897,17 @@ class Field_of_View():
         from scipy import ndimage
         from skimage import measure
         from skimage import filters
-        if hasattr(self, 'cand_chrom_coords_alt') and not _overwrite:
+        if hasattr(self, 'chrom_coords') and not _overwrite:
             if _verbose:
                 print(f"+ directly use current chromsome coordinates alternative.")
-                return getattr(self, 'cand_chrom_coords_alt')
+                return getattr(self, 'chrom_coords')
         elif not _overwrite:
-            self._load_from_file('fov_info', _load_attr_list=['cand_chrom_coords_alt'],
+            self._load_from_file('signal', _load_attr_list=['chrom_coords'],
                                 _overwrite=_overwrite, _verbose=_verbose, )
-            if hasattr(self, 'cand_chrom_coords_alt'):
+            if hasattr(self, 'chrom_coords'):
                 if _verbose:
                     print(f"+ use chromsome coordinates alternative from savefile: {os.path.basename(self.save_filename)}.")
-                return getattr(self, 'cand_chrom_coords_alt')
+                return getattr(self, 'chrom_coords')
 
         ## 1. assign and load _dna_image if not specified
         if _dna_im is None:
@@ -1811,7 +1916,7 @@ class Field_of_View():
                     print(f"+ directly use current dapi image.")
                     _dna_im = getattr(self, 'dapi_im')
             else:
-                _dna_im = self._load_dapi_image(_dapi_id=0, _overwrite=True, _save=False)
+                _dna_im = self._load_dapi_image(_dapi_id=0, _overwrite=True, _save=_save)
 
         ## 2. process each spot images from saved HDF file for all hybs or selected hybs if not specified
         if isinstance (_chr_ids, list) or isinstance (_chr_ids, np.ndarray):
@@ -1839,12 +1944,12 @@ class Field_of_View():
                 _chrom_im, _dna_im = _dna_im, _dna_mask=_dna_mask, _chr_seed_size = _chr_seed_size, _percent_th_3chr =_percent_th_3chr, _percent_th_2chr=_percent_th_2chr, 
                 _use_percent_chr_area= _use_percent_chr_area, _fold_3chr=_fold_3chr, _fold_2chr = _fold_2chr, _std_ratio=_std_ratio,_morphology_size=_morphology_size,
                 _min_label_size=_min_label_size, _random_walk_beta=_random_walk_beta,_num_threads=_num_threads,_verbose=_verbose)
-                _chrom_coords_all [_chr_id] = _chrom_coords
+                _chrom_coords_all [str(_chr_id)] = _chrom_coords
 
         ## 3. set attributes
-        setattr(self, 'cand_chrom_coords_alt', _chrom_coords_all)
+        setattr(self, 'chrom_coords', _chrom_coords_all)
         if _save:
-            self._save_to_file('fov_info', _save_attr_list=['cand_chrom_coords_alt'],
+            self._save_to_file('signal', _save_attr_list=['chrom_coords'],
                                 _overwrite=_overwrite,
                                 _verbose=_verbose)
         
@@ -1852,6 +1957,41 @@ class Field_of_View():
 
 
 
+    ### Short function to quickly convert the chrom_coord_dict above to a single array
+    def _convert_all_chrom_coords_dict_to_array (self, chrom_coords_dict = None, _verbose = True):
+    
+        '''Function to conver chrom_coords_dict (with arrays) to one single array
+
+            Output: for each chrom center, zxy are the first 3 elements 
+              with the 4th element as the chr label
+               and the 5th element as the gene id '''
+        
+        if hasattr(self, 'chrom_coords'):
+            if _verbose:
+                print(f"+ load current chromsome coordinates alternative.")
+            chrom_coords_dict = getattr(self, 'chrom_coords')
+
+        elif not hasattr(self, 'chrom_coords') and isinstance (chrom_coords_dict, dict):
+            if _verbose:
+                print(f"+ use provided chromsome coordinates alternative.")
+        
+        else:
+            if _verbose:
+                print(f"+ no valid chromsome coordinates alternative. exist")
+            return None
+
+        _all_chrom_coords = []
+        for _chr_key, _chr_coord in chrom_coords_dict.items():
+           # new column for gene id
+            _chr_key_col = np.ones((len(_chr_coord),1)) * int(_chr_key)
+            _new_chr_coord = np.hstack((_chr_coord,_chr_key_col))
+        # append each chr 
+            for _chr in _new_chr_coord:
+                _all_chrom_coords.append(_chr)
+
+        _all_chrom_coords = np.array(_all_chrom_coords )  
+    
+        return _all_chrom_coords
 
 
     def _find_candidate_chromosomes_by_segmentation(self, 
@@ -1935,7 +2075,8 @@ class Field_of_View():
                                _std_ratio = 3, 
                                _return_signal_and_background = False, 
                                _verbose = True, 
-                               #_num_threads=4, 
+                               _parallel = False,  
+                               _num_threads=4, 
                                _save=True, 
                                _overwrite=False):
 
@@ -1948,7 +2089,7 @@ class Field_of_View():
              _return_signal_and_background: if False, return the background substracted signal
              _verbose: bool; say sth
            Output:
-             _spot_intensity_th: background substracted spot th for spot picking for selected regions/spots"""
+             spot_intensity_th_dict: background substracted spot th for spot picking for selected regions/spots"""
 
 
         from skimage import morphology
@@ -1960,7 +2101,7 @@ class Field_of_View():
                 print(f"+ directly use current spot intensity thresholds.")
                 return getattr(self, 'spot_intensity_th')
         elif not _overwrite:
-            self._load_from_file('fov_info', _load_attr_list=['spot_intensity_th'],
+            self._load_from_file('signal', _load_attr_list=['spot_intensity_th'],
                                 _overwrite=_overwrite, _verbose=_verbose, )
             if hasattr(self, 'spot_intensity_th'):
                 if _verbose:
@@ -1974,7 +2115,7 @@ class Field_of_View():
                     print(f"+ directly use current dapi image.")
                     _dna_im = getattr(self, 'dapi_im')
             else:
-                _dna_im = self._load_dapi_image(_dapi_id=0, _overwrite=True, _save=False)
+                _dna_im = self._load_dapi_image(_dapi_id=0, _overwrite=True, _save=_save)
 
         ## 2. process each spot images from saved HDF file for all hybs or selected hybs if not specified
         if isinstance (_region_ids, list) or isinstance (_region_ids, np.ndarray):
@@ -1987,28 +2128,58 @@ class Field_of_View():
         
         # _spot_intensity_th dict to store all estimates
         _spot_intensity_th = {}
+        
+        # determining if multiprocessing or single processing
+        if not self.parallel:  # prioritize shared parameter
+            _parallel = False
+        
 
-        # load spot_im for one hyb at a time to save memory
-        for _region_id in _region_ids:
-            if _verbose:
-                print(f"+ estimate intensity threshold for region {_region_id}.")
-                if _region_id == 0:
-                    print ("note that the spot image with index of '-1' is loaded for region_id == 0")
-            with h5py.File(self.save_filename, "r", libver='latest') as _f:
-                _grp = _f['combo']
-                _spot_im = _grp ['ims'][_region_id-1]
-                #_combo_id = _grp ['ids'][_region_id-1]
+        if _parallel == False:  # slow but less memory usage
+                # load spot_im for one hyb at a time to save memory
+            for _region_id in _region_ids:
+                if _verbose:
+                    print(f"+ estimate intensity threshold for region {_region_id}.")
+                    if _region_id == 0:
+                        print ("note that the spot image with index of '-1' is loaded for region_id == 0")
+                with h5py.File(self.save_filename, "r", libver='latest') as _f:
+                    _grp = _f['combo']
+                    _spot_im = _grp ['ims'][_region_id-1]
+                    #_combo_id = _grp ['ids'][_region_id-1]
 
+                    from ..spot_tools.picking import find_spot_intensity_th_and_background_in_nucleus
+                    _spot_intensity_th_each = find_spot_intensity_th_and_background_in_nucleus (_spot_im = _spot_im, _dna_im = _dna_im, _dna_mask =_dna_mask, _std_ratio = _std_ratio, 
+                    _return_signal_and_background =_return_signal_and_background, _verbose = _verbose)
+
+                    _spot_intensity_th [str(_region_id)] = _spot_intensity_th_each
+        
+        ########## NOT FINISHED below ########## 
+        if _parallel == True:  # fast but more memory usage
+            if len(_region_ids) > 0:
+
+                import multiprocessing as mp
                 from ..spot_tools.picking import find_spot_intensity_th_and_background_in_nucleus
-                _spot_intensity_th_each = find_spot_intensity_th_and_background_in_nucleus (_spot_im = _spot_im, _dna_im = _dna_im, _dna_mask =_dna_mask, _std_ratio = _std_ratio, 
-                _return_signal_and_background =_return_signal_and_background, _verbose = _verbose)
 
-                _spot_intensity_th [_region_id] = _spot_intensity_th_each
+                _spot_im_kwargs = [{'_spot_im_filename': self.save_filename,'_dna_im': _dna_im,'_spot_id': _region_id} for _region_id in _region_ids]
+
+                with mp.Pool(_num_threads,) as _spot_ims_pool:
+                    if _verbose:
+                        print(f"- Start multiprocessing estimates spot intensity th with {_num_threads} threads", end=' ')
+                        _multi_time = time.time()
+                    # Multi-proessing!
+                    _spot_intensity_th = _spot_ims_pool.starmap(find_spot_intensity_th_and_background_in_nucleus, _spot_im_kwargs, chunksize=1)
+                    # close multiprocessing
+                    _spot_ims_pool.close()
+                    _spot_ims_pool.join()
+                    _spot_ims_pool.terminate()
+                    if _verbose:
+                        print(f"in {time.time()-_multi_time:.3f}s.")
+        ##########  NOT FINSIHED above ##########      
+
 
         ## 3. set attributes
         setattr(self, 'spot_intensity_th', _spot_intensity_th)
         if _save:
-            self._save_to_file('fov_info', _save_attr_list=['spot_intensity_th'],
+            self._save_to_file('signal', _save_attr_list=['spot_intensity_th'],
                                 _overwrite=_overwrite,
                                 _verbose=_verbose)
         
