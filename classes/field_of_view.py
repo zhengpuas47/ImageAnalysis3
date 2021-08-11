@@ -1984,7 +1984,7 @@ class Field_of_View():
         
         if hasattr(self, 'chrom_coords'):
             if _verbose:
-                print(f"+ load current chromsome coordinates alternative.")
+                print(f"+ load and combine current chromsome coordinates alternative.")
             chrom_coords_dict = getattr(self, 'chrom_coords')
 
         elif not hasattr(self, 'chrom_coords') and isinstance (chrom_coords_dict, dict):
