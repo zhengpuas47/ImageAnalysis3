@@ -2346,3 +2346,98 @@ def convert_spots_to_hzxys(spot_list, pix_size=_distance_zxy, normalize_spot_bac
 def selelct_spots_in_mask(spots, binary_mask, interpolation='nearest'):
     """Function to select spots within a certain mask"""
     _mask = np.array(binary_mask>0)
+
+
+
+
+### Function to estimate the spot_th for picking candidate spots from fitted spots, whose intensity are background substracted @ Shiwei Liu
+### Use spot image as input instead of region id for flexibity of testing (as compared to using spot/region id as input for the FOV class function)
+def find_spot_intensity_th_and_background_in_nucleus (_spot_im,
+                                            _dna_im, 
+                                            _spot_id = None,
+                                            _spot_im_filename = None,
+                                            _dna_mask = None,
+                                            _std_ratio = 3,
+                                            _return_signal_and_background = False,
+                                            _verbose = True):
+    """Function to estimate spot intensity and spot background (excluding non-cell regions) given
+    
+       Input:
+           _spot_im: the spot images, for example from each hyb; can also be chrom images or other images where there are bright foci desired to be detected/picked
+           _dna_im: dna image or cell boundary image to exlcude non-nuclear/non-cell area
+           _dna_mask: if use provided dna mask [one z-slice]
+           _spot_id: if used, will return dict with _spot_id as key; for fov class usage (preferably only)
+           _spot_im_filename: hdf5 savefile for combo ims loading; for fov class usage (preferably only)
+           _std_ratio: the number_of_std to be applied to find the spot th
+           _return_signal_and_background: if False, return the background substracted signal
+           _verbose: bool; say sth
+        Output:
+           _substracted_spot_th: background substracted spot th for spot picking
+           OR
+           [_spot_im_th, _spot_background_mean]: rough spot intensity, and spot background, respectively"""
+
+    from skimage import morphology
+    #from scipy import ndimage
+    from skimage import measure
+    from skimage import filters
+    
+    ## 1. process dna image to generate dna mask
+    _dna_im_zmax = np.max(_dna_im,axis=0)
+    _dna_rough_mask =  _dna_im_zmax > filters.threshold_otsu (_dna_im_zmax)
+    
+    # if use provided dna mask
+    if _dna_mask is not None and isinstance(_dna_mask, np.ndarray):
+        if _dna_mask.shape == _spot_im[0].shape:
+            _dna_rough_mask = _dna_mask
+            if _verbose:
+                print (f"-- use provided DNA/cell mask.")
+    
+    _dna_rough_mask = morphology.dilation (_dna_rough_mask, morphology.disk(10))  # to include foci on the edge of nuclei
+    
+    ## 2. extract the signal within the cell/nuclei
+    # if load _spot_im from hdf5 file with _chr_id given while _spot_im is not directly defined
+    if _spot_im is None and _spot_id is not None:
+        if os.path.exist(_spot_im_filename):
+            import h5py
+            with h5py.File(self.save_filename, "r", libver='latest') as _f:
+                _grp = _f['combo']
+                _spot_im = _grp ['ims'][_spot_id-1]
+
+    _spot_im_zmax = np.max(_spot_im,axis=0)
+    _spot_im_filtered =  _spot_im_zmax * _dna_rough_mask
+    _spot_im_filtered = np.array([_i for _i in _spot_im_filtered.flatten() if _i >0])
+     # use mean + std * 3 (or other ratio factor) to find the th for spot in image
+    _spot_im_th =  np.mean(_spot_im_filtered) + np.std(_spot_im_filtered) * _std_ratio  # (default is mean + 3*std)
+    if _verbose:
+        print (f"-- find spot peak signal around {_spot_im_th}.")
+     # spot seed binary
+    _signal_binary_im = _spot_im_zmax > _spot_im_th
+     # seed-excluded background binary
+    _signal_background_mask =_dna_rough_mask.copy()
+    _signal_background_mask [_signal_binary_im] =0
+    
+    _signal_background_filtered = _spot_im_zmax * _signal_background_mask
+    _signal_background_filtered = np.array([_i for _i in _signal_background_filtered.flatten() if _i >0])
+    
+    # estimate the background for spot within nucleus in image 
+    _spot_background_mean = np.mean(_signal_background_filtered)
+    
+    ## 3. calculate the th to assist selecting the fitted spots
+    # [substract background because fitted spots are background substracted]
+    _substracted_spot_th = _spot_im_th - _spot_background_mean
+    
+    if _spot_id is None:
+        if _return_signal_and_background:
+            if _verbose:
+                print (f"-- return absolute signal and background, respectively.")
+            return [_spot_im_th, _spot_background_mean]
+        else:
+            return _substracted_spot_th
+    
+    else:
+        if _return_signal_and_background:
+            if _verbose:
+                print (f"-- return absolute signal and background, respectively.")
+            return {str(_spot_id): [_spot_im_th, _spot_background_mean]}
+        else:
+            return {str(_spot_id): _substracted_spot_th}
