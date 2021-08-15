@@ -1982,18 +1982,18 @@ class Field_of_View():
               with the 4th element as the chr label
                and the 5th element as the gene id '''
         
-        if hasattr(self, 'chrom_coords'):
+        if hasattr(self, 'chrom_coords') and not isinstance (chrom_coords_dict , dict):
             if _verbose:
                 print(f"+ load and combine current chromsome coordinates alternative.")
             chrom_coords_dict = getattr(self, 'chrom_coords')
 
-        elif not hasattr(self, 'chrom_coords') and isinstance (chrom_coords_dict, dict):
+        elif isinstance (chrom_coords_dict, dict):   # this supports converting other dict (eg. combo spots dict) to a single array similarly
             if _verbose:
-                print(f"+ use provided chromsome coordinates alternative.")
+                print(f"+ use provided chromsome (or spot) coordinates alternative.")
         
         else:
             if _verbose:
-                print(f"+ no valid chromsome coordinates alternative. generate chrom coords first.")
+                print(f"+ no valid chromsome (or spot) coordinates alternative. generate chrom coords first.")
             return None
 
         _all_chrom_coords = []
