@@ -774,7 +774,7 @@ def pick_spots_for_multi_chromosomes (_chromosome_cluster,
                     # distance sum for this permutation
                     _dist_sum = 0
                     for _spot_index in range(len(_dist_matrix)):
-                        if _dist_matrix [_spot_index,_i[_spot_index]] > 2000: # if one of the spot-chr distance beyond the th, add a random large value to penalty this choice
+                        if _dist_matrix [_spot_index,_i[_spot_index]] > _distance: # if one of the spot-chr distance beyond the th, add a random large value to penalty this choice
                             _dist_sum += 6000 
                         else:        
                             _dist_sum += _dist_matrix [_spot_index,_i[_spot_index]] 
