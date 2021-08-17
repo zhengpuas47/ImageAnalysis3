@@ -458,7 +458,7 @@ def pick_spots_for_isolated_chromosome (_isolated_chromosome,
                 _spots_sel_region[np.argmin(_dist_to_ref_list),-1]= _isolated_chromosome_id 
             (_spots_sel_cluster[_spots_sel_cluster[:,4] == _region_id]) = _spots_sel_region # add the picked chr id to the _spots_sel_cluster 
 
-    ### 2. secondary picking
+    ### 2. secondary picking using local neighbor to find the closest spot as well as excluding spot outside the distance radius of the local center (despite there is one spot for this region)
     _iter = 0
     while _iter < _iter_num:
         if _verbose:
@@ -525,7 +525,7 @@ def pick_spots_for_isolated_chromosome (_isolated_chromosome,
 
 
 
-
+### Function to pick assigned spots to the given chromosome cluster
 def pick_spots_for_multi_chromosomes (_chromosome_cluster, 
                                       _spots_hzxyida_array, 
                                       _region_ids, 
@@ -774,7 +774,10 @@ def pick_spots_for_multi_chromosomes (_chromosome_cluster,
                     # distance sum for this permutation
                     _dist_sum = 0
                     for _spot_index in range(len(_dist_matrix)):
-                        _dist_sum += _dist_matrix [_spot_index,_i[_spot_index]] 
+                        if _dist_matrix [_spot_index,_i[_spot_index]] > 2000: # if one of the spot-chr distance beyond the th, add a random large value to penalty this choice
+                            _dist_sum += 6000 
+                        else:        
+                            _dist_sum += _dist_matrix [_spot_index,_i[_spot_index]] 
                     _sum_dist_list.append(_dist_sum)
                 # find the spot-chr index permutation that has the smalles distance 
                 _sum_dist_list = np.array(_sum_dist_list) 
@@ -783,8 +786,8 @@ def pick_spots_for_multi_chromosomes (_chromosome_cluster,
                 if _orignal_index!=_exchanged_index:
                     _num_swap +=1
                 # exchange the picked chr id based on the  spot-chr index
-                for _spot,_index in zip(_picked_spots_sel_region, _exchanged_index):
-                    _spot[-1] = _chromosome_cluster[:,5][_index]
+                    for _spot,_index in zip(_picked_spots_sel_region, _exchanged_index):
+                        _spot[-1] = _chromosome_cluster[:,5][_index]
                 # assign back to the picked spots
                 _second_picked_spots[_second_picked_spots[:,4]== _region_id] = _picked_spots_sel_region
         
