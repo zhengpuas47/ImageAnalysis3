@@ -532,7 +532,7 @@ def pick_spots_for_multi_chromosomes (_chromosome_cluster,
                                       _neighbor_len = None,
                                       _proximity_ratio = 0.2, 
                                       _iter_num = 5, 
-                                      _distance =2000, 
+                                      _local_dist_th =2000, 
                                       _verbose = True, 
                                       _debug = False):
 
@@ -618,10 +618,10 @@ def pick_spots_for_multi_chromosomes (_chromosome_cluster,
             
         # initial pick for spot 
         # spot fall within the radius of any one chrom center
-            if len(_dist[_dist < _distance]) ==1:
+            if len(_dist[_dist < _local_dist_th]) ==1:
                 _spots_sel_region[_spot_index, 7] = _chromosome_cluster [np.argmin(_dist),5]  #p in spot hzxyidap assigned from u in chrom azyxiuc  
         # the closeset chrom center is 5 times shorted than th second closeset chrom center
-            elif np.sort(_dist)[0] < _proximity_ratio * np.sort(_dist)[1] and np.min(_dist) < _distance:
+            elif np.sort(_dist)[0] < _proximity_ratio * np.sort(_dist)[1] and np.min(_dist) < _local_dist_th:
                 _spots_sel_region[_spot_index, 7] = _chromosome_cluster [np.argmin(_dist),5]
         # assign the picked result back to the initial _spots_sel_cluster       
         _spots_sel_cluster[_spots_sel_cluster[:,4] == _region_id] =  _spots_sel_region 
@@ -707,7 +707,7 @@ def pick_spots_for_multi_chromosomes (_chromosome_cluster,
             # loop for each spot
                 for _spot_index, _dist_spot in enumerate(_dist_matrix):
                 # find the closest spot-chr pair and append only when this spot is also closer to the chr compared to other spot 
-                    if np.min(_dist_spot) == np.min (_dist_matrix[:,np.argmin(_dist_spot)]) and np.min(_dist_spot) < _distance:
+                    if np.min(_dist_spot) == np.min (_dist_matrix[:,np.argmin(_dist_spot)]) and np.min(_dist_spot) < _local_dist_th:
                         _unpicked_spots_region [_spot_index,-1] =  _chromosome_cluster[np.argmin(_dist_spot),5]  # picked chr id by index
             # assing back; other unpicked regions would remain unpicked
                 _unpicked_spots [_unpicked_spots [:,4] == _region_id] = _unpicked_spots_region
@@ -774,7 +774,7 @@ def pick_spots_for_multi_chromosomes (_chromosome_cluster,
                     # distance sum for this permutation
                     _dist_sum = 0
                     for _spot_index in range(len(_dist_matrix)):
-                        if _dist_matrix [_spot_index,_i[_spot_index]] > _distance: # if one of the spot-chr distance beyond the th, add a random large value to penalty this choice
+                        if _dist_matrix [_spot_index,_i[_spot_index]] > _local_dist_th: # if one of the spot-chr distance beyond the th, add a random large value to penalty this choice
                             _dist_sum += 6000 
                         else:        
                             _dist_sum += _dist_matrix [_spot_index,_i[_spot_index]] 
