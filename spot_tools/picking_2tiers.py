@@ -249,8 +249,9 @@ def calculate_region_quality (_chromosome_cluster,
     """Function to_report_basic quality of staining etc
         Input:
            _chromosome_cluster: selected chromsome cluster, which should be a subset of _chrom_azyxiuc_array with the same cluster id
-           _spots_hzxyida_array: a preprocessed and assigned spot array after spot assignment (see function directly above);
+           _spots_hzxyida(p)_array: a preprocessed and assigned spot array after spot assignment (see function directly above);
                                  each row is a spot object, with h(intensity), z (nm), y (nm), x (nm), i (region_id), a (assigned chr cluster id) as elements in each column
+                                 it can also be hzxyidap array if the interest of cluster has not been picked
            _region_ids: the list/np.ndarray for all the combo/region ids
            _isolated_chr_only: assess only isolated chromosome or not
         Output: 
@@ -262,17 +263,17 @@ def calculate_region_quality (_chromosome_cluster,
         return None
     else:
         # chrom cluster with single chromosome
-        if _chromosome_cluster.shape == (7,): 
+        if _chromosome_cluster.shape == (7,) or _chromosome_cluster.shape == (7,): 
             _chromosome_clusters = np.array([_chromosome_cluster])
         # chrom cluster with more than one single chromosome
-        elif len(_chromosome_cluster) > 1 and _chromosome_cluster.shape[-1] == 7:
+        elif len(_chromosome_cluster) >= 1 and _chromosome_cluster.shape[-1] == 7:
             _chromosome_clusters = _chromosome_cluster
         else:
             if _verbose:
                 print ('-- chrom inputs are not valid.')
             return None
     
-    if _spots_hzxyida_array.shape[-1] != 7: 
+    if _spots_hzxyida_array.shape[-1] < 7:   # hzyxidap array is also supported [note the relevant regions should have not been picked for the purppose of assessing quality]
         if _verbose:
             print ('-- spot inputs are not valid.')
         return None
@@ -284,7 +285,7 @@ def calculate_region_quality (_chromosome_cluster,
         print (f'-- calculating region quality for chromosome cluster {_cluster_id}', end=' ')
 
         # slice only spots belong to the processed cluster
-    _spots_sel_cluster = _spots_hzxyida_array[_spots_hzxyida_array[:,-1] == _cluster_id]   # a in spot hzxyida
+    _spots_sel_cluster = _spots_hzxyida_array[_spots_hzxyida_array[:,6] == _cluster_id]   # a in spot hzxyida  or hzxyidap
         
     _confident_region =0  #  region where number of spots match the number of chr 
     _ambiguous_region = 0  # region where number of spots <= 2* number of chr
@@ -309,14 +310,15 @@ def calculate_region_quality (_chromosome_cluster,
             # slice spots in selected regions
         _spots_sel_region =_spots_sel_cluster[_spots_sel_cluster[:,4] == _region_id]   # i in spot hzxyida
             # record number for each category 
-        if len(_spots_sel_region) == len(_chromosome_cluster): # if distance radius was given well, this number should plateau and decrease if keeping increasing the distance
+        if len(_spots_sel_region) < len(_chromosome_cluster):  # if this is the majority, suggesting a false postive chromosome center or the distance radius was given too small
+            _loss_region +=1
+        elif len(_spots_sel_region) == len(_chromosome_cluster): # if distance radius was given well, this number should plateau and decrease if keeping increasing the distance
             _confident_region +=1
         elif len(_spots_sel_region) <= 2* len(_chromosome_cluster):
             _ambiguous_region +=1
         elif len(_spots_sel_region) > 2* len(_chromosome_cluster):  # if this is the majority, suggesting a false negative (undetected) chromosome center in this cluster
             _bad_region +=1
-        elif len(_spots_sel_region) < len(_chromosome_cluster):  # if this is the majority, suggesting a false postive chromosome center or the distance radius was given too small
-            _loss_region +=1
+       
         
     if _isolated_chr_only and len(_chromosome_cluster) !=1:
         if _verbose:
@@ -334,7 +336,7 @@ def pick_spots_for_isolated_chromosome (_isolated_chromosome,
                                         _spots_hzxyida_array, 
                                         _region_ids = None, 
                                         _neighbor_len = None, 
-                                        _iter_num = 2, 
+                                        _iter_num = 5, 
                                         #_dist_ratio = 0.8, 
                                         #_h_ratio = 0.8,
                                         _local_dist_th = 2000,
@@ -524,6 +526,277 @@ def pick_spots_for_isolated_chromosome (_isolated_chromosome,
 
 
 
-def pick_spots_for_multi_chromosomes ():
+def pick_spots_for_multi_chromosomes (_chromosome_cluster, 
+                                      _spots_hzxyida_array, 
+                                      _region_ids, 
+                                      _neighbor_len = None,
+                                      _proximity_ratio = 0.2, 
+                                      _iter_num = 5, 
+                                      _distance =2000, 
+                                      _verbose = True, 
+                                      _debug = False):
 
-    return
+    """Function to pick spots for chromosome cluster containing more than one chr
+       
+          Input: 
+              _chromosome cluster: selected chromsome (cluster) which should be in a format of _chrom_azyxiuc_array 
+              _spots_hzxyida_array: preprocessed spot array, each row is a spot object;
+                                    with h(intensity), z (nm), y (nm), x (nm), i (region_id), d (chr id by closest distance), a (assigned chr cluster id) as elements in each column
+                                alternatively, this array can also be hzyxidap that is picked.
+              _region_ids: the list/np.ndarray for all the combo/region ids
+              _neighbor_len: the number of neighboring region on each side for the region being picked
+              _iter_num: number of iteration for picking and exchanging spots for multiple chrom
+              _proximity_ratio: the ratio to find the exceptionally close spot
+              #_h_ratio: the ratio used to compare intensity when multiple candidates are very close 
+              _local_dist_th: the biggest distance between a spot and its local neighbor center
+          
+          Output:
+              _spots_hzxyidap_array: the spots array where the picked chr id is added as the 8th element (p)"""
+
+
+    if not isinstance (_chromosome_cluster, np.ndarray) or not isinstance (_spots_hzxyida_array, np.ndarray):
+        if _verbose:
+            print ('-- chrom and spot inputs should both be np.ndarray.')
+        return None
+    else:
+        # chrom cluster should contain one single chromosome;
+        if _chromosome_cluster.shape[0] >1 and _chromosome_cluster.shape[1] ==7:
+            _chromosome_cluster_id = _chromosome_cluster [0,-1]
+           # azyxiuc  c for cluster id for chromosome
+        else:
+            if _verbose:
+                print ('-- chrom inputs are not valid.')
+            return None
+
+    ### 0. preprocess spots hzyxida array if necessary
+    # for spot array that has never been picked
+    if _spots_hzxyida_array.shape[-1] == 7: 
+        # add empty column to store results for spot's chromosome assignment 
+        _result_cols = np.zeros([len(_spots_hzxyida_array), 1])
+        _spots_hzxyida_array_to_pick = np.hstack((_spots_hzxyida_array.copy(),_result_cols))
+    # for spot array that has been pikced -> hzxyidap array
+    # where picked spots from other chromosome cluster should still remain zero in 'p (picked chr id)' column   
+    elif _spots_hzxyida_array.shape[-1] == 8: 
+        _spots_hzxyida_array_to_pick = _spots_hzxyida_array.copy()
+    else:
+        if _verbose:
+            print ('-- spot inputs are not valid.')
+        return None
+    
+    # slice only spots belong to the processed cluster/isolated chromosome to modify
+    _spots_sel_cluster = _spots_hzxyida_array_to_pick[_spots_hzxyida_array_to_pick[:,6]==_chromosome_cluster_id]   # d in hzxyidap array
+
+    # if regions that are specified 
+    if isinstance(_region_ids, list) or isinstance (_region_ids, np.ndarray):
+        if len(_region_ids) > 0: 
+            if _verbose:
+                print ('using specified region ids.')
+            _region_ids = _region_ids
+    else:
+    # if not specified, use all regions that has at least one spot
+        if _verbose:
+            print ('using all region ids from the assigned spots.')
+            print ("-- note if one region is completely missed, it cannot be reported.")
+        _region_ids = np.unique(_spots_sel_cluster[:,4])      # i in hzxyida
+
+    if _neighbor_len is None:
+        _neighbor_len = round(len(_region_ids/10))   # use 10 + 10 % of region length for local reference
+
+
+    ### 1. initial picking for uniquely closest spot
+    # 1.1 pick spots are significantly closer to on chr than other chrs
+    for _region_id in _region_ids:   
+        _spots_sel_region =_spots_sel_cluster[_spots_sel_cluster[:,4] == _region_id]   # i in spot hzxyidap
+    
+    
+    
+        from scipy.spatial.distance import cdist
+        _dist_matrix =  cdist(_spots_sel_region[:,1:4],_chromosome_cluster[:,1:4])  # num_spot by num_chr matrix
+    
+        
+        for _spot_index, _dist in enumerate(_dist_matrix):  # for each spot
+            
+        # initial pick for spot 
+        # spot fall within the radius of any one chrom center
+            if len(_dist[_dist < _distance]) ==1:
+                _spots_sel_region[_spot_index, 7] = _chromosome_cluster [np.argmin(_dist),5]  #p in spot hzxyidap assigned from u in chrom azyxiuc  
+        # the closeset chrom center is 5 times shorted than th second closeset chrom center
+            elif np.sort(_dist)[0] < _proximity_ratio * np.sort(_dist)[1] and np.min(_dist) < _distance:
+                _spots_sel_region[_spot_index, 7] = _chromosome_cluster [np.argmin(_dist),5]
+        # assign the picked result back to the initial _spots_sel_cluster       
+        _spots_sel_cluster[_spots_sel_cluster[:,4] == _region_id] =  _spots_sel_region 
+    if _verbose:         
+        print(f'-- initiate picking in chromosome cluster {int(_chromosome_cluster_id)} with {len(_chromosome_cluster)} chromosomes')
+        
+    # 1.2 remove spots for regions where more than one significantly close spots are picked
+    _picked_spots = _spots_sel_cluster[_spots_sel_cluster [:,-1] > 0]   #picked spot should be a chr unique id > 0
+    for _chr in _chromosome_cluster:
+        if _debug: 
+            print(f'-- refine initial picking in chromosome {int(_chr[5])}')
+        _picked_spots_chr = _picked_spots[_picked_spots[:,7]== _chr[5]]  #p in spot hzxyidap <--> u in azyxiuc
+        # loop through regions
+        for _region_id in _region_ids:  ######
+            if len(_picked_spots_chr[_picked_spots_chr[:,4]==_region_id])>1:  # reset for region where there are more than two spots 
+                _picked_spots_chr[_picked_spots_chr[:,4]==_region_id,-1] = 0
+        # assign back to the _picked_spots
+        _picked_spots[_picked_spots[:,7]==_chr[5]] =_picked_spots_chr
+    # assign back to the _spots_sel_cluster
+    _spots_sel_cluster[_spots_sel_cluster [:,-1] > 0] = _picked_spots
+    
+    
+    
+    ## for debug
+    _first_picked_spots = _spots_sel_cluster[_spots_sel_cluster [:,-1] > 0]
+    if _verbose:
+        print(f'+ there are {len(_first_picked_spots)} spots picked after initial picking')
+    
+    
+    ### 2. secondary picking to iteratively assign (all possible) unpicked spots based on previous picking; _unpicked_spots remain static for this round 
+    _iter = 0
+    while _iter <_iter_num:
+        _iter +=1
+        
+        if _debug:
+            print(f'--iteration round {_iter} to finish secondary picking in chromosome cluster {int(_chromosome_cluster_id)}')
+    
+        _unpicked_spots = _spots_sel_cluster[_spots_sel_cluster [:,-1] == 0] 
+    
+    #_unpicked_spots_to_modify = _unpicked_spots.copy() 
+    
+    # 2.1 pick closest spots (exclusively) for each chr for each region using local distance from picked neighboring regions;   
+        for _region_id in _region_ids:
+        # if there are any unpicked spots for this region
+            if len(_unpicked_spots[_unpicked_spots[:,4]==_region_id]) > 0:    #hzyxi  i-->region_id
+            # store all local ref center for each chrom
+                _ref_center_list = []
+                for _chr in _chromosome_cluster:
+                
+                # this would remain the same for each chr throught the loop since it is directly sliced from _spots_sel_cluster
+                    _picked_spots_chr = _spots_sel_cluster[_spots_sel_cluster [:,-1] == _chr[5]] #p in spot hzxyidap <--> u in azyxiuc
+                    _ref_ids_from_picked = np.unique(_picked_spots_chr[:,4])
+                #print(f'ref_ids for {_chr[5]} is {_ref_ids_from_picked}')
+                # the above wont change during the loop since it is directly sliced from the _spots_sel_cluster 
+            
+                    _start, _end = max(_region_id - _neighbor_len, min (_region_ids)), min(_region_id + _neighbor_len, max(_region_ids)) 
+                    _sel_local_ids = np.concatenate([np.arange(_start, _region_id), np.arange(_region_id +1, _end+1)])
+                    _shared_local_ids = np.intersect1d(_sel_local_ids, _ref_ids_from_picked)
+                # if chr has a picked spot, append a pseudo coord which enable this chr do not be picked
+                    if _region_id in _ref_ids_from_picked:
+                        _ref_center = np.array([0,0,0])   # keep the number of chr center but this center wont be picked 
+                        _ref_center_list.append(_ref_center)    
+                # for unpicked chrom, if more than three picked regions nearby
+                    elif len(_shared_local_ids) >= 3:
+                        _neighbor_spots = []
+                        for _shared_local_id in _shared_local_ids:
+                            _spot_ref_region =_picked_spots_chr[_picked_spots_chr[:,4] == _shared_local_id]
+                            _neighbor_spots.append(_spot_ref_region[0])
+                        _neighbor_spots= np.array(_neighbor_spots)
+                        _ref_center = np.nanmean(_neighbor_spots [:,1:4],axis=0)
+                        _ref_center_list.append(_ref_center)
+                # if not, append a pseudo coord which enable this chr do not be picked
+                    else:
+                        _ref_center = np.array([0,0,0])   # keep the number of chr center but this center wont be picked 
+                        _ref_center_list.append(_ref_center)
+            # all local ref center for this region from each chrom       
+                _ref_centers = np.array(_ref_center_list)
+            # all _unpicked_spots for this region
+                _unpicked_spots_region = _unpicked_spots [_unpicked_spots[:,4] == _region_id] 
+            
+                from scipy.spatial.distance import cdist
+                _dist_matrix =  cdist(_unpicked_spots_region[:,1:4],_ref_centers)
+            # loop for each spot
+                for _spot_index, _dist_spot in enumerate(_dist_matrix):
+                # find the closest spot-chr pair and append only when this spot is also closer to the chr compared to other spot 
+                    if np.min(_dist_spot) == np.min (_dist_matrix[:,np.argmin(_dist_spot)]) and np.min(_dist_spot) < _distance:
+                        _unpicked_spots_region [_spot_index,-1] =  _chromosome_cluster[np.argmin(_dist_spot),5]  # picked chr id by index
+            # assing back; other unpicked regions would remain unpicked
+                _unpicked_spots [_unpicked_spots [:,4] == _region_id] = _unpicked_spots_region
+                
+    # after finishing all regions, assign back
+
+        _spots_sel_cluster[_spots_sel_cluster [:,-1] == 0] = _unpicked_spots
+        # if the number does not increase after enough rounds of iteration, all other unpicked spots are very unlikely due to various reaons
+        #_second_picked_spots_test = _spots_sel_cluster[_spots_sel_cluster [:,-1] > 0]
+        _second_picked_spots = _spots_sel_cluster[_spots_sel_cluster [:,-1] > 0]
+    if _verbose:  
+        print(f'+ there are {len(_second_picked_spots)} spots picked after secondary picking')
+    
+    ### 3. finalize by swapping spot selection to minimize sum of distance for each chrom-spot pairs
+    _iter = 0
+    _num_swap = 0
+    while _iter <_iter_num:
+        _iter +=1
+        if _debug:
+            print(f'--iteration round {_iter} to minimize pairwise distance sum in chromosome cluster {int(_chromosome_cluster_id)}')
+        #_second_picked_spots = _spots_sel_cluster[_spots_sel_cluster [:,-1] > 0]
+        # swapping spots for each region to minimize spot-chr distance sum
+        for _region_id in _region_ids:
+            
+            _picked_spots_sel_region = _second_picked_spots[_second_picked_spots[:,4]== _region_id]
+            _ref_center_list = []
+            for _chr in _chromosome_cluster:
+                # slice from _spots_sel_cluster remain unchanged for each iteration
+                _picked_spots_chr = _spots_sel_cluster[_spots_sel_cluster [:,-1] == _chr[5]] #p in spot hzxyidap <--> u in azyxiuc
+                _ref_ids_from_picked = np.unique(_picked_spots_chr[:,4])
+                    
+                _start, _end = max(_region_id - _neighbor_len, min (_region_ids)), min(_region_id + _neighbor_len, max(_region_ids)) 
+                _sel_local_ids = np.concatenate([np.arange(_start, _region_id), np.arange(_region_id +1, _end+1)])
+                _shared_local_ids = np.intersect1d(_sel_local_ids, _ref_ids_from_picked) 
+                # if more than three picked regions nearby
+                if len(_shared_local_ids) >= 3:
+                    _neighbor_spots = []
+                    for _shared_local_id in _shared_local_ids:
+                        _spot_ref_region =_picked_spots_chr[_picked_spots_chr[:,4] == _shared_local_id]
+                        _neighbor_spots.append(_spot_ref_region[0])
+                    _neighbor_spots= np.array(_neighbor_spots)
+                    _ref_center = np.nanmean(_neighbor_spots [:,1:4],axis=0)
+                    _ref_center_list.append(_ref_center)
+            # if not, append a pseudo coord which enable this chr do not be picked
+                else:
+                    _ref_center = np.array([0,0,0])   # keep the number of chr center but this center wont be picked 
+                    _ref_center_list.append(_ref_center)
+            _ref_centers = np.array(_ref_center_list)
+            # skip region where exists any invalid local ref center
+            if np.count_nonzero(_ref_centers) == len(_ref_centers) * 3:
+                from scipy.spatial.distance import cdist
+                _dist_matrix =  cdist(_picked_spots_sel_region[:,1:4],_ref_centers)
+                # current chr index (relative to the chrom cluster) for the picked spots for this region; eg spot1 assigned to the 2 chr --> 0 (spot index)- 1 (chr index)
+                _orignal_index = []
+                for _picked_id in _picked_spots_sel_region[:,-1]:
+                    _orignal_index.append (int(np.where(_chromosome_cluster[:,5] == _picked_id)[0]))
+                _orignal_index= tuple(_orignal_index)
+                # permutation for all possible spot-chr index scnarios; e.g., 2 picked spots for 4 candidate chr: (0,1)(0,2)(0,3)(1,0)(1,2)...
+                from itertools import permutations
+                _l = list(permutations(range(0, len(_ref_centers)),len(_dist_matrix)))
+                _sum_dist_list = []
+                for _i in _l:
+                #print(_i)
+                    # distance sum for this permutation
+                    _dist_sum = 0
+                    for _spot_index in range(len(_dist_matrix)):
+                        _dist_sum += _dist_matrix [_spot_index,_i[_spot_index]] 
+                    _sum_dist_list.append(_dist_sum)
+                # find the spot-chr index permutation that has the smalles distance 
+                _sum_dist_list = np.array(_sum_dist_list) 
+                _exchanged_index = _l[np.argmin(_sum_dist_list)]
+                # count if there is swapping for this region (could be more than 2 spots that have been swapped)
+                if _orignal_index!=_exchanged_index:
+                    _num_swap +=1
+                # exchange the picked chr id based on the  spot-chr index
+                for _spot,_index in zip(_picked_spots_sel_region, _exchanged_index):
+                    _spot[-1] = _chromosome_cluster[:,5][_index]
+                # assign back to the picked spots
+                _second_picked_spots[_second_picked_spots[:,4]== _region_id] = _picked_spots_sel_region
+        
+        #print(f'{_num_swap} swapping in total after {_iter}')
+        # assign back to the cluster after each iteration
+        _spots_sel_cluster[_spots_sel_cluster [:,-1] > 0] = _second_picked_spots
+    
+    _finally_picked_spots = _spots_sel_cluster[_spots_sel_cluster [:,-1] > 0]
+    if _verbose:
+        print(f'+ there are {_num_swap} swapping(s) in {len(_finally_picked_spots)} spots that are finally picked')
+    # assign back to the input array
+    _spots_hzxyida_array_to_pick[_spots_hzxyida_array_to_pick[:,6]==_chromosome_cluster_id] = _spots_sel_cluster
+    _spots_hzxyidap_array = _spots_hzxyida_array_to_pick.copy()
+
+    return _spots_hzxyidap_array
