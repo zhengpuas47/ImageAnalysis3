@@ -607,8 +607,8 @@ def pick_spots_for_isolated_chromosome (_isolated_chromosome,
             _start, _end = max(_region_id - _neighbor_len, min (_region_ids)), min(_region_id + _neighbor_len, max(_region_ids))   # from 1 to max(_region_ids)
             _sel_local_ids = np.concatenate([np.arange(_start, _region_id), np.arange(_region_id +1, _end+1)])
             _shared_local_ids = np.intersect1d(_sel_local_ids, _ref_ids)
-            # if there are more than 2 good/confident regions around, use the mean as the ref point
-            if len(_shared_local_ids) >= 3:
+            # if there are more than 5 good/confident regions around, use the mean as the ref point
+            if len(_shared_local_ids) >= 5:
                 _neighbor_spots = []
                 for _shared_local_id in _shared_local_ids:
                     _spot_ref_region =_spots_sel_cluster[_spots_sel_cluster[:,4] == _shared_local_id]
@@ -652,7 +652,7 @@ def pick_spots_for_isolated_chromosome (_isolated_chromosome,
                 _sel_local_ids = np.concatenate([np.arange(_start, _region_id), np.arange(_region_id +1, _end+1)])
                 _shared_local_ids = np.intersect1d(_sel_local_ids, _ref_ids_from_picked)
                 # use local ref center
-                if len(_shared_local_ids) >= 3:
+                if len(_shared_local_ids) >= 5:
                     _neighbor_spots = []
                     for _shared_local_id in _shared_local_ids:
                         _spot_ref_region =_picked_spots[_picked_spots[:,4] == _shared_local_id]
@@ -863,10 +863,10 @@ def pick_spots_for_multi_chromosomes (_chromosome_cluster,
                     _shared_local_ids = np.intersect1d(_sel_local_ids, _ref_ids_from_picked)
                 # if chr has a picked spot, append a pseudo coord which enable this chr do not be picked
                     if _region_id in _ref_ids_from_picked:
-                        _ref_center = np.array([0,0,0])   # keep the number of chr center but this center wont be picked 
+                        _ref_center = np.array([0,-204800,-204800])   # keep the number of chr center but this center wont be picked 
                         _ref_center_list.append(_ref_center)    
-                # for unpicked chrom, if more than three picked regions nearby
-                    elif len(_shared_local_ids) >= 3:
+                # for unpicked chrom, if more than 5 picked regions nearby
+                    elif len(_shared_local_ids) >= 5:
                         _neighbor_spots = []
                         for _shared_local_id in _shared_local_ids:
                             _spot_ref_region =_picked_spots_chr[_picked_spots_chr[:,4] == _shared_local_id]
@@ -874,9 +874,13 @@ def pick_spots_for_multi_chromosomes (_chromosome_cluster,
                         _neighbor_spots= np.array(_neighbor_spots)
                         _ref_center = np.nanmean(_neighbor_spots [:,1:4],axis=0)
                         _ref_center_list.append(_ref_center)
-                # if not, append a pseudo coord which enable this chr do not be picked
+                # use picked spots if more than 33% of the total regions
+                    elif len(_ref_ids_from_picked) > round(len(_region_ids)/3):
+                        _ref_center = np.nanmean(_picked_spots_chr[:,1:4] ,axis=0) 
+                        _ref_center_list.append(_ref_center)    # zyx only 
+                # use chrom center
                     else:
-                        _ref_center = np.array([0,0,0])   # keep the number of chr center but this center wont be picked 
+                        _ref_center = _chr[1:4].copy()
                         _ref_center_list.append(_ref_center)
             # all local ref center for this region from each chrom       
                 _ref_centers = np.array(_ref_center_list)
@@ -930,8 +934,8 @@ def pick_spots_for_multi_chromosomes (_chromosome_cluster,
                 _start, _end = max(_region_id - _neighbor_len, min (_region_ids)), min(_region_id + _neighbor_len, max(_region_ids)) 
                 _sel_local_ids = np.concatenate([np.arange(_start, _region_id), np.arange(_region_id +1, _end+1)])
                 _shared_local_ids = np.intersect1d(_sel_local_ids, _ref_ids_from_picked) 
-                # if more than three picked regions nearby
-                if len(_shared_local_ids) >= 3:
+                # if more than 5 picked regions nearby
+                if len(_shared_local_ids) >= 5:
                     _neighbor_spots = []
                     for _shared_local_id in _shared_local_ids:
                         _spot_ref_region =_picked_spots_chr[_picked_spots_chr[:,4] == _shared_local_id]
@@ -939,11 +943,15 @@ def pick_spots_for_multi_chromosomes (_chromosome_cluster,
                     _neighbor_spots= np.array(_neighbor_spots)
                     _ref_center = np.nanmean(_neighbor_spots [:,1:4],axis=0)
                     _ref_center_list.append(_ref_center)
-            # if not, append a pseudo coord which enable this chr do not be picked
+                # use picked spots if more than 33% of the total regions
+                elif len(_ref_ids_from_picked) > round(len(_region_ids)/3):
+                    _ref_center = np.nanmean(_picked_spots_chr,axis=0) [1:4] 
+                    _ref_center_list.append(_ref_center)    # zyx only 
+                # use chrom center
                 else:
-                    _ref_center = np.array([0,0,0])   # keep the number of chr center but this center wont be picked 
+                    _ref_center = _chr[1:4].copy()
                     _ref_center_list.append(_ref_center)
-            _ref_centers = np.array(_ref_center_list)
+          
             # skip region where exists any invalid local ref center/  also skip region if there is only one spot picked in the cluster
             if np.count_nonzero(_ref_centers) == len(_ref_centers) * 3 and len(_picked_spots_sel_region) > 1 :
                 from scipy.spatial.distance import cdist
@@ -962,8 +970,8 @@ def pick_spots_for_multi_chromosomes (_chromosome_cluster,
                     # distance sum for this permutation
                     _dist_sum = 0
                     for _spot_index in range(len(_dist_matrix)):
-                        if _dist_matrix [_spot_index,_i[_spot_index]] > _local_dist_th: # if one of the spot-chr distance beyond the th, add a random large value to penalty this choice
-                            _dist_sum += 6000 
+                        if _dist_matrix [_spot_index,_i[_spot_index]] > _local_dist_th: # if one of the spot-chr distance beyond the th, add a random large value to add penalty to this choice
+                            _dist_sum += 10000 
                         else:        
                             _dist_sum += _dist_matrix [_spot_index,_i[_spot_index]] 
                     _sum_dist_list.append(_dist_sum)
@@ -1015,7 +1023,9 @@ def batch_pick_spots_for_all_chromosomes (_chrom_azyxiuc_array,
                                         _local_dist_th = 1500,
                                         _verbose = True,
                                         #_debug = False,
-                                        _num_threads = 20):
+                                        _num_threads = 20, 
+                                        _keep_repeated_spots = False
+                                        ):
     '''BATCH function to pick spots using functions above '''
 
     if not isinstance (_chrom_azyxiuc_array, np.ndarray) or not isinstance (_spots_hzxyida_array, np.ndarray):
@@ -1112,6 +1122,125 @@ def batch_pick_spots_for_all_chromosomes (_chrom_azyxiuc_array,
 
      ### 3. re-assess spots that are picked multiple times for different chromosome clusters
 
+        # find all spots picked
+    _all_picked_spots = _spots_hzxyida[_spots_hzxyida[:,7]>0]
+    # make a copy that do not change throught the process
+    _all_picked_spots_copy_for_ref =_all_picked_spots.copy()
+    # find repeated picked spots and their index
+    _unique_spot, _count = np.unique(_all_picked_spots[:,2:4], return_counts=True, axis=0)    # use xy to identify same spot
+    _repeated_spot_list = _unique_spot[_count>1] 
+    _repeated_spot_index_list = []
+    for _repeated_spot in _repeated_spot_list:
+        _repeated_spot_index = np.argwhere(np.all(_all_picked_spots[:,2:4] == _repeated_spot, axis=1))
+        _repeated_spot_index_list.append(_repeated_spot_index.ravel())  # ravel 
+        
+   # process each repeated spot
+    if len(_repeated_spot_index_list) > 0:
+        _spot_index_to_reset_list = []
+
+        for _repeated_spot_index in _repeated_spot_index_list:
+        # same spot that share xy in each repeated spot group
+            _dist_to_chr_list = []
+            for _same_spot_index in _repeated_spot_index:     #e.g., 100in [100,101,562]
+                _same_spot = _all_picked_spots_copy_for_ref[_same_spot_index]
+                _picked_chr_id = _same_spot[7]
+                _region_id = _same_spot[4]
+                _picked_spots_chr = _all_picked_spots_copy_for_ref[_all_picked_spots_copy_for_ref[:,7]==_picked_chr_id]
+                _ref_ids_from_picked = np.unique(_picked_spots_chr[:,4])
+                _start, _end = max(_region_id - _neighbor_len, min (_region_ids)), min(_region_id + _neighbor_len, max(_region_ids))
+                _sel_local_ids = np.concatenate([np.arange(_start, _region_id), np.arange(_region_id +1, _end+1)])
+                _shared_local_ids = np.intersect1d(_sel_local_ids, _ref_ids_from_picked) 
+               # use local center
+                if len(_shared_local_ids) >= 5:
+                    _neighbor_spots = []
+                    for _shared_local_id in _shared_local_ids:
+                        _spot_ref_region =_picked_spots_chr[_picked_spots_chr[:,4] == _shared_local_id]
+                        _neighbor_spots.append(_spot_ref_region[0])
+                    _neighbor_spots= np.array(_neighbor_spots)
+                    _ref_center = np.nanmean(_neighbor_spots [:,1:4],axis=0) 
+                # use center from all picked 
+                elif len(_ref_ids_from_picked) > round(len(_region_ids)/3):
+                    _ref_center = np.nanmean(_picked_spots_chr[:,1:4] ,axis=0) # zyx only 
+               # use chrom center
+                else:
+                    _ref_center = _chrom_azyxiuc_array[_chrom_azyxiuc_array[:,5]==_picked_chr_id][0,1:4]
+                
+                _dist_to_chr = np.linalg.norm(_same_spot[1:4]-_ref_center)
+                _dist_to_chr_list.append(_dist_to_chr)
+            # get the spot index that have larger spot-chr distance 
+            _dist_to_chr_list = np.array(_dist_to_chr_list)
+           # pop the index that has the smallest distance
+            _index_closest = np.argmin(_dist_to_chr_list)
+            _spot_index_to_reset = np.delete(_repeated_spot_index, _index_closest)
+           # reset the picked id for these spots to zero in the _all_picked_spots
+            for _index in _spot_index_to_reset:
+                _all_picked_spots[_index, -1] = 0
+                _spot_index_to_reset_list.append(_index)
+                
+            
+    
+    # only reset so each spot has only one pick; repeated spots are kept so the return length should be eqaul to assigned spot array
+    if _keep_repeated_spots:
+        if _verbose:  ### each repeat count as 1 repeated spot (so a same spot can have many repeats)
+            print (f'-- reset picking for {len(_spot_index_to_reset_list)} repeated spots; repeated spots are kept in the output')
+        _spots_hzxyida[_spots_hzxyida[:,7]>0] = _all_picked_spots
+        _spots_hzxyidap = _spots_hzxyida.copy()
     
 
-    return _spots_hzxyida
+    
+    # completely remove repeated spots that are not finally picked and repeated spots that are never picked; 
+    else:       
+        if _verbose:
+            print (f'-- reset and removed {len(_spot_index_to_reset_list)} repeated picked spots,', end ='')
+        # assign back the results
+        _spots_hzxyida[_spots_hzxyida[:,7]>0] = _all_picked_spots
+
+        # find all repeated spots and their index
+        _unique_spot, _count = np.unique(_spots_hzxyida[:,2:4], return_counts=True, axis=0)    # use xy to identify same spot
+        _repeated_spot_list = _unique_spot[_count>1] 
+        _repeated_spot_index_list = []
+        for _repeated_spot in _repeated_spot_list:
+            _repeated_spot_index = np.argwhere(np.all(_spots_hzxyida[:,2:4] == _repeated_spot, axis=1))
+            _repeated_spot_index_list.append(_repeated_spot_index.ravel())  # ravel 
+
+        if len(_repeated_spot_index_list) > 0:
+
+            _spot_index_to_remove_list = [] # original index for removing all spots from the original array 
+            for _repeated_spot_index in _repeated_spot_index_list:
+                _picked_chr_ids = []
+                _closest_chr_in_cluster_list = []
+                for _same_spot_index in _repeated_spot_index: 
+                    _same_spot = _spots_hzxyida[_same_spot_index]
+                    _picked_chr_id = _same_spot[7]
+                    _closest_chr_id= _same_spot[5]    # d in hzxyid
+                    _assigned_cluster_id = _same_spot[6]
+                    # picked_chr_id to find if any is picked
+                    _picked_chr_ids.append(_picked_chr_id)
+                    # assess if the closest chr is within the assigned cluster
+                    if _chrom_azyxiuc_array[_chrom_azyxiuc_array[:,5]== _closest_chr_id][0, 6] == _assigned_cluster_id:
+                        _closest_chr_in_cluster_list.append(1)
+                    else:
+                        _closest_chr_in_cluster_list.append(0)
+                
+                _picked_chr_ids =np.array(_picked_chr_ids)
+                _closest_chr_in_cluster_list = np.array(_closest_chr_in_cluster_list)
+                # if there is none that is picked
+                if np.max(_picked_chr_ids) <1:
+                    # if none are picked, keep the one that is assigned to the cluster which contains the closest chr of the spot
+                    _index_to_keep = _closest_chr_in_cluster_list[_closest_chr_in_cluster_list>0][0]
+                    _index_to_remove = np.delete(_repeated_spot_index, _index_to_keep)
+                    for _index in _index_to_remove:
+                        _spot_index_to_remove_list.append(_index)
+                # keep the picked one, removing others
+                else:
+                    _index_to_keep = np.argwhere(_picked_chr_ids>0).ravel()[0]
+                    _index_to_remove = np.delete(_repeated_spot_index, _index_to_keep)
+                    for _index in _index_to_remove:
+                        _spot_index_to_remove_list.append(_index)
+        # delete the repeated spots from the original array
+        if _verbose:
+            print (f'and {len(_spot_index_to_remove_list)} repeated spots in total')     ### each repeat count as 1 repeated spot
+        _spots_hzxyida = np.delete(_spots_hzxyida, _spot_index_to_remove_list, axis = 0)
+        _spots_hzxyidap = _spots_hzxyida.copy()
+
+    return _spots_hzxyidap
