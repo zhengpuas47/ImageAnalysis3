@@ -14,8 +14,49 @@ from scipy.spatial.distance import pdist, squareform
 
 
 
+
 ### Scripts in progress for the 2-tier picking method with ndarray as input and output
 ### Most functions below are expected to run sequentially to match array dimension
+
+
+
+### Functioin to generate a hzxyi (for spot) or azyxi (for chrom) array 
+def convert_spots_array_to_hzxyi_array(spot_array, pix_size=_distance_zxy, normalize_spot_background=False):
+    """Function to convert spot array whose 1:4 elements are zxy into hzxyi array where i is added as the 5th element
+       h/a (the first element) is kept as it is, zxy is converted from pixel to nm; 
+       i is appended as the 5th element;
+       For hzxy-11 element spot array, i is the region id for the hzxyi output;
+       For azxyi chrom array, i is the gene id for the azxyi ouput"""
+    
+    _hzxys_list = []
+    pix_size = np.array(pix_size)
+    for _spots in spot_array:
+        if len(_spots) == 0:
+            _hzxys_list.append([])
+        else:
+            _spots = np.array(_spots).copy()
+            if len(np.shape(_spots)) == 1:
+                _hzxy = _spots[:1+len(pix_size)]
+                _hzxy[1:1+len(pix_size)] = _hzxy[1:1+len(pix_size)] * pix_size
+                if normalize_spot_background:
+                    #print(_spots[2+len(pix_size)])
+                    _hzxy[0] = _hzxy[0] / _spots[1+len(pix_size)]
+                _hzxys_list.append(_hzxy)
+            elif len(np.shape(_spots)) == 2:
+                _hzxys = _spots[:, :1+len(pix_size)]
+                _hzxys[:,1:1+len(pix_size)] = _hzxys[:,1:1+len(pix_size)] * pix_size
+                if normalize_spot_background:
+                    _hzxys[:,0] = _hzxys[:,0] / _spots[:,1+len(pix_size)]
+                _hzxys_list.append(_hzxys)
+            else:
+                raise IndexError(f"_spots should be 1d or 2d array.")
+                
+    _hzxys_array = np.array(_hzxys_list) 
+     # array of 4 elements (hzxy) for each row above
+    _hzxyi_array = np.hstack((_hzxys_array, spot_array[:,-1][:, np.newaxis])) 
+    # array of 5 elements (hzxyi) for each row above
+     
+    return _hzxyi_array
 
 
 
@@ -164,12 +205,16 @@ def find_closest_chromosome_for_spots (_chrom_azyxiuc_array,_spots_hzxyi_array, 
 
 
 
+
 ### Function to assign spots to a given chromosome cluster with spot region  
+### If distance here is set to be >= 1/2 of the distance used above for finding chromosome cluster, some spots may be assigned to multiple cluster;
+### We can re-assess these spots later after picking since most of them are likely to be quite far away from the chromosme center, thus unlikely to get picked
 def assign_spots_to_chromosome_cluster_by_distance (_chromosome_cluster, 
                                                     _spots_hzxyid_array, 
                                                     #_region_ids = None, 
                                                     _distance = 2000,
-                                                    _verbose = True):
+                                                    _verbose = True, 
+                                                    _batch = False):
     
     """Function to assign spots to given chromosome cluster by distance
     
@@ -179,7 +224,10 @@ def assign_spots_to_chromosome_cluster_by_distance (_chromosome_cluster,
                                 each row is a spot object, with h(intensity), z (nm), y (nm), x (nm), i (region_id) as elements in each column;
                                 to enable the use of function during loop, this can also be a _spots_hzxyida_array, where spots may have been assigned (a)
            _region_ids: the list/np.ndarray for all the combo/region ids
-           _distance: the given distance to find all spots within the distance radius; use the same distance as the one used for chromosome clustering to avoid missing/repeating spots
+           _distance: the given distance to find all spots within the distance radius; 
+           _NOTE: if use the same distance as the one used for chromosome clustering, it will include a small number of repeating/duplicating spots (in the batch function), 
+                the repeating spots can be re-assessed after picking if one spot has been picked multiple times; 
+                thus it is okay to set a distance where majority of spots are seeminly exlcusive located within one cluster 
         
         Output:
            _spots_hzxyida_array: a (assigned chr cluster id) is appended or modified as the 7th element in addition to hzxyid"""
@@ -230,11 +278,82 @@ def assign_spots_to_chromosome_cluster_by_distance (_chromosome_cluster,
                 # append the cluster id;
                 # and this would not be overwritten once generated since all chr here has the same cluster id
                 # additionaly, spots outside cluster would remain zero as each cluster is independent as long as the same distance used
-                _spot[-1] = _cluster_id
+                _spot[6] = _cluster_id
     
-    _spots_hzxyida_array = _spots_hzxyid_array_to_assign
+    _spots_hzxyida_array = _spots_hzxyid_array_to_assign.copy()
+
+    if _batch:
+        _sel_spots_cluster = _spots_hzxyida_array[_spots_hzxyida_array[:,6]==_cluster_id]
+        return _sel_spots_cluster
+    else:
+        return _spots_hzxyida_array
+
+
+
+### BATCH Function to assign spots for all chromosomes cluster from the parental chrom azyxiuc array
+def batch_assign_spots_to_chromosome_cluster_by_distance (_chrom_azyxiuc_array, 
+                                                          _spots_hzxyid_array, 
+                                                          _distance = 2000,
+                                                          _verbose = True,
+                                                          _num_threads =20):
+    '''Batch function to assign spots;
+        
+        Use the function above but process individual chrom cluster parrallelly'''
+
+    if not isinstance (_chrom_azyxiuc_array, np.ndarray) or not isinstance (_spots_hzxyid_array, np.ndarray):
+        if _verbose:
+            print ('-- chrom and spot inputs should both be np.ndarray.')
+        return None
+    else:
+        # chrom cluster with single chromosome
+        if _chrom_azyxiuc_array.shape [0] > 1 and _chrom_azyxiuc_array.shape [1] == 7:
+            _chromosome_cluster_ids = np.unique(_chrom_azyxiuc_array[:,-1])
+        else:
+            if _verbose:
+                print ('-- chrom inputs are not valid.')
+            return None
+
+        ### 0. preprocess spots array if needed
+    # for spot array that has never been assigned
+    if _spots_hzxyid_array.shape[-1] == 6: 
+        # add empty column to store results for spot's chromosome assignment 
+        _result_cols = np.zeros([len(_spots_hzxyid_array), 1])
+        _spots_hzxyid_array_to_assign = np.hstack((_spots_hzxyid_array.copy(),_result_cols))
+    # for spot array that has been assigned, -> hzxyida array
+    # where non-assigned spots should still remain zero as their 'a (assign cluster id)' column   
+    elif _spots_hzxyid_array.shape[-1] == 7: 
+        _spots_hzxyid_array_to_assign = _spots_hzxyid_array.copy()
+
+    else:
+        if _verbose:
+            print ('-- spot inputs are not valid.')
+        return None
     
-    return _spots_hzxyida_array
+    # generate args for starmap 
+    _batch = True
+    _assign_spot_args = []
+    for _chromosome_cluster_id in _chromosome_cluster_ids:
+        _assign_spot_args.append((_chrom_azyxiuc_array[_chrom_azyxiuc_array[:,-1]==_chromosome_cluster_id], _spots_hzxyid_array_to_assign, _distance, _verbose, _batch))
+    
+    import multiprocessing as mp
+    with mp.Pool(_num_threads,) as _spot_pool:
+        if _verbose:
+            print (f'-- start multiprocessing assign spots to chromosome clusters with {_num_threads} threads', end=' ')
+            _multi_time = time.time()
+    # Multi-proessing!
+        _spot_pool_result = _spot_pool.starmap(assign_spots_to_chromosome_cluster_by_distance, _assign_spot_args)
+        # close multiprocessing
+        _spot_pool.close()
+        _spot_pool.join()
+        _spot_pool.terminate()
+        if _verbose:
+            print(f"in {time.time()-_multi_time:.3f}s.")
+    
+    # combine all results; note that spots within radius of multiple clusters will be kept
+    _spots_hzxyida = np.vstack(_spot_pool_result)
+
+    return _spots_hzxyida
+
 
 
 
@@ -331,15 +450,72 @@ def calculate_region_quality (_chromosome_cluster,
 
 
 
+def batch_calculate_region_quality (_chrom_azyxiuc_array, 
+                                   _spots_hzxyida_array, 
+                                   _region_ids = None,                       
+                                   _isolated_chr_only = False,
+                                   _verbose = True,
+                                   _num_threads = 20):
+    '''Batch function to calculate region quality;
+        
+        Use the function above but process individual chrom cluster parrallelly'''
+
+    if not isinstance (_chrom_azyxiuc_array, np.ndarray) or not isinstance (_spots_hzxyida_array, np.ndarray):
+        if _verbose:
+            print ('-- chrom and spot inputs should both be np.ndarray.')
+        return None
+    else:
+        # chrom cluster with single chromosome
+        if _chrom_azyxiuc_array.shape [0] > 1 and _chrom_azyxiuc_array.shape [1] == 7:
+            _chromosome_cluster_ids = np.unique(_chrom_azyxiuc_array[:,-1])
+        else:
+            if _verbose:
+                print ('-- chrom inputs are not valid.')
+            return None
+    
+    if _spots_hzxyida_array.shape[-1] < 7:   # hzyxidap array is also supported [note the relevant regions should have not been picked for the purppose of assessing quality]
+        if _verbose:
+            print ('-- spot inputs are not valid.')
+        return None
+    
+    # generate args for starmap 
+    _calculate_region_args = []
+    for _chromosome_cluster_id in _chromosome_cluster_ids:
+        _calculate_region_args.append((_chrom_azyxiuc_array[_chrom_azyxiuc_array[:,-1]==_chromosome_cluster_id], _spots_hzxyida_array, _region_ids, _isolated_chr_only, _verbose))
+    
+    import multiprocessing as mp
+    with mp.Pool(_num_threads,) as _spot_pool:
+        if _verbose:
+            print (f'-- start multiprocessing assign spots to chromosome clusters with {_num_threads} threads', end=' ')
+            _multi_time = time.time()
+    # Multi-proessing!
+        _spot_pool_result = _spot_pool.starmap(calculate_region_quality, _calculate_region_args)
+        # close multiprocessing
+        _spot_pool.close()
+        _spot_pool.join()
+        _spot_pool.terminate()
+        if _verbose:
+            print(f"in {time.time()-_multi_time:.3f}s.")
+    
+    # combine all results
+    _region_quality = np.vstack(_spot_pool_result)
+
+    return _region_quality
+
+    
+                
+
+
 ### Function to pick assigned spots to the given isolated chromosome
 def pick_spots_for_isolated_chromosome (_isolated_chromosome, 
                                         _spots_hzxyida_array, 
+                                        _batch = False,
                                         _region_ids = None, 
                                         _neighbor_len = None, 
                                         _iter_num = 5, 
                                         #_dist_ratio = 0.8, 
                                         #_h_ratio = 0.8,
-                                        _local_dist_th = 2000,
+                                        _local_dist_th = 1500,
                                         _verbose = True):
     """Function to pick spots for isolated chromosome
        
@@ -515,8 +691,11 @@ def pick_spots_for_isolated_chromosome (_isolated_chromosome,
     _spots_hzxyidap_array = _spots_hzxyida_array_to_pick.copy()
     if _verbose:
         print (f'-- finish spot picking for chromosome cluster {_isolated_chromosome_id}.')
-
-    return _spots_hzxyidap_array
+    
+    if _batch:  # return only  the spots for cluster so results can be combined in batch
+        return _spots_sel_cluster 
+    else:
+        return _spots_hzxyidap_array
                 
 
                 
@@ -526,13 +705,15 @@ def pick_spots_for_isolated_chromosome (_isolated_chromosome,
 
 
 ### Function to pick assigned spots to the given chromosome cluster
+### Time consuming for the permutation step if too many chr within the cluster 
 def pick_spots_for_multi_chromosomes (_chromosome_cluster, 
                                       _spots_hzxyida_array, 
-                                      _region_ids, 
+                                      _batch = False,
+                                      _region_ids = None, 
                                       _neighbor_len = None,
                                       _proximity_ratio = 0.2, 
-                                      _iter_num = 5, 
-                                      _local_dist_th =2000, 
+                                      _iter_num = 5, #_iter_num_swapping = 2,
+                                      _local_dist_th =1500, 
                                       _verbose = True, 
                                       _debug = False):
 
@@ -722,6 +903,13 @@ def pick_spots_for_multi_chromosomes (_chromosome_cluster,
         print(f'+ there are {len(_second_picked_spots)} spots picked after secondary picking')
     
     ### 3. finalize by swapping spot selection to minimize sum of distance for each chrom-spot pairs
+
+    if len(_chromosome_cluster) > 6:
+        _iter_num = 0
+        if _verbose:
+            print ('-- too many chromosomes, skip swapping')
+
+
     _iter = 0
     _num_swap = 0
     while _iter <_iter_num:
@@ -756,8 +944,8 @@ def pick_spots_for_multi_chromosomes (_chromosome_cluster,
                     _ref_center = np.array([0,0,0])   # keep the number of chr center but this center wont be picked 
                     _ref_center_list.append(_ref_center)
             _ref_centers = np.array(_ref_center_list)
-            # skip region where exists any invalid local ref center
-            if np.count_nonzero(_ref_centers) == len(_ref_centers) * 3:
+            # skip region where exists any invalid local ref center/  also skip region if there is only one spot picked in the cluster
+            if np.count_nonzero(_ref_centers) == len(_ref_centers) * 3 and len(_picked_spots_sel_region) > 1 :
                 from scipy.spatial.distance import cdist
                 _dist_matrix =  cdist(_picked_spots_sel_region[:,1:4],_ref_centers)
                 # current chr index (relative to the chrom cluster) for the picked spots for this region; eg spot1 assigned to the 2 chr --> 0 (spot index)- 1 (chr index)
@@ -781,7 +969,10 @@ def pick_spots_for_multi_chromosomes (_chromosome_cluster,
                     _sum_dist_list.append(_dist_sum)
                 # find the spot-chr index permutation that has the smalles distance 
                 _sum_dist_list = np.array(_sum_dist_list) 
-                _exchanged_index = _l[np.argmin(_sum_dist_list)]
+                if len(_sum_dist_list) > 0:   ### TEMP bug fix ###  skip empty sequence
+                    _exchanged_index = _l[np.argmin(_sum_dist_list)]
+                else: 
+                    _exchanged_index = _orignal_index
                 # count if there is swapping for this region (could be more than 2 spots that have been swapped)
                 if _orignal_index!=_exchanged_index:
                     _num_swap +=1
@@ -796,10 +987,131 @@ def pick_spots_for_multi_chromosomes (_chromosome_cluster,
         _spots_sel_cluster[_spots_sel_cluster [:,-1] > 0] = _second_picked_spots
     
     _finally_picked_spots = _spots_sel_cluster[_spots_sel_cluster [:,-1] > 0]
-    if _verbose:
+    if _verbose and _iter_num > 0:
         print(f'+ there are {_num_swap} swapping(s) in {len(_finally_picked_spots)} spots that are finally picked')
     # assign back to the input array
     _spots_hzxyida_array_to_pick[_spots_hzxyida_array_to_pick[:,6]==_chromosome_cluster_id] = _spots_sel_cluster
     _spots_hzxyidap_array = _spots_hzxyida_array_to_pick.copy()
 
-    return _spots_hzxyidap_array
+    if _batch:  # return only  the spots for cluster so results can be combined in batch
+        return _spots_sel_cluster 
+    else:
+        return _spots_hzxyidap_array
+        
+
+
+
+
+
+def batch_pick_spots_for_all_chromosomes (_chrom_azyxiuc_array, 
+                                        _spots_hzxyida_array, 
+                                        _region_ids = None, 
+                                        _neighbor_len = None, 
+                                        _iter_num = 5, 
+                                        #_iter_num_swapping =2,
+                                        _proximity_ratio = 0.2,
+                                        #_dist_ratio = 0.8, 
+                                        #_h_ratio = 0.8,
+                                        _local_dist_th = 1500,
+                                        _verbose = True,
+                                        #_debug = False,
+                                        _num_threads = 20):
+    '''BATCH function to pick spots using functions above '''
+
+    if not isinstance (_chrom_azyxiuc_array, np.ndarray) or not isinstance (_spots_hzxyida_array, np.ndarray):
+        if _verbose:
+            print ('-- chrom and spot inputs should both be np.ndarray.')
+        return None
+    else:
+        # chrom cluster should contain one single chromosome;
+        if _chrom_azyxiuc_array.shape[0] >1 and _chrom_azyxiuc_array.shape[1] ==7:
+            _chromosome_cluster_ids = np.unique(_chrom_azyxiuc_array[:,-1])
+           # azyxiuc  c for cluster id for chromosome
+        else:
+            if _verbose:
+                print ('-- chrom inputs are not valid.')
+            return None
+
+    ### 0. preprocess spots hzyxida array if necessary
+    # for spot array that has never been picked
+    if _spots_hzxyida_array.shape[-1] == 7: 
+        # add empty column to store results for spot's chromosome assignment 
+        _result_cols = np.zeros([len(_spots_hzxyida_array), 1])
+        _spots_hzxyida_array_to_pick = np.hstack((_spots_hzxyida_array.copy(),_result_cols))
+    # for spot array that has been pikced -> hzxyidap array
+    # where picked spots from other chromosome cluster should still remain zero in 'p (picked chr id)' column   
+    elif _spots_hzxyida_array.shape[-1] == 8: 
+        _spots_hzxyida_array_to_pick = _spots_hzxyida_array.copy()
+    else:
+        if _verbose:
+            print ('-- spot inputs are not valid.')
+        return None
+
+   # if regions that are specified 
+    if isinstance(_region_ids, list) or isinstance (_region_ids, np.ndarray):
+        if len(_region_ids) > 0: 
+            if _verbose:
+                print ('-- using specified region ids.')
+            _region_ids = _region_ids
+    else:
+    # if not specified, use all regions that has at least one spot
+        if _verbose:
+            print ('-- region ids is required for batch function.')
+        return None
+
+
+    if _neighbor_len is None:
+        _neighbor_len = round(len(_region_ids/10))   # use 10 + 10 % of region length for local reference
+   
+   ### 1. multiprocessing to pick spots
+   # generate args for starmap 
+    _batch = True
+    _pick_spot_args_single = []
+    _pick_spot_args_multi= []
+    for _chromosome_cluster_id in _chromosome_cluster_ids:
+        _chromosome_cluster = _chrom_azyxiuc_array[_chrom_azyxiuc_array[:,-1]==_chromosome_cluster_id]
+        if len(_chromosome_cluster) == 1:
+            _pick_spot_args_single.append((_chromosome_cluster, _spots_hzxyida_array_to_pick, _batch, _region_ids, _neighbor_len, _iter_num, _local_dist_th))
+        if len(_chromosome_cluster) >1:
+            _pick_spot_args_multi.append((_chromosome_cluster, _spots_hzxyida_array_to_pick, _batch, _region_ids, _neighbor_len, _proximity_ratio, _iter_num, _local_dist_th))
+    
+    import multiprocessing as mp
+    with mp.Pool(_num_threads) as _spot_pool:
+        if _verbose:
+            print (f'-- start multiprocessing pick spots to isolated chromosome clusters with {_num_threads} threads', end=' ')
+            _multi_time = time.time()
+    # Multi-proessing!
+        _spot_pool_result = _spot_pool.starmap(pick_spots_for_isolated_chromosome, _pick_spot_args_single)
+        # close multiprocessing
+        _spot_pool.close()
+        _spot_pool.join()
+        _spot_pool.terminate()
+        if _verbose:
+            print(f"in {time.time()-_multi_time:.3f}s.")
+    # combine results for isolated chromosome
+    _spots_hzxyida_single = np.vstack(_spot_pool_result)
+
+
+    with mp.Pool(_num_threads) as _spot_pool:
+        if _verbose:
+            print (f'-- start multiprocessing pick spots to multi-chromosome clusters with {_num_threads} threads', end=' ')
+            _multi_time = time.time()
+    # Multi-proessing!
+        _spot_pool_result2 = _spot_pool.starmap(pick_spots_for_multi_chromosomes, _pick_spot_args_multi)
+        # close multiprocessing
+        _spot_pool.close()
+        _spot_pool.join()
+        _spot_pool.terminate()
+        if _verbose:
+            print(f"in {time.time()-_multi_time:.3f}s.")
+    # combine results for multi chromosomes
+    _spots_hzxyida_multi = np.vstack(_spot_pool_result2)
+
+    # combine all results; note that spots within radius of multiple clusters will be kept
+    _spots_hzxyida = np.vstack((_spots_hzxyida_single, _spots_hzxyida_multi))
+
+     ### 3. re-assess spots that are picked multiple times for different chromosome clusters
+
+    
+
+    return _spots_hzxyida
