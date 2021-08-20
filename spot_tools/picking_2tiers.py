@@ -374,6 +374,8 @@ def calculate_region_quality (_chromosome_cluster,
                                  it can also be hzxyidap array if the interest of cluster has not been picked
            _region_ids: the list/np.ndarray for all the combo/region ids
            _isolated_chr_only: assess only isolated chromosome or not
+           _gene_region_ids_dict: dict.keys as gene id; dict.values are lists of valid regiond ids for corresponding gene
+           _batch: different format of output for batch function below
         Output: 
             if _isolated_chr_only: True, only isolated chromosme will be used to report quality; mutlti-chrom cluster will return None"""
 
@@ -563,6 +565,8 @@ def pick_spots_for_isolated_chromosome (_isolated_chromosome,
                                 alternatively, this array can also be hzyxidap that is picked.
               _region_ids: the list/np.ndarray for all the combo/region ids
               _neighbor_len: the number of neighboring region on each side for the region being picked
+              _gene_region_ids_dict: dict.keys as gene id; dict.values are lists of valid regiond ids for corresponding gene
+              _batch: different format of output for batch function below
               _iter_num: number of interation to re-pick spots from multiple candidates
               #_dist_ratio: the ratio used to compare distance when multiple candidates are very close 
               #_h_ratio: the ratio used to compare intensity when multiple candidates are very close 
@@ -786,6 +790,8 @@ def pick_spots_for_multi_chromosomes (_chromosome_cluster,
                                 alternatively, this array can also be hzyxidap that is picked.
               _region_ids: the list/np.ndarray for all the combo/region ids
               _neighbor_len: the number of neighboring region on each side for the region being picked
+              _gene_region_ids_dict: dict.keys as gene id; dict.values are lists of valid regiond ids for corresponding gene
+              _batch: different format of output for batch function below
               _iter_num: number of iteration for picking and exchanging spots for multiple chrom
               _proximity_ratio: the ratio to find the exceptionally close spot
               #_h_ratio: the ratio used to compare intensity when multiple candidates are very close 
@@ -1090,8 +1096,9 @@ def pick_spots_for_multi_chromosomes (_chromosome_cluster,
                     _dist_matrix =  cdist(_picked_spots_sel_region[:,1:4],_ref_centers)
                 # current chr index (relative to the chrom cluster) for the picked spots for this region; eg spot1 assigned to the 2 chr --> 0 (spot index)- 1 (chr index)
                     _orignal_index = []
-                    for _picked_id in _picked_spots_sel_region[:,-1]:
-                        _orignal_index.append (int(np.where(_filtered_chromosome_cluster[:,5] == _picked_id)[0]))
+                    for _index, _picked_id in enumerate(_picked_spots_sel_region[:,-1]):
+                        if _picked_id in _filtered_chromosome_cluster[:,5]:
+                            _orignal_index.append (int(np.where(_filtered_chromosome_cluster[:,5] == _picked_id)[0]))
                     _orignal_index= tuple(_orignal_index)
                 # permutation for all possible spot-chr index scnarios; e.g., 2 picked spots for 4 candidate chr: (0,1)(0,2)(0,3)(1,0)(1,2)...
                     from itertools import permutations
