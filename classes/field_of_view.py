@@ -2089,12 +2089,14 @@ class Field_of_View():
                                _dna_im = None, 
                                _dna_mask = None, 
                                _std_ratio = 3, 
+                               _dust_size = 100,
                                _return_signal_and_background = False, 
                                _verbose = True, 
-                               _parallel = False,  
+                               _parallel = True,  
                                _num_threads=4, 
                                _save=True, 
-                               _overwrite=False):
+                               _overwrite=False,
+                               _chunk_size = 10):
 
         """Function to estimate spot intensity and spot background (excluding non-cell regions) given
            Input:
@@ -2102,8 +2104,11 @@ class Field_of_View():
              _dna_im: dna image or cell boundary image to exlcude non-nuclear/non-cell area
              _dna_mask: if use provided dna mask [one z-slice]
              _std_ratio: the number_of_std to be applied to find the spot th
+             _dust_size: size filter to remove relatively big bright dust in the image
+             _chunk_size: how many regions of images to load and multiprocess at a time
              _return_signal_and_background: if False, return the background substracted signal
              _verbose: bool; say sth
+             _parallel: load multiple image chunks and perform multiprocessing
            Output:
              spot_intensity_th_dict: background substracted spot th for spot picking for selected regions/spots"""
 
@@ -2167,29 +2172,44 @@ class Field_of_View():
                     _return_signal_and_background =_return_signal_and_background, _verbose = _verbose)
 
                     _spot_intensity_th [str(_region_id)] = _spot_intensity_th_each
-        
-        ########## NOT FINISHED below ########## 
-        if _parallel == True:  # fast but more memory usage
+      
+      # break regions into chunks for hdf5 loading; avoid parralel reading of the hdf5;    it seems this is more I/O bound rather than the CPU bound
+        if _parallel == True:  
             if len(_region_ids) > 0:
+                _batch = True
 
-                import multiprocessing as mp
-                from ..spot_tools.picking import find_spot_intensity_th_and_background_in_nucleus
+                if _chunk_size > len(_region_ids):
+                    _chunk_size = len(_region_ids)/2
 
-                _spot_im_kwargs = [{'_spot_im_filename': self.save_filename,'_dna_im': _dna_im,'_spot_id': _region_id} for _region_id in _region_ids]
+                for _chunk_index, _region_id in enumerate(_region_ids[0:-1:_chunk_size]):
+                    _start, _end = max(_region_id, min (_region_ids)), min(_region_id+_chunk_size,max(_region_ids))
+                    _chunk_region_ids = np.array(list(range(_start, _end+1)))
 
-                with mp.Pool(_num_threads,) as _spot_ims_pool:
-                    if _verbose:
-                        print(f"- Start multiprocessing estimates spot intensity th with {_num_threads} threads", end=' ')
+
+                    # read a subset of ims to save memory  ~ _chunk_size/len(total num of regions)
+                    with h5py.File(self.save_filename, "r", libver='latest') as _f:
+                        _grp = _f['combo']
+                        _spot_im = _grp ['ims'][_start-1: _end]
+                    
+                    import multiprocessing as mp
+                    from ..spot_tools.picking import find_spot_intensity_th_and_background_in_nucleus
+
+                    # provide _spot_im without _spot_id here to avoid re-loading hdf5 in the function below
+                    _spot_im_kwargs = [(_dna_im, _spot_im[_chunk_region_id - 1 - _chunk_size* _chunk_index], None, None, _dna_mask, _std_ratio, _dust_size, _return_signal_and_background, _verbose, _batch) for _chunk_region_id in _chunk_region_ids]
+
+                    with mp.Pool(_num_threads,) as _spot_ims_pool:
+                        if _verbose:
+                             print(f"- Start multiprocessing estimates spot intensity th in image chunks {_chunk_index+1} with {_num_threads} threads", end=' ')
                         _multi_time = time.time()
-                    # Multi-proessing!
-                    _spot_intensity_th = _spot_ims_pool.starmap(find_spot_intensity_th_and_background_in_nucleus, _spot_im_kwargs, chunksize=1)
-                    # close multiprocessing
-                    _spot_ims_pool.close()
-                    _spot_ims_pool.join()
-                    _spot_ims_pool.terminate()
-                    if _verbose:
-                        print(f"in {time.time()-_multi_time:.3f}s.")
-        ##########  NOT FINSIHED above ##########      
+                        # Multi-proessing!
+                        _spot_intensity_th_res = _spot_ims_pool.starmap(find_spot_intensity_th_and_background_in_nucleus, _spot_im_kwargs)
+                        _spot_ims_pool.close()
+                        _spot_ims_pool.join()
+                        _spot_ims_pool.terminate()
+                        if _verbose:
+                            print(f"in {time.time()-_multi_time:.3f}s.")
+                    for  _chunk_region_id in _chunk_region_ids:
+                        _spot_intensity_th [str(_chunk_region_id)] = _spot_intensity_th_res [_chunk_region_id - 1 - _chunk_size* _chunk_index]
 
 
         ## 3. set attributes
