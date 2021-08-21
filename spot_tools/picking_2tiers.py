@@ -1389,3 +1389,392 @@ def batch_pick_spots_for_all_chromosomes (_chrom_azyxiuc_array,
         _spots_hzxyidap = _spots_hzxyida.copy()
 
     return _spots_hzxyidap
+
+
+
+
+def convert_dict_to_array (chrom_coords_dict):
+    '''Function to conver chrom_coord_dict or spot_hzxy_dict (with arrays) to one single array
+
+            Output: the key (spot region id or chrom gene id is appened as the last element) to each row of elements''' 
+
+    _all_chrom_coords = []
+    for _chr_key, _chr_coord in chrom_coords_dict.items():
+           # new column for gene id
+        _chr_key_col = np.ones((len(_chr_coord),1)) * int(_chr_key)
+        _new_chr_coord = np.hstack((_chr_coord,_chr_key_col))
+    # append each chr 
+        for _chr in _new_chr_coord:
+            _all_chrom_coords.append(_chr)
+
+    _all_chrom_coords = np.array(_all_chrom_coords )  
+    
+    return _all_chrom_coords
+
+
+
+
+
+def batch_2tier_pick_spots_for_preprocessed_fov (_fov,
+                                           _chr_size_filter_dict ={}, 
+                                           _chr_size_filter = 100, 
+                                           _distance_zxy = [200, 108, 108],
+                                           _adjust_ratio = 0.9, 
+                                           _gene_region_ids_dict = {},
+                                           _chr_distance = 2000,
+                                           _local_dist_th = 1500,
+                                           _neighbor_len = 6,
+                                           _save_results = True,
+                                           _alt_save_folder = None,
+                                           _verbose=True):
+
+
+    '''Function to pick spots for preprocessed FOV with chrom_coords and combo_spots_list
+    
+       Utilize most of functions above; also save the analyzed spots and chrom data if choose to save'''    
+
+    # convert fov.combo_spots_list type data to spot dict
+    _all_combo_spots_dict = {}
+    for _index, _spots in enumerate(_fov.combo_spots_list):
+        _all_combo_spots_dict [str(_index+1)] = _spots
+
+    # convert the spot dict to array with region id as the last element
+    _all_combo_spots = convert_dict_to_array (_all_combo_spots_dict)
+    # convert the chrom dict to array with gene id as the last element
+    _all_chrom_coords = convert_dict_to_array (_fov.chrom_coords_dict)
+
+    # define chromosome size filter dict or use universal size filter for different genes
+    if isinstance(_chr_size_filter_dict, dict):
+        # if use the same size for different gene chrom
+        if len(_chr_size_filter_dict) == 0:
+            for _chrom_key in _fov.chrom_coords_dict.keys():
+                _chr_size_filter_dict[_chrom_key] = _chr_size_filter
+    
+
+    # filter chromsome by size
+    _filtered_chrom_coords = [_chr for _chr in _all_chrom_coords if _chr[3]>_chr_size_filter_dict[str(int(_chr[-1]))]]
+    _filtered_chrom_coords = np.array(_filtered_chrom_coords)
+    # move chr area col to the first to match the hzxy pattern of spots for the subsequent operations
+    _move_indexes = [3,0,1,2,4]
+    _filtered_chrom_coords_azxyi = _filtered_chrom_coords[:,_move_indexes]
+    if _verbose:
+        print(f'--there are {len(_filtered_chrom_coords_azxyi)} chrom centers in this fov.')
+   
+    # filter spot by intensity
+    _filtered_combo_spots = [_spot for _spot in _all_combo_spots if _spot[0] > _adjust_ratio*_fov.spot_intensity_th[str(int(_spot[-1]))]]
+    _filtered_combo_spots = np.array(_filtered_combo_spots)
+    if _verbose:
+        print(f'--there are {len(_filtered_combo_spots)} candidate spots in this fov')
+
+     # convert zyx to nm and append gene id
+    _chrom_azxyi = convert_spots_array_to_hzxyi_array(_filtered_chrom_coords_azxyi,_distance_zxy)
+     # convert zyx to nm and append region id
+    _spots_hzxyi = convert_spots_array_to_hzxyi_array(_filtered_combo_spots,_distance_zxy)
+
+
+    # label and cluster chromosomes using function above
+    _labeled_chrom_azxyiuc = label_and_cluster_chromosome_by_distance (_chrom_azxyi,_distance =_chr_distance,_verbose=_verbose)
+    # label closest chromosome for each spot using function above
+    _spots_hzxyid = find_closest_chromosome_for_spots (_labeled_chrom_azxyiuc, _spots_hzxyi)
+    # batch assign spots using funcion above
+    _spots_hzxyida = batch_assign_spots_to_chromosome_cluster_by_distance(_labeled_chrom_azxyiuc, _spots_hzxyid,_distance =_chr_distance,_verbose=_verbose)
+    # pick spots by 2tier method
+    _spots_hzxyidap = batch_pick_spots_for_all_chromosomes (_labeled_chrom_azxyiuc, _spots_hzxyida, 
+                                                             _gene_region_ids_dict=_gene_region_ids_dict,
+                                                             _region_ids =_fov.combo_ids, _local_dist_th = _local_dist_th,
+                                                             _neighbor_len=_neighbor_len)
+
+    if _save_results:
+        if _alt_save_folder is not None:
+            if not os.path.exists(_alt_save_folder):
+                os.mkdir(_alt_save_folder)
+
+            _save_folder = _alt_save_folder + os.sep + 'Spots'
+            if not os.path.exists(_save_folder):
+                os.mkdir(_save_folder)
+            _spot_savename = f'_spots_hzxyidap_{_adjust_ratio}.npy'
+            _chrom_savename =f'_chrom_azxyiuc_{_adjust_ratio}.npy'
+
+
+        else:
+            _save_folder = _fov.save_folder + os.sep + 'Spots'
+            if not os.path.exists(_save_folder):
+                os.mkdir(_save_folder)
+            _spot_savename = _fov.fov_name[:-4] + f'_spots_hzxyidap_{_adjust_ratio}.npy'
+            _chrom_savename = _fov.fov_name[:-4] + f'_chrom_azxyiuc_{_adjust_ratio}.npy'
+        
+        np.save (_spot_savename, _spots_hzxyidap)
+        np.save (_chrom_savename, _labeled_chrom_azxyiuc)
+
+
+    return _spots_hzxyidap
+
+
+
+
+
+
+
+
+def batch_EM_pick_spots_for_preprocessed_fov (_fov,
+                                           _chr_size_filter_dict ={}, 
+                                           _chr_size_filter = 100, 
+                                           _distance_zxy = [200, 108, 108],
+                                           _adjust_ratio = 0.9, 
+                                           _gene_region_ids_dict = {},
+                                           _chr_distance = 2000,
+                                           #_local_dist_th = 1500,
+                                           #_neighbor_len = 6,
+                                           _save_results = True,
+                                           _alt_save_folder = None,
+                                           _verbose=True,
+                                           _num_threads = 24,
+                                           niter= 10,
+                                           _score_th = -5,
+                                           _int_th = 200,
+                                           ref_chr_cts = None):
+
+
+    '''Function to EM pick spots for preprocessed FOV with chrom_coords and combo_spots_list
+    
+       Utilize EM pick of assigned spots, which are assigned by the function above; also save the analyzed spots and chrom data if choose to save'''    
+
+    # convert fov.combo_spots_list type data to spot dict
+    _all_combo_spots_dict = {}
+    for _index, _spots in enumerate(_fov.combo_spots_list):
+        _all_combo_spots_dict [str(_index+1)] = _spots
+
+    # convert the spot dict to array with region id as the last element
+    _all_combo_spots = convert_dict_to_array (_all_combo_spots_dict)
+    # convert the chrom dict to array with gene id as the last element
+    _all_chrom_coords = convert_dict_to_array (_fov.chrom_coords_dict)
+
+    # define chromosome size filter dict or use universal size filter for different genes
+    if isinstance(_chr_size_filter_dict, dict):
+        # if use the same size for different gene chrom
+        if len(_chr_size_filter_dict) == 0:
+            for _chrom_key in _fov.chrom_coords_dict.keys():
+                _chr_size_filter_dict[_chrom_key] = _chr_size_filter
+
+
+    # filter chromsome by size
+    _filtered_chrom_coords = [_chr for _chr in _all_chrom_coords if _chr[3]>_chr_size_filter_dict[str(int(_chr[-1]))]]
+    _filtered_chrom_coords = np.array(_filtered_chrom_coords)
+    # move chr area col to the first to match the hzxy pattern of spots for the subsequent operations
+    _move_indexes = [3,0,1,2,4]
+    _filtered_chrom_coords_azxyi = _filtered_chrom_coords[:,_move_indexes]
+    if _verbose:
+        print(f'--there are {len(_filtered_chrom_coords_azxyi)} chrom centers in this fov.')
+   
+    # filter spot by intensity
+    _filtered_combo_spots = [_spot for _spot in _all_combo_spots if _spot[0] > _adjust_ratio*_fov.spot_intensity_th[str(int(_spot[-1]))]]
+    _filtered_combo_spots = np.array(_filtered_combo_spots)
+    if _verbose:
+        print(f'--there are {len(_filtered_combo_spots)} candidate spots in this fov')
+
+     # convert zyx to nm and append gene id
+    _chrom_azxyi = convert_spots_array_to_hzxyi_array(_filtered_chrom_coords_azxyi,_distance_zxy)
+     # convert zyx to nm and append region id
+    _spots_hzxyi = convert_spots_array_to_hzxyi_array(_filtered_combo_spots,_distance_zxy)
+
+
+    # label and cluster chromosomes using function above
+    _labeled_chrom_azxyiuc = label_and_cluster_chromosome_by_distance (_chrom_azxyi,_distance =_chr_distance,_verbose=_verbose)
+    # label closest chromosome for each spot using function above
+    _spots_hzxyid = find_closest_chromosome_for_spots (_labeled_chrom_azxyiuc, _spots_hzxyi)
+    # batch assign spots using funcion above
+    _spots_hzxyida = batch_assign_spots_to_chromosome_cluster_by_distance(_labeled_chrom_azxyiuc, _spots_hzxyid,_distance =_chr_distance,_verbose=_verbose)
+
+    _result_cols = np.zeros([len(_spots_hzxyida), 1])
+    _spots_hzxyida_array_to_pick = np.hstack((_spots_hzxyida.copy(),_result_cols))
+
+    
+    # define region ids for different genes
+    import copy
+    _default_region_ids = copy.deepcopy(_fov.combo_ids)
+    _shared_gene_region_ids_dict = {}
+    for _chrom_key in _fov.chrom_coords_dict.keys():
+        _gene_id = int(_chrom_key)
+        if _gene_id in _gene_region_ids_dict.keys():
+            _gene_region_ds = _gene_region_ids_dict[_gene_id]
+            if len(np.intersect1d(_gene_region_ds, _default_region_ids)) >0:
+                _shared_region_ids = np.intersect1d(_gene_region_ds, _default_region_ids)
+            else:
+                if _verbose:
+                    print ('-- no region ids avalible to be analyzed.')
+                return None
+        else:
+            _shared_region_ids = _default_region_ids
+
+        _shared_gene_region_ids_dict[int(_chrom_key)] = _shared_region_ids
+
+
+    # EM pick for each gene
+    from .picking import _maximize_score_spot_picking_of_chr, pick_spots_by_intensities,pick_spots_by_scores, generate_reference_from_population, evaluate_differences
+    from scipy.spatial.distance import pdist, squareform
+    
+
+
+    for _chrom_key in _fov.chrom_coords_dict.keys():
+
+        ### 2.1 extract spot and chrom info into sel_dna_cand_hzxys_list
+        gid = int(_chrom_key)
+        
+        # refine region selection for each gene
+        _region_ids= _shared_gene_region_ids_dict[int(_chrom_key)]
+
+
+        _all_chr_gene =_labeled_chrom_azxyiuc[_labeled_chrom_azxyiuc[:,4]==gid]
+        _all_chr_id_gene = np.unique(_all_chr_gene[:,5])
+        #chrom_coords = _fov.chrom_coords[str(gid)][:,:3]
+
+        sel_dna_cand_hzxys_list = []
+
+        for _chr_id in _all_chr_id_gene[:]:
+    
+            _chr_spot_list = []
+            _chrom = _all_chr_gene[_all_chr_gene[:,5]==_chr_id].ravel()
+            _cluster_id = _chrom[6]
+            
+    
+            _spot_chr_cluster_assigned = _spots_hzxyida_array_to_pick[_spots_hzxyida_array_to_pick[:,6]==_cluster_id]
+    
+            _spot_chr_selected_from_assigned = []
+            for _spot in _spot_chr_cluster_assigned:
+                if np.linalg.norm(_spot[1:4] - _chrom[1:4]) < _chr_distance:
+                 _spot_chr_selected_from_assigned.append(_spot)
+    
+            _spot_chr_selected_from_assigned = np.array(_spot_chr_selected_from_assigned)
+    
+            for _region_id in _region_ids:
+        
+                _spot_sel_region = _spot_chr_selected_from_assigned[_spot_chr_selected_from_assigned[:,4]==_region_id]
+        
+                if len(_spot_sel_region) > 0:
+                    _spot_sel_region = _spot_sel_region [:,0:4]
+            else:
+                _spot_sel_region = []
+                _chr_spot_list.append(_spot_sel_region)
+    
+        sel_dna_cand_hzxys_list.append(_chr_spot_list)
+
+
+
+        ### 2.2 perform EM pick (for each gene)
+        # initialize
+        init_dna_hzxys = pick_spots_by_intensities(sel_dna_cand_hzxys_list)
+        # set save list
+        sel_dna_hzxys_list, sel_dna_scores_list, all_dna_scores_list = [init_dna_hzxys], [], []
+        
+        # use subset of region ids and channel info if necessary
+        dna_reg_ids = _region_ids
+
+        _used_channel = []
+        for _index, _channel in enumerate(_fov.combo_channels):
+            if _index+1 in dna_reg_ids:
+                _used_channel.append(_channel)
+           
+        dna_reg_channels = _used_channel 
+
+        for _iter in range(niter):
+            print(f"+ iter:{_iter}")
+         # E: generate reference
+            ref_ct_dists, ref_local_dists, ref_ints = generate_reference_from_population(
+                                                  sel_dna_hzxys_list[-1], dna_reg_ids, 
+                                                  sel_dna_hzxys_list[-1], dna_reg_ids,
+                                                  ref_channels=dna_reg_channels,
+                                                  ref_chr_cts=ref_chr_cts,
+                                                  num_threads=_num_threads,
+                                                  collapse_regions=True,
+                                                  split_channels=True,
+                                                  verbose=True,)
+    
+          # M: pick based on scores
+            sel_hzxys_list, sel_scores_list, all_scores_list, other_scores_list = \
+                                     pick_spots_by_scores(
+                                          sel_dna_cand_hzxys_list, dna_reg_ids,
+                                         ref_hzxys_list=sel_dna_hzxys_list[-1], ref_ids=dna_reg_ids, ref_channels=dna_reg_channels,
+                                          ref_ct_dists=ref_ct_dists, ref_local_dists=ref_local_dists, ref_ints=ref_ints, 
+                                                               ref_chr_cts=ref_chr_cts,
+                                                  num_threads=_num_threads,
+                                                              collapse_regions=True,
+                                                  split_intensity_channels=True,
+                                                     return_other_scores=True,
+                                                                   verbose=True,)
+
+            update_rate = evaluate_differences(sel_hzxys_list, sel_dna_hzxys_list[-1])
+            sel_dna_hzxys_list.append(sel_hzxys_list)
+            sel_dna_scores_list.append(sel_scores_list)
+            all_dna_scores_list.append(all_scores_list)
+
+            if update_rate > 0.998:
+                break
+
+
+
+        ### 2.3 filter bad spots and assign back the picked chr id
+        sel_iter = -1
+        #final_dna_hzxys_list = []
+        #kept_chr_ids = []
+        score_th = _score_th
+        int_th = _int_th
+        # add chr id to assign back to the array
+        for _hzxys, _scores, _chr_id in zip(sel_dna_hzxys_list[sel_iter], sel_dna_scores_list[sel_iter], _all_chr_id_gene):
+
+            _chrom = _all_chr_gene[_all_chr_gene[:,5]==_chr_id].ravel()
+            _cluster_id = _chrom[6]
+            
+            # modify the cluster array
+            _spot_chr_cluster_assigned = _spots_hzxyida[_spots_hzxyida[:,6]==_cluster_id]
+
+            _kept_hzxys = np.array(_hzxys).copy()
+                # remove spots by intensity
+            _bad_inds = _kept_hzxys[:,0] < int_th
+                # remove spots by scores
+            _bad_inds += _scores < score_th
+                #print(np.mean(_bad_inds))
+            _kept_hzxys[_bad_inds] = np.nan
+
+            #_picked_spot_zxy_index_list = []
+            # find index for remaining good spots in the cluster array (which should contain the picked spot); 
+            # some cluster would be modified multiple times, but each time should be independent (since picked spots are [mostly?] unique)
+            for _spot_zxy in _kept_hzxys:
+                if np.isnan(_spot_zxy).sum()>0:
+                    _picked_spot_zxy_index = np.argwhere(np.all(_spot_chr_cluster_assigned[:,2:4] == _spot_zxy, axis=1))
+                    if len(_picked_spot_zxy_index) == 1:
+                        # assing chr id as the last element
+                        _spot_chr_cluster_assigned[_spot_chr_cluster_assigned.ravel(),-1]=  _chr_id
+            # assign back to the input original array
+            _spots_hzxyida_array_to_pick[_spots_hzxyida_array_to_pick[:,6]==_cluster_id] = _spot_chr_cluster_assigned
+        
+
+
+   ### save and return result
+                    
+    _spots_hzxyidap = _spots_hzxyida_array_to_pick.copy()
+
+    if _save_results:
+        if _alt_save_folder is not None:
+            if not os.path.exists(_alt_save_folder):
+                os.mkdir(_alt_save_folder)
+
+            _save_folder = _alt_save_folder + os.sep + 'Spots'
+            if not os.path.exists(_save_folder):
+                os.mkdir(_save_folder)
+            _spot_savename = f'_spots_hzxyidap_{_adjust_ratio}.npy'
+            _chrom_savename =f'_chrom_azxyiuc_{_adjust_ratio}.npy'
+
+
+        else:
+            _save_folder = _fov.save_folder + os.sep + 'Spots'
+            if not os.path.exists(_save_folder):
+                os.mkdir(_save_folder)
+            _spot_savename = _fov.fov_name[:-4] + f'_spots_hzxyidap_{_adjust_ratio}.npy'
+            _chrom_savename = _fov.fov_name[:-4] + f'_chrom_azxyiuc_{_adjust_ratio}.npy'
+        
+        np.save (_spot_savename, _spots_hzxyidap)
+        np.save (_chrom_savename, _labeled_chrom_azxyiuc)
+
+
+    return _spots_hzxyidap
+
