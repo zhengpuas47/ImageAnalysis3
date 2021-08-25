@@ -1917,6 +1917,7 @@ class Field_of_View():
             if _verbose:
                 print(f"+ directly use current chromsome coordinates alternative.")
                 return getattr(self, 'chrom_coords')
+
         elif not _overwrite:
             self._load_from_file('signal', _load_attr_list=['chrom_coords'],
                                 _overwrite=_overwrite, _verbose=_verbose, )
@@ -1927,10 +1928,12 @@ class Field_of_View():
 
         ## 1. assign and load _dna_image if not specified
         if _dna_im is None:
-            if hasattr(self, 'dapi_im') and not _overwrite:
+            if hasattr(self, 'dapi_im'):
                 if _verbose:
                     print(f"+ directly use current dapi image.")
                     _dna_im = getattr(self, 'dapi_im')
+            elif not _overwrite:
+                _dna_im = self._load_dapi_image(_dapi_id=0, _overwrite=False, _save=False)
             else:
                 _dna_im = self._load_dapi_image(_dapi_id=0, _overwrite=True, _save=_save)
 
@@ -2131,10 +2134,12 @@ class Field_of_View():
 
         ## 1. assign and load _dna_image if not specified
         if _dna_im is None:
-            if hasattr(self, 'dapi_im') and not _overwrite:
+            if hasattr(self, 'dapi_im'):
                 if _verbose:
                     print(f"+ directly use current dapi image.")
                     _dna_im = getattr(self, 'dapi_im')
+            elif not _overwrite:
+                _dna_im = self._load_dapi_image(_dapi_id=0, _overwrite=False, _save=False)
             else:
                 _dna_im = self._load_dapi_image(_dapi_id=0, _overwrite=True, _save=_save)
 
