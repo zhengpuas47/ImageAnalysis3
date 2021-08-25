@@ -705,36 +705,74 @@ class Field_of_View():
                               _overwrite=False, 
                               _verbose=True):
         """Function to load ref image for fov class"""
+
+       ################  fix below for loading used_channels using ref_id or ref_filename; priotiize ref_id use if it is given. ##########
         # check ref_filename
+        #if _data_type == "":
+            #_ref_filename = getattr(self, f'ref_filename', "")
+        #else:
+            #_ref_filename = getattr(self, f'{_data_type}_ref_filename', "")
+        #if _ref_filename == "":
+            #if _data_type == "":
+                #_ref_id = getattr(self, f'ref_id', "")
+            #else:
+                #_ref_id = getattr(self, f'{_data_type}_ref_id', None)
+            #if _ref_id is None:
+                #raise AttributeError(f"data_type: {_data_type}_ref_filename or {_data_type}_ref_id should be given!")
+
+        # fix below for loading used_channels using ref_id or ref_filename; priotiize ref_id use if it is given.  -- shiwei
         if _data_type == "":
-            _ref_filename = getattr(self, f'ref_filename', "")
-        else:
-            _ref_filename = getattr(self, f'{_data_type}_ref_filename', "")
-        if _ref_filename == "":
-            if _data_type == "":
+            if hasattr (self, f'ref_id'):
                 _ref_id = getattr(self, f'ref_id', "")
+
+                _ref_filename = os.path.join(self.annotated_folders[int(_ref_id)], self.fov_name)
+                _info = self.color_dic[os.path.basename(self.annotated_folders[int(_ref_id)])]
+
+            elif hasattr (self, f'ref_filename'):
+                _ref_filename = getattr(self,  f'ref_filename', "")
+                for _ind, _fd in enumerate(self.annotated_folders):
+                    if self.ref_filename.split('\\')[-2] in _fd:
+                        _ref_df_ind = _ind
+                _info = self.color_dic[os.path.basename(self.annotated_folders[int(_ref_df_ind)])]
             else:
-                _ref_id = getattr(self, f'{_data_type}_ref_id', None)
-            if _ref_id is None:
                 raise AttributeError(f"data_type: {_data_type}_ref_filename or {_data_type}_ref_id should be given!")
-            _ref_filename = os.path.join(self.annotated_folders[int(_ref_id)], self.fov_name)
-            _info = self.color_dic[os.path.basename(self.annotated_folders[int(_ref_id)])]
-            _used_channels = []
-            for _mk, _ch in zip(_info, self.channels):
-                if _mk.lower() == 'null':
-                    continue
-                else:
-                    _used_channels.append(_ch)
+
+
+        else:
+            if hasattr (self, f'{_data_type}_ref_id'):
+                _ref_id = getattr(self, f'{_data_type}_ref_id', None)
+                _ref_filename = os.path.join(self.annotated_folders[int(_ref_id)], self.fov_name)
+                _info = self.color_dic[os.path.basename(self.annotated_folders[int(_ref_id)])]
+
+            elif hasattr (self, f'{_data_type}_ref_filename'):
+                _ref_filename = getattr(self, f'{_data_type}_ref_filename', "")
+                for _ind, _fd in enumerate(self.annotated_folders):
+                    if self.ref_filename.split('\\')[-2] in _fd:
+                        _ref_df_ind = _ind
+                _info = self.color_dic[os.path.basename(self.annotated_folders[int(_ref_df_ind)])]   
+            else:
+                raise AttributeError(f"data_type: {_data_type}_ref_filename or {_data_type}_ref_id should be given!")
+
+
+        _used_channels = []
+        for _mk, _ch in zip(_info, self.channels):
+            if _mk.lower() == 'null':
+                continue
+            else:
+                _used_channels.append(_ch)
 
         if _verbose:
             print(f"+ load reference image from file:{_ref_filename}")
         if 'correct_fov_image' not in locals():
             from ..io_tools.load import correct_fov_image
-        
+
+      
+       
         if hasattr(self, f'{_data_type}_ref_im') and not _overwrite:
             if _verbose:
                 print(f"++ directly return existing attribute.")
             _ref_im = getattr(self, f'{_data_type}_ref_im')
+
         else:
             # load
             _ref_im = correct_fov_image(_ref_filename, 
@@ -1714,7 +1752,7 @@ class Field_of_View():
             if hasattr(self, 'ref_im'):
                 _drift_ref = getattr(self, 'ref_im')
             else:
-                _drift_ref = getattr(self, 'ref_filename')
+                _drift_ref = getattr(self, 'ref_filename')    
 
             _chrom_im, _drift = correct_fov_image(_chrom_filename, 
                                     [_chrom_channel],
@@ -2338,12 +2376,18 @@ class Field_of_View():
                     print(f"-- choose dapi images from folder: {_dapi_fd}.")
                 # decide whether use extra reference id
                 _dapi_fd_ind = list(self.annotated_folders).index((_dapi_fd))
+
+
+
                 if _dapi_fd_ind != self.ref_id:                                
-                    if not hasattr(self, 'ref_im'):
-                        self._load_reference_image(_verbose=_verbose)
+                    #if not hasattr(self, 'ref_im'):  
+                    if not hasattr(self, '_ref_im') and _overwrite:      # current output   
+                        self._load_reference_image(_verbose=_verbose, _overwrite = _overwrite)   # pass _overwrite arg here so it can replace old ref im  - shiwei
                     _use_ref_im = True
                 else:
                     _use_ref_im = False 
+
+                 
                 # get used_channels for this dapi folder:
                 _info = self.color_dic[os.path.basename(_dapi_fd)]
                 _used_channels = []
@@ -2358,9 +2402,12 @@ class Field_of_View():
             _dapi_filename = os.path.join(_dapi_fd, self.fov_name)
             _dapi_channel = self.dapi_channel
 
-            # load from Dax file
-            if hasattr(self, 'ref_im'):
-                _drift_ref = getattr(self, 'ref_im', None)
+            # load from Dax file  
+            #if hasattr(self, 'ref_im'):#
+            if hasattr(self, '_ref_im'):      # current output  
+                #_drift_ref = getattr(self, 'ref_im', None)#
+                _drift_ref = getattr(self, '_ref_im', None)  # current output  
+
             else:
                 _drift_ref = getattr(self, 'ref_filename', None)
 
