@@ -2334,12 +2334,26 @@ class Field_of_View():
 
         return _chrom_coords
 
+
+
+
+
     ## load DAPI image
+    # if sample re-aligning is used, provide _second_drift to enable generating align_drift between the images before and after re-aligning @SL
+    ##  _second_drift should be the drift between the ref_im (specified by self.ref_id, which is used direct re-aligning and will generate the first drift) and the common_ref_im for the ref_im;
+    ## if the ref_im is the image as the common_ref_im, then supply the  _second_drift as [0,0,0]
+    ## such _second_drift should be saved during the function of process image to spots as self.combo_drifts or self.gene_drifts
     def _load_dapi_image(self, 
                          _dapi_id=None,
                          _save=True,
+                         _drift = None,
+                         _second_drift = None,
+                         _drift_channel = None,
+                         _apply_second_drift = False,
                          _overwrite=False, _verbose=True):
-        """Function to load dapi image for fov class"""
+        """Function to load dapi image for fov class
+        
+            _drift and _second_drift need to match image dim"""
         
         if 'correct_fov_image' not in locals():
             from ..io_tools.load import correct_fov_image
@@ -2381,10 +2395,14 @@ class Field_of_View():
 
                 if _dapi_fd_ind != self.ref_id:                                
                     #if not hasattr(self, 'ref_im'):  
-                    if not hasattr(self, '_ref_im') and _overwrite:      # current output   
+                    if not hasattr(self, '_ref_im') or _overwrite:      # current output   
                         self._load_reference_image(_verbose=_verbose, _overwrite = _overwrite)   # pass _overwrite arg here so it can replace old ref im  - shiwei
                     _use_ref_im = True
                 else:
+                    _use_ref_im = False 
+
+                # or use specified _drift to override drift calculation using ref_im by @sl
+                if _drift is not None:
                     _use_ref_im = False 
 
                  
@@ -2411,15 +2429,68 @@ class Field_of_View():
             else:
                 _drift_ref = getattr(self, 'ref_filename', None)
 
-            # load
-            _dapi_im = correct_fov_image(_dapi_filename, 
+            
+            # use specified _drift_channel or default drift channel @sl
+            if _drift_channel is None:
+                _drift_channel = self.drift_channel
+            else:
+                if _drift_channel in self.channels:
+                    pass
+                else:
+                    print('drift channel does not exist, exit!')
+                    return None
+            
+
+            # add support to add _second_drift to further correct the corrected image with the returned first drift
+            # the second drift is the drift between the ref_im and the common ref im
+            if _second_drift is not None:
+                _apply_second_drift = True
+                _use_ref_im_for_second_drift = False
+            
+
+
+            if _apply_second_drift:
+                # get drift (aka the first drift) between the ref_im and the input image
+                _first_drift = correct_fov_image(_dapi_filename, 
                                         [_dapi_channel],
                                         single_im_size=self.shared_parameters['single_im_size'],
                                         all_channels=_used_channels,
                                         num_buffer_frames=self.shared_parameters['num_buffer_frames'],
                                         num_empty_frames=self.shared_parameters['num_empty_frames'],
-                                        drift=None, calculate_drift=_use_ref_im,
-                                        drift_channel=self.drift_channel,
+                                        #drift=None, 
+                                        drift=_drift,
+                                        calculate_drift=_use_ref_im,
+                                        #drift_channel=self.drift_channel,
+                                        drift_channel = _drift_channel,
+                                        ref_filename=_drift_ref,
+                                        correction_folder=self.correction_folder,
+                                        corr_channels=self.shared_parameters['corr_channels'],
+                                        #warp_image=True,
+                                        warp_image=False,
+                                        illumination_corr=self.shared_parameters['corr_illumination'],
+                                        bleed_corr=False, 
+                                        chromatic_corr=False, 
+                                        z_shift_corr=self.shared_parameters['corr_Z_shift'],
+                                        verbose=_verbose,
+                                        return_drift=_apply_second_drift,
+                                        )[2]  # no warp image and return drift so the returned drift is the third element
+                if _verbose:
+                    print(f'-- adding first drift {_first_drift} to the second drift')
+                
+                # add the second drift to the first drift to obtain the combined drift between the common ref im and the input image
+                _combined_drift = _first_drift + _second_drift
+
+                _dapi_im = correct_fov_image(_dapi_filename, 
+                                        [_dapi_channel],
+                                        single_im_size=self.shared_parameters['single_im_size'],
+                                        all_channels=_used_channels,
+                                        num_buffer_frames=self.shared_parameters['num_buffer_frames'],
+                                        num_empty_frames=self.shared_parameters['num_empty_frames'],
+                                        #drift=None, 
+                                        drift=_combined_drift,
+                                        calculate_drift=_use_ref_im_for_second_drift,
+                                        #drift_channel=self.drift_channel,
+                                        drift_channel = _drift_channel,
                                         ref_filename=_drift_ref,
                                         correction_folder=self.correction_folder,
                                         corr_channels=self.shared_parameters['corr_channels'],
@@ -2430,6 +2501,38 @@ class Field_of_View():
                                         z_shift_corr=self.shared_parameters['corr_Z_shift'],
                                         verbose=_verbose,
                                         )[0][0]
+                
+
+    
+
+
+            # load
+            else:
+                _dapi_im = correct_fov_image(_dapi_filename, 
+                                        [_dapi_channel],
+                                        single_im_size=self.shared_parameters['single_im_size'],
+                                        all_channels=_used_channels,
+                                        num_buffer_frames=self.shared_parameters['num_buffer_frames'],
+                                        num_empty_frames=self.shared_parameters['num_empty_frames'],
+                                        #drift=None, 
+                                        drift=_drift,
+                                        calculate_drift=_use_ref_im,
+                                        #drift_channel=self.drift_channel,
+                                        drift_channel = _drift_channel,
+                                        ref_filename=_drift_ref,
+                                        correction_folder=self.correction_folder,
+                                        corr_channels=self.shared_parameters['corr_channels'],
+                                        warp_image=True,
+                                        illumination_corr=self.shared_parameters['corr_illumination'],
+                                        bleed_corr=False, 
+                                        chromatic_corr=False, 
+                                        z_shift_corr=self.shared_parameters['corr_Z_shift'],
+                                        verbose=_verbose,
+                                        return_drift=False,
+                                        )[0][0]
+
+
+
             setattr(self, 'dapi_im', _dapi_im)
             
             # save new chromosome image
@@ -2439,6 +2542,96 @@ class Field_of_View():
                     _verbose=_verbose)
         
         return _dapi_im
+
+
+    
+     # new function to save rotation and translation for aligning rna and dna images from the same sample
+    def _calculate_align_transformation_and_drift (self, _reference_im, _target_im, 
+                                             _return_aligned_im = False, _save=True, _overwrite=False, _verbose=True):
+
+        '''Function to calculate and save rotation and translation matrix'''
+
+
+        if hasattr(self, 'align_drift') and hasattr(self,'align_transformation') and hasattr(self,'registered_im') and not _overwrite:
+            if _verbose:
+                print(f"directly return existing attribute.")
+            _align_drift = getattr(self, 'align_drift')
+            _align_transformation = getattr(self, 'align_transformation')
+            _img_registered = getattr(self, 'registered_im')
+
+            if _return_aligned_im:
+                return _img_registered, _align_transformation, _align_drift
+            else:
+                return _align_transformation, _align_drift
+
+
+
+        else:
+
+            # use pystackreg to calculate rotation maxtrix
+            #https://pystackreg.readthedocs.io/en/latest/
+            from pystackreg import StackReg
+
+            _reference_im_max = np.max(_reference_im, axis=0)
+            _target_im_max = np.max(_target_im, axis=0)
+            _reference_im_max.astype(np.float)
+            _target_im_max.astype(np.float)
+            
+
+            ### 1. initial transformation (rotation and translation) using DAPI image
+            # Initiate StackReg (e.g., also other methods available) 
+            sr = StackReg( StackReg.RIGID_BODY)
+            # Transformation matrix is calculated for z-max 
+            tmat = sr.register(_reference_im_max, _target_im_max) 
+            # duplicate tmat along the z-axis
+            tmats = np.repeat(tmat[np.newaxis,:, :], len(_reference_im), axis=0)
+            if _verbose:
+                print ('-- registering image stack using given images')
+            _img_registered = sr.transform_stack(_target_im, axis=0, tmats=tmats)
+            # Clip the negative values and convert back to uint16
+            from pystackreg.util import to_uint16
+            _img_registered = to_uint16(_img_registered)
+
+            
+            _align_transformation = tmat.copy()
+
+            from ..correction_tools.alignment import cross_correlation_align_single_image
+            
+            ### 2. additional xyz drift estimation using bead info; xy should be marginal since they were pre-corrected using DAPI information
+            if _verbose:
+                print ('-- further calculating zxy drift between the registered image and the reference image using drift channel')
+            _align_drift = cross_correlation_align_single_image (_img_registered, _reference_im, single_im_size = _reference_im.shape)
+
+            
+        # save drift,rotation matrix, and registered dapi to attrs
+            if _save and _overwrite:
+                setattr(self, 'align_drift', _align_drift)
+                self._save_to_file('fov_info', _save_attr_list=['align_drift'],_overwrite=_overwrite,
+                                _verbose=_verbose)
+                setattr(self, 'align_transformation', _align_transformation)
+                self._save_to_file('fov_info', _save_attr_list=['align_transformation'],_overwrite=_overwrite,
+                                _verbose=_verbose)
+                setattr(self, 'registered_im', _img_registered)
+                self._save_to_file('fov_info', _save_attr_list=['registered_im'],
+                    _overwrite=_overwrite,
+                    _verbose=_verbose)
+
+      
+            if _return_aligned_im:
+                if _verbose:
+                    print ('-- aligment registration complete, return aligned image, rotation matrix, and drift.')
+                return _img_registered, _align_transformation, _align_drift
+            else:
+                if _verbose:
+                    print ('-- aligment registration complete, return rotation matrix and drift.')
+                return _align_transformation, _align_drift
+                         
+
+
+
+
+
+
 
     ## load bead image, for checking purposes
     def _load_bead_image(self, _bead_id, _drift=None,
