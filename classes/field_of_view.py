@@ -2549,82 +2549,91 @@ class Field_of_View():
     def _calculate_align_transformation_and_drift (self, _reference_im, _target_im, 
                                              _return_aligned_im = False, _save=True, _overwrite=False, _verbose=True):
 
-        '''Function to calculate and save rotation and translation matrix'''
+        '''Function to calculate and save rotation and translation matrix;
+        if _return_aligned_im, the registered image is returned and saved as attr and can be saved into HDF5'''
 
 
-        if hasattr(self, 'align_drift') and hasattr(self,'align_transformation') and hasattr(self,'registered_im') and not _overwrite:
-            if _verbose:
-                print(f"directly return existing attribute.")
-            _align_drift = getattr(self, 'align_drift')
-            _align_transformation = getattr(self, 'align_transformation')
-            _img_registered = getattr(self, 'registered_im')
-
-            if _return_aligned_im:
+        if _return_aligned_im:
+            if hasattr(self, 'registered_im') and hasattr(self, 'align_drift') and hasattr(self,'align_transformation') and not _overwrite:
+                if _verbose:
+                    print(f"directly return existing attribute.")
+                _align_drift = getattr(self, 'align_drift')
+                _align_transformation = getattr(self, 'align_transformation')
+                _img_registered = getattr(self, 'registered_im')
                 return _img_registered, _align_transformation, _align_drift
             else:
+                pass
+
+        elif not _return_aligned_im:
+            if hasattr(self, 'align_drift') and hasattr(self,'align_transformation') and not _overwrite:
+                if _verbose:
+                    print(f"directly return existing attribute.")
+                _align_drift = getattr(self, 'align_drift')
+                _align_transformation = getattr(self, 'align_transformation')
                 return _align_transformation, _align_drift
+            else: 
+                pass
 
 
+        # use pystackreg to calculate rotation maxtrix and align images
+        #https://pystackreg.readthedocs.io/en/latest/
+        from pystackreg import StackReg
 
-        else:
-
-            # use pystackreg to calculate rotation maxtrix
-            #https://pystackreg.readthedocs.io/en/latest/
-            from pystackreg import StackReg
-
-            _reference_im_max = np.max(_reference_im, axis=0)
-            _target_im_max = np.max(_target_im, axis=0)
-            _reference_im_max.astype(np.float)
-            _target_im_max.astype(np.float)
+        _reference_im_max = np.max(_reference_im, axis=0)
+        _target_im_max = np.max(_target_im, axis=0)
+        _reference_im_max.astype(np.float)
+        _target_im_max.astype(np.float)
             
 
-            ### 1. initial transformation (rotation and translation) using DAPI image
-            # Initiate StackReg (e.g., also other methods available) 
-            sr = StackReg( StackReg.RIGID_BODY)
-            # Transformation matrix is calculated for z-max 
-            tmat = sr.register(_reference_im_max, _target_im_max) 
-            # duplicate tmat along the z-axis
-            tmats = np.repeat(tmat[np.newaxis,:, :], len(_reference_im), axis=0)
-            if _verbose:
-                print ('-- registering image stack using given images')
-            _img_registered = sr.transform_stack(_target_im, axis=0, tmats=tmats)
-            # Clip the negative values and convert back to uint16
-            from pystackreg.util import to_uint16
-            _img_registered = to_uint16(_img_registered)
+        ### 1. initial transformation (rotation and translation) for XY using DAPI image
+        # Initiate StackReg (e.g., also other methods available) 
+        sr = StackReg( StackReg.RIGID_BODY)
+        # Transformation matrix is calculated for z-max 
+        tmat = sr.register(_reference_im_max, _target_im_max) 
+        # duplicate tmat along the z-axis
+        tmats = np.repeat(tmat[np.newaxis,:, :], len(_reference_im), axis=0)
+        if _verbose:
+            print ('-- registering image stack using given images')
+        _img_registered = sr.transform_stack(_target_im, axis=0, tmats=tmats)
+        # Clip the negative values and convert back to uint16
+        from pystackreg.util import to_uint16
+        _img_registered = to_uint16(_img_registered)
 
             
-            _align_transformation = tmat.copy()
+        _align_transformation = tmat.copy()
 
-            from ..correction_tools.alignment import cross_correlation_align_single_image
+        from ..correction_tools.alignment import cross_correlation_align_single_image
             
-            ### 2. additional xyz drift estimation using bead info; xy should be marginal since they were pre-corrected using DAPI information
-            if _verbose:
-                print ('-- further calculating zxy drift between the registered image and the reference image using drift channel')
-            _align_drift = cross_correlation_align_single_image (_img_registered, _reference_im, single_im_size = _reference_im.shape)
+        ### 2. additional xyz drift estimation using cross correlation; xy should be marginal since they were pre-corrected using DAPI information
+        # it also help evaluate the prior XY registration performance
+        if _verbose:
+            print ('-- further calculating zxy drift between the registered image and the reference image using drift channel')
+        _align_drift = cross_correlation_align_single_image (_img_registered, _reference_im, single_im_size = _reference_im.shape)
 
             
         # save drift,rotation matrix, and registered dapi to attrs
-            if _save and _overwrite:
-                setattr(self, 'align_drift', _align_drift)
-                self._save_to_file('fov_info', _save_attr_list=['align_drift'],_overwrite=_overwrite,
+        if _save and _overwrite:
+            setattr(self, 'align_drift', _align_drift)
+            self._save_to_file('fov_info', _save_attr_list=['align_drift'],_overwrite=_overwrite,
                                 _verbose=_verbose)
-                setattr(self, 'align_transformation', _align_transformation)
-                self._save_to_file('fov_info', _save_attr_list=['align_transformation'],_overwrite=_overwrite,
+            setattr(self, 'align_transformation', _align_transformation)
+            self._save_to_file('fov_info', _save_attr_list=['align_transformation'],_overwrite=_overwrite,
                                 _verbose=_verbose)
+            if _return_aligned_im:
                 setattr(self, 'registered_im', _img_registered)
                 self._save_to_file('fov_info', _save_attr_list=['registered_im'],
                     _overwrite=_overwrite,
                     _verbose=_verbose)
 
       
-            if _return_aligned_im:
-                if _verbose:
-                    print ('-- aligment registration complete, return aligned image, rotation matrix, and drift.')
-                return _img_registered, _align_transformation, _align_drift
-            else:
-                if _verbose:
-                    print ('-- aligment registration complete, return rotation matrix and drift.')
-                return _align_transformation, _align_drift
+        if _return_aligned_im:
+            if _verbose:
+                print ('-- aligment registration complete, return aligned image, rotation matrix, and drift.')
+            return _img_registered, _align_transformation, _align_drift
+        else:
+            if _verbose:
+                print ('-- aligment registration complete, return rotation matrix and drift.')
+            return _align_transformation, _align_drift
                          
 
 
