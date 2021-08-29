@@ -1511,7 +1511,7 @@ def batch_2tier_pick_spots_for_preprocessed_fov (_fov,
         np.save (_save_folder + os.sep + _chrom_savename, _labeled_chrom_azxyiuc)
 
 
-    return _spots_hzxyidap
+    return _spots_hzxyidap, _labeled_chrom_azxyiuc
 
 
 
@@ -1527,8 +1527,8 @@ def batch_EM_pick_spots_for_preprocessed_fov (_fov,
                                            _adjust_ratio = 0.9, 
                                            _gene_region_ids_dict = {},
                                            _chr_distance = 2000,
-                                           #_local_dist_th = 1500,
-                                           #_neighbor_len = 6,
+                                           _local_dist_th = 1500,
+                                           _neighbor_len = 6,
                                            _save_results = True,
                                            _alt_save_folder = None,
                                            _verbose=True,
@@ -1597,7 +1597,7 @@ def batch_EM_pick_spots_for_preprocessed_fov (_fov,
     import copy
     _default_region_ids = copy.deepcopy(_fov.combo_ids)
     _shared_gene_region_ids_dict = {}
-    for _chrom_key in _fov.chrom_coords_dict.keys():
+    for _chrom_key in _fov.chrom_coords.keys():
         _gene_id = int(_chrom_key)
         if _gene_id in _gene_region_ids_dict.keys():
             _gene_region_ds = _gene_region_ids_dict[_gene_id]
@@ -1619,10 +1619,14 @@ def batch_EM_pick_spots_for_preprocessed_fov (_fov,
     
 
 
-    for _chrom_key in _fov.chrom_coords_dict.keys():
+    for _chrom_key in _fov.chrom_coords.keys():
+
+        
 
         ### 2.1 extract spot and chrom info into sel_dna_cand_hzxys_list
         gid = int(_chrom_key)
+
+        #print(f'TEST starting spots for gene {gid} is {len(_spots_hzxyida_array_to_pick[_spots_hzxyida_array_to_pick[:,-1]>0])}')
         
         # refine region selection for each gene
         _region_ids= _shared_gene_region_ids_dict[int(_chrom_key)]
@@ -1644,8 +1648,9 @@ def batch_EM_pick_spots_for_preprocessed_fov (_fov,
             _spot_chr_cluster_assigned = _spots_hzxyida_array_to_pick[_spots_hzxyida_array_to_pick[:,6]==_cluster_id]
     
             _spot_chr_selected_from_assigned = []
+
             for _spot in _spot_chr_cluster_assigned:
-                if np.linalg.norm(_spot[1:4] - _chrom[1:4]) < _chr_distance:
+                if np.linalg.norm(_spot[1:4] - _chrom[1:4]) < _chr_distance:   # repeated spots in the assigned array will be kept; remove them at the end
                  _spot_chr_selected_from_assigned.append(_spot)
     
             _spot_chr_selected_from_assigned = np.array(_spot_chr_selected_from_assigned)
@@ -1656,11 +1661,11 @@ def batch_EM_pick_spots_for_preprocessed_fov (_fov,
         
                 if len(_spot_sel_region) > 0:
                     _spot_sel_region = _spot_sel_region [:,0:4]
-            else:
-                _spot_sel_region = []
+                else:
+                    _spot_sel_region = []
                 _chr_spot_list.append(_spot_sel_region)
     
-        sel_dna_cand_hzxys_list.append(_chr_spot_list)
+            sel_dna_cand_hzxys_list.append(_chr_spot_list)
 
 
 
@@ -1679,6 +1684,8 @@ def batch_EM_pick_spots_for_preprocessed_fov (_fov,
                 _used_channel.append(_channel)
            
         dna_reg_channels = _used_channel 
+
+
 
         for _iter in range(niter):
             print(f"+ iter:{_iter}")
@@ -1723,13 +1730,17 @@ def batch_EM_pick_spots_for_preprocessed_fov (_fov,
         score_th = _score_th
         int_th = _int_th
         # add chr id to assign back to the array
+
+        if _verbose:  ### each repeat count as 1 repeated spot (so a same spot can have many repeats)
+            print (f'--- assigning spot pick results for gene {gid} to the spot array')
+
         for _hzxys, _scores, _chr_id in zip(sel_dna_hzxys_list[sel_iter], sel_dna_scores_list[sel_iter], _all_chr_id_gene):
 
             _chrom = _all_chr_gene[_all_chr_gene[:,5]==_chr_id].ravel()
             _cluster_id = _chrom[6]
             
             # modify the cluster array
-            _spot_chr_cluster_assigned = _spots_hzxyida[_spots_hzxyida[:,6]==_cluster_id]
+            _spot_chr_cluster_assigned = _spots_hzxyida_array_to_pick[_spots_hzxyida_array_to_pick[:,6]==_cluster_id]
 
             _kept_hzxys = np.array(_hzxys).copy()
                 # remove spots by intensity
@@ -1741,18 +1752,97 @@ def batch_EM_pick_spots_for_preprocessed_fov (_fov,
 
             #_picked_spot_zxy_index_list = []
             # find index for remaining good spots in the cluster array (which should contain the picked spot); 
-            # some cluster would be modified multiple times, but each time should be independent (since picked spots are [mostly?] unique)
+            # some cluster would be modified multiple times, but each time should be independent 
+            # # repeated spots (dist < th for more than two chro) in the assigned array will be kept; remove them at the end
             for _spot_zxy in _kept_hzxys:
-                if np.isnan(_spot_zxy).sum()>0:
-                    _picked_spot_zxy_index = np.argwhere(np.all(_spot_chr_cluster_assigned[:,2:4] == _spot_zxy, axis=1))
+                if np.isnan(_spot_zxy).sum()==0:  # non np.nan for valid spot
+                    _picked_spot_zxy_index = np.argwhere(np.all(_spot_chr_cluster_assigned[:,2:4] == _spot_zxy[2:4], axis=1))
                     if len(_picked_spot_zxy_index) == 1:
-                        # assing chr id as the last element
-                        _spot_chr_cluster_assigned[_spot_chr_cluster_assigned.ravel(),-1]=  _chr_id
+                        _spot_chr_cluster_assigned[_picked_spot_zxy_index.ravel(),-1]=  _chr_id
             # assign back to the input original array
             _spots_hzxyida_array_to_pick[_spots_hzxyida_array_to_pick[:,6]==_cluster_id] = _spot_chr_cluster_assigned
+
+
+            #print(f'TEST pick spots for gene {gid} is {len(_spot_chr_cluster_assigned[_spot_chr_cluster_assigned[:,-1]>0])}')
+
+            #print(f'TEST saved spots for gene {gid} is {len(_spots_hzxyida_array_to_pick[_spots_hzxyida_array_to_pick[:,-1]>0])}')
+
+
+     ### 3. re-assess and re-set (if) repeated spots (from different assigned cluster) that are picked multiple times for different chr 
+     # note that re-setted spots are not removed from the array
+
+        # find all spots picked
+    _all_picked_spots = _spots_hzxyida_array_to_pick[_spots_hzxyida_array_to_pick[:,7]>0]
+
+
+    #print(f'TEST all pick spots {len(_all_picked_spots)}')
+
+
+    # make a copy that do not change throught the process
+    _all_picked_spots_copy_for_ref =_all_picked_spots.copy()
+    # find repeated picked spots and their index
+    _unique_spot, _count = np.unique(_all_picked_spots[:,2:4], return_counts=True, axis=0)    # use xy to identify same spot
+    _repeated_spot_list = _unique_spot[_count>1] 
+    _repeated_spot_index_list = []
+    for _repeated_spot in _repeated_spot_list:
+        _repeated_spot_index = np.argwhere(np.all(_all_picked_spots[:,2:4] == _repeated_spot, axis=1))
+        _repeated_spot_index_list.append(_repeated_spot_index.ravel())  # ravel 
         
+   # process each repeated spot
+    if len(_repeated_spot_index_list) > 0:
+        _spot_index_to_reset_list = []
 
+        for _repeated_spot_index in _repeated_spot_index_list:
+        # same spot that share xy in each repeated spot group
+            _dist_to_chr_list = []
+            for _same_spot_index in _repeated_spot_index:     #e.g., 100in [100,101,562]
+                _same_spot = _all_picked_spots_copy_for_ref[_same_spot_index]
+                _picked_chr_id = _same_spot[7]
+                _region_id = _same_spot[4]
+                _picked_spots_chr = _all_picked_spots_copy_for_ref[_all_picked_spots_copy_for_ref[:,7]==_picked_chr_id]
+                _ref_ids_from_picked = np.unique(_picked_spots_chr[:,4])
+                _start, _end = max(_region_id - _neighbor_len, min (_region_ids)), min(_region_id + _neighbor_len, max(_region_ids))
+                _sel_local_ids = np.concatenate([np.arange(_start, _region_id), np.arange(_region_id +1, _end+1)])
+                _shared_local_ids = np.intersect1d(_sel_local_ids, _ref_ids_from_picked) 
+               # use local center
+                if len(_shared_local_ids) >= 5:
+                    _neighbor_spots = []
+                    for _shared_local_id in _shared_local_ids:
+                        _spot_ref_region =_picked_spots_chr[_picked_spots_chr[:,4] == _shared_local_id]
+                        _neighbor_spots.append(_spot_ref_region[0])
+                    _neighbor_spots= np.array(_neighbor_spots)
+                    _ref_center = np.nanmean(_neighbor_spots [:,1:4],axis=0) 
+                # use center from all picked 
+                elif len(_ref_ids_from_picked) > round(len(_region_ids)/3):
+                    _ref_center = np.nanmean(_picked_spots_chr[:,1:4] ,axis=0) # zyx only 
+               # use chrom center
+                else:
+                    _ref_center = _labeled_chrom_azxyiuc[_labeled_chrom_azxyiuc[:,5]==_picked_chr_id][0,1:4]
+                
+                _dist_to_chr = np.linalg.norm(_same_spot[1:4]-_ref_center)
+                _dist_to_chr_list.append(_dist_to_chr)
+            # get the spot index that have larger spot-chr distance 
+            _dist_to_chr_list = np.array(_dist_to_chr_list)
+           # pop the index that has the smallest distance
+            _index_closest = np.argmin(_dist_to_chr_list)
 
+            if np.min(_dist_to_chr_list) < _local_dist_th:
+                _spot_index_to_reset = np.delete(_repeated_spot_index, _index_closest)
+            # if all picked spots larger than _local_dist_th, reset all
+            else:
+                _spot_index_to_reset = _repeated_spot_index
+           # reset the picked id for these spots to zero in the _all_picked_spots
+            for _index in _spot_index_to_reset:
+                _all_picked_spots[_index, -1] = 0
+                _spot_index_to_reset_list.append(_index)
+    else:
+        _spot_index_to_reset_list = _repeated_spot_index_list
+
+    # assign back
+    if _verbose:  ### each repeat count as 1 repeated spot (so a same spot can have many repeats)
+        print (f'--- reset picking for {len(_spot_index_to_reset_list)} repeated spots; repeated spots are kept in the output')
+    _spots_hzxyida_array_to_pick[_spots_hzxyida_array_to_pick[:,7]>0] = _all_picked_spots
+        
    ### save and return result
                     
     _spots_hzxyidap = _spots_hzxyida_array_to_pick.copy()
@@ -1765,22 +1855,22 @@ def batch_EM_pick_spots_for_preprocessed_fov (_fov,
             _save_folder = _alt_save_folder + os.sep + 'Spots'
             if not os.path.exists(_save_folder):
                 os.mkdir(_save_folder)
-            _spot_savename = f'_spots_hzxyidap_{_adjust_ratio}.npy'
-            _chrom_savename =f'_chrom_azxyiuc_{_adjust_ratio}.npy'
+            _spot_savename = f'_EM_spots_hzxyidap_{_adjust_ratio}.npy'
+            _chrom_savename =f'_EM_chrom_azxyiuc_{_adjust_ratio}.npy'
 
 
         else:
             _save_folder = _fov.save_folder + os.sep + 'Spots'
             if not os.path.exists(_save_folder):
                 os.mkdir(_save_folder)
-            _spot_savename = _fov.fov_name[:-4] + f'_spots_hzxyidap_{_adjust_ratio}.npy'
-            _chrom_savename = _fov.fov_name[:-4] + f'_chrom_azxyiuc_{_adjust_ratio}.npy'
+            _spot_savename = _fov.fov_name[:-4] + f'_EM_spots_hzxyidap_{_adjust_ratio}.npy'
+            _chrom_savename = _fov.fov_name[:-4] + f'_EM_chrom_azxyiuc_{_adjust_ratio}.npy'
         
         if _verbose:
-            print ('-- saving chromosome and spot results.')
+            print ('--- saving chromosome and spot results.')
         np.save (_save_folder + os.sep + _spot_savename, _spots_hzxyidap)
         np.save (_save_folder + os.sep + _chrom_savename, _labeled_chrom_azxyiuc)
 
 
-    return _spots_hzxyidap
+    return _spots_hzxyidap,  _labeled_chrom_azxyiuc
 
