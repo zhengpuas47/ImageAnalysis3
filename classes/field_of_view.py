@@ -2581,8 +2581,11 @@ class Field_of_View():
 
         _reference_im_max = np.max(_reference_im, axis=0)
         _target_im_max = np.max(_target_im, axis=0)
-        _reference_im_max.astype(np.float)
-        _target_im_max.astype(np.float)
+        _reference_im_max=_reference_im_max.astype(np.float)   #not further validated yet
+        _target_im_max=_target_im_max.astype(np.float)
+
+
+        _target_im= _target_im.astype(np.float)
             
 
         ### 1. initial transformation (rotation and translation) for XY using DAPI image

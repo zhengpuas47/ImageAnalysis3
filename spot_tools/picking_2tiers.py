@@ -1519,7 +1519,9 @@ def batch_2tier_pick_spots_for_preprocessed_fov (_fov,
 
 
 
-
+### structure is highly similar between EM and 2tier; 
+### currently, one difference is EM appears to better at removing very bad staining hyb results (by using scores);
+### another difference is EM appears to have higher false-positive rate (e.g, picking gene with shorter ids without telling it) 
 def batch_EM_pick_spots_for_preprocessed_fov (_fov,
                                            _chr_size_filter_dict ={}, 
                                            _chr_size_filter = 100, 
@@ -1539,7 +1541,7 @@ def batch_EM_pick_spots_for_preprocessed_fov (_fov,
                                            ref_chr_cts = None):
 
 
-    '''Function to EM pick spots for preprocessed FOV with chrom_coords and combo_spots_list
+    '''Function to EM pick spots for preprocessed FOV with chrom_coords and combo_spots_list; 
     
        Utilize EM pick of assigned spots, which are assigned by the function above; also save the analyzed spots and chrom data if choose to save'''    
 
@@ -1874,3 +1876,275 @@ def batch_EM_pick_spots_for_preprocessed_fov (_fov,
 
     return _spots_hzxyidap,  _labeled_chrom_azxyiuc
 
+
+
+
+
+
+
+
+# Function to assign chromosome (chr array) to labeled cells from for example RNA experiment (with drift)
+# Output is a chrom array with original measurement (azxyiuc) plus aligned xy and assigned cell id
+def assign_chromosome_to_labeled_cells (_chrom_azxyiuc_filename, _cell_segmentation_filename, _transpose_segmentation = True,
+                                        _align_transformation = None, _inverse_transformation = True,
+                                        _distance_xyz = [200,108, 108], _ims_shape = [60,2048,2048],
+                                        _num_threads = 4, _save_results = True, _alt_save_folder = None,
+                                        _verbose=True):
+    '''Function to assign chromosome from processed and saved chromosome azxyiuc array to labeled cells
+       
+       Input: 
+          _chrom_azxyiuc_filename: savename for the processed chromosome azxyiuc array
+          _cell_segmentation_filename: savename for the segmentation file
+          _transpose_segmentation: True if the xy of the sementation file is fliped compared to the xy of the chrom/spot images
+          _align_transformation: if there is drift and rotation between segmentation image and chrom/spot image, provide the transmation matrix here
+                               the transformation matrix is typically saved as attr and in the hdf5 file, which is the matrix that transform the segmentation image to the chrom image
+          _inverse_transformation: if True, the inverse transformation matrix can be calculated from the input above; 
+                                use this inverse matrix to transform chrom coord (map) back to the segmentation image, which is faster than the opposite way
+          _other_settings: include image shape and xyz distance coversion from nm to pixel
+        
+        Output:
+            _chrom_azxyiuc_xyl_array: the transformed (matching segmentation coord system) x and y in pixel saved as the 7th and 8th element; 
+                                      the assigned cell id (from labels in the segmentation file) saved as the 9th element
+                            if _save_results: the output is saved into the same folder where the input chrom array is located'''
+    
+    ### 1. preprocess input files
+
+    # preprocess chrom array
+    _labeled_chrom_azxyiuc = np.load(_chrom_azxyiuc_filename)
+    # append cols to store results
+    _result_cols = np.zeros([len(_labeled_chrom_azxyiuc), 3])
+    _labeled_chrom_azxyiuc_xyl = np.hstack((_labeled_chrom_azxyiuc.copy(),_result_cols)) 
+    # get save folder path if save results into the same folder where input chrom array is
+    _chrom_file_name = _chrom_azxyiuc_filename.split('\\')[-1]
+    _chrom_file_basename = _chrom_file_name.split('chrom')[0]
+    _chrom_save_folder = _chrom_azxyiuc_filename.split(_chrom_file_name)[0] [:-1]  
+
+
+   # preprocess segmentation file
+    _cell_feature = np.load(_cell_segmentation_filename)
+    #_segmentation_frames = _cell_feature.shape[0]
+    _segmentation_shape =  _cell_feature.shape[1:]
+
+    if list(_segmentation_shape) != _ims_shape[1:]:
+        print ('-- invalid segmentation file shape, exit')
+        return None
+    
+    # if segmentation xy needs to be transposed
+    if _transpose_segmentation:
+        _cell_feature = np.array([_lyr.T for _lyr in _cell_feature])
+    
+    ### 2. process transformation matrix 
+    if _align_transformation is not None:
+        tmat = _align_transformation
+        if tmat.shape != (3,3):
+            print ('-- the transformation matrix needs to be (3,3) homogeneous transformation matrix')  #[which is typically np.dot(Translation,Rotation)]'
+            return None
+        else:
+            # if the input matrix is for transforming segmentation into chrom ims, do inverse transformation of the chrom coords
+            if _inverse_transformation:
+                if _verbose:
+                    print('--  generate and use inverse transformation matrix') 
+                _inv_matrix = np.zeros([3,3])
+                _inv_matrix[:2,:2]= tmat[:2,:2].T
+                _inv_matrix[2,2]=1
+                H = tmat[0,2]
+                K = tmat[1,2]
+                _inv_matrix[0,2] = (-H * tmat[0,0]) - (K*tmat[1,0])
+                _inv_matrix[1,2] = (H * tmat[1,0]) - (K*tmat[0,0])
+                tmat = _inv_matrix
+    else:
+        tmat = None
+    
+    ### 3. sub-function to process chrs for each gene see the function below this
+    
+    ### 4. multiprocessing chrs from the input array using the sub-function above
+
+    _assign_chr_args = []
+
+    for _gene_id in np.unique(_labeled_chrom_azxyiuc_xyl[:,4]):
+
+        _chr_gene = _labeled_chrom_azxyiuc_xyl[_labeled_chrom_azxyiuc_xyl[:,4]==_gene_id]
+        _assign_chr_args.append((_chr_gene, _cell_feature, tmat, _distance_xyz, _ims_shape, _verbose))
+    
+    import multiprocessing as mp
+    with mp.Pool(_num_threads) as _chr_pool:
+        if _verbose:
+            print (f'-- start multiprocessing assign chromosomes of each gene to labeled cells with {_num_threads} threads', end=' ')
+            _multi_time = time.time()
+
+    # Multi-proessing!
+        _chrom_pool_result =  _chr_pool.starmap(assign_chromosome_to_labeled_cells_for_gene, _assign_chr_args)
+        # close multiprocessing
+        _chr_pool.close()
+        _chr_pool.join()
+        _chr_pool.terminate()
+        if _verbose:
+            print(f"in {time.time()-_multi_time:.3f}s.")
+    # combine results for chromosomes from individual genes
+    _labeled_chrom_azxyiucxyl = np.vstack(_chrom_pool_result)
+
+
+    ### 5. save and return results
+
+    if _save_results:
+        if _alt_save_folder is not None:
+            if not os.path.exists(_alt_save_folder):
+                os.mkdir(_alt_save_folder)
+
+            _save_folder = _alt_save_folder + os.sep + 'Spots'
+            if not os.path.exists(_save_folder):
+                os.mkdir(_save_folder)
+            _chrom_savename =_chrom_file_basename + f'chrom_azxyiuc_xyl.npy'
+
+        else:
+            _save_folder =_chrom_save_folder 
+            if not os.path.exists(_save_folder):
+                os.mkdir(_save_folder)
+            _chrom_savename =_chrom_file_basename + f'chrom_azxyiuc_xyl.npy'
+        
+        if _verbose:
+            print ('--- saving chromosome assignment results.')
+        
+        np.save (_save_folder + os.sep + _chrom_savename, _labeled_chrom_azxyiucxyl)
+
+    return _labeled_chrom_azxyiucxyl
+
+
+
+
+    
+
+
+
+
+    ### 3. a sub-function for process chrs for individual gene (a non-overlapping subset of the chrom array) for the batch function above
+def assign_chromosome_to_labeled_cells_for_gene (_chr_gene, _segmentation, tmat =  None,  
+                                                    _distance_xyz = [200,108, 108], _ims_shape = [60,2048,2048], _verbose = True):
+    '''_chr_gene is a subset of _labeled_chrom_azxyiuc_xyl defined above outside this sub-function
+        
+        _segmentation is the cell_feature segmentation mask file, tmat is the homogeneous transformation matrix if supplied'''
+
+    _batch = True # default setting 
+    if _batch:
+
+        ## 3.1 transform chrom xy coord 
+        if tmat is not None:
+
+            import skimage
+
+             # generate chr map mask for each coord 
+            _chr_map = np.zeros(_ims_shape[1:], dtype=np.uint16)
+        
+            # use the chr map mask to perform transformation;
+            # the tmat appears to not work for directly transforming coords themselves; 
+            # may have to do with the tamt is originally derived from transforming (DAPI) images instead of coords
+            for _chr in _chr_gene:
+                _chr_xy = _chr[2:4]/np.array(_distance_xyz[1:])
+                # xy in pixel
+                _chr_y, _chr_x= int(round(_chr_xy[0])),int(round(_chr_xy[1]))
+                # label assigned by the unique chr id
+                _chr_map [_chr_y, _chr_x] = _chr[5]  # 
+            
+            # convert tmat to skimage format
+            tmat_skimage = skimage.transform.AffineTransform(tmat)
+            # generate transformed chr map mask for each coord 
+            _chr_map_tran = np.zeros([2048,2048], dtype=np.uint16)
+            # preserves the label integrity by transforming each chr label at a time
+            if _verbose:
+                print ('-- generate transformed chromosome coord map')
+            for _label in np.unique(_chr_map):
+                    _labeled_chr = _chr_map == _label
+                    _labeled_chr = _labeled_chr.astype(float)
+                    _labeled_chr_tran = skimage.transform.warp(_labeled_chr,tmat_skimage)
+                    _labeled_chr_tran[_labeled_chr_tran>0]=_label
+                    _labeled_chr_tran = _labeled_chr_tran.astype(np.uint16)
+                    _chr_map_tran += _labeled_chr_tran
+            # retrive transformed xy (in pixel) from the transformed image
+            for _label in np.unique(_chr_map_tran):
+                if _label > 0:
+                    _find_coord = np.where(_chr_map_tran == _label)  
+                    # add transformed xy to the input array (7 and 8th element)       
+                    _chr_gene[np.where(_chr_gene[:,5]==_label)[0][0],7] = _find_coord[0][0]   # transformation convert one coord pix into 4 neighboring pixels; use the first one as approximate
+                    _chr_gene[np.where(_chr_gene[:,5]==_label)[0][0],8] = _find_coord[1][0]
+
+        # use original xy if no transformtation
+        else:
+            for _chr in _chr_gene:
+                _chr_xy = _chr[2:4]/np.array(_distance_xyz[1:])
+                _chr[7], _chr[8] = int(round(_chr_xy[0])),int(round(_chr_xy[1]))
+
+        ## 3.2 assing cells using segmentation info
+        _ims_frames = _ims_shape[0]
+        _segmentation_frames = _segmentation.shape[0]
+        _step_size = _ims_frames/_segmentation_frames
+
+        if _verbose:
+            print ('-- assigning transformed chromosome coord to labeled cells')
+
+        for _chr in _chr_gene:
+            # retrieve the pixel pos for z
+            _chr_z = int(round(_chr[1]/np.array(_distance_xyz[0])))
+            # initiate z recording
+            _zmid = -1 
+            _zbottom = -1
+            _ztop = -1
+            # loop through all segmentation to find the most relevant z(s)
+            for _curr_z in np.arange(0,_ims_frames,_step_size):
+            # identify the relevant z layer for segmentation info 
+            # currently use a strigent criteria to only assign chr to cells whose masks exclusively cover the chr (while allow skipping) or the chr is very close to one specifc available z
+            # considering the cell height and current z-thickness, typically most chr would be exclusively assign to one cell; 
+            # but when top and bottom are different cells, it is difficult to determine which cell the chr belongs to; thus skip this chr seems better
+                _dist_z = _chr_z- _curr_z
+                if abs(_dist_z) <=1:
+                    _zmid = _curr_z/_step_size
+                elif _dist_z <5 and _dist_z >0:
+                    _zbottom = _curr_z/_step_size
+                elif _dist_z<0 and _dist_z >-5:
+                    _ztop = _curr_z/_step_size
+      
+             # if the chr is close to one specific z-layer (the transfromed xy must be in range of the segmentation image)
+            if _zmid > -1 and int(round(_chr[7])) >0 and int(round(_chr[8])) >0 and int(round(_chr[7])) < _segmentation.shape[1] and int(round(_chr[8])) < _segmentation.shape[2]:
+                _cell_feature_2d = _segmentation[int(_zmid)]
+                # use z_mid segmentation to assign chromosome
+                if _cell_feature_2d[int(round(_chr[7])),int(round(_chr[8]))]>0:
+                    _chr[9]= _cell_feature_2d[int(round(_chr[7])),int(round(_chr[8]))]
+                # if the specific z-mid happen to have no assigned cells, use top and bottom layer only if both give same result  
+                # thus, strigent criteria is used here
+                else:
+                    if int(_zmid)*5 <  _ims_frames:
+                        _cell_feature_2d_top = _segmentation[int(_zmid)+1]
+                    else:
+                        _cell_feature_2d_top = None
+                    if int(_zmid)*5 >  0:
+                        _cell_feature_2d_bottom = _segmentation[int(_zmid)-1]
+                    else:
+                        _cell_feature_2d_bottom = None
+                    # if both have valid segmentation
+                    if _cell_feature_2d_top is not None and _cell_feature_2d_bottom is not None:
+                        _top_label = _cell_feature_2d_top[int(round(_chr[7])),int(round(_chr[8]))]
+                        _bottom_label = _cell_feature_2d_bottom[int(round(_chr[7])),int(round(_chr[8]))]
+                       # even if both have no assigned cells (0), the assignment result remain 0
+                        if _top_label == _bottom_label:
+                            _chr[9]= _top_label
+                        else:
+                            _chr[9]= 0
+
+            # if the chr is near the middle of two z-layers
+            elif int(round(_chr[7])) >0 and int(round(_chr[8])) >0 and int(round(_chr[7])) < _segmentation.shape[1] and int(round(_chr[8])) < _segmentation.shape[2]:
+                _cell_feature_2d_top = _segmentation[int(_ztop)]
+                _cell_feature_2d_bottom = _segmentation[int(_zbottom)]
+                _top_label = _cell_feature_2d_top[int(round(_chr[7])),int(round(_chr[8]))]
+                _bottom_label = _cell_feature_2d_bottom[int(round(_chr[7])),int(round(_chr[8]))]
+               # only when both give the same result, assign the chromosome
+                if _top_label == _bottom_label:
+                   _chr[9]= _top_label
+                else:
+                   _chr[9]= 0
+
+            # if transformed chr xy is out of range       
+            else:
+                _chr[9]= 0
+
+        return _chr_gene
+
+    
