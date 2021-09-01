@@ -345,7 +345,8 @@ def align_single_image(filename, crop_list, bead_channel='488',
 def cross_correlation_align_single_image(im, ref_im, precision_fold=100,
                                          all_channels=_allowed_colors, 
                                          ref_all_channels=None, drift_channel='488',
-                                         single_im_size=_image_size,
+                                         #single_im_size=_image_size,
+                                         single_im_size=None,
                                          num_buffer_frames=_num_buffer_frames,
                                          num_empty_frames=_num_empty_frames,
                                          correction_folder=_correction_folder,
@@ -379,6 +380,10 @@ def cross_correlation_align_single_image(im, ref_im, precision_fold=100,
     }
     _correction_args.update(correction_args)
     
+    # allow pass single_im_size arg through _calculate_align_transformation_and_drift function
+    if single_im_size is None:
+        single_im_size=_image_size,
+
     # check im file type   
     if isinstance(im, np.ndarray):
         if verbose:
@@ -502,6 +507,7 @@ def calculate_translation(reference_im:np.ndarray,
     else:
         _rot_target_im = target_im
     # calculate drift
+
     if cross_corr_align:
         _drift = cross_correlation_align_single_image(_rot_target_im,
                                                       reference_im,

@@ -2352,14 +2352,17 @@ def selelct_spots_in_mask(spots, binary_mask, interpolation='nearest'):
 
 ### Function to estimate the spot_th for picking candidate spots from fitted spots, whose intensity are background substracted @ Shiwei Liu
 ### Use spot image as input instead of region id for flexibity of testing (as compared to using spot/region id as input for the FOV class function)
-def find_spot_intensity_th_and_background_in_nucleus (_spot_im,
+def find_spot_intensity_th_and_background_in_nucleus (
                                             _dna_im, 
+                                            _spot_im = None,
                                             _spot_id = None,
                                             _spot_im_filename = None,
                                             _dna_mask = None,
                                             _std_ratio = 3,
+                                            _dust_size = 100,
                                             _return_signal_and_background = False,
-                                            _verbose = True):
+                                            _verbose = True,
+                                            _batch = False):
     """Function to estimate spot intensity and spot background (excluding non-cell regions) given
     
        Input:
@@ -2370,6 +2373,7 @@ def find_spot_intensity_th_and_background_in_nucleus (_spot_im,
            _spot_im_filename: hdf5 savefile for combo ims loading; for fov class usage (preferably only)
            _std_ratio: the number_of_std to be applied to find the spot th
            _return_signal_and_background: if False, return the background substracted signal
+           _dust_size: size filter to remove relatively big bright dust in the image
            _verbose: bool; say sth
         Output:
            _substracted_spot_th: background substracted spot th for spot picking
@@ -2397,23 +2401,47 @@ def find_spot_intensity_th_and_background_in_nucleus (_spot_im,
     ## 2. extract the signal within the cell/nuclei
     # if load _spot_im from hdf5 file with _chr_id given while _spot_im is not directly defined
     if _spot_im is None and _spot_id is not None:
-        if os.path.exist(_spot_im_filename):
-            import h5py
-            with h5py.File(self.save_filename, "r", libver='latest') as _f:
-                _grp = _f['combo']
-                _spot_im = _grp ['ims'][_spot_id-1]
+        if _spot_im_filename is not None:
+            if os.path.exist(_spot_im_filename):
+                import h5py
+                with h5py.File(_spot_im_filename, "r", libver='latest') as _f:
+                    _grp = _f['combo']
+                    _spot_im = _grp ['ims'][_spot_id-1]
+        else:
+            if _verbose:
+                print('-- provide filename and spot id, or provide spot image.')
+            return None
+    
+   
 
     _spot_im_zmax = np.max(_spot_im,axis=0)
     _spot_im_filtered =  _spot_im_zmax * _dna_rough_mask
     _spot_im_filtered = np.array([_i for _i in _spot_im_filtered.flatten() if _i >0])
      # use mean + std * 3 (or other ratio factor) to find the th for spot in image
     _spot_im_th =  np.mean(_spot_im_filtered) + np.std(_spot_im_filtered) * _std_ratio  # (default is mean + 3*std)
-    if _verbose:
-        print (f"-- find spot peak signal around {_spot_im_th}.")
+
      # spot seed binary
     _signal_binary_im = _spot_im_zmax > _spot_im_th
+
+    # find bright dust that get picked up; real spots labels should be typically smaller than 20~60
+    _bright_dust = morphology.remove_small_objects(_signal_binary_im, _dust_size).astype(np.uint16) 
+    _bright_dust = morphology.dilation (_bright_dust, morphology.disk(10))
+
+    # clean the dust mask from the dna mask
+    _bright_dust.astype(bool)
+    _inverse = np.logical_not(_bright_dust)
+    _inverse=_inverse.astype(int)
+    _clean_dna_rough_mask = _dna_rough_mask * _inverse 
+
+    # re-calculate the spot_im_th
+    _spot_im_filtered =  _spot_im_zmax * _clean_dna_rough_mask
+    _spot_im_filtered = np.array([_i for _i in _spot_im_filtered.flatten() if _i >0])
+    _spot_im_th =  np.mean(_spot_im_filtered) + np.std(_spot_im_filtered) * _std_ratio  # (default is mean + 3*std)
+    if _verbose:
+        print (f"-- find spot peak signal around {_spot_im_th}.")
+
      # seed-excluded background binary
-    _signal_background_mask =_dna_rough_mask.copy()
+    _signal_background_mask =_clean_dna_rough_mask.copy()
     _signal_background_mask [_signal_binary_im] =0
     
     _signal_background_filtered = _spot_im_zmax * _signal_background_mask
@@ -2435,9 +2463,18 @@ def find_spot_intensity_th_and_background_in_nucleus (_spot_im,
             return _substracted_spot_th
     
     else:
-        if _return_signal_and_background:
-            if _verbose:
-                print (f"-- return absolute signal and background, respectively.")
-            return {str(_spot_id): [_spot_im_th, _spot_background_mean]}
+        if _batch:
+            if _return_signal_and_background:
+                if _verbose:
+                    print (f"-- return absolute signal and background, respectively.")
+                return [_spot_im_th, _spot_background_mean]
+            else:
+                return  _substracted_spot_th
         else:
-            return {str(_spot_id): _substracted_spot_th}
+            if _return_signal_and_background:
+                if _verbose:
+                    print (f"-- return absolute signal and background, respectively.")
+                return {str(_spot_id): [_spot_im_th, _spot_background_mean]}
+            else:
+                return {str(_spot_id): _substracted_spot_th}
+

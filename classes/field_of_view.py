@@ -705,36 +705,74 @@ class Field_of_View():
                               _overwrite=False, 
                               _verbose=True):
         """Function to load ref image for fov class"""
+
+       ################  fix below for loading used_channels using ref_id or ref_filename; priotiize ref_id use if it is given. ##########
         # check ref_filename
+        #if _data_type == "":
+            #_ref_filename = getattr(self, f'ref_filename', "")
+        #else:
+            #_ref_filename = getattr(self, f'{_data_type}_ref_filename', "")
+        #if _ref_filename == "":
+            #if _data_type == "":
+                #_ref_id = getattr(self, f'ref_id', "")
+            #else:
+                #_ref_id = getattr(self, f'{_data_type}_ref_id', None)
+            #if _ref_id is None:
+                #raise AttributeError(f"data_type: {_data_type}_ref_filename or {_data_type}_ref_id should be given!")
+
+        # fix below for loading used_channels using ref_id or ref_filename; priotiize ref_id use if it is given.  -- shiwei
         if _data_type == "":
-            _ref_filename = getattr(self, f'ref_filename', "")
-        else:
-            _ref_filename = getattr(self, f'{_data_type}_ref_filename', "")
-        if _ref_filename == "":
-            if _data_type == "":
+            if hasattr (self, f'ref_id'):
                 _ref_id = getattr(self, f'ref_id', "")
+
+                _ref_filename = os.path.join(self.annotated_folders[int(_ref_id)], self.fov_name)
+                _info = self.color_dic[os.path.basename(self.annotated_folders[int(_ref_id)])]
+
+            elif hasattr (self, f'ref_filename'):
+                _ref_filename = getattr(self,  f'ref_filename', "")
+                for _ind, _fd in enumerate(self.annotated_folders):
+                    if self.ref_filename.split('\\')[-2] in _fd:
+                        _ref_df_ind = _ind
+                _info = self.color_dic[os.path.basename(self.annotated_folders[int(_ref_df_ind)])]
             else:
-                _ref_id = getattr(self, f'{_data_type}_ref_id', None)
-            if _ref_id is None:
                 raise AttributeError(f"data_type: {_data_type}_ref_filename or {_data_type}_ref_id should be given!")
-            _ref_filename = os.path.join(self.annotated_folders[int(_ref_id)], self.fov_name)
-            _info = self.color_dic[os.path.basename(self.annotated_folders[int(_ref_id)])]
-            _used_channels = []
-            for _mk, _ch in zip(_info, self.channels):
-                if _mk.lower() == 'null':
-                    continue
-                else:
-                    _used_channels.append(_ch)
+
+
+        else:
+            if hasattr (self, f'{_data_type}_ref_id'):
+                _ref_id = getattr(self, f'{_data_type}_ref_id', None)
+                _ref_filename = os.path.join(self.annotated_folders[int(_ref_id)], self.fov_name)
+                _info = self.color_dic[os.path.basename(self.annotated_folders[int(_ref_id)])]
+
+            elif hasattr (self, f'{_data_type}_ref_filename'):
+                _ref_filename = getattr(self, f'{_data_type}_ref_filename', "")
+                for _ind, _fd in enumerate(self.annotated_folders):
+                    if self.ref_filename.split('\\')[-2] in _fd:
+                        _ref_df_ind = _ind
+                _info = self.color_dic[os.path.basename(self.annotated_folders[int(_ref_df_ind)])]   
+            else:
+                raise AttributeError(f"data_type: {_data_type}_ref_filename or {_data_type}_ref_id should be given!")
+
+
+        _used_channels = []
+        for _mk, _ch in zip(_info, self.channels):
+            if _mk.lower() == 'null':
+                continue
+            else:
+                _used_channels.append(_ch)
 
         if _verbose:
             print(f"+ load reference image from file:{_ref_filename}")
         if 'correct_fov_image' not in locals():
             from ..io_tools.load import correct_fov_image
-        
+
+      
+       
         if hasattr(self, f'{_data_type}_ref_im') and not _overwrite:
             if _verbose:
                 print(f"++ directly return existing attribute.")
             _ref_im = getattr(self, f'{_data_type}_ref_im')
+
         else:
             # load
             _ref_im = correct_fov_image(_ref_filename, 
@@ -1714,7 +1752,7 @@ class Field_of_View():
             if hasattr(self, 'ref_im'):
                 _drift_ref = getattr(self, 'ref_im')
             else:
-                _drift_ref = getattr(self, 'ref_filename')
+                _drift_ref = getattr(self, 'ref_filename')    
 
             _chrom_im, _drift = correct_fov_image(_chrom_filename, 
                                     [_chrom_channel],
@@ -1917,6 +1955,7 @@ class Field_of_View():
             if _verbose:
                 print(f"+ directly use current chromsome coordinates alternative.")
                 return getattr(self, 'chrom_coords')
+
         elif not _overwrite:
             self._load_from_file('signal', _load_attr_list=['chrom_coords'],
                                 _overwrite=_overwrite, _verbose=_verbose, )
@@ -1927,10 +1966,12 @@ class Field_of_View():
 
         ## 1. assign and load _dna_image if not specified
         if _dna_im is None:
-            if hasattr(self, 'dapi_im') and not _overwrite:
+            if hasattr(self, 'dapi_im'):
                 if _verbose:
                     print(f"+ directly use current dapi image.")
                     _dna_im = getattr(self, 'dapi_im')
+            elif not _overwrite:
+                _dna_im = self._load_dapi_image(_dapi_id=0, _overwrite=False, _save=False)
             else:
                 _dna_im = self._load_dapi_image(_dapi_id=0, _overwrite=True, _save=_save)
 
@@ -1982,18 +2023,18 @@ class Field_of_View():
               with the 4th element as the chr label
                and the 5th element as the gene id '''
         
-        if hasattr(self, 'chrom_coords'):
+        if hasattr(self, 'chrom_coords') and not isinstance (chrom_coords_dict , dict):
             if _verbose:
                 print(f"+ load and combine current chromsome coordinates alternative.")
             chrom_coords_dict = getattr(self, 'chrom_coords')
 
-        elif not hasattr(self, 'chrom_coords') and isinstance (chrom_coords_dict, dict):
+        elif isinstance (chrom_coords_dict, dict):   # this supports converting other dict (eg. combo spots dict) to a single array similarly
             if _verbose:
-                print(f"+ use provided chromsome coordinates alternative.")
+                print(f"+ use provided chromsome (or spot) coordinates alternative.")
         
         else:
             if _verbose:
-                print(f"+ no valid chromsome coordinates alternative. generate chrom coords first.")
+                print(f"+ no valid chromsome (or spot) coordinates alternative. generate chrom coords first.")
             return None
 
         _all_chrom_coords = []
@@ -2089,12 +2130,14 @@ class Field_of_View():
                                _dna_im = None, 
                                _dna_mask = None, 
                                _std_ratio = 3, 
+                               _dust_size = 100,
                                _return_signal_and_background = False, 
                                _verbose = True, 
-                               _parallel = False,  
+                               _parallel = True,  
                                _num_threads=4, 
                                _save=True, 
-                               _overwrite=False):
+                               _overwrite=False,
+                               _chunk_size = 10):
 
         """Function to estimate spot intensity and spot background (excluding non-cell regions) given
            Input:
@@ -2102,8 +2145,11 @@ class Field_of_View():
              _dna_im: dna image or cell boundary image to exlcude non-nuclear/non-cell area
              _dna_mask: if use provided dna mask [one z-slice]
              _std_ratio: the number_of_std to be applied to find the spot th
+             _dust_size: size filter to remove relatively big bright dust in the image
+             _chunk_size: how many regions of images to load and multiprocess at a time
              _return_signal_and_background: if False, return the background substracted signal
              _verbose: bool; say sth
+             _parallel: load multiple image chunks and perform multiprocessing
            Output:
              spot_intensity_th_dict: background substracted spot th for spot picking for selected regions/spots"""
 
@@ -2126,10 +2172,12 @@ class Field_of_View():
 
         ## 1. assign and load _dna_image if not specified
         if _dna_im is None:
-            if hasattr(self, 'dapi_im') and not _overwrite:
+            if hasattr(self, 'dapi_im'):
                 if _verbose:
                     print(f"+ directly use current dapi image.")
                     _dna_im = getattr(self, 'dapi_im')
+            elif not _overwrite:
+                _dna_im = self._load_dapi_image(_dapi_id=0, _overwrite=False, _save=False)
             else:
                 _dna_im = self._load_dapi_image(_dapi_id=0, _overwrite=True, _save=_save)
 
@@ -2167,29 +2215,44 @@ class Field_of_View():
                     _return_signal_and_background =_return_signal_and_background, _verbose = _verbose)
 
                     _spot_intensity_th [str(_region_id)] = _spot_intensity_th_each
-        
-        ########## NOT FINISHED below ########## 
-        if _parallel == True:  # fast but more memory usage
+      
+      # break regions into chunks for hdf5 loading; avoid parralel reading of the hdf5;    it seems this is more I/O bound rather than the CPU bound
+        if _parallel == True:  
             if len(_region_ids) > 0:
+                _batch = True
 
-                import multiprocessing as mp
-                from ..spot_tools.picking import find_spot_intensity_th_and_background_in_nucleus
+                if _chunk_size > len(_region_ids):
+                    _chunk_size = len(_region_ids)/2
 
-                _spot_im_kwargs = [{'_spot_im_filename': self.save_filename,'_dna_im': _dna_im,'_spot_id': _region_id} for _region_id in _region_ids]
+                for _chunk_index, _region_id in enumerate(_region_ids[0:-1:_chunk_size]):
+                    _start, _end = max(_region_id, min (_region_ids)), min(_region_id+_chunk_size,max(_region_ids))
+                    _chunk_region_ids = np.array(list(range(_start, _end+1)))
 
-                with mp.Pool(_num_threads,) as _spot_ims_pool:
-                    if _verbose:
-                        print(f"- Start multiprocessing estimates spot intensity th with {_num_threads} threads", end=' ')
+
+                    # read a subset of ims to save memory  ~ _chunk_size/len(total num of regions)
+                    with h5py.File(self.save_filename, "r", libver='latest') as _f:
+                        _grp = _f['combo']
+                        _spot_im = _grp ['ims'][_start-1: _end]
+                    
+                    import multiprocessing as mp
+                    from ..spot_tools.picking import find_spot_intensity_th_and_background_in_nucleus
+
+                    # provide _spot_im without _spot_id here to avoid re-loading hdf5 in the function below
+                    _spot_im_kwargs = [(_dna_im, _spot_im[_chunk_region_id - 1 - _chunk_size* _chunk_index], None, None, _dna_mask, _std_ratio, _dust_size, _return_signal_and_background, _verbose, _batch) for _chunk_region_id in _chunk_region_ids]
+
+                    with mp.Pool(_num_threads,) as _spot_ims_pool:
+                        if _verbose:
+                             print(f"- Start multiprocessing estimates spot intensity th in image chunks {_chunk_index+1} with {_num_threads} threads", end=' ')
                         _multi_time = time.time()
-                    # Multi-proessing!
-                    _spot_intensity_th = _spot_ims_pool.starmap(find_spot_intensity_th_and_background_in_nucleus, _spot_im_kwargs, chunksize=1)
-                    # close multiprocessing
-                    _spot_ims_pool.close()
-                    _spot_ims_pool.join()
-                    _spot_ims_pool.terminate()
-                    if _verbose:
-                        print(f"in {time.time()-_multi_time:.3f}s.")
-        ##########  NOT FINSIHED above ##########      
+                        # Multi-proessing!
+                        _spot_intensity_th_res = _spot_ims_pool.starmap(find_spot_intensity_th_and_background_in_nucleus, _spot_im_kwargs)
+                        _spot_ims_pool.close()
+                        _spot_ims_pool.join()
+                        _spot_ims_pool.terminate()
+                        if _verbose:
+                            print(f"in {time.time()-_multi_time:.3f}s.")
+                    for  _chunk_region_id in _chunk_region_ids:
+                        _spot_intensity_th [str(_chunk_region_id)] = _spot_intensity_th_res [_chunk_region_id - 1 - _chunk_size* _chunk_index]
 
 
         ## 3. set attributes
@@ -2271,12 +2334,26 @@ class Field_of_View():
 
         return _chrom_coords
 
+
+
+
+
     ## load DAPI image
+    # if sample re-aligning is used, provide _second_drift to enable generating align_drift between the images before and after re-aligning @SL
+    ##  _second_drift should be the drift between the ref_im (specified by self.ref_id, which is used direct re-aligning and will generate the first drift) and the common_ref_im for the ref_im;
+    ## if the ref_im is the image as the common_ref_im, then supply the  _second_drift as [0,0,0]
+    ## such _second_drift should be saved during the function of process image to spots as self.combo_drifts or self.gene_drifts
     def _load_dapi_image(self, 
                          _dapi_id=None,
                          _save=True,
+                         _drift = None,
+                         _second_drift = None,
+                         _drift_channel = None,
+                         _apply_second_drift = False,
                          _overwrite=False, _verbose=True):
-        """Function to load dapi image for fov class"""
+        """Function to load dapi image for fov class
+        
+            _drift and _second_drift need to match image dim"""
         
         if 'correct_fov_image' not in locals():
             from ..io_tools.load import correct_fov_image
@@ -2313,12 +2390,22 @@ class Field_of_View():
                     print(f"-- choose dapi images from folder: {_dapi_fd}.")
                 # decide whether use extra reference id
                 _dapi_fd_ind = list(self.annotated_folders).index((_dapi_fd))
+
+
+
                 if _dapi_fd_ind != self.ref_id:                                
-                    if not hasattr(self, 'ref_im'):
-                        self._load_reference_image(_verbose=_verbose)
+                    #if not hasattr(self, 'ref_im'):  
+                    if not hasattr(self, '_ref_im') or _overwrite:      # current output   
+                        self._load_reference_image(_verbose=_verbose, _overwrite = _overwrite)   # pass _overwrite arg here so it can replace old ref im  - shiwei
                     _use_ref_im = True
                 else:
                     _use_ref_im = False 
+
+                # or use specified _drift to override drift calculation using ref_im by @sl
+                if _drift is not None:
+                    _use_ref_im = False 
+
+                 
                 # get used_channels for this dapi folder:
                 _info = self.color_dic[os.path.basename(_dapi_fd)]
                 _used_channels = []
@@ -2333,21 +2420,77 @@ class Field_of_View():
             _dapi_filename = os.path.join(_dapi_fd, self.fov_name)
             _dapi_channel = self.dapi_channel
 
-            # load from Dax file
-            if hasattr(self, 'ref_im'):
-                _drift_ref = getattr(self, 'ref_im', None)
+            # load from Dax file  
+            #if hasattr(self, 'ref_im'):#
+            if hasattr(self, '_ref_im'):      # current output  
+                #_drift_ref = getattr(self, 'ref_im', None)#
+                _drift_ref = getattr(self, '_ref_im', None)  # current output  
+
             else:
                 _drift_ref = getattr(self, 'ref_filename', None)
 
-            # load
-            _dapi_im = correct_fov_image(_dapi_filename, 
+            
+            # use specified _drift_channel or default drift channel @sl
+            if _drift_channel is None:
+                _drift_channel = self.drift_channel
+            else:
+                if _drift_channel in self.channels:
+                    pass
+                else:
+                    print('drift channel does not exist, exit!')
+                    return None
+            
+
+            # add support to add _second_drift to further correct the corrected image with the returned first drift
+            # the second drift is the drift between the ref_im and the common ref im
+            if _second_drift is not None:
+                _apply_second_drift = True
+                _use_ref_im_for_second_drift = False
+            
+
+
+            if _apply_second_drift:
+                # get drift (aka the first drift) between the ref_im and the input image
+                _first_drift = correct_fov_image(_dapi_filename, 
                                         [_dapi_channel],
                                         single_im_size=self.shared_parameters['single_im_size'],
                                         all_channels=_used_channels,
                                         num_buffer_frames=self.shared_parameters['num_buffer_frames'],
                                         num_empty_frames=self.shared_parameters['num_empty_frames'],
-                                        drift=None, calculate_drift=_use_ref_im,
-                                        drift_channel=self.drift_channel,
+                                        #drift=None, 
+                                        drift=_drift,
+                                        calculate_drift=_use_ref_im,
+                                        #drift_channel=self.drift_channel,
+                                        drift_channel = _drift_channel,
+                                        ref_filename=_drift_ref,
+                                        correction_folder=self.correction_folder,
+                                        corr_channels=self.shared_parameters['corr_channels'],
+                                        #warp_image=True,
+                                        warp_image=False,
+                                        illumination_corr=self.shared_parameters['corr_illumination'],
+                                        bleed_corr=False, 
+                                        chromatic_corr=False, 
+                                        z_shift_corr=self.shared_parameters['corr_Z_shift'],
+                                        verbose=_verbose,
+                                        return_drift=_apply_second_drift,
+                                        )[2]  # no warp image and return drift so the returned drift is the third element
+                if _verbose:
+                    print(f'-- adding first drift {_first_drift} to the second drift')
+                
+                # add the second drift to the first drift to obtain the combined drift between the common ref im and the input image
+                _combined_drift = _first_drift + _second_drift
+
+                _dapi_im = correct_fov_image(_dapi_filename, 
+                                        [_dapi_channel],
+                                        single_im_size=self.shared_parameters['single_im_size'],
+                                        all_channels=_used_channels,
+                                        num_buffer_frames=self.shared_parameters['num_buffer_frames'],
+                                        num_empty_frames=self.shared_parameters['num_empty_frames'],
+                                        #drift=None, 
+                                        drift=_combined_drift,
+                                        calculate_drift=_use_ref_im_for_second_drift,
+                                        #drift_channel=self.drift_channel,
+                                        drift_channel = _drift_channel,
                                         ref_filename=_drift_ref,
                                         correction_folder=self.correction_folder,
                                         corr_channels=self.shared_parameters['corr_channels'],
@@ -2358,6 +2501,38 @@ class Field_of_View():
                                         z_shift_corr=self.shared_parameters['corr_Z_shift'],
                                         verbose=_verbose,
                                         )[0][0]
+                
+
+    
+
+
+            # load
+            else:
+                _dapi_im = correct_fov_image(_dapi_filename, 
+                                        [_dapi_channel],
+                                        single_im_size=self.shared_parameters['single_im_size'],
+                                        all_channels=_used_channels,
+                                        num_buffer_frames=self.shared_parameters['num_buffer_frames'],
+                                        num_empty_frames=self.shared_parameters['num_empty_frames'],
+                                        #drift=None, 
+                                        drift=_drift,
+                                        calculate_drift=_use_ref_im,
+                                        #drift_channel=self.drift_channel,
+                                        drift_channel = _drift_channel,
+                                        ref_filename=_drift_ref,
+                                        correction_folder=self.correction_folder,
+                                        corr_channels=self.shared_parameters['corr_channels'],
+                                        warp_image=True,
+                                        illumination_corr=self.shared_parameters['corr_illumination'],
+                                        bleed_corr=False, 
+                                        chromatic_corr=False, 
+                                        z_shift_corr=self.shared_parameters['corr_Z_shift'],
+                                        verbose=_verbose,
+                                        return_drift=False,
+                                        )[0][0]
+
+
+
             setattr(self, 'dapi_im', _dapi_im)
             
             # save new chromosome image
@@ -2367,6 +2542,108 @@ class Field_of_View():
                     _verbose=_verbose)
         
         return _dapi_im
+
+
+    
+     # new function to save rotation and translation for aligning rna and dna images from the same sample
+    def _calculate_align_transformation_and_drift (self, _reference_im, _target_im, 
+                                             _return_aligned_im = False, _save=True, _overwrite=False, _verbose=True):
+
+        '''Function to calculate and save rotation and translation matrix;
+        if _return_aligned_im, the registered image is returned and saved as attr and can be saved into HDF5'''
+
+
+        if _return_aligned_im:
+            if hasattr(self, 'registered_im') and hasattr(self, 'align_drift') and hasattr(self,'align_transformation') and not _overwrite:
+                if _verbose:
+                    print(f"directly return existing attribute.")
+                _align_drift = getattr(self, 'align_drift')
+                _align_transformation = getattr(self, 'align_transformation')
+                _img_registered = getattr(self, 'registered_im')
+                return _img_registered, _align_transformation, _align_drift
+            else:
+                pass
+
+        elif not _return_aligned_im:
+            if hasattr(self, 'align_drift') and hasattr(self,'align_transformation') and not _overwrite:
+                if _verbose:
+                    print(f"directly return existing attribute.")
+                _align_drift = getattr(self, 'align_drift')
+                _align_transformation = getattr(self, 'align_transformation')
+                return _align_transformation, _align_drift
+            else: 
+                pass
+
+
+        # use pystackreg to calculate rotation maxtrix and align images
+        #https://pystackreg.readthedocs.io/en/latest/
+        from pystackreg import StackReg
+
+        _reference_im_max = np.max(_reference_im, axis=0)
+        _target_im_max = np.max(_target_im, axis=0)
+        _reference_im_max=_reference_im_max.astype(np.float)   #not further validated yet
+        _target_im_max=_target_im_max.astype(np.float)
+
+
+        _target_im= _target_im.astype(np.float)
+            
+
+        ### 1. initial transformation (rotation and translation) for XY using DAPI image
+        # Initiate StackReg (e.g., also other methods available) 
+        sr = StackReg( StackReg.RIGID_BODY)
+        # Transformation matrix is calculated for z-max 
+        tmat = sr.register(_reference_im_max, _target_im_max) 
+        # duplicate tmat along the z-axis
+        tmats = np.repeat(tmat[np.newaxis,:, :], len(_reference_im), axis=0)
+        if _verbose:
+            print ('-- registering image stack using given images')
+        _img_registered = sr.transform_stack(_target_im, axis=0, tmats=tmats)
+        # Clip the negative values and convert back to uint16
+        from pystackreg.util import to_uint16
+        _img_registered = to_uint16(_img_registered)
+
+            
+        _align_transformation = tmat.copy()
+
+        from ..correction_tools.alignment import cross_correlation_align_single_image
+            
+        ### 2. additional xyz drift estimation using cross correlation; xy should be marginal since they were pre-corrected using DAPI information
+        # it also help evaluate the prior XY registration performance
+        if _verbose:
+            print ('-- further calculating zxy drift between the registered image and the reference image using drift channel')
+        _align_drift = cross_correlation_align_single_image (_img_registered, _reference_im, single_im_size = _reference_im.shape)
+
+            
+        # save drift,rotation matrix, and registered dapi to attrs
+        if _save and _overwrite:
+            setattr(self, 'align_drift', _align_drift)
+            self._save_to_file('fov_info', _save_attr_list=['align_drift'],_overwrite=_overwrite,
+                                _verbose=_verbose)
+            setattr(self, 'align_transformation', _align_transformation)
+            self._save_to_file('fov_info', _save_attr_list=['align_transformation'],_overwrite=_overwrite,
+                                _verbose=_verbose)
+            if _return_aligned_im:
+                setattr(self, 'registered_im', _img_registered)
+                self._save_to_file('fov_info', _save_attr_list=['registered_im'],
+                    _overwrite=_overwrite,
+                    _verbose=_verbose)
+
+      
+        if _return_aligned_im:
+            if _verbose:
+                print ('-- aligment registration complete, return aligned image, rotation matrix, and drift.')
+            return _img_registered, _align_transformation, _align_drift
+        else:
+            if _verbose:
+                print ('-- aligment registration complete, return rotation matrix and drift.')
+            return _align_transformation, _align_drift
+                         
+
+
+
+
+
+
 
     ## load bead image, for checking purposes
     def _load_bead_image(self, _bead_id, _drift=None,
