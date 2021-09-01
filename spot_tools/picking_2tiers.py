@@ -2043,7 +2043,10 @@ def assign_chromosome_to_labeled_cells_for_gene (_chr_gene, _segmentation, tmat 
                 # xy in pixel
                 _chr_y, _chr_x= int(round(_chr_xy[0])),int(round(_chr_xy[1]))
                 # label assigned by the unique chr id
-                _chr_map [_chr_y, _chr_x] = _chr[5]  # 
+                if _chr_map [_chr_y, _chr_x] == 0:
+                    _chr_map [_chr_y, _chr_x] = _chr[5]  
+                else: # though unlikely, if xy happend to be the same, shift the new coord by 1 pixel
+                    _chr_map [_chr_y+1, _chr_x+1] = _chr[5]
             
             # convert tmat to skimage format
             tmat_skimage = skimage.transform.AffineTransform(tmat)
@@ -2060,12 +2063,17 @@ def assign_chromosome_to_labeled_cells_for_gene (_chr_gene, _segmentation, tmat 
                     _labeled_chr_tran = _labeled_chr_tran.astype(np.uint16)
                     _chr_map_tran += _labeled_chr_tran
             # retrive transformed xy (in pixel) from the transformed image
-            for _label in np.unique(_chr_map_tran):
-                if _label > 0:
+            if  np.unique(_chr_map_tran) ==  np.unique(_chr_map_tran):
+                if _label > 0  and _label in np.unique(_chr_map): # transformation can still merge two adjacent spots' label if there were within (~) two-three pixels; eliminates the merged label(s)
                     _find_coord = np.where(_chr_map_tran == _label)  
-                    # add transformed xy to the input array (7 and 8th element)       
-                    _chr_gene[np.where(_chr_gene[:,5]==_label)[0][0],7] = _find_coord[0][0]   # transformation convert one coord pix into 4 neighboring pixels; use the first one as approximate
-                    _chr_gene[np.where(_chr_gene[:,5]==_label)[0][0],8] = _find_coord[1][0]
+                    if len(_find_coord) >0 :  # if transformed chrom remain within the map range
+                        # add transformed xy to the input array (7 and 8th element)       
+                        _chr_gene[np.where(_chr_gene[:,5]==_label)[0][0],7] = _find_coord[0][0]   # transformation convert one coord pix into 4 neighboring pixels; use the first one as approximate
+                        _chr_gene[np.where(_chr_gene[:,5]==_label)[0][0],8] = _find_coord[1][0]
+                    else:
+                        _chr_gene[np.where(_chr_gene[:,5]==_label)[0][0],7] = -1 # negative pseudo coord 
+                        _chr_gene[np.where(_chr_gene[:,5]==_label)[0][0],8] = -1 # negative pseudo coord 
+
 
         # use original xy if no transformtation
         else:
