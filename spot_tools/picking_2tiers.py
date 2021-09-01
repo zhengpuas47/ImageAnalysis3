@@ -2058,12 +2058,12 @@ def assign_chromosome_to_labeled_cells_for_gene (_chr_gene, _segmentation, tmat 
             for _label in np.unique(_chr_map):
                     _labeled_chr = _chr_map == _label
                     _labeled_chr = _labeled_chr.astype(float)
-                    _labeled_chr_tran = skimage.transform.warp(_labeled_chr,tmat_skimage)
+                    _labeled_chr_tran = skimage.transform.warp(_labeled_chr,tmat_skimage, order=1)  # bi-linear interpolation which increase the coord siz ; but somehow neareast mode leads to loss of coords
                     _labeled_chr_tran[_labeled_chr_tran>0]=_label
                     _labeled_chr_tran = _labeled_chr_tran.astype(np.uint16)
                     _chr_map_tran += _labeled_chr_tran
             # retrive transformed xy (in pixel) from the transformed image
-            if  np.unique(_chr_map_tran) ==  np.unique(_chr_map_tran):
+            for _label in np.unique(_chr_map_tran):
                 if _label > 0  and _label in np.unique(_chr_map): # transformation can still merge two adjacent spots' label if there were within (~) two-three pixels; eliminates the merged label(s)
                     _find_coord = np.where(_chr_map_tran == _label)  
                     if len(_find_coord) >0 :  # if transformed chrom remain within the map range
