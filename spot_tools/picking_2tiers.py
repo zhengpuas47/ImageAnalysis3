@@ -1276,9 +1276,12 @@ def batch_pick_spots_for_all_chromosomes (_chrom_azyxiuc_array,
         _repeated_spot_index = np.argwhere(np.all(_all_picked_spots[:,2:4] == _repeated_spot, axis=1))
         _repeated_spot_index_list.append(_repeated_spot_index.ravel())  # ravel 
         
+        
    # process each repeated spot
+    _spot_index_to_reset_list = []
+
     if len(_repeated_spot_index_list) > 0:
-        _spot_index_to_reset_list = []
+        
 
         for _repeated_spot_index in _repeated_spot_index_list:
         # same spot that share xy in each repeated spot group
