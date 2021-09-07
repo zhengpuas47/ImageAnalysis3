@@ -1437,8 +1437,17 @@ def batch_2tier_pick_spots_for_preprocessed_fov (_fov,
 
     # convert fov.combo_spots_list type data to spot dict
     _all_combo_spots_dict = {}
+
+
+    _region_id_name_dict = {}
+    # the dict to call spot intensity th by specifying the index for each region id 
+    for _ind, _all_region_id in enumerate(_fov.combo_ids):
+        _region_id_name_dict [_ind] = _all_region_id      
+    # e.g.,   if the first region_id is 45; this help find the first array of spots in the combo_spots_list and assign the region_id for this array of spots in the _all_combo_spots
     for _index, _spots in enumerate(_fov.combo_spots_list):
-        _all_combo_spots_dict [str(_index+1)] = _spots
+
+        _region_id_name = _region_id_name_dict[_index]
+        _all_combo_spots_dict [str(_region_id_name)] = _spots
 
     # convert the spot dict to array with region id as the last element
     _all_combo_spots = convert_dict_to_array (_all_combo_spots_dict)
