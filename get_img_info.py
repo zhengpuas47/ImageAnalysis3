@@ -161,7 +161,8 @@ def Load_Color_Usage(master_folder, color_filename='Color_Usage', color_format='
     else:
         _dapi = False
     if return_color:
-        _colors = [int(_c) for _c in _header[1:]]
+        #_colors = [int(_c) for _c in _header[1:]]
+        _colors = [(_c) for _c in _header[1:]]
         return _color_usage, _dapi, _colors
     return _color_usage, _dapi
 

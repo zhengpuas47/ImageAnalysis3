@@ -2105,9 +2105,9 @@ def assign_chromosome_to_labeled_cells_for_gene (_chr_gene, _segmentation, tmat 
                 _dist_z = _chr_z- _curr_z
                 if abs(_dist_z) <=1:
                     _zmid = _curr_z/_step_size
-                elif _dist_z <5 and _dist_z >0:
+                elif _dist_z <_step_size and _dist_z >0:
                     _zbottom = _curr_z/_step_size
-                elif _dist_z<0 and _dist_z >-5:
+                elif _dist_z<0 and _dist_z > -_step_size:
                     _ztop = _curr_z/_step_size
       
              # if the chr is close to one specific z-layer (the transfromed xy must be in range of the segmentation image)
@@ -2119,11 +2119,11 @@ def assign_chromosome_to_labeled_cells_for_gene (_chr_gene, _segmentation, tmat 
                 # if the specific z-mid happen to have no assigned cells, use top and bottom layer only if both give same result  
                 # thus, strigent criteria is used here
                 else:
-                    if int(_zmid)*5 <  _ims_frames:
+                    if int(_zmid)*_step_size <  min(_ims_frames-1, (_segmentation_frames-1)*_step_size):
                         _cell_feature_2d_top = _segmentation[int(_zmid)+1]
                     else:
                         _cell_feature_2d_top = None
-                    if int(_zmid)*5 >  0:
+                    if int(_zmid)*_step_size >  0:
                         _cell_feature_2d_bottom = _segmentation[int(_zmid)-1]
                     else:
                         _cell_feature_2d_bottom = None

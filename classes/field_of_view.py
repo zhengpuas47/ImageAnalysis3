@@ -2198,16 +2198,36 @@ class Field_of_View():
             _parallel = False
         
 
+        # define the indexes for ims loading below based on the processed combo_ids
+        if hasattr(self, 'combo_ids'):
+            _all_ims_combo_ids = getattr(self, 'combo_ids')
+        else:
+            self._load_from_file('combo')
+            _all_ims_combo_ids = getattr(self, 'combo_ids')
+        
+        _ims_ind_dict = {}
+        # the dict to load ims by specifying the index for each region id 
+        for _ind, _all_region_id in enumerate(_all_ims_combo_ids):
+            _ims_ind_dict[_all_region_id] = _ind
+    
+    
+
+
         if _parallel == False:  # slow but less memory usage
                 # load spot_im for one hyb at a time to save memory
             for _region_id in _region_ids:
                 if _verbose:
                     print(f"+ estimate intensity threshold for region {_region_id}.")
-                    if _region_id == 0:
-                        print ("note that the spot image with index of '-1' is loaded for region_id == 0")
+
+                    if _region_id in _ims_ind_dict.keys():
+                        _spot_im_ind = _ims_ind_dict[_region_id]
+                    else:
+                        print ("-- region id not in the processed hdf5, exit")
+                        return None
+
                 with h5py.File(self.save_filename, "r", libver='latest') as _f:
                     _grp = _f['combo']
-                    _spot_im = _grp ['ims'][_region_id-1]
+                    _spot_im = _grp ['ims'][_spot_im_ind]
                     #_combo_id = _grp ['ids'][_region_id-1]
 
                     from ..spot_tools.picking import find_spot_intensity_th_and_background_in_nucleus
@@ -2221,25 +2241,38 @@ class Field_of_View():
             if len(_region_ids) > 0:
                 _batch = True
 
+
+                def chunks_func(input_region_ids, chunk_size):
+                # subfunction to yield successive n-sized chunks from list."""
+                    for i in range(0, len(input_region_ids), chunk_size):
+                        yield input_region_ids[i:i + chunk_size]
+
                 if _chunk_size > len(_region_ids):
-                    _chunk_size = len(_region_ids)/2
+                    _chunk_size = int(len(_region_ids)/2)
+                
+                _chunk_region_ids_list = list(chunks_func(_region_ids, _chunk_size))
 
-                for _chunk_index, _region_id in enumerate(_region_ids[0:-1:_chunk_size]):
-                    _start, _end = max(_region_id, min (_region_ids)), min(_region_id+_chunk_size,max(_region_ids))
-                    _chunk_region_ids = np.array(list(range(_start, _end+1)))
+                for _chunk_index, _chunk_region_ids in enumerate(_chunk_region_ids_list):
 
-
+                    _spot_ims = []
                     # read a subset of ims to save memory  ~ _chunk_size/len(total num of regions)
-                    with h5py.File(self.save_filename, "r", libver='latest') as _f:
-                        _grp = _f['combo']
-                        _spot_im = _grp ['ims'][_start-1: _end]
-                    
+                    for _chunk_region_id in _chunk_region_ids:
+                        if _chunk_region_id in _ims_ind_dict.keys():
+                            _spot_im_ind =  _ims_ind_dict[_chunk_region_id]
+                            with h5py.File(self.save_filename, "r", libver='latest') as _f:
+                                _grp = _f['combo']
+                                _spot_im = _grp ['ims'][_spot_im_ind]
+                            _spot_ims.append(_spot_im)
+                        else:
+                            print ("-- region id not in the processed hdf5, exit")
+                            return None
+
                     import multiprocessing as mp
                     from ..spot_tools.picking import find_spot_intensity_th_and_background_in_nucleus
 
                     # provide _spot_im without _spot_id here to avoid re-loading hdf5 in the function below
-                    _spot_im_kwargs = [(_dna_im, _spot_im[_chunk_region_id - 1 - _chunk_size* _chunk_index], None, None, _dna_mask, _std_ratio, _dust_size, _return_signal_and_background, _verbose, _batch) for _chunk_region_id in _chunk_region_ids]
-
+                    #_spot_im_kwargs = [(_dna_im, _spot_im[_chunk_region_id - 1 - _chunk_size* _chunk_index], None, None, _dna_mask, _std_ratio, _dust_size, _return_signal_and_background, _verbose, _batch) for _chunk_region_id in _chunk_region_ids]
+                    _spot_im_kwargs = [(_dna_im, _spot_ims[_chunk_region_index], None, None, _dna_mask, _std_ratio, _dust_size, _return_signal_and_background, _verbose, _batch) for _chunk_region_index, _chunk_region_id in enumerate(_chunk_region_ids)]
                     with mp.Pool(_num_threads,) as _spot_ims_pool:
                         if _verbose:
                              print(f"- Start multiprocessing estimates spot intensity th in image chunks {_chunk_index+1} with {_num_threads} threads", end=' ')
@@ -2251,8 +2284,8 @@ class Field_of_View():
                         _spot_ims_pool.terminate()
                         if _verbose:
                             print(f"in {time.time()-_multi_time:.3f}s.")
-                    for  _chunk_region_id in _chunk_region_ids:
-                        _spot_intensity_th [str(_chunk_region_id)] = _spot_intensity_th_res [_chunk_region_id - 1 - _chunk_size* _chunk_index]
+                    for  _chunk_region_index, _chunk_region_id in enumerate(_chunk_region_ids):
+                        _spot_intensity_th [str(_chunk_region_id)] = _spot_intensity_th_res [_chunk_region_index]
 
 
         ## 3. set attributes
