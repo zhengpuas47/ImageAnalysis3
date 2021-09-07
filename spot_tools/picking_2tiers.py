@@ -1421,7 +1421,7 @@ def convert_dict_to_array (chrom_coords_dict):
 
 
 def batch_2tier_pick_spots_for_preprocessed_fov (_fov,
-                                           _chr_size_filter_dict ={}, 
+                                           _chr_size_filter_dict ={}, # should be in a formate like {'1': 200, '2': 200, '3': 200, '4': 200, '5': 200}
                                            _chr_size_filter = 100, 
                                            _distance_zxy = [200, 108, 108],
                                            _adjust_ratio = 0.9, 

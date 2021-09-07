@@ -1910,6 +1910,8 @@ class Field_of_View():
                                                 _dna_mask=None,
                                                 _chr_ids = [], 
                                                 _chr_seed_size = 200,
+                                                _size_pre_filtering = False,  
+                                                _pre_min_label_size= 200,  
                                                 _percent_th_3chr = 97.5,
                                                 _percent_th_2chr = 85, 
                                                 _use_percent_chr_area = False,
@@ -1998,7 +2000,8 @@ class Field_of_View():
 
                 from ..segmentation_tools.chromosome import find_candidate_chromosomes_in_nucleus
                 _chrom_coords = find_candidate_chromosomes_in_nucleus (
-                _chrom_im, _dna_im = _dna_im, _dna_mask=_dna_mask, _chr_seed_size = _chr_seed_size, _percent_th_3chr =_percent_th_3chr, _percent_th_2chr=_percent_th_2chr, 
+                _chrom_im, _dna_im = _dna_im, _dna_mask=_dna_mask, _chr_seed_size = _chr_seed_size, _size_pre_filtering = _size_pre_filtering , _pre_min_label_size = _pre_min_label_size, 
+                _percent_th_3chr =_percent_th_3chr, _percent_th_2chr=_percent_th_2chr, 
                 _use_percent_chr_area= _use_percent_chr_area, _fold_3chr=_fold_3chr, _fold_2chr = _fold_2chr, _std_ratio=_std_ratio,_morphology_size=_morphology_size,
                 _min_label_size=_min_label_size, _random_walk_beta=_random_walk_beta,_num_threads=_num_threads,_verbose=_verbose)
                 _chrom_coords_all [str(_chr_id)] = _chrom_coords

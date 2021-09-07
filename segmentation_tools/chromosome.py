@@ -52,6 +52,8 @@ def find_candidate_chromosomes_in_nucleus (_chrom_im, _dna_im, _dna_mask = None,
                                            _chr_seed_size = 200,
                                            _filt_size =3, 
                                            _num_of_iter = 10,
+                                           _size_pre_filtering = False,   
+                                           _pre_min_label_size = 200,      
                                            _percent_th_3chr = 97.5,
                                            _percent_th_2chr = 85, 
                                            _use_percent_chr_area = False,
@@ -126,6 +128,13 @@ def find_candidate_chromosomes_in_nucleus (_chrom_im, _dna_im, _dna_mask = None,
     if _verbose:
         print(f"-- binarize image with threshold: {_seed_im_th}")
     _binary_im = _seed_im * _dna_rough_mask > _seed_im_th   # also exclude the non-cell (xy max projection) area
+
+
+    if _size_pre_filtering:
+        if _verbose:
+            print ('-- prefiltering the birnary im with _pre_min_label_size as {_pre_min_label_size}')
+        _binary_im = morphology.remove_small_objects(_binary_im, _pre_min_label_size).astype(np.uint16)
+
     
      # exclude edges
     _filt_size=3
