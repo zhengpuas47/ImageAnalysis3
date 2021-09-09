@@ -1241,7 +1241,10 @@ def batch_pick_spots_for_all_chromosomes (_chrom_azyxiuc_array,
         if _verbose:
             print(f"in {time.time()-_multi_time:.3f}s.")
     # combine results for isolated chromosome
-    _spots_hzxyida_single = np.vstack(_spot_pool_result)
+    if len(_spot_pool_result) >1:
+        _spots_hzxyida_single = np.vstack(_spot_pool_result)
+    else:
+        _spots_hzxyida_single = np.array(_spot_pool_result)
 
 
     with mp.Pool(_num_threads) as _spot_pool:
@@ -1257,7 +1260,10 @@ def batch_pick_spots_for_all_chromosomes (_chrom_azyxiuc_array,
         if _verbose:
             print(f"in {time.time()-_multi_time:.3f}s.")
     # combine results for multi chromosomes
-    _spots_hzxyida_multi = np.vstack(_spot_pool_result2)
+    if len(_spot_pool_result2) >1:
+        _spots_hzxyida_multi = np.vstack(_spot_pool_result2)
+    else:
+        _spots_hzxyida_multi = np.array(_spot_pool_result2)
 
     # combine all results; note that spots within radius of multiple clusters will be kept
     _spots_hzxyida = np.vstack((_spots_hzxyida_single, _spots_hzxyida_multi))
