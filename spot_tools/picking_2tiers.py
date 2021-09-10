@@ -1908,9 +1908,10 @@ def batch_EM_pick_spots_for_preprocessed_fov (_fov,
 
 # Function to assign chromosome (chr array) to labeled cells from for example RNA experiment (with drift)
 # Output is a chrom array with original measurement (azxyiuc) plus aligned xy and assigned cell id
-def assign_chromosome_to_labeled_cells (_chrom_azxyiuc_filename, _cell_segmentation_filename, _transpose_segmentation = True,
+def assign_chromosome_to_labeled_cells (_chrom_azxyiuc_filename, _cell_segmentation_filename, _transpose_segmentation = False,
                                         _align_transformation = None, _inverse_transformation = True,
                                         _distance_xyz = [200,108, 108], _ims_shape = [60,2048,2048],
+                                        _crop_size =5, _occupy_ratio =0.2,  _label_ratio = 0.3,
                                         _num_threads = 4, _save_results = True, _alt_save_folder = None,
                                         _verbose=True):
     '''Function to assign chromosome from processed and saved chromosome azxyiuc array to labeled cells
@@ -1987,8 +1988,10 @@ def assign_chromosome_to_labeled_cells (_chrom_azxyiuc_filename, _cell_segmentat
     for _gene_id in np.unique(_labeled_chrom_azxyiuc_xyl[:,4]):
 
         _chr_gene = _labeled_chrom_azxyiuc_xyl[_labeled_chrom_azxyiuc_xyl[:,4]==_gene_id]
-        _assign_chr_args.append((_chr_gene, _cell_feature, tmat, _distance_xyz, _ims_shape, _verbose))
-    
+        _assign_chr_args.append((_chr_gene, _cell_feature, tmat, _distance_xyz, _ims_shape, _crop_size, _occupy_ratio, _label_ratio, _verbose))
+        
+    from ..io_tools.crop import crop_neighboring_area
+    import math
     import multiprocessing as mp
     with mp.Pool(_num_threads) as _chr_pool:
         if _verbose:
@@ -2004,7 +2007,11 @@ def assign_chromosome_to_labeled_cells (_chrom_azxyiuc_filename, _cell_segmentat
         if _verbose:
             print(f"in {time.time()-_multi_time:.3f}s.")
     # combine results for chromosomes from individual genes
-    _labeled_chrom_azxyiucxyl = np.vstack(_chrom_pool_result)
+    if len(_chrom_pool_result) > 1:
+        _labeled_chrom_azxyiucxyl = np.vstack(_chrom_pool_result)
+    else:
+        _labeled_chrom_azxyiucxyl = np.array(_chrom_pool_result)
+
 
 
     ### 5. save and return results
@@ -2036,12 +2043,141 @@ def assign_chromosome_to_labeled_cells (_chrom_azxyiuc_filename, _cell_segmentat
 
 
     
+    ### 3. a sub-function for process chrs for individual gene (a non-overlapping subset of the chrom array) for the batch function above
+def assign_chromosome_to_labeled_cells_for_gene (_chr_gene, _segmentation, tmat =  None,  
+                                                    _distance_xyz = [200,108, 108], _ims_shape = [60,2048,2048], _crop_size =5, _occupy_ratio =0.2, 
+                                                    _label_ratio = 0.3, _verbose = True):
+    '''_chr_gene is a subset of _labeled_chrom_azxyiuc_xyl defined above outside this sub-function
+        
+        _segmentation is the cell_feature segmentation mask file, tmat is the homogeneous transformation matrix if supplied'''
+
+    _batch = True # default setting 
+    if _batch:
+
+        ## 3.1 transform chrom xy coord 
+        if tmat is not None:
+
+            import skimage
+
+             # generate chr map mask for each coord 
+            _chr_map = np.zeros(_ims_shape[1:], dtype=np.uint16)
+        
+            # use the chr map mask to perform transformation;
+            # the tmat appears to not work for directly transforming coords themselves; (because the coord needs to to be relative to the rotation center, eg.,[1024, 1024])
+            # may have to do with the tamt is originally derived from transforming (DAPI) images instead of coords
+            for _chr in _chr_gene:
+                _chr_xy = _chr[2:4]/np.array(_distance_xyz[1:])
+                # xy in pixel
+                _chr_y, _chr_x= int(round(_chr_xy[0])),int(round(_chr_xy[1]))
+                # label assigned by the unique chr id
+                if _chr_map [_chr_y, _chr_x] == 0:
+                    _chr_map [_chr_y, _chr_x] = _chr[5]  
+                else: # though unlikely, if xy happend to be the same, shift the new coord by 1 pixel
+                    _chr_map [_chr_y+1, _chr_x+1] = _chr[5]
+            
+            # convert tmat to skimage format
+            tmat_skimage = skimage.transform.AffineTransform(tmat)
+            # generate transformed chr map mask for each coord 
+            _chr_map_tran = np.zeros([2048,2048], dtype=np.uint16)
+            # preserves the label integrity by transforming each chr label at a time
+            if _verbose:
+                print ('-- generate transformed chromosome coord map')
+            for _label in np.unique(_chr_map):
+                    _labeled_chr = _chr_map == _label
+                    _labeled_chr = _labeled_chr.astype(float)
+                    _labeled_chr_tran = skimage.transform.warp(_labeled_chr,tmat_skimage, order=1)  # bi-linear interpolation which increase the coord siz ; but somehow neareast mode leads to loss of coords
+                    _labeled_chr_tran[_labeled_chr_tran>0]=_label
+                    _labeled_chr_tran = _labeled_chr_tran.astype(np.uint16)
+                    _chr_map_tran += _labeled_chr_tran
+            # retrive transformed xy (in pixel) from the transformed image
+            for _label in np.unique(_chr_map_tran):
+                if _label > 0  and _label in np.unique(_chr_map): # transformation can still merge two adjacent spots' label if there were within (~) two-three pixels; eliminates the merged label(s)
+                    _find_coord = np.where(_chr_map_tran == _label)  
+                    if len(_find_coord) >0 :  # if transformed chrom remain within the map range
+                        # add transformed xy to the input array (7 and 8th element)       
+                        _chr_gene[np.where(_chr_gene[:,5]==_label)[0][0],7] = _find_coord[0][0]   # transformation convert one coord pix into 4 neighboring pixels; use the first one as approximate
+                        _chr_gene[np.where(_chr_gene[:,5]==_label)[0][0],8] = _find_coord[1][0]
+                    else:
+                        _chr_gene[np.where(_chr_gene[:,5]==_label)[0][0],7] = -1 # negative pseudo coord 
+                        _chr_gene[np.where(_chr_gene[:,5]==_label)[0][0],8] = -1 # negative pseudo coord 
+
+
+        # use original xy if no transformtation
+        else:
+            for _chr in _chr_gene:
+                _chr_xy = _chr[2:4]/np.array(_distance_xyz[1:])
+                _chr[7], _chr[8] = int(round(_chr_xy[0])),int(round(_chr_xy[1]))
+
+
+        ## 3.2 assing cells using segmentation info
+        #_ims_frames = _ims_shape[0]
+        #_segmentation_frames = _segmentation.shape[0]
+        #_step_size = _ims_frames/_segmentation_frames
+
+        if _verbose:
+            print ('-- assigning transformed chromosome coord to labeled cells')
+
+        
+        from ..io_tools.crop import crop_neighboring_area
+        import math
+
+        for _chr in _chr_gene:
+            # retrieve the pixel pos for z
+            _chr_z = _chr[1]/np.array(_distance_xyz[0])
+            # retrieve the transformed xy (as int)
+            _chr_y =  _chr[7]
+            _chr_x = _chr[8]
+            # generate a mask cube with define size and find unique labels
+            _chr_crop_area =  crop_neighboring_area (_segmentation, [_chr_z,_chr_y,_chr_x], _crop_size)
+            _labels_crop_area = np.unique(_chr_crop_area, return_counts = True)
+
+            # if contains only one label 
+            if len(_labels_crop_area[0]) == 1:
+                _chr[9] = _labels_crop_area[0][0]
+            # if contains only two labels but only one non-zero label 
+            if len(_labels_crop_area[0]) ==2 and 0 in _labels_crop_area[0]:
+                # more than _occupy_ratio (e.g.,20%) of the cube has the non-zero label 
+                if _labels_crop_area[1][1] > math.pow(_crop_size, 3) * _occupy_ratio:
+                    _chr[9] =_labels_crop_area[0][1]
+            # if contains two or more non_zero labels     
+            elif len(_labels_crop_area[0]) >2:
+                # initiate total non-zero count
+                _nonzero_count = math.pow(_crop_size, 3)
+
+                _nonzero_count_list = []
+                _nonzero_label_list = []
+                
+                for _label, _count in zip(_labels_crop_area[0],_labels_crop_area[1]):
+                    if _label == 0:
+                        _nonzero_count = math.pow(_crop_size, 3) - _count
+                    # append non-zero labels and counts
+                    else:
+                        _nonzero_count_list.append(_count)
+                        _nonzero_label_list.append(_label)
+                # if more than _occupy_ratio (e.g.,20%) of the cube has the non-zero label 
+                if _nonzero_count > math.pow(_crop_size, 3) * _occupy_ratio:
+                    _nonzero_counts = np.array(_nonzero_count_list)
+                    _nonzero_labels = np.array(_nonzero_label_list)
+
+                    # if the most frequent labels is certain times more than the second most frequent labels
+                    _count_sorted = np.sort(_nonzero_counts)
+                    if _count_sorted [-1] * _label_ratio > _count_sorted [-2]:
+                        _count_sorted_index = np.argsort(_nonzero_counts)
+                        # convert back to int for label
+                        _label_sel = int(_nonzero_labels [_count_sorted_index][-1])
+                        _chr[9] = _label_sel
+
+        return _chr_gene
+
+
 
 
 
 
     ### 3. a sub-function for process chrs for individual gene (a non-overlapping subset of the chrom array) for the batch function above
-def assign_chromosome_to_labeled_cells_for_gene (_chr_gene, _segmentation, tmat =  None,  
+
+    # old version written for PolyT segmentation with gaps in z (compared to the original image)
+def assign_chromosome_to_labeled_cells_for_gene_old (_chr_gene, _segmentation, tmat =  None,  
                                                     _distance_xyz = [200,108, 108], _ims_shape = [60,2048,2048], _verbose = True):
     '''_chr_gene is a subset of _labeled_chrom_azxyiuc_xyl defined above outside this sub-function
         
