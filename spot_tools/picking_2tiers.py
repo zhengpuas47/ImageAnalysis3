@@ -1243,8 +1243,10 @@ def batch_pick_spots_for_all_chromosomes (_chrom_azyxiuc_array,
     # combine results for isolated chromosome
     if len(_spot_pool_result) >1:
         _spots_hzxyida_single = np.vstack(_spot_pool_result)
-    else:
-        _spots_hzxyida_single = np.array(_spot_pool_result)
+    elif len(_spot_pool_result) == 1 and len(_spot_pool_result[0]) >0:
+        _spots_hzxyida_single = np.vstack(_spot_pool_result)
+    else: # if result is [[]], retunr empty list so len is 0
+        _spots_hzxyida_single = []
 
 
     with mp.Pool(_num_threads) as _spot_pool:
@@ -1260,10 +1262,12 @@ def batch_pick_spots_for_all_chromosomes (_chrom_azyxiuc_array,
         if _verbose:
             print(f"in {time.time()-_multi_time:.3f}s.")
     # combine results for multi chromosomes
-    if len(_spot_pool_result2) >1:
+    if len(_spot_pool_result2) >1:   
         _spots_hzxyida_multi = np.vstack(_spot_pool_result2)
-    else:
-        _spots_hzxyida_multi = np.array(_spot_pool_result2)
+    elif len(_spot_pool_result2) == 1 and len(_spot_pool_result2[0]) >0:
+        _spots_hzxyida_multi = np.vstack(_spot_pool_result2)
+    else: # if result is [[]], retunr empty list so len is 0
+        _spots_hzxyida_multi = []
 
     # combine all results; note that spots within radius of multiple clusters will be kept
     if len(_spots_hzxyida_multi) > 0 and  len(_spots_hzxyida_single)>0:
@@ -1364,9 +1368,9 @@ def batch_pick_spots_for_all_chromosomes (_chrom_azyxiuc_array,
             _repeated_spot_index = np.argwhere(np.all(_spots_hzxyida[:,2:4] == _repeated_spot, axis=1))
             _repeated_spot_index_list.append(_repeated_spot_index.ravel())  # ravel 
 
-        if len(_repeated_spot_index_list) > 0:
 
-            _spot_index_to_remove_list = [] # original index for removing all spots from the original array 
+        _spot_index_to_remove_list = [] # original index for removing all spots from the original array 
+        if len(_repeated_spot_index_list) > 0:
             for _repeated_spot_index in _repeated_spot_index_list:
                 _picked_chr_ids = []
                 _closest_chr_in_cluster_list = []
