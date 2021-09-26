@@ -25,7 +25,9 @@ _allowed_kwds = {'combo': 'c',
                 'merfish': 'm', 
                 #'rna-unique':'r', 
                 'rna': 'r', # long term used label, because "-" is creating issue in python
-                'gene':'g'}
+                'gene':'g',
+                'protein':'p',
+                }
 _max_num_seeds = 500 
 _min_num_seeds = 50 
 _spot_seeding_th = 200
@@ -3510,7 +3512,7 @@ class Cell_Data():
             _seed_im = 2*_max_ft - _min_ft
             # binarilize
             _binary_im = (_seed_im > stats.scoreatpercentile(_seed_im, _th_percentile))
-            # dialation and erosion
+            # dilation and erosion
             _binary_im = ndimage.binary_dilation(_binary_im, morphology.ball(1))
             _binary_im = ndimage.binary_erosion(_binary_im, morphology.ball(0))
             _binary_im = ndimage.binary_fill_holes(_binary_im, structure=morphology.ball(2))

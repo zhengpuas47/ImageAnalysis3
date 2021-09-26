@@ -15,10 +15,10 @@ def get_folders(master_folder, feature='H', verbose=True):
         feature: 'H' for hybes, 'B' for beads
     returns folders, field_of_views'''
     folders = [folder for folder in glob.glob(master_folder+os.sep+'*') if os.path.basename(folder)[0]==feature] # get folders start with 'H'
-    #for __name in sorted(__color_dic.keys(), key=lambda _v:int( re.split(r'^H([0-9]+)[RQBUGCM](.*)', _v)[1] ) ):
+    #for __name in sorted(__color_dic.keys(), key=lambda _v:int( re.split(r'^H([0-9]+)[RQBUGCMP](.*)', _v)[1] ) ):
     # try sort folder by hyb
     try:
-        folders = list(sorted(folders, key=lambda _path:int(re.split(r'^H([0-9]+)[RQBUGCM](.*)', os.path.basename(_path) )[1])  ) ) 
+        folders = list(sorted(folders, key=lambda _path:int(re.split(r'^H([0-9]+)[RQBUGCMP](.*)', os.path.basename(_path) )[1])  ) ) 
     except:
         pass
     
@@ -161,7 +161,7 @@ def Load_Color_Usage(master_folder, color_filename='Color_Usage', color_format='
     else:
         _dapi = False
     if return_color:
-        _colors = [int(_c) for _c in _header[1:]]
+        _colors = [_c for _c in _header[1:]]
         return _color_usage, _dapi, _colors
     return _color_usage, _dapi
 
@@ -497,7 +497,7 @@ def find_bead_channel(__color_dic, __bead_mark='beads'):
     print(__color_dic.keys())
     '''Given a color_dic loaded from Color_Usage file, return bead channel if applicable'''
     __bead_channels = []
-    for __name in sorted(__color_dic.keys(), key=lambda _v:int( re.split(r'^H([0-9]+)[RQBUGCM](.*)', _v)[1] ) ):
+    for __name in sorted(__color_dic.keys(), key=lambda _v:int( re.split(r'^H([0-9]+)[RQBUGCMP](.*)', _v)[1] ) ):
         __info = __color_dic[__name]
         __bead_channels.append(__info.index(__bead_mark))
     __unique_channel = np.unique(__bead_channels)
@@ -510,7 +510,7 @@ def find_bead_channel(__color_dic, __bead_mark='beads'):
 def find_dapi_channel(__color_dic, __dapi_mark='DAPI'):
     '''Given a color_dic loaded from Color_Usage file, return bead channel if applicable'''
     __dapi_channels = []
-    for __name in sorted(__color_dic.keys(), key=lambda _v:int( re.split(r'^H([0-9]+)[RQBUGCM](.*)', _v)[1] ) ):
+    for __name in sorted(__color_dic.keys(), key=lambda _v:int( re.split(r'^H([0-9]+)[RQBUGCMP](.*)', _v)[1] ) ):
         __info = __color_dic[__name]
         if __dapi_mark in __info:
             __dapi_channels.append(__info.index(__dapi_mark))
