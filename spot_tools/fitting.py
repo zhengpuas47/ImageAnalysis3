@@ -103,7 +103,8 @@ def get_seeds(im, max_num_seeds=None, th_seed=150,
     
     # generate map
     _local_maximum_mask = (_max_ft & _min_ft).astype(np.bool)
-    _diff_ft = (_max_im.astype(np.int32) - _min_im.astype(np.int32))
+    _diff_ft = (_max_im.astype(np.float32) - _min_im.astype(np.float32))
+    
     # clear RAM immediately
     del(_max_im, _min_im)
     del(_max_ft, _min_ft) 

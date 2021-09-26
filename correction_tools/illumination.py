@@ -11,6 +11,8 @@ from scipy.ndimage import gaussian_filter
 from .. import _allowed_colors, _distance_zxy, _image_size, _correction_folder
 from ..io_tools.load import correct_fov_image
 
+
+
 def Generate_illumination_correction(data_folder, 
                                      sel_channels=None, 
                                      num_threads=12, parallel=True,
@@ -139,7 +141,6 @@ def Generate_illumination_correction(data_folder,
         print(f"-- finish generating illumination profiles, time:{time.time()-_total_start:.2f}s")
     return _illumination_pfs
 
-
 ## function to be called by multiprocessing:
 # function to process a image into median profiles in this fov
 def _image_to_profile(filename, sel_channels, 
@@ -191,3 +192,21 @@ def _image_to_profile(filename, sel_channels,
         print(f"into profile in {time.time()-_load_time:.2f}s.")
 
     return _pfs                                
+
+def illumination_correction(im, corr_profile):
+    """Apply illumination correction for 2d or 3d image with 2d profile (x-y)"""
+
+    if len(np.shape(corr_profile)) != 2:
+        raise IndexError(f"corr_profile for illumination should be 2d")
+        
+    if len(np.shape(im)) == 3:
+        return np.clip(im.astype(np.float32) / corr_profile[np.newaxis,:], 
+                       a_min=np.iinfo(im.dtype).min, 
+                       a_max=np.iinfo(im.dtype).max).astype(im.dtype)
+         
+    elif len(np.shape(im)) == 2:
+        return np.clip(im.astype(np.float32) / corr_profile, 
+                       a_min=np.iinfo(im.dtype).min, 
+                       a_max=np.iinfo(im.dtype).max).astype(im.dtype)
+    else:
+        raise IndexError(f"input image should be 2d or 3d.")
