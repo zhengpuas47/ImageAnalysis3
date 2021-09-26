@@ -181,7 +181,7 @@ def Generate_chromatic_abbrevation(chromatic_folder, ref_folder,
         _ca_rsqs = _const_infos['rsquares']    
 
     else:
-        ## 2. select_fov_names
+        ## 2. select matched fovs
         fov_names = [_fl for _fl in os.listdir(chromatic_folder) 
                     if _fl.split('.')[-1]=='dax']
         ref_fov_names = [_fl for _fl in os.listdir(ref_folder) 
@@ -225,7 +225,7 @@ def Generate_chromatic_abbrevation(chromatic_folder, ref_folder,
             if verbose:
                 print(f"++ generating chromatic info for {len(_chromatic_args)} images in", end=' ')
                 _multi_start = time.time()
-            _spot_infos = [find_chromatic_spot_pairs(*_arg) for _arg in _chromatic_args]
+            spot_infos = [find_chromatic_spot_pairs(*_arg) for _arg in _chromatic_args]
             if verbose:
                 print(f"{time.time()-_multi_start:.3f}s.")    
         ## 5. summarize spots from multiple fovs

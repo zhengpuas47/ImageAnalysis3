@@ -13,7 +13,7 @@ from ..io_tools.load import correct_fov_image
 
 def Generate_illumination_correction(data_folder, 
                                      sel_channels=None, 
-                                     num_threads=12,
+                                     num_threads=12, parallel=True,
                                      num_images=48,
                                      single_im_size=_image_size, all_channels=_allowed_colors,
                                      num_buffer_frames=10, num_empty_frames=0, 
@@ -79,17 +79,26 @@ def Generate_illumination_correction(data_folder,
                       hot_pixel_corr, hot_pixel_th, 
                       z_shift_corr, 
                       verbose) for _fl in _input_fls]
-
-        with mp.Pool(num_threads) as _illumination_pool:
+        if parallel:
+            with mp.Pool(num_threads) as _illumination_pool:
+                if verbose:
+                    print(f"++ start multi-processing illumination profile calculateion with {num_threads} threads for {len(_illumination_args)} images", end=' ')
+                    _multi_time = time.time()
+                _pfs_per_fov = _illumination_pool.starmap(_image_to_profile, _illumination_args, chunksize=1)
+                _illumination_pool.close()
+                _illumination_pool.join()
+                _illumination_pool.terminate()
+                if verbose:
+                    print(f"in {time.time()-_multi_time:.2f}s.")
+        else:
             if verbose:
-                print(f"++ start multi-processing illumination profile calculateion with {num_threads} threads for {len(_illumination_args)} images", end=' ')
                 _multi_time = time.time()
-            _pfs_per_fov = _illumination_pool.starmap(_image_to_profile, _illumination_args, chunksize=1)
-            _illumination_pool.close()
-            _illumination_pool.join()
-            _illumination_pool.terminate()
+                print(f"++ start illumination profile calculateion for {len(_illumination_args)} images, start at: {time.localtime().tm_hour}:{time.localtime().tm_min}:{time.localtime().tm_sec}")
+                
+            _pfs_per_fov = [_image_to_profile(*_arg) for _arg in _illumination_args]
             if verbose:
-                print(f"in {time.time()-_multi_time:.2f}s.")
+                print(f"finish in {time.time()-_multi_time:.2f}s.")
+            
         # summarize results
         _sel_pfs = []
         for _i, _ch in enumerate(_sel_channels):
