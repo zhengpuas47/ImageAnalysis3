@@ -718,13 +718,14 @@ class Field_of_View():
             if _ref_id is None:
                 raise AttributeError(f"data_type: {_data_type}_ref_filename or {_data_type}_ref_id should be given!")
             _ref_filename = os.path.join(self.annotated_folders[int(_ref_id)], self.fov_name)
-            _info = self.color_dic[os.path.basename(self.annotated_folders[int(_ref_id)])]
-            _used_channels = []
-            for _mk, _ch in zip(_info, self.channels):
-                if _mk.lower() == 'null':
-                    continue
-                else:
-                    _used_channels.append(_ch)
+        # define used_channels in this round
+        _info = self.color_dic[os.path.basename(os.path.dirname(_ref_filename))]
+        _used_channels = []
+        for _mk, _ch in zip(_info, self.channels):
+            if _mk.lower() == 'null':
+                continue
+            else:
+                _used_channels.append(_ch)
 
         if _verbose:
             print(f"+ load reference image from file:{_ref_filename}")
@@ -2385,8 +2386,18 @@ class Field_of_View():
                 if _bead_id in _fd:
                     _ind = _i
                     break
-        _bead_filename = os.path.join(self.annotated_folders[_ind], self.fov_name)
+        _bead_folder = self.annotated_folders[_ind]
+        _bead_filename = os.path.join(_bead_folder, self.fov_name)
         _drift_channel = self.drift_channel
+        # get used_channels for this dapi folder:
+        _info = self.color_dic[os.path.basename(_bead_folder)]
+        _used_channels = []
+        for _mk, _ch in zip(_info, self.channels):
+            if _mk.lower() == 'null':
+                continue
+            else:
+                _used_channels.append(_ch)
+
         # load from Dax file
         if hasattr(self, 'ref_im'):
             _drift_ref = getattr(self, 'ref_im')
@@ -2396,7 +2407,7 @@ class Field_of_View():
         _bead_im = correct_fov_image(_bead_filename, 
                                     [_drift_channel],
                                     single_im_size=self.shared_parameters['single_im_size'],
-                                    all_channels=self.channels,
+                                    all_channels=_used_channels,
                                     num_buffer_frames=self.shared_parameters['num_buffer_frames'],
                                     num_empty_frames=self.shared_parameters['num_empty_frames'],
                                     drift=_drift, calculate_drift=False,

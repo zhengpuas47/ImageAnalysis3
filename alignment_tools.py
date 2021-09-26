@@ -31,7 +31,8 @@ def __init__():
 ## Function for alignment between consequtive experiments
 
 # 1. alignment for manually picked points
-def align_manual_points(pos_file_before, pos_file_after,
+def align_manual_points(pos_file_before, 
+    pos_file_after,
                         save=True, save_folder=None, save_filename='', verbose=True):
     """Function to align two manually picked position files, 
     they should follow exactly the same order and of same length.

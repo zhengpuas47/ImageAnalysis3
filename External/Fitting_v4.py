@@ -163,7 +163,8 @@ def add_source(im_,pos=[0,0,0],h=200,sig=[2,2,2]):
     
 from scipy.optimize import leastsq
 class GaussianFit():
-    def __init__(self,im,X,center=None,n_aprox=10,min_w=0.5,max_w=4.,delta_center=3.):
+    def __init__(self,im,X,center=None,n_aprox=10,min_w=0.5,max_w=4.,delta_center=3.,
+                 init_w=1.5):
         self.min_w = min_w*min_w
         self.max_w = max_w*max_w
         
@@ -179,7 +180,7 @@ class GaussianFit():
         eps =  np.exp(-10.)
         bk_guess = np.log(np.max([np.mean(sorted_im[:n_aprox]),eps]))
         h_guess = np.log(np.max([np.mean(sorted_im[-n_aprox:]),eps]))
-        wsq = 1.5**2
+        wsq = init_w**2
         wg = np.log((self.max_w - wsq)/(wsq-self.min_w))
         self.p_ = np.array([bk_guess,h_guess,0,0,0,wg,wg,wg,0,0],dtype=np.float32)
         self.to_natural_paramaters()
@@ -554,7 +555,9 @@ def fast_fit_big_image(im,centers_zxy,radius_fit = 4,avoid_neigbors=True,recente
     ps = np.array(ps)
     return ps
 class iter_fit_seed_points():
-    def __init__(self,im,centers,radius_fit=5,min_delta_center=1.,max_delta_center=2.5,n_max_iter = 10,max_dist_th=0.1):
+    def __init__(self,im,centers,radius_fit=5,min_delta_center=1.,max_delta_center=2.5,
+                 n_max_iter = 10,max_dist_th=0.1,
+                 min_w=0.5, max_w=4, init_w=1.5):
         """
         Given a set of seeds <centers> in a 3d image <im> iteratively 3d gaussian fit around the seeds (in order of brightness) 
         and subtract the gaussian signal.
@@ -578,8 +581,9 @@ class iter_fit_seed_points():
         self.zxyb = np.array([self.zb,self.xb,self.yb]).T
         self.sz,self.sx,self.sy = im.shape
         
-
-
+        self.min_w = min_w
+        self.max_w = max_w
+        self.init_w = init_w
                     
     def firstfit(self):
         """
@@ -610,7 +614,8 @@ class iter_fit_seed_points():
                 
                 self.gparms
                 
-                obj = GaussianFit(im_,X,center=center,delta_center=self.min_delta_center)
+                obj = GaussianFit(im_,X,center=center,delta_center=self.min_delta_center,
+                                  min_w=self.min_w, max_w=self.max_w, init_w=self.init_w)
                 obj.fit()
                 
                 self.gparms.append([im_,X,center])
@@ -656,7 +661,8 @@ class iter_fit_seed_points():
                             
 
                         delta_center = self.max_delta_center
-                        obj = GaussianFit(im_,X,center=[zc,xc,yc],delta_center=delta_center)
+                        obj = GaussianFit(im_,X,center=[zc,xc,yc],delta_center=delta_center,
+                                          min_w=self.min_w, max_w=self.max_w, init_w=self.init_w)
                         obj.fit()
                         self.success[ic] = obj.success
                         if obj.success:
