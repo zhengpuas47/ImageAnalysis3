@@ -166,7 +166,9 @@ def remove_edge_points(im, T_seeds, distance=2):
 
 
 # fit the entire field of view image
-def fit_fov_image(im, channel, seeds=None, max_num_seeds=500,
+def fit_fov_image(im, channel, seeds=None, 
+                  seed_mask=None,
+                  max_num_seeds=500,
                   th_seed=300, th_seed_per=95, use_percentile=False, 
                   use_dynamic_th=True, 
                   dynamic_niters=10, min_dynamic_seeds=1,
@@ -200,6 +202,10 @@ def fit_fov_image(im, channel, seeds=None, max_num_seeds=500,
         _seeds = np.array(seeds)[:,:len(np.shape(im))]
         if verbose:
             print(f"{len(_seeds)} given, ", end='')
+    # apply seed mask if given
+    if seed_mask is not None:
+        
+
 
     ## fitting
     _fitter = Fitting_v4.iter_fit_seed_points(
