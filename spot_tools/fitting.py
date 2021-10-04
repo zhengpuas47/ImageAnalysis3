@@ -204,8 +204,14 @@ def fit_fov_image(im, channel, seeds=None,
             print(f"{len(_seeds)} given, ", end='')
     # apply seed mask if given
     if seed_mask is not None:
-        
-
+        _sel_seeds = []
+        for _seed in _seeds:
+            if seed_mask[tuple(np.round(_seed[:len(np.shape(im))]).astype(np.int32))] > 0:
+                _sel_seeds.append(_seed)
+        # replace seeds
+        _seeds = np.array(_sel_seeds)
+        if verbose:
+            print(f"{len(_seeds)} selected by mask, ", end='')
 
     ## fitting
     _fitter = Fitting_v4.iter_fit_seed_points(

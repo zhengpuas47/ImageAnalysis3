@@ -2,7 +2,7 @@
 import os, h5py, pickle, psutil, time
 import numpy as np
 from scipy.sparse.extract import find
-
+from scipy import ndimage
 from . import _allowed_kwds, _image_dtype
 from ..io_tools.load import correct_fov_image
 from ..spot_tools.fitting import fit_fov_image, get_centers
@@ -68,8 +68,11 @@ def batch_process_image_to_spots(dax_filename, sel_channels,
                                  drift_file_lock=None, 
                                  overwrite_drift=False, 
                                  fit_spots=True, 
-                                 fitting_args={}, save_spots=True, 
-                                 spot_file_lock=None, overwrite_spot=False, 
+                                 fit_in_mask=False, 
+                                 fitting_args={}, 
+                                 save_spots=True, 
+                                 spot_file_lock=None, 
+                                 overwrite_spot=False, 
                                  verbose=False):
     """run by multi-processing to batch process images to spots
     Inputs:
@@ -250,6 +253,22 @@ def batch_process_image_to_spots(dax_filename, sel_channels,
 
     ## multi-fitting
     if fit_spots:
+        # check fit_in_mask
+        if fit_in_mask:
+            if 'seed_mask' not in fitting_args or fitting_args['seed_mask'] is None:
+                raise KeyError(f"seed_mask should be given if fit_in_mask specified")
+            # translate this mask according to drift
+            if verbose:
+                print(f"-- start traslating seed_mask by drift: {_drift}", end=' ')
+                _translate_start = time.time()
+            _shifted_mask = ndimage.shift(fitting_args['seed_mask'], 
+                                          -_drift, 
+                                          mode='constant', 
+                                          cval=0)
+            fitting_args['seed_mask'] = _shifted_mask
+            if verbose:
+                print(f"-- in {time.time()-_translate_start:.2f}s.")
+                _translate_start = time.time()
         _raw_spot_list = []
         _spot_list = []
         for _ich, (_im, _ch) in enumerate(zip(_sel_ims, sel_channels)):
@@ -429,7 +448,42 @@ def save_spots_to_fov_file(filename, spot_list, data_type, region_ids,
     with h5py.File(filename, "a", libver='latest') as _f:
         _grp = _f[data_type]
         for _i, (_id, _spots) in enumerate(zip(region_ids, spot_list)):
+            # check size of this spot save
+            _saved_shape = _grp['spots'].shape
+            _max_shape = _grp['spots'].maxshape
+            # if not large enough with maxshape, recreate this saving buffer
+            if _saved_shape[1] < len(_spots) and _max_shape[1] is not None and _max_shape[1]< len(_spots):
+                if verbose:
+                    print(f"-- recreate {data_type}_spots and {data_type}_raw_spots from {_saved_shape[1]} to {len(_spots)}.")
+                # retrieve existing values
+                _existing_spots = _grp['spots'][:]
+                _existing_raw_spots = _grp['raw_spots'][:]
+                if verbose:
+                    print(f"--- deleting spots and raw_spots")
+                # delete datasets
+                del(_grp['spots'])
+                del(_grp['raw_spots'])
+                # resave existing spots
+                if verbose:
+                    print(f"--- recreating spots and raw_spots")
+                _grp.create_dataset('spots',
+                                    (_saved_shape[0], len(_spots), _saved_shape[2]), 
+                                    dtype='f', maxshape=(_saved_shape[0], None, _saved_shape[2]), chunks=True)
+                _grp['spots'][:,:_saved_shape[1],:] = _existing_spots
+                # resave existing raw_spots
+                _grp.create_dataset('raw_spots',
+                                    (_saved_shape[0], len(_spots), _saved_shape[2]), 
+                                    dtype='f', maxshape=(_saved_shape[0], None, _saved_shape[2]), chunks=True)
+                _grp['raw_spots'][:,:_saved_shape[1],:] = _existing_raw_spots
+            # if maxshape allowed, simply reshape
+            elif _saved_shape[1] < len(_spots):
+                if verbose:
+                    print(f"-- resize {data_type}_spots and {data_type}_raw_spots from {_saved_shape[1]} to {len(_spots)}.")
+                _grp['spots'].resize(len(_spots), 1)
+                _grp['raw_spots'].resize(len(_spots), 1)
+
             _index = list(_grp['ids'][:]).index(_id)
+            print(_index)
             if np.sum(_grp['spots'][_index])==0 or overwrite:
                 _grp['spots'][_index, :len(_spots), :] = _spots
                 _updated_spots.append(_id)

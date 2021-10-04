@@ -177,6 +177,7 @@ def correct_fov_image(dax_filename, sel_channels,
                       illumination_corr=True, illumination_profile=None, 
                       bleed_corr=True, bleed_profile=None, 
                       chromatic_ref_channel='647', chromatic_corr=True, chromatic_profile=None, 
+                      gaussian_highpass=False, gauss_sigma=5, gauss_truncate=2,
                       normalization=False, output_dtype=np.uint16,
                       return_drift=False, verbose=True):
     """Function to correct one whole field-of-view image in proper manner
@@ -485,6 +486,17 @@ def correct_fov_image(dax_filename, sel_channels,
         # clear
         if verbose:
             print(f"in {time.time()-_warp_time:.3f}s")
+    ## apply gaussian
+    if gaussian_highpass:
+        if verbose:
+            print(f"-- applying gaussian highpass filte, sigma={gauss_sigma}", end=' ')
+            _highpass_time = time.time()
+        from ..correction_tools.filter import gaussian_high_pass_filter
+        for _i, _im in enumerate(_ims):
+            _ims[_i] = gaussian_high_pass_filter(_im, gauss_sigma, gauss_truncate)
+        # clear
+        if verbose:
+            print(f"in {time.time()-_highpass_time:.3f}s")
 
     ## normalization
     if normalization:
