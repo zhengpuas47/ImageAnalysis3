@@ -1043,7 +1043,7 @@ class Field_of_View():
                     _reg_ids = [_id for _id, _es in zip(_reg_ids, _exist_spots)
                                 if not _es] # if spot not exist, process reg_id
             # update a correction_args with used_channel for this round
-            print(f"used_channels: {_used_channels}")
+            #print(f"used_channels: {_used_channels}")
             _round_correction_args = {_k:_v for _k,_v in _correction_args.items()}
             _round_correction_args.update({'all_channels':_used_channels})
             # append if any channels selected
