@@ -28,7 +28,7 @@ _allowed_kwds = {'combo': 'c',
                 'gene':'g',
                 'protein':'p',
                 }
-_max_num_seeds = 500 
+_max_num_seeds = 4000 
 _min_num_seeds = 50 
 _spot_seeding_th = 200
 from . import batch_functions

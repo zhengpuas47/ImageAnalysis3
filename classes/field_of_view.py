@@ -212,7 +212,8 @@ class Field_of_View():
             if str(_ch) in self.channels:
                 _kept_corr_channels.append(str(_ch))
         self.shared_parameters['corr_channels'] = _kept_corr_channels
-
+        
+        # parameter for corrections
         if 'corr_bleed' not in self.shared_parameters:
             self.shared_parameters['corr_bleed'] = True
         if 'corr_Z_shift' not in self.shared_parameters:
@@ -223,6 +224,8 @@ class Field_of_View():
             self.shared_parameters['corr_illumination'] = True
         if 'corr_chromatic' not in self.shared_parameters:
             self.shared_parameters['corr_chromatic'] = True
+        if 'corr_gaussian_highpass' not in self.shared_parameters:
+            self.shared_parameters['corr_gaussian_highpass'] = False
         if 'allowed_kwds' not in self.shared_parameters:
             self.shared_parameters['allowed_data_types'] = _allowed_kwds
         # params for drift
@@ -877,6 +880,7 @@ class Field_of_View():
                                 _correction_args={},
                                 _drift_args={}, 
                                 _fit_spots=True,
+                                _fit_in_mask=False, 
                                 _fitting_args={},
                                 _overwrite_drift=False, 
                                 _overwrite_image=False, 
@@ -931,7 +935,8 @@ class Field_of_View():
 
         ## multi-processing for correct_splice_images
         # prepare common params
-        _correction_args.update({
+        _correction_args.update(
+            {
             'single_im_size': self.shared_parameters['single_im_size'],
             'all_channels':self.channels,
             'num_buffer_frames':self.shared_parameters['num_buffer_frames'],
@@ -946,7 +951,9 @@ class Field_of_View():
             'illumination_profile':self.correction_profiles['illumination'],
             'chromatic_corr':self.shared_parameters['corr_chromatic'],
             'normalization':self.shared_parameters['normalization'],
-        })
+            'gaussian_highpass': self.shared_parameters['corr_gaussian_highpass'],
+            }
+        )
         # specifically, chromatic profile loaded is based on whether warp image
         if _warp_images:
             _correction_args.update({
@@ -969,29 +976,26 @@ class Field_of_View():
             'normalize_background': self.shared_parameters['normalize_intensity_background'],
             'normalize_local': self.shared_parameters['normalize_intensity_local'],
         })
-        
+        # check if seed_mask is given
+        if _fit_in_mask:
+            if 'seed_mask' not in _fitting_args or _fitting_args['seed_mask'] is None:
+                raise KeyError(f"seed_mask should be given if _fit_in_mask specified.")
+
         # initiate locks
         _manager = mp.Manager()
         # recursive lock so each thread can acquire multiple times
-        # lock to make sure only one thread is reading from hard drive.
-        if _load_with_multiple:
-            _load_file_lock = None
-        else:
-            _load_file_lock = _manager.RLock()
-        # lock to write to save_file
+        # lock to make sure only one thread is reading or writing from hard drive.
         _fov_savefile_lock = _manager.RLock() 
         # lock to write to drift file
         _drift_file_lock = _manager.RLock() 
 
-        ## initialize reported ids and spots
-        _final_ids = []
-        _final_spots = []
         # prepare kwargs to be processed.
         _processing_arg_list = []
         _processing_id_list = []
         
         # loop through annotated folders
         for _fd in _sel_folders:
+            # get the dax filename
             _dax_filename = os.path.join(_fd, self.fov_name)
             # get selected channels
             _info = self.color_dic[os.path.basename(_fd)]
@@ -1034,13 +1038,14 @@ class Field_of_View():
                     # if not required to fit spots, set flag to be exist
                     if not _fit_spots:
                         _exit_spots = True
+                    
                     # select channels based on exist spots and ims
                     _sel_channels = [_ch for _ch, _es in zip(_sel_channels, _exist_spots)
                                     if not _es] # if spot not exist, process sel_channel
                     _reg_ids = [_id for _id, _es in zip(_reg_ids, _exist_spots)
                                 if not _es] # if spot not exist, process reg_id
             # update a correction_args with used_channel for this round
-            print(f"used_channels: {_used_channels}")
+            #print(f"used_channels: {_used_channels}")
             _round_correction_args = {_k:_v for _k,_v in _correction_args.items()}
             _round_correction_args.update({'all_channels':_used_channels})
             # append if any channels selected
@@ -1049,7 +1054,7 @@ class Field_of_View():
                         self.save_filename, 
                         _data_type, _reg_ids, 
                         _drift_reference,
-                        _load_file_lock,
+                        _fov_savefile_lock,
                         _warp_images, 
                         _round_correction_args, 
                         _save_images, 
@@ -1062,6 +1067,7 @@ class Field_of_View():
                         _drift_file_lock, 
                         _overwrite_drift,
                         _fit_spots,
+                        _fit_in_mask,
                         _fitting_args, 
                         _save_fitted_spots,
                         _fov_savefile_lock, 
@@ -1104,9 +1110,6 @@ class Field_of_View():
         else:
             if _verbose:
                 print(f"- No {_data_type} images and spots requires processing, skip.")
-
-
-        
 
     def _save_to_file(self, _type, _save_attr_list=[], 
                       _overwrite=False, _verbose=True):
@@ -1311,9 +1314,14 @@ class Field_of_View():
 
                     # spots
                     if 'spots' not in _grp:
+                        if self.shared_parameters['max_num_seeds'] is None:
+                            _spot_save_len = _max_num_seeds
+                        else:
+                            _spot_save_len = self.shared_parameters['max_num_seeds']
+                        # create
                         _spots = _grp.create_dataset('spots', 
-                                    (_im_shape[0], self.shared_parameters['max_num_seeds'], 11), 
-                                    dtype='f')
+                                    (_im_shape[0], _spot_save_len, 11), 
+                                    dtype='f', maxshape=(_im_shape[0],None,11), chunks=True)
                         _data_attrs.append('spots')
                     elif _im_shape[0] != len(_grp['spots']):
                         _change_size_flag.append('spots')
@@ -1321,8 +1329,8 @@ class Field_of_View():
                     # raw spots (for debugging)
                     if 'raw_spots' not in _grp:
                         _spots = _grp.create_dataset('raw_spots', 
-                                    (_im_shape[0], self.shared_parameters['max_num_seeds'], 11), 
-                                    dtype='f')
+                                    (_im_shape[0], _spot_save_len, 11), 
+                                    dtype='f', maxshape=(_im_shape[0],None,11), chunks=True)
                         _data_attrs.append('raw_spots')
                     elif _im_shape[0] != len(_grp['raw_spots']):
                         _change_size_flag.append('raw_spots')
