@@ -515,9 +515,11 @@ class Field_of_View():
             if 'illumination' in self.correction_profiles and self.correction_profiles['illumination'] is not None and len(self.correction_profiles['illumination']) > 0 and not _overwrite:
                 print(f"++ illumination correction profile already exist, skip.")
             else:
-                drift_channel = str(self.drift_channel)
-                dapi_channel = str(self.dapi_channel)
-                _illumination_channels = self.shared_parameters['corr_channels']+[drift_channel, dapi_channel]
+                #drift_channel = str(self.drift_channel)
+                #dapi_channel = str(self.dapi_channel)
+                #self.shared_parameters['corr_channels']+[drift_channel, dapi_channel]
+                # all channel needs illumination correction
+                _illumination_channels = self.channels
                 ## illumination profiles
                 _savefile_load_illumination = False
                 if _load_from_savefile_first:
