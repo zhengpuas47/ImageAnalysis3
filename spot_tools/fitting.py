@@ -357,3 +357,6 @@ def select_sparse_centers(centers, distance_th=9,
         print(f"-- {len(_sel_centers)} among {len(centers)} centers are selected by th={distance_th}")
 
     return np.array(_sel_centers)
+
+
+

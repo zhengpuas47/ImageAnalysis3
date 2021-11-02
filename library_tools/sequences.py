@@ -213,12 +213,12 @@ def extract_sequence(reg_dicts, genome_reference,
                 #_end_loc = min((_i+1)*resolution, len(_wholechr))
                 # extract sequence for this region
                 _seq = _wholechr[_reg_start:_reg_end]
-                _name = f"{_chrom}:{_reg_start}-{_reg_end}_reg_"
-                if "Gene" in _reg_dict:
-                    _name += _reg_dict['Gene']+'-'
-                _name += str(_i+1)
+                _name = f"{_chrom}:{_reg_start}-{_reg_end}_"
                 if 'Strand' in _reg_dict:
-                    _name += ':'+_reg_dict['Strand']
+                    _name += ':'+_reg_dict['Strand']+'_'
+                if "Gene" in _reg_dict:
+                    _name += 'gene_'+_reg_dict['Gene']+'_'
+                _name += 'reg_'+str(_i+1)
                 # append
                 if "Strand" in _reg_dict and _reg_dict['Strand'] == '-':
                     _record = SeqRecord(_seq.reverse_complement(), id=_name, name='', description='')
@@ -235,11 +235,12 @@ def extract_sequence(reg_dicts, genome_reference,
         ## this has been checked with publically available ensembl fasta reference
         elif resolution <= 0:
             _seq = _wholechr[_gene_start-1:_gene_stop-1+1]
-            _name = f"{_chrom}:{_gene_start}-{_gene_stop}_reg_"
-            if "Gene" in _reg_dict:
-                    _name += _reg_dict['Gene']
+            _name = f"{_chrom}:{_gene_start}-{_gene_stop}_"
             if 'Strand' in _reg_dict:
-                _name += ':'+_reg_dict['Strand']
+                _name += ':'+_reg_dict['Strand']+'_'
+            if "Gene" in _reg_dict:
+                _name += 'gene_'+_reg_dict['Gene']+'_'
+            #_name += 'reg_'
             # append
             if "Strand" in _reg_dict and _reg_dict['Strand'] == '-':
                 _record = SeqRecord(_seq.reverse_complement(), id=_name, name='', description='')
@@ -280,17 +281,7 @@ def extract_sequence(reg_dicts, genome_reference,
     return kept_seqs_dict
 
 
-def gene_dict_2_reg_dict(_gene_dict):
-    _reg_dict = {
-        'Chr':_gene_dict['seqid'],
-        'Start':_gene_dict['start'],
-        'End':_gene_dict['end'],
-        'Name':f"{_gene_dict['infos']['ID']}-{_gene_dict['infos']['Name']}",
-        'Gene':_gene_dict['infos']['Name'],
-        'Region':f"{_gene_dict['seqid']}:{_gene_dict['start']}-{_gene_dict['end']}",
-        'Strand':_gene_dict['strand'],
-    }
-    return _reg_dict
+
 
 
 
@@ -373,7 +364,6 @@ class sequence_reader:
             _str += f"load sequence from folder: {self.genome_folder}\n"
         return _str
     
-            
     def load_sequences(self):
         # search through files
         for _fl in self.input_files:
@@ -391,8 +381,14 @@ class sequence_reader:
     def find_sequence_for_region(self, reg_dict, save=True):
         """find sequence from single reg_dict"""
         # find chromosome
-        _ref = self.ref_seq_dict[reg_dict['Chr']]
-        seqs = extract_sequence(reg_dict, [_ref], 
+        if isinstance(reg_dict, dict):
+            _ref = [self.ref_seq_dict[reg_dict['Chr']]]
+        elif isinstance(reg_dict, list):
+            _ref = []
+            for _chr in np.unique([_r['Chr'] for _r in reg_dict]):
+                _ref.append(self.ref_seq_dict[_chr])
+
+        seqs = extract_sequence(reg_dict, _ref, 
                                 resolution=self.resolution,
                                 flanking=self.flanking,
                                 save=False, verbose=self.verbose,
@@ -790,3 +786,35 @@ class RNA_sequence_reader(sequence_reader):
         if self.verbose:
             print(f"- {len(saved_filenames)} fasta files saved.")
         return saved_filenames
+
+def gene_dict_2_reg_dict(_gene_dict):
+    """Convert standard output TSS into standard region dict"""
+    _reg_dict = {
+        'Chr':_gene_dict['seqid'],
+        'Start':_gene_dict['start'],
+        'End':_gene_dict['end'],
+        'Name':f"{_gene_dict['infos']['ID']}-{_gene_dict['infos']['Name']}",
+        'Gene':_gene_dict['infos']['Name'],
+        'Region':f"{_gene_dict['seqid']}:{_gene_dict['start']}-{_gene_dict['end']}",
+        'Strand':_gene_dict['strand'],
+    }
+    return _reg_dict
+
+def reg_dict_2_tss_dict(reg_dict, reg_size):
+    """Convert a standard region_dict into TSS and its flanking dict"""
+    # initialize
+    _tss_dict = {_k:_v for _k,_v in reg_dict.items()}
+    # modify start, end
+    if _tss_dict['Strand'] == '+': 
+        _reg_center = int(reg_dict['Start'])
+    elif _tss_dict['Strand'] == '-': 
+        _reg_center = int(reg_dict['End'])
+    else:
+        raise ValueError(f"Wrong input strand, should be + or -")
+    # modify tss 
+    _tss_dict["Start"] = _reg_center - int(reg_size/2)
+    _tss_dict["End"] = _reg_center + int(reg_size/2)
+    _tss_dict["Region"] = f"{reg_dict['Chr']}:{_tss_dict['Start']}-{_tss_dict['End']}"
+    # modify names
+    _tss_dict["Name"] = _tss_dict["Name"] + f"-TSS-{reg_size}" 
+    return _tss_dict
