@@ -371,6 +371,7 @@ class GaussianFit():
         else:
             e_w = np.exp(w)
             return 0.5*(maxw - minw)*e_w/(minw*e_w+maxw)**2
+
     def fit(self,eps_frac=10E-3,eps_dist=10E-3,eps_angle=10E-3):
         """
         This implements the Levenberg-Marquardt algorithm for 3D gaussian fitting.
@@ -391,7 +392,6 @@ class GaussianFit():
     def get_im(self):
         self.calc_f(self.p_)
         return self.f0
-        
 
 
 def in_dim(x,y,z,xmax,ymax,zmax):
