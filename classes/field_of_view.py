@@ -908,7 +908,7 @@ class Field_of_View():
         else:
             _sel_folders = self.annotated_folders
             if _verbose:
-                print(f"-- No folder selected, allow processing all {len(self.annotated_folders)} folders")
+                print(f"-- folders not selected, allow processing all {len(self.annotated_folders)} folders")
         # check selected ids
         if _sel_ids is not None and len(_sel_ids) > 0:
             _sel_ids = [int(_id) for _id in _sel_ids] # convert to list of ints
@@ -1046,8 +1046,21 @@ class Field_of_View():
                                 if not _es] # if spot not exist, process reg_id
             # update a correction_args with used_channel for this round
             #print(f"used_channels: {_used_channels}")
+            _round_corr_channels = [_ch for _ch in _correction_args['corr_channels']
+                if _ch in _used_channels]
             _round_correction_args = {_k:_v for _k,_v in _correction_args.items()}
             _round_correction_args.update({'all_channels':_used_channels})
+            # if only one channel needs correction, don't do bleedthrough correction
+            if len(_round_corr_channels) <= 1:
+                _round_correction_args['bleed_corr'] = False
+                _round_correction_args['bleed_profile'] = None
+            # if length of round_correction_channels is smaller than corr_channel, subsample the correction profile
+            elif len(_round_corr_channels) != len(_correction_args['corr_channels']):
+                _round_corr_ch_inds = np.array([ _i for _i, _ch in enumerate(_correction_args['corr_channels']) ], dtype=np.int32)
+                
+                _round_correction_args['bleed_profile'] = _round_correction_args['bleed_profile'][_round_corr_ch_inds, _round_corr_ch_inds]
+
+
             # append if any channels selected
             if len(_sel_channels) > 0:
                 _args = (_dax_filename, _sel_channels, 
@@ -1144,7 +1157,6 @@ class Field_of_View():
                 else:
                     _grp = _f['signal']
 
-               
                 # create chrom_coords subgroup
                 if 'chrom_coords' not in _grp:
                     _subgrp = _f.create_group('signal/chrom_coords')
