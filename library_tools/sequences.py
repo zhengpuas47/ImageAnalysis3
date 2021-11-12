@@ -241,6 +241,8 @@ def extract_sequence(reg_dicts, genome_reference,
             if "Gene" in _reg_dict:
                 _name += 'gene_'+_reg_dict['Gene']+'_'
             #_name += 'reg_'
+            if _name[-1] == '_':
+                _name = _name[:-1]
             # append
             if "Strand" in _reg_dict and _reg_dict['Strand'] == '-':
                 _record = SeqRecord(_seq.reverse_complement(), id=_name, name='', description='')

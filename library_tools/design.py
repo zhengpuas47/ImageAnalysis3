@@ -789,8 +789,9 @@ Key information:
             for key in list(dic_save.keys()):
                 if not load_probes_only or 'probes' in key:
                     setattr(self,key,dic_save[key])
+                    print(f"- loading {key} from file")
                     if key =='kept_probes':
-                        print(len(dic_save[key]))
+                        print(f"- {len(dic_save[key])} filtered probes loaded")
 
             # set inputs
             if not load_probes_only:

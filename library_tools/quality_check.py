@@ -264,8 +264,8 @@ def _finding_readout_name(readout_list, readout_dict, readout_len=20,
     # check
     if len(_name_list) != probe_readout_num:
         print(f"-- Number of readouts on this probe doesn't match, {len(_name_list)} detected, {probe_readout_num} expected.")
-        print(_name_list)
-        print(readout_list)
+        #print(_name_list)
+        #print(readout_list)
         return False
     return _name_list
 
@@ -296,6 +296,7 @@ def _check_readout_to_region(reg_to_readout, pb_records, readout_dict,
                 _readout_to_reg[_n] = [reg_id] * _nct
             elif reg_id not in _readout_to_reg[_n]:  # otherwise, append
                 _readout_to_reg[_n] += [reg_id] * _nct
+    print(_readout_to_reg)
     if verbose:
         print(" > Done.")
     # sort _readout_to_reg
@@ -590,7 +591,7 @@ def Screening_Probes_by_Blast(library_folder, probe_per_region, keep_mode='cente
                 _start, _end = int(_start), int(_end)
                 _reg_len = np.abs(_end - _start)
                 _kept_center_pbs = []
-                for _pb in sorted(_kept_pbs, key=lambda p: np.abs(int(p.id.split('pb_')[1].split('_')[0])-_reg_len/2)):
+                for _pb in sorted(_kept_pbs, key=lambda p: np.abs(int(p.id.split('pos_')[1].split('_')[0])-_reg_len/2)):
                     _kept_center_pbs.append(_pb)
                     if len(_kept_center_pbs) >= probe_per_region:
                         break
