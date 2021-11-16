@@ -1656,6 +1656,7 @@ class Field_of_View():
                         setattr(self, f"{_type}_drifts", _drifts)
                         setattr(self, f"{_type}_spots_list", _spots_list)
                         setattr(self, f"{_type}_channels", _channels)
+                        setattr(self, f"{_type}_flags", _flags)
                         if _load_image:
                             setattr(self, f"{_type}_ims", _ims)
                         if _verbose:

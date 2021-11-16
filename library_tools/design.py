@@ -928,3 +928,21 @@ def consume_sequence_to_int(seq, word_len=17, verbose=False):
         return seq_ints
     else:
         return []
+
+
+def select_probes_by_counts(kept_pb_dict, num_kept_pbs, count_type='genome', verbose=True):
+    """Roughly select a subset of probes of lowest hits given certain count type
+    Inputs:
+        kept_pb_dict: kept_probes from library_tools.design.pb_designer_class, dict
+        num_kept_pbs: number of kept probes, int
+        count_type: type of intmap, str (default: genome)
+        verbose: stdout switch, bool (default: True)
+        
+    """
+    if verbose:
+        print(f"- filtering {len(kept_pb_dict)} probes by {count_type} counts,", end=' ')
+    
+    for _seq, _info in kept_pb_dict:
+        
+        
+        pass
