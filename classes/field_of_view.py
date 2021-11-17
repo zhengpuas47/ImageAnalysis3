@@ -1639,14 +1639,14 @@ class Field_of_View():
                         if _load_processed:
                             _ids = np.array([_id for _flg, _id in zip(_flags, _grp['ids'][:]) if _flg > 0])
                             _drifts = np.array([_dft for _flg, _dft in zip(_flags, _grp['drifts'][:]) if _flg > 0])
-                            _spots_list = np.array([_spots[_spots[:,0] > 0] for _flg, _spots in zip(_flags, _grp['spots'][:]) if _flg > 0])
+                            _spots_list = [_spots[_spots[:,0] > 0] for _flg, _spots in zip(_flags, _grp['spots'][:]) if _flg > 0]
                             _channels = [_ch.decode('utf8') for _flg, _ch in zip(_flags, _grp['channels'][:]) if _flg > 0]
                             if _load_image:
                                 _ims = _grp['ims'][:]
                         else:
                             _ids = _grp['ids'][:]
                             _drifts = _grp['drifts'][:]
-                            _spots_list = np.array([_spots[_spots[:,0] > 0] for _spots in _grp['spots'][:]])
+                            _spots_list = [_spots[_spots[:,0] > 0] for _spots in _grp['spots'][:]]
                             _channels = [str(_ch) for _ch in _grp['channels'][:]]
                             if _load_image:
                                 _ims = _grp['ims'][:]
@@ -2447,5 +2447,130 @@ class Field_of_View():
 
         return _bead_im
 
+    def _load_bead_ims_for_bits(self, bit_ids, data_type, force_loading=True, parallel=True):
+        """"""
+        # check whether data_type is valid
+        if data_type not in self.shared_parameters['allowed_data_types']:
+            raise ValueError(f"data_type should be within {self.shared_parameters['allowed_data_types'].keys()}" )
+        # load required data for this data_type
+        self._load_from_file(data_type, _overwrite=force_loading)
+        # load the reference for this data_type
+        if hasattr(self, f'{data_type}_ref_im'):
+            _drift_ref = getattr(self, f'{data_type}_ref_im')
+        elif hasattr(self, f'{data_type}_ref_id'):
+            _drift_ref = os.path.join(self.annotated_folders[getattr(self, f'{data_type}_ref_id')], 
+                                    self.fov_name)
+
+        if isinstance(bit_ids, int) or isinstance(bit_ids, np.int32):
+            bit_ids = [bit_ids]
+        else:
+            bit_ids = list(bit_ids)
+        
+        _process_args = []
+        
+        for _bit_id in bit_ids:
+            # check whether bit_id is valid
+            if _bit_id not in getattr(self, f"{data_type}_ids"):
+                raise ValueError(f"bit_id: {_bit_id} doesn't exist in {data_type}_ids" )
+            elif getattr(self, f"{data_type}_flags")[np.where(getattr(self, f"{data_type}_ids")==40)[0][0]] == 0:
+                raise ValueError(f"bit_id: {_bit_id} for data_type: {data_type} hasn't been processed." )
+
+            _bit_ind = np.where(getattr(self, f"{data_type}_ids")==_bit_id)[0][0]
+            _bit_drift = getattr(self, f"{data_type}_drifts")[_bit_ind]
+            # find the corresponding folder
+            _fd = find_bit_folder(_bit_id, 
+                                  data_type, 
+                                  self.color_dic, 
+                                  self.shared_parameters['allowed_data_types'])
+            #print(_bit_drift, _bit_ind, _fd)
+            # get used channels for this bit
+            _infos = self.color_dic[_fd]
+            _used_channels, _used_corr_channel = [], []
+            for _mk, _ch in zip(_infos, self.channels):
+                if _mk.lower() == 'null':
+                    continue
+                else:
+                    _used_channels.append(_ch)
+                    if _ch in self.shared_parameters['corr_channels']:
+                        _used_corr_channel.append(_ch)
+                    
+            _fd_full = [_f for _f in self.annotated_folders if os.path.basename(_f)==_fd]
+            if len(_fd_full) != 1:
+                raise ValueError(f"non-unique data folder detected for bit-{_bit_id} type-{data_type}")
+            _fd_full = _fd_full[0]
+            _filename = os.path.join(_fd_full, self.fov_name)
+            
+            # generate processing arg
+            _arg = (
+                _filename,
+                [self.drift_channel],
+                None,
+                self.shared_parameters['single_im_size'],
+                _used_channels,
+                self.shared_parameters['num_buffer_frames'],
+                self.shared_parameters['num_empty_frames'],
+                _bit_drift,
+                False,
+                self.drift_channel,
+                _drift_ref,
+                True,
+                {},
+                _used_corr_channel,
+                self.correction_folder,
+                True,
+                False,
+                4,
+                False,
+                self.shared_parameters['corr_illumination'],
+                self.correction_profiles['illumination'],
+                False,
+                None,
+                '647',
+                False,
+                None,
+                False,
+                5,
+                2,
+                False,
+                self.image_dtype,
+                False,
+                True,  
+            )
+            _process_args.append(_arg)
+        from ..io_tools.load import correct_fov_image
+        if parallel:
+            print(f"- Start multiprocessing process {len(_process_args)} bead_ims with {self.num_threads} threads", end=' ')
+            _multi_time = time.time()
+            with mp.Pool(self.num_threads,) as _bead_im_pool:
+                _bead_ims = _bead_im_pool.starmap(correct_fov_image, _process_args, chunksize=1)
+                _bead_ims = [_im[0][0] for _im in _bead_ims]
+                # close multiprocessing
+                _bead_im_pool.close()
+                _bead_im_pool.join()
+                _bead_im_pool.terminate()
+            # final time
+            print(f"in {time.time()-_multi_time:.3f}s.")
+        else:
+            print(f"- Start process {len(_process_args)} bead_ims")
+            _seq_time = time.time()
+            _bead_ims = [correct_fov_image(*_arg)[0][0] for _arg in _process_args]
+            # final time
+            print(f"- finish in {time.time()-_seq_time:.3f}s.")
+            
+        return _bead_ims
+
 
 # add test comment
+def find_bit_folder(bit_id, data_type, color_dict, allowed_type_dict):
+    _feature_ref = f"{allowed_type_dict[data_type]}{bit_id}"
+    print(_feature_ref)
+    for _fd, _infos in color_dict.items():
+        for _info in _infos:
+            if _info == _feature_ref:
+                return _fd
+    
+    # return empty if not found
+    return ""
+
+
+            
