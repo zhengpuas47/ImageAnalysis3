@@ -33,6 +33,7 @@ _min_num_seeds = 50
 _spot_seeding_th = 200
 from . import batch_functions
 from . import field_of_view
+from . import preprocess
 
 # initialize pool
 init_dic = {}
