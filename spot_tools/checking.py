@@ -161,3 +161,7 @@ def check_spot_scores(all_spot_list, sel_spots, region_ids=None, sel_indices=Non
             _return_args += (_other_scores,)
         # return!
         return _return_args
+
+
+
+# select spots given crop
