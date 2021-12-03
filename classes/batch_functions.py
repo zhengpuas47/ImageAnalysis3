@@ -257,14 +257,19 @@ def batch_process_image_to_spots(dax_filename, sel_channels,
         if fit_in_mask:
             if 'seed_mask' not in fitting_args or fitting_args['seed_mask'] is None:
                 raise KeyError(f"seed_mask should be given if fit_in_mask specified")
-            # translate this mask according to drift
-            if verbose:
-                print(f"-- start traslating seed_mask by drift: {_drift}", end=' ')
-                _translate_start = time.time()
-            _shifted_mask = ndimage.shift(fitting_args['seed_mask'], 
-                                          -_drift, 
-                                          mode='constant', 
-                                          cval=0)
+
+            if warp_image:
+                _shifted_mask = fitting_args['seed_mask']
+            else:
+                # translate this mask according to drift
+                if verbose:
+                    print(f"-- start traslating seed_mask by drift: {_drift}", end=' ')
+                    _translate_start = time.time()
+                _shifted_mask = ndimage.shift(fitting_args['seed_mask'], 
+                                            -_drift, 
+                                            mode='constant', 
+                                            cval=0)
+            # store seed_mask
             fitting_args['seed_mask'] = _shifted_mask
             if verbose:
                 print(f"-- in {time.time()-_translate_start:.2f}s.")

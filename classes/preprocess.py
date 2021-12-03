@@ -43,6 +43,12 @@ class ImageCrop():
 
         return _mask
 
+    def distance_to_edge(self, coord):
+        """Check distance of a coordinate to the edge of this crop"""
+        _coord = np.array(coord)[:self.ndim]
+        return np.min(np.abs(_coord[:,np.newaxis] - self.array))
+
+
     def crop_coords(self, coords):
         """ """
         _coords = np.array(coords)
@@ -50,6 +56,25 @@ class ImageCrop():
         _cropped_coords = _coords[_mask] - self.array[:,0][np.newaxis,:]
         
         return _cropped_coords
+
+    def overlap(self, crop2):
+        
+        # find overlaps
+        _llim = np.max([self.array[:,0], crop2.array[:,0]], axis=0)
+        
+        _rlim = np.min([self.array[:,1], crop2.array[:,1]], axis=0)
+
+        if (_llim > _rlim).any():
+            return None
+        else:
+            return ImageCrop(len(_llim), np.array([_llim, _rlim]).transpose())
+
+    def relative_overlap(self, crop2):
+        _overlap = self.overlap(crop2)
+        if _overlap is not None:
+            _overlap.array = _overlap.array - self.array[:,0][:, np.newaxis]
+
+        return _overlap
 
 
 
@@ -71,6 +96,13 @@ class ImageCrop_3d(ImageCrop):
         _cropped_spots[:,1:4] = _cropped_spots[:,1:4] - self.array[:,0][np.newaxis,:]
         
         return _cropped_spots
+
+    def overlap(self, crop2):
+        _returned_crop = super().overlap(crop2)
+        if _returned_crop is None:
+            return None
+        else:
+            return ImageCrop_3d(_returned_crop.array)
 
 
 
@@ -189,3 +221,71 @@ class Spots3D(np.ndarray):
     def to_intensities(self):
         """ """
         return np.array(self[:,0])
+
+
+
+# scoring spot Tuple
+class SpotTuple():
+    """Tuple of coordinates"""
+    def __init__(self, 
+                 spots_tuple:Spots3D,
+                 bits:np.ndarray,
+                 pixel_size:np.ndarray or list,
+                 spots_inds=None,
+                 tuple_id=None,
+                 ):
+        # add spot Tuple
+        self.spots = spots_tuple[:].copy()
+        # add information for bits
+        # add the new attribute to the created instance
+        if isinstance(bits, int):
+            self.bits = np.ones(len(self.spots), dtype=np.int32) * int(bits)
+        elif bits is not None and np.size(bits) == 1:
+            self.bits = np.ones(len(self.spots), dtype=np.int32) * int(bits[0])
+        elif bits is not None:
+            self.bits = np.array(bits[:len(self.spots)], dtype=np.int32) 
+        elif spots_tuple.bits is not None:
+            self.bits = spots_tuple.bits[:len(self.spots)]
+        else:
+            self.bits = bits
+
+        self.pixel_size = np.array(pixel_size)
+        
+        self.spots_inds = spots_inds
+        self.tuple_id = tuple_id
+        
+
+    def dist_internal(self):
+        from scipy.spatial.distance import pdist
+        _self_coords = self.spots.to_positions(self.pixel_size)
+        return pdist(_self_coords)
+
+    def intensities(self):
+        return self.spots.to_intensities()
+    def intensity_mean(self):
+        return np.mean(self.spots.to_intensities())
+
+    def centroid_spot(self):
+        self.centroid = np.mean(self.spots, axis=0, keepdims=True)
+        return self.centroid
+
+    def dist_centroid_to_spots(self, spots:Spots3D):
+        from scipy.spatial.distance import cdist
+        if not hasattr(self, 'centroid'):
+            _cp = self.centroid_spot()
+        else:
+            _cp = getattr(self, 'centroid')
+        _centroid_coords = _cp.to_positions(pixel_size=self.pixel_size)
+        _target_coords = spots.to_positions(pixel_size=self.pixel_size)
+        return cdist(_centroid_coords, _target_coords)[0]
+
+    def dist_to_spots(self, 
+                      spots:Spots3D):
+        from scipy.spatial.distance import cdist
+        _self_coords = self.spots.to_positions(pixel_size=self.pixel_size)
+        _target_coords = spots.to_positions(pixel_size=self.pixel_size)
+        return cdist(_self_coords, _target_coords)
+
+    def dist_chromosome(self):
+        pass
+
