@@ -55,28 +55,36 @@ def translate_crop_by_drift(crop3d, drift3d=np.array([0,0,0]), single_im_size=_i
         _drift_limits[_i, 1] = min(_lims[1]+np.ceil(np.abs(_d)), single_im_size[_i])
     return _drift_limits
 
-def generate_neighboring_crop(zxy, crop_size=5, 
+
+def generate_neighboring_crop(coord, crop_size=5, 
                               single_im_size=_image_size,
                               sub_pixel_precision=False):
-    """Function to generate crop given zxy coordinate and crop size
+    """Function to generate crop given coord coordinate and crop size
     Inputs:
     Output:
     """
+    from ..classes.preprocess import ImageCrop
     ## check inputs
-    _zxy =  np.array(zxy)[:len(single_im_size)]
-    _crop_size = int(crop_size)
-    _single_image_size = np.array(single_im_size, dtype=np.int)
+    _coord =  np.array(coord)[:len(single_im_size)]
+    if isinstance(crop_size, int) or isinstance(crop_size, np.int32):
+        _crop_size = np.ones(len(single_im_size),dtype=np.int32) * crop_size
+    else:
+        _crop_size = np.array(crop_size)[:len(single_im_size)]
+        
+    _single_image_size = np.array(single_im_size, dtype=np.int32)
     # find limits for this crop
     if sub_pixel_precision:
-        pass
+        _left_lims = np.max([_coord-_crop_size, np.zeros(len(_single_image_size))], axis=0)
+        _right_lims = np.min([_coord+_crop_size, _single_image_size], axis=0)
     else:
-        _left_lims = np.max([np.round(_zxy-_crop_size), 
-                            np.zeros(len(_single_image_size))], axis=0)
-        _right_lims = np.min([np.round(_zxy+_crop_size), 
-                              _single_image_size], axis=0)
-        _crop = tuple([slice(int(_l), int(_r)) 
-                       for _l,_r in zip(_left_lims,_right_lims) ])
-    
+        # limits
+        _left_lims = np.max([np.round(_coord-_crop_size), np.zeros(len(_single_image_size))], axis=0)
+        _right_lims = np.min([np.round(_coord+_crop_size), _single_image_size], axis=0)
+
+    _crop = ImageCrop(len(single_im_size), 
+                      np.array([_left_lims, _right_lims]).transpose(), 
+                      single_im_size=single_im_size)
+
     return _crop
 
 def crop_neighboring_area(im, center, crop_sizes, 

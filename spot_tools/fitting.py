@@ -247,7 +247,7 @@ def fit_fov_image(im, channel, seeds=None,
             _crop = generate_neighboring_crop(_pt[1:4],
                                               crop_size=fit_radius*2,
                                               single_im_size=np.array(np.shape(im)))
-            _cropped_im = im[_crop]
+            _cropped_im = im[_crop.to_slices()]
             _backs.append(find_image_background(_cropped_im, **background_args))
         if verbose:
             print(f"normalize local background for each spot, ", end='')
