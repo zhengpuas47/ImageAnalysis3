@@ -1,7 +1,7 @@
 import numpy as np
 
 
-class Cellpose_Segmentation:
+class Cellpose_Segmentation_Psedu3D:
     """"""
     def __init__(self, _im, data_type='DAPI', 
                  save_filename=None, verbose=True):
@@ -21,14 +21,14 @@ class Cellpose_Segmentation:
 
     def run(self):
         """"""
-        _lys, _sel_ids = Cellpose_Segmentation.pick_Z_stacks(self.raw_im)
+        _lys, _sel_ids = Cellpose_Segmentation_Psedu3D.pick_Z_stacks(self.raw_im)
         
-        _mask = Cellpose_Segmentation.run_segmentation(_lys)
+        _mask = Cellpose_Segmentation_Psedu3D.run_segmentation(_lys)
         
-        _clean_mask = Cellpose_Segmentation.merge_3d_masks(_mask)
+        _clean_mask = Cellpose_Segmentation_Psedu3D.merge_3d_masks(_mask)
         
-        _z = Cellpose_Segmentation.convert_layer_list_to_um(_sel_ids)
-        _full_mask = Cellpose_Segmentation.interploate_z_masks(_clean_mask, _z)
+        _z = Cellpose_Segmentation_Psedu3D.convert_layer_list_to_um(_sel_ids)
+        _full_mask = Cellpose_Segmentation_Psedu3D.interploate_z_masks(_clean_mask, _z)
         
         return _full_mask
         
