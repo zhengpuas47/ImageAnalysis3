@@ -6,7 +6,7 @@ import pandas as pd
 from scipy.ndimage import center_of_mass, find_objects
 
 def SegmentationMask3D_2_CellMetaData(segmentation_mask, 
-                                      fov_id, fov_position, 
+                                      fov_id, #fov_position, 
                                       image_sizes, pixel_sizes,
                                       save=True, save_filename=None,
                                       overwrite=False, verbose=True,
@@ -34,7 +34,7 @@ def SegmentationMask3D_2_CellMetaData(segmentation_mask,
         elif len(fov_position) == n_dim:
             pass
         else:
-            raise IndexError(f"")
+            raise IndexError(f"fov position should either be 2d or 3d")
             
         image_sizes = np.array(image_sizes)[:n_dim]
         pixel_sizes = np.array(pixel_sizes)[:n_dim]
@@ -73,8 +73,6 @@ def SegmentationMask3D_2_CellMetaData(segmentation_mask,
             if verbose:
                 print(f"-- save {len(cell_meta_df)} cells into file:{save_filename}")
             cell_meta_df.to_csv(save_filename, index=False, header=True)
-
-
 
     else:
         print(f"- directly load file: {save_filename}")
