@@ -1,6 +1,8 @@
 import os
 import time
 import numpy as np
+import json
+
 from numpy.lib.arraysetops import isin
 import pandas as pd
 from scipy.ndimage import center_of_mass, find_objects
@@ -94,3 +96,88 @@ def SegmentationMask3D_2_CellLocations(segmentation_mask,
     return cell_location_df
 
 
+def Transpose_CellLocations(metadata, microscope_info,
+                            fov_position=None,
+                            ):
+    """Translate current metadata with microscope information"""
+    n_dim = 3
+    
+    if isinstance(metadata, str):
+        metadata =  pd.read_csv(metadata, header=0)
+    elif isinstance(metadata, pd.DataFrame):
+        pass
+    else:
+        raise TypeError(f"Wrong input type for metadata")
+        
+    if fov_position is None:
+        fov_position = np.zeros(n_dim)
+    elif len(fov_position) == n_dim -1:
+        fov_position = np.concatenate([[0], np.array(fov_position)])
+    elif len(fov_position) == n_dim:
+        fov_position = np.array(fov_position)
+    else:
+        raise IndexError(f"fov position should either be 2d or 3d")
+        
+    # check microscope info
+    if isinstance(microscope_info, str):
+        
+        microscope_info =  json.load(open(microscope_info, 'r'))
+    elif isinstance(microscope_info, dict):
+        pass
+    else:
+        raise TypeError(f"Wrong input type for microscopy_info")
+        
+    #print(metadata)
+    #print(fov_position)
+    #print(microscope_info)
+    
+    _centers = np.array(metadata[['center_z', 'center_x', 'center_y']])
+    _relative_centers = _centers - fov_position
+    
+    _mins = np.array(metadata[['min_z', 'min_x', 'min_y']])
+    _relative_mins = _mins - fov_position
+    
+    _maxs = np.array(metadata[['max_z', 'max_x', 'max_y']])
+    _relative_maxs = _maxs - fov_position
+    
+    #print(_relative_centers[0])
+    #print(_relative_mins)
+    #print(_relative_maxs)
+    
+    new_metadata = metadata.copy()
+    #print(microscope_info)
+    if microscope_info['transpose']:
+        #print('transpose')
+        # swap relative x and y
+        _relative_centers[:,np.array([-2,-1])] = _relative_centers[:,np.array([-1,-2])]
+        _relative_mins[:,np.array([-2,-1])] = _relative_mins[:,np.array([-1,-2])]
+        _relative_maxs[:,np.array([-2,-1])] = _relative_maxs[:,np.array([-1,-2])]
+    
+    #print(_relative_centers[0])
+    
+    if microscope_info['flip_horizontal']:
+        #print('flip_horizontal')
+        _relative_centers[:,-2]  = -1 * _relative_centers[:,-2]
+        _relative_mins[:,-2], _relative_maxs[:,-2] = -1*_relative_maxs[:,-2], -1*_relative_mins[:,-2]
+    
+    #print(_relative_centers[0])
+    
+    if microscope_info['flip_vertical']:
+        #print('flip_vertical')
+        _relative_centers[:,-1]  = -1 * _relative_centers[:,-1]
+        _relative_mins[:,-1], _relative_maxs[:,-1] = -1*_relative_maxs[:,-1], -1*_relative_mins[:,-1]
+    #print(_relative_centers[0])
+    
+    #print(_relative_mins)
+    #print(_relative_maxs)
+    
+    # assign new values
+    new_metadata[['center_z', 'center_x', 'center_y']] = _relative_centers + fov_position
+    new_metadata[['min_z', 'min_x', 'min_y']] = _relative_mins + fov_position
+    new_metadata[['max_z', 'max_x', 'max_y']] = _relative_maxs + fov_position
+    
+    return new_metadata
+
+
+def Merge_CellLocations(cell_location_list, fov_positions):
+    """Merge cell-locations from multiple field-of-views"""
