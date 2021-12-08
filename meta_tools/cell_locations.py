@@ -18,7 +18,7 @@ def SegmentationMask3D_2_CellLocations(segmentation_mask,
     
     _start_time = time.time()
 
-    if not os.path.exists(save_filename) or overwrite:
+    if save_filename is None or not os.path.exists(save_filename) or overwrite:
 
         if verbose:
             print(f"- Start process segmentation into cell locations.")
@@ -96,7 +96,7 @@ def SegmentationMask3D_2_CellLocations(segmentation_mask,
     return cell_location_df
 
 
-def Transpose_CellLocations(metadata, microscope_info,
+def Translate_CellLocations(metadata, microscope_info,
                             fov_position=None,
                             ):
     """Translate current metadata with microscope information"""
@@ -120,7 +120,6 @@ def Transpose_CellLocations(metadata, microscope_info,
         
     # check microscope info
     if isinstance(microscope_info, str):
-        
         microscope_info =  json.load(open(microscope_info, 'r'))
     elif isinstance(microscope_info, dict):
         pass
@@ -145,7 +144,7 @@ def Transpose_CellLocations(metadata, microscope_info,
     #print(_relative_maxs)
     
     new_metadata = metadata.copy()
-    #print(microscope_info)
+    
     if microscope_info['transpose']:
         #print('transpose')
         # swap relative x and y
@@ -178,6 +177,72 @@ def Transpose_CellLocations(metadata, microscope_info,
     
     return new_metadata
 
+def Adjust_CellLocations_by_Position(cell_loc, position_df):
+    
+    n_dim = 3
+    _new_cell_loc = cell_loc.copy()
+    _fov_center = np.array(position_df.iloc[np.unique(cell_loc['fov_id'])])[0]
+    # adjust fov_center length
+    if len(_fov_center) == n_dim -1:
+        _fov_center = np.concatenate([[0], np.array(_fov_center)])
+    elif len(_fov_center) == n_dim:
+        _fov_center = np.array(_fov_center)
+    else:
+        raise IndexError(f"fov position should either be 2d or 3d")
+    
+    _new_cell_loc[['center_z', 'center_x', 'center_y']] = cell_loc[['center_z', 'center_x', 'center_y']] + _fov_center
+    _new_cell_loc[['min_z', 'min_x', 'min_y']] = cell_loc[['min_z', 'min_x', 'min_y']] + _fov_center
+    _new_cell_loc[['max_z', 'max_x', 'max_y']] = cell_loc[['max_z', 'max_x', 'max_y']] + _fov_center
+    
+    return _new_cell_loc
 
-def Merge_CellLocations(cell_location_list, fov_positions):
+def Merge_CellLocations(cell_location_list, 
+                        microscope_info, 
+                        position_df, 
+                        save=True, save_filename=None,
+                        overwrite=False, verbose=True,
+                        ):
     """Merge cell-locations from multiple field-of-views"""
+    _start_time = time.time()
+    
+    if save_filename is None or not os.path.exists(save_filename) or overwrite:
+        if verbose:
+            print(f"- Start merging {len(cell_location_list)} cell locations")
+        # initialize
+        merged_cell_loc_df = pd.DataFrame()
+        # loop through each cell-location file
+        for _cell_loc in cell_location_list:
+            if isinstance(_cell_loc, str):
+                _cell_loc =  pd.read_csv(_cell_loc, header=0)
+            elif isinstance(_cell_loc, pd.DataFrame):
+                _cell_loc = _cell_loc.copy()
+            else:
+                raise TypeError(f"Wrong input type for _cell_loc")
+
+            # translate by microscope info
+            if microscope_info is not None:
+                _cell_loc = Translate_CellLocations(_cell_loc, microscope_info)
+            # adjust by position_df
+            if position_df is not None:
+                _cell_loc = Adjust_CellLocations_by_Position(_cell_loc, position_df)
+            # merge
+            merged_cell_loc_df = pd.concat([merged_cell_loc_df, _cell_loc],
+                                                ignore_index=True)
+
+        if verbose:
+            print(f"-- {len(merged_cell_loc_df)} cells converted into MetaData")
+
+        if save and (save_filename is not None or overwrite):
+            if verbose:
+                print(f"-- save {len(merged_cell_loc_df)} cells into file:{save_filename}")
+            merged_cell_loc_df.to_csv(save_filename, index=False, header=True)
+    else:
+        merged_cell_loc_df = pd.read_csv(save_filename, header=0)
+        print(f"- directly load {len(merged_cell_loc_df)} cells file: {save_filename}")
+
+    if verbose:
+        _execute_time = time.time() - _start_time
+        print(f"-- merge cell-locations in {_execute_time:.3f}s")
+            
+    return merged_cell_loc_df
+
