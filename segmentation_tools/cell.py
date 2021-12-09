@@ -1,5 +1,19 @@
+from warnings import WarningMessage
 import numpy as np
+from numpy.lib.npyio import save
+from cellpose import models
+import torch
+import cv2
+import os,sys,time
+import skimage 
 
+default_cellpose_kwargs = {
+    'anisotropy': 1,
+    'diameter': 40,
+    'min_size': 500,
+    'stitch_threshold': 0.1,
+}
+default_pixel_sizes = [250,108,108]
 
 class Cellpose_Segmentation_Psedu3D:
     """"""
@@ -204,4 +218,167 @@ class Cellpose_Segmentation_Psedu3D:
             print(f"- reconstruct {len(_final_mask)} layers")
         
         return np.array(_final_mask)
+
+class Cellpose_Segmentation_3D:
+    """Do 3D cellpose segmentation to DAPI image, and additionally watershed on polyT iamge given the DAPI seeds
+    Minimal usage:
+    seg_cls = Cellpose_Segmentation_3D(dapi_im, polyt_im, pixel_size, save_filename=filename) # create class
+    labels = seg_cls.run() # run segmentation 
+    seg_cls.save() # save segmentation results
+    """
+    @classmethod
+    def __init__(self, dapi_im, polyt_im=None,
+                 pixel_sizes=default_pixel_sizes,
+                 cellpose_kwargs={},
+                 watershed_beta=1, 
+                 save_filename=None, 
+                 load_from_savefile=True,
+                 verbose=True):
+        """Create CellposeSegmentation3D class"""
+        # inherit from superclass
+        #super().__init__()
+        # save images
+        self.dapi_im = dapi_im
+        self.polyt_im = polyt_im
+        # parameters
+        self.pixel_sizes = pixel_sizes
+        self.cellpose_kwargs = {_k:_v for _k,_v in default_cellpose_kwargs.items()}
+        self.cellpose_kwargs.update(cellpose_kwargs)
+        self.watershed_beta = watershed_beta
+        # save info
+        self.save_filename = save_filename
+        self.verbose = verbose
+        # load 
+        if load_from_savefile and save_filename is not None:
+            self.load()
+    @classmethod
+    def run(self, model_type='nuclei'):
+        """Composite segmentation with reshaped image"""
+        # 
+        _resized_shape = self.generate_resize_shape(self.dapi_im.shape, self.pixel_sizes)
+        #
+        _resized_dapi_im = self.reshape_raw_images(self.dapi_im, _resized_shape)
+        if hasattr(self, 'polyt_im') and getattr(self, 'polyt_im') is not None:
+            _resized_polyt_im = self.reshape_raw_images(self.polyt_im, _resized_shape)
+        else:
+            _resized_polyt_im = None
+        #
+        _resized_masks = self.run_segmentation(_resized_dapi_im, _resized_polyt_im,
+                            model_type=model_type,
+                            cellpose_kwargs=self.cellpose_kwargs)
+        # revert mask size
+        _masks = self.reshape_masks(_resized_masks, np.shape(self.dapi_im))
+        # watershed
+        if hasattr(self, 'polyt_im') and getattr(self, 'polyt_im') is not None:
+            _extended_masks = self.watershed_with_mask(self.polyt_im, _masks, self.watershed_beta)
+        else:
+            _extended_masks = self.watershed_with_mask(self.dapi_im, _masks, self.watershed_beta)
+        # add to attributes
+        self.segmentation_masks = _extended_masks
+        return _extended_masks
+    @classmethod
+    def save(self, save_filename=None, overwrite=False):
+        # decide save_filename
+        if save_filename is None and self.save_filename is None:
+            WarningMessage(f"save_filename not given.")
+        elif save_filename is not None:
+            _save_filename = save_filename
+        else:
+            _save_filename = self.save_filename
+        # save
+        if not os.path.exists(_save_filename) or overwrite:
+            # save
+            if self.verbose:
+                print(f"-- saving mask into file: {_save_filename}")
+            np.save(_save_filename.split(os.path.extsep+_save_filename.split(os.path.extsep)[-1])[0], 
+                    self.segmentation_masks)
+        else:
+            if self.verbose:
+                print(f"-- save_file:{_save_filename} already exists, skip. ")
+    @classmethod
+    def load(self, save_filename=None, overwrite=False):
+        # decide save_filename
+        if save_filename is None and self.save_filename is None:
+            WarningMessage(f"save_filename not given.")
+        elif save_filename is not None:
+            _save_filename = save_filename
+        else:
+            _save_filename = self.save_filename
+        # load
+        if not hasattr(self, 'segmentation_masks') or overwrite:
+            if os.path.exists(_save_filename):
+                if self.verbose:
+                    print(f"-- loading mask from file: {_save_filename}")
+                self.segmentation_masks = np.load(_save_filename)
+            else:
+                if self.verbose:
+                    print(f"-- file: {_save_filename} doesn't exist, skip. ")
+        else:
+            if self.verbose:
+                print(f"-- segmentation_masks already exists, skip. ")
+
+    @staticmethod    
+    def generate_resize_shape(image_shape, pixel_sizes):
+        resize_shape = np.floor(np.array(image_shape)[1:] * np.array(pixel_sizes)[1:] \
+                                / np.array(pixel_sizes)[0]).astype(np.int32)
+        return resize_shape
+
+    @staticmethod
+    def reshape_raw_images(raw_im, 
+                           resize_shape,
+                           ):
+        """Reshape raw image into smaller image to fit-in GPU"""
+        _reshaped_im = np.array([cv2.resize(_lr, tuple(resize_shape[-2:]), 
+                                 interpolation=cv2.INTER_AREA) for _lr in raw_im])
+        return _reshaped_im
+
+    @staticmethod
+    def reshape_masks(masks, 
+                      resize_shape,
+                      ):
+        """Reshape raw image into smaller image to fit-in GPU"""
+        _reshaped_masks = np.array([cv2.resize(_lr, tuple(resize_shape[-2:]), 
+                                    interpolation=cv2.INTER_NEAREST) for _lr in masks])
+        return _reshaped_masks
+
+    @staticmethod
+    def run_segmentation(small_dapi_im, 
+                         small_polyt_im=None, 
+                         model_type='nuclei', 
+                         use_gpu=True, 
+                         cellpose_kwargs={},
+                         verbose=True,
+                         ):
+        # check inputs
+        _start_time = time.time()
+        if small_polyt_im is None:
+            small_polyt_im = np.zeros(np.shape(small_dapi_im), dtype=small_dapi_im.dtype)
+        # create model
+        seg_model = models.Cellpose(gpu=use_gpu, model_type=model_type)
+        # parameters
+        _cellpose_kwargs = {_k:_v for _k,_v in default_cellpose_kwargs.items()}
+        _cellpose_kwargs.update(cellpose_kwargs)
+
+        # run segmentation
+        masks, _, _, _ = seg_model.eval(
+            np.stack([small_polyt_im, small_dapi_im], axis=3),
+            channels=[0,0], 
+            resample=True,
+            do_3D=True,
+            **_cellpose_kwargs)
+        # clear ram
+        del(seg_model)
+        torch.cuda.empty_cache()
+        # change background into -1
+        new_masks = masks.copy().astype(np.int16)
+        new_masks[new_masks==0] = -1
+        # return
+        if verbose:
+            print(f"-- finish segmentation in {time.time()-_start_time:.3f}s. ")
+        return new_masks
     
+    @staticmethod
+    def watershed_with_mask(target_im, seed_labels, beta=1.):
+        from skimage.segmentation import random_walker
+        _extended_masks = random_walker(target_im, seed_labels, beta=beta, tol=0.001, prob_tol=0.001)
+        return _extended_masks
