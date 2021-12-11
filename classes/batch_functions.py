@@ -488,7 +488,6 @@ def save_spots_to_fov_file(filename, spot_list, data_type, region_ids,
                 _grp['raw_spots'].resize(len(_spots), 1)
 
             _index = list(_grp['ids'][:]).index(_id)
-            print(_index)
             if np.sum(_grp['spots'][_index])==0 or overwrite:
                 _grp['spots'][_index, :len(_spots), :] = _spots
                 _updated_spots.append(_id)
