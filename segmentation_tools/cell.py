@@ -252,30 +252,33 @@ class Cellpose_Segmentation_3D:
         if load_from_savefile and save_filename is not None:
             self.load()
     @classmethod
-    def run(self, model_type='nuclei'):
+    def run(self, model_type='nuclei', overwrite=False,):
         """Composite segmentation with reshaped image"""
-        # 
-        _resized_shape = self.generate_resize_shape(self.dapi_im.shape, self.pixel_sizes)
-        #
-        _resized_dapi_im = self.reshape_raw_images(self.dapi_im, _resized_shape)
-        if hasattr(self, 'polyt_im') and getattr(self, 'polyt_im') is not None:
-            _resized_polyt_im = self.reshape_raw_images(self.polyt_im, _resized_shape)
+        if hasattr(self, 'segmentation_masks') and not overwrite:
+            return self.segmentation_masks
         else:
-            _resized_polyt_im = None
-        #
-        _resized_masks = self.run_segmentation(_resized_dapi_im, _resized_polyt_im,
-                            model_type=model_type,
-                            cellpose_kwargs=self.cellpose_kwargs)
-        # revert mask size
-        _masks = self.reshape_masks(_resized_masks, np.shape(self.dapi_im))
-        # watershed
-        if hasattr(self, 'polyt_im') and getattr(self, 'polyt_im') is not None:
-            _extended_masks = self.watershed_with_mask(self.polyt_im, _masks, self.watershed_beta)
-        else:
-            _extended_masks = self.watershed_with_mask(self.dapi_im, _masks, self.watershed_beta)
-        # add to attributes
-        self.segmentation_masks = _extended_masks
-        return _extended_masks
+            # 
+            _resized_shape = self.generate_resize_shape(self.dapi_im.shape, self.pixel_sizes)
+            #
+            _resized_dapi_im = self.reshape_raw_images(self.dapi_im, _resized_shape)
+            if hasattr(self, 'polyt_im') and getattr(self, 'polyt_im') is not None:
+                _resized_polyt_im = self.reshape_raw_images(self.polyt_im, _resized_shape)
+            else:
+                _resized_polyt_im = None
+            #
+            _resized_masks = self.run_segmentation(_resized_dapi_im, _resized_polyt_im,
+                                model_type=model_type,
+                                cellpose_kwargs=self.cellpose_kwargs)
+            # revert mask size
+            _masks = self.reshape_masks(_resized_masks, np.shape(self.dapi_im))
+            # watershed
+            if hasattr(self, 'polyt_im') and getattr(self, 'polyt_im') is not None:
+                _extended_masks = self.watershed_with_mask(self.polyt_im, _masks, self.watershed_beta)
+            else:
+                _extended_masks = self.watershed_with_mask(self.dapi_im, _masks, self.watershed_beta)
+            # add to attributes
+            self.segmentation_masks = _extended_masks
+            return _extended_masks
     @classmethod
     def save(self, save_filename=None, overwrite=False):
         # decide save_filename

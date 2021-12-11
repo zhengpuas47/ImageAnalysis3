@@ -7,6 +7,9 @@ from numpy.lib.arraysetops import isin
 import pandas as pd
 from scipy.ndimage import center_of_mass, find_objects
 
+default_dim = 3
+default_axis_names = ['z', 'x', 'y']
+
 def SegmentationMask3D_2_CellLocations(segmentation_mask, 
                                        fov_id, #fov_position, 
                                        image_sizes, pixel_sizes,
@@ -22,9 +25,6 @@ def SegmentationMask3D_2_CellLocations(segmentation_mask,
 
         if verbose:
             print(f"- Start process segmentation into cell locations.")
-
-        n_dim = 3
-        axis_names = ['z', 'x', 'y']
         
         # load segmentation if necessary
         if isinstance(segmentation_mask, str):
@@ -35,15 +35,15 @@ def SegmentationMask3D_2_CellLocations(segmentation_mask,
             raise TypeError(f"Wrong input type for segmentation_mask")
 
         #fov_position = np.array(fov_position)
-        #if len(fov_position) == n_dim -1:
+        #if len(fov_position) == default_dim -1:
         #    fov_position = np.concatenate([[0], fov_position])
-        #elif len(fov_position) == n_dim:
+        #elif len(fov_position) == default_dim:
         #    pass
         #else:
         #    raise IndexError(f"fov position should either be 2d or 3d")
             
-        image_sizes = np.array(image_sizes)[:n_dim]
-        pixel_sizes = np.array(pixel_sizes)[:n_dim]
+        image_sizes = np.array(image_sizes)[:default_dim]
+        pixel_sizes = np.array(pixel_sizes)[:default_dim]
         
         cell_location_df = pd.DataFrame()
 
@@ -63,10 +63,10 @@ def SegmentationMask3D_2_CellLocations(segmentation_mask,
                 'cell_id': int(_cell),
                 'volume': _volume,
             }
-            _center_dict = {f"center_{_ax}":_c for _ax, _c in zip(axis_names, _ct_in_um)}
+            _center_dict = {f"center_{_ax}":_c for _ax, _c in zip(default_axis_names, _ct_in_um)}
             
             _border_dict = {}
-            for _i, (_ax, _bd) in enumerate(zip(axis_names, _box)):
+            for _i, (_ax, _bd) in enumerate(zip(default_axis_names, _box)):
                 _border_dict[f"min_{_ax}"] = (_bd.start - (image_sizes/2)[_i]) * (pixel_sizes/1000)[_i] #+ fov_position[_i]
                 _border_dict[f"max_{_ax}"] = (_bd.stop - (image_sizes/2)[_i]) * (pixel_sizes/1000)[_i] #+ fov_position[_i]
             
@@ -100,7 +100,6 @@ def Translate_CellLocations(metadata, microscope_info,
                             fov_position=None,
                             ):
     """Translate current metadata with microscope information"""
-    n_dim = 3
     
     if isinstance(metadata, str):
         metadata =  pd.read_csv(metadata, header=0)
@@ -110,10 +109,10 @@ def Translate_CellLocations(metadata, microscope_info,
         raise TypeError(f"Wrong input type for metadata")
         
     if fov_position is None:
-        fov_position = np.zeros(n_dim)
-    elif len(fov_position) == n_dim -1:
+        fov_position = np.zeros(default_dim)
+    elif len(fov_position) == default_dim -1:
         fov_position = np.concatenate([[0], np.array(fov_position)])
-    elif len(fov_position) == n_dim:
+    elif len(fov_position) == default_dim:
         fov_position = np.array(fov_position)
     else:
         raise IndexError(f"fov position should either be 2d or 3d")
@@ -151,7 +150,6 @@ def Translate_CellLocations(metadata, microscope_info,
         _relative_centers[:,np.array([-2,-1])] = _relative_centers[:,np.array([-1,-2])]
         _relative_mins[:,np.array([-2,-1])] = _relative_mins[:,np.array([-1,-2])]
         _relative_maxs[:,np.array([-2,-1])] = _relative_maxs[:,np.array([-1,-2])]
-    
     #print(_relative_centers[0])
     
     if microscope_info['flip_horizontal']:
@@ -166,10 +164,7 @@ def Translate_CellLocations(metadata, microscope_info,
         _relative_centers[:,-1]  = -1 * _relative_centers[:,-1]
         _relative_mins[:,-1], _relative_maxs[:,-1] = -1*_relative_maxs[:,-1], -1*_relative_mins[:,-1]
     #print(_relative_centers[0])
-    
-    #print(_relative_mins)
-    #print(_relative_maxs)
-    
+
     # assign new values
     new_metadata[['center_z', 'center_x', 'center_y']] = _relative_centers + fov_position
     new_metadata[['min_z', 'min_x', 'min_y']] = _relative_mins + fov_position
@@ -178,14 +173,13 @@ def Translate_CellLocations(metadata, microscope_info,
     return new_metadata
 
 def Adjust_CellLocations_by_Position(cell_loc, position_df):
-    
-    n_dim = 3
+    """"""
     _new_cell_loc = cell_loc.copy()
     _fov_center = np.array(position_df.iloc[np.unique(cell_loc['fov_id'])])[0]
     # adjust fov_center length
-    if len(_fov_center) == n_dim -1:
+    if len(_fov_center) == default_dim -1:
         _fov_center = np.concatenate([[0], np.array(_fov_center)])
-    elif len(_fov_center) == n_dim:
+    elif len(_fov_center) == default_dim:
         _fov_center = np.array(_fov_center)
     else:
         raise IndexError(f"fov position should either be 2d or 3d")
@@ -199,6 +193,7 @@ def Adjust_CellLocations_by_Position(cell_loc, position_df):
 def Merge_CellLocations(cell_location_list, 
                         microscope_info, 
                         position_df, 
+                        fov_ids=None,
                         save=True, save_filename=None,
                         overwrite=False, verbose=True,
                         ):
@@ -210,6 +205,8 @@ def Merge_CellLocations(cell_location_list,
             print(f"- Start merging {len(cell_location_list)} cell locations")
         # initialize
         merged_cell_loc_df = pd.DataFrame()
+        if fov_ids is None:
+            fov_ids = np.arange(len(position_df))
         # loop through each cell-location file
         for _cell_loc in cell_location_list:
             if isinstance(_cell_loc, str):
