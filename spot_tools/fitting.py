@@ -202,6 +202,10 @@ def fit_fov_image(im, channel, seeds=None,
         _seeds = np.array(seeds)[:,:len(np.shape(im))]
         if verbose:
             print(f"{len(_seeds)} given, ", end='')
+    # if no seeds, skip
+    if len(_seeds) == 0:
+        return np.array([])
+
     # apply seed mask if given
     if seed_mask is not None:
         _sel_seeds = []
