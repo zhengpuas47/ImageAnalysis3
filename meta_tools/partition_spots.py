@@ -180,3 +180,25 @@ def Merge_GeneCounts(gene_counts_list,
             print(f"-- merge cell-locations in {_execute_time:.3f}s")
             
     return merged_gene_counts_df
+
+
+def batch_partition_spots(        
+                        segmentation_masks:np.ndarray, 
+                        readout_filename:str,
+                        fov_id,
+                        spots_list,
+                        bits=None,
+                        query_label='Gene', 
+                        search_radius=default_search_radius,
+                        pixel_sizes=default_pixel_sizes,
+                        save_filename=None,
+                        ):
+    """
+    """
+    _partition_cls = Spots_Partition(segmentation_masks,
+    readout_filename, fov_id=fov_id, search_radius=search_radius,
+    pixel_sizes=pixel_sizes, save_filename=save_filename)
+    # run
+    _df = _partition_cls.run(spots_list, bits, query_label=query_label)
+    # return
+    return _df
