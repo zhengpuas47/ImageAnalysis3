@@ -1,6 +1,6 @@
 from .. import _image_size
 import numpy as np
-
+from scipy.spatial.distance import cdist, pdist
 
 class ImageCrop():
     """ """
@@ -87,13 +87,13 @@ class ImageCrop_3d(ImageCrop):
     
         super().__init__(3, crop_array, single_im_size)
 
-    def crop_spots(self, spots):
+    def crop_spots(self, spots_3d):
         """ """
-        _spots = np.array(spots)
+        _spots = spots_3d.copy()
         _coords = _spots[:,1:4]
         _mask = self.inside(_coords)
-        _cropped_spots = _spots[_mask]
-        _cropped_spots[:,1:4] = _cropped_spots[:,1:4] - self.array[:,0][np.newaxis,:]
+        _cropped_spots = _spots[_mask].copy()
+        _cropped_spots[:,1:4] = np.array(_cropped_spots[:,1:4]) - self.array[:,0][np.newaxis,:]
         
         return _cropped_spots
 
@@ -111,12 +111,11 @@ class Spots3D(np.ndarray):
     def __new__(cls, 
                 input_array, 
                 bits=None,
-                pixel_size=None,
-                info=None,
+                pixel_sizes=None,
+                #info=None,
                 copy_data=True):
         # Input array is an already formed ndarray instance
         # We first cast to be our class type
-
         if copy_data:
             input_array = np.array(input_array).copy()
         if len(np.shape(input_array)) == 1:
@@ -126,7 +125,7 @@ class Spots3D(np.ndarray):
         else:
             raise IndexError('Spots3D class only creating 2D-array')
         # add the new attribute to the created instance
-        if isinstance(bits, int):
+        if isinstance(bits, (int, np.int32)):
             obj.bits = np.ones(len(obj), dtype=np.int32) * int(bits)
         elif bits is not None and np.size(bits) == 1:
             obj.bits = np.ones(len(obj), dtype=np.int32) * int(bits[0])
@@ -135,93 +134,66 @@ class Spots3D(np.ndarray):
         else:
             obj.bits = bits
 
-        obj.pixel_size = np.array(pixel_size)
-        obj.info = info
+        obj.pixel_sizes = np.array(pixel_sizes)
+        #obj.info = info
         # Finally, we must return the newly created object:
         return obj
 
-    def __str__(self):
-        """ """
-        return ""
+#    def __str__(self):
+#        """Spots3D object with dimension"""
+#        return ""
+
+    def __getitem__(self, key):
+        """Modified getitem to allow slicing of bits as well"""
+        #print(f" getitem {key}, {type(key)}")
+        new_obj = super().__getitem__(key)
+        # if slice, slice bits as well
+        if hasattr(self, 'bits') and getattr(self, 'bits') is not None:
+            if isinstance(key, slice) or isinstance(key, np.ndarray):
+                setattr(new_obj, 'bits', getattr(self, 'bits')[key] )
+                
+        #print(new_obj, type(new_obj))
+        return new_obj
+
+    def __setitem__(self, key, value):
+        #print(f" setitem {key}, {type(key)}")
+        return super().__setitem__(key, value)
 
     def __array_finalize__(self, obj):
-        """ """
-        # see InfoArray.__array_finalize__ for comments
+        """
+        Reference: https://numpy.org/devdocs/user/basics.subclassing.html 
+        """
         if obj is None: 
             return
         else:
-            self.info = getattr(obj, 'info', None)
+            if hasattr(obj, 'shape') and len(getattr(obj, 'shape')) != 2:
+                obj = np.array(obj)
+            # other attributes
+            setattr(self, 'bits', getattr(obj, 'bits', None))
+            setattr(self, 'pixel_sizes', getattr(obj, 'pixel_sizes', None))
 
-    def __array_ufunc__(self, ufunc, method, *inputs, out=None, **kwargs):
-        """ """
-        args = []
-        in_no = []
-        for i, input_ in enumerate(inputs):
-            if isinstance(input_, Spots3D):
-                in_no.append(i)
-                args.append(input_.view(np.ndarray))
-            else:
-                args.append(input_)
+        #print(f"**finalizing, {obj}, {type(obj)}")
+        return obj
 
-        outputs = out
-        out_no = []
-        if outputs:
-            out_args = []
-            for j, output in enumerate(outputs):
-                if isinstance(output, Spots3D):
-                    out_no.append(j)
-                    out_args.append(output.view(np.ndarray))
-                else:
-                    out_args.append(output)
-            kwargs['out'] = tuple(out_args)
-        else:
-            outputs = (None,) * ufunc.nout
 
-        info = {}
-        if in_no:
-            info['inputs'] = in_no
-        if out_no:
-            info['outputs'] = out_no
-
-        results = super().__array_ufunc__(ufunc, method, *args, **kwargs)
-
-        if results is NotImplemented:
-            return NotImplemented
-
-        if method == 'at':
-            if isinstance(inputs[0], Spots3D):
-                inputs[0].info = info
-            return
-
-        if ufunc.nout == 1:
-            results = (results,)
-
-        results = tuple((np.asarray(result).view(Spots3D)
-                         if output is None else output)
-                        for result, output in zip(results, outputs))
-        if results and isinstance(results[0], Spots3D):
-            results[0].info = info
-
-        return results[0] if len(results) == 1 else results
 
     def to_coords(self):
         """ convert into 3D coordinates in pixels """
         return np.array(self[:,1:4])
     
-    def to_positions(self, pixel_size=None):
+    def to_positions(self, pixel_sizes=None):
         """ convert into 3D spatial positions"""
-        _saved_pixel_size = getattr(self, 'pixel_size', None)
-        if _saved_pixel_size is not None and _saved_pixel_size.any():
-            return self.to_coords() * np.array(_saved_pixel_size)[np.newaxis,:]
-        elif pixel_size is None:
-            raise ValueError('pixel size not given')
+        _saved_pixel_sizes = getattr(self, 'pixel_sizes', None)
+        if _saved_pixel_sizes is not None and _saved_pixel_sizes.any():
+            return self.to_coords() * np.array(_saved_pixel_sizes)[np.newaxis,:]
+        elif pixel_sizes is None:
+            raise ValueError('pixel_sizes not given')
         else:
-            return self.to_coords() * np.array(pixel_size)[np.newaxis,:]
+            return self.to_coords() * np.array(pixel_sizes)[np.newaxis,:]
 
     def to_intensities(self):
         """ """
         return np.array(self[:,0])
-
 
 
 # scoring spot Tuple
@@ -229,15 +201,14 @@ class SpotTuple():
     """Tuple of coordinates"""
     def __init__(self, 
                  spots_tuple:Spots3D,
-                 bits:np.ndarray,
-                 pixel_size:np.ndarray or list,
+                 bits:np.ndarray=None,
+                 pixel_sizes:np.ndarray or list=None,
                  spots_inds=None,
                  tuple_id=None,
                  ):
         # add spot Tuple
         self.spots = spots_tuple[:].copy()
         # add information for bits
-        # add the new attribute to the created instance
         if isinstance(bits, int):
             self.bits = np.ones(len(self.spots), dtype=np.int32) * int(bits)
         elif bits is not None and np.size(bits) == 1:
@@ -248,16 +219,16 @@ class SpotTuple():
             self.bits = spots_tuple.bits[:len(self.spots)]
         else:
             self.bits = bits
-
-        self.pixel_size = np.array(pixel_size)
+        if pixel_sizes is None:
+            self.pixel_sizes = getattr(self.spots, 'pixel_sizes', None)
+        else:
+            self.pixel_sizes = np.array(pixel_sizes)
         
         self.spots_inds = spots_inds
         self.tuple_id = tuple_id
         
-
     def dist_internal(self):
-        from scipy.spatial.distance import pdist
-        _self_coords = self.spots.to_positions(self.pixel_size)
+        _self_coords = self.spots.to_positions(self.pixel_sizes)
         return pdist(_self_coords)
 
     def intensities(self):
@@ -267,23 +238,23 @@ class SpotTuple():
 
     def centroid_spot(self):
         self.centroid = np.mean(self.spots, axis=0, keepdims=True)
+        self.centroid.pixel_sizes = self.pixel_sizes
         return self.centroid
 
     def dist_centroid_to_spots(self, spots:Spots3D):
-        from scipy.spatial.distance import cdist
+        """Calculate distance from tuple centroid to given spots"""
         if not hasattr(self, 'centroid'):
             _cp = self.centroid_spot()
         else:
             _cp = getattr(self, 'centroid')
-        _centroid_coords = _cp.to_positions(pixel_size=self.pixel_size)
-        _target_coords = spots.to_positions(pixel_size=self.pixel_size)
+        _centroid_coords = _cp.to_positions(pixel_sizes=self.pixel_sizes)
+        _target_coords = spots.to_positions(pixel_sizes=self.pixel_sizes)
         return cdist(_centroid_coords, _target_coords)[0]
 
     def dist_to_spots(self, 
                       spots:Spots3D):
-        from scipy.spatial.distance import cdist
-        _self_coords = self.spots.to_positions(pixel_size=self.pixel_size)
-        _target_coords = spots.to_positions(pixel_size=self.pixel_size)
+        _self_coords = self.spots.to_positions(pixel_sizes=self.pixel_sizes)
+        _target_coords = spots.to_positions(pixel_sizes=self.pixel_sizes)
         return cdist(_self_coords, _target_coords)
 
     def dist_chromosome(self):

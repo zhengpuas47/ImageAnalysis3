@@ -515,3 +515,12 @@ def chromosomal_spot_scores(spots, region_ids,
         return _ct_scores, _lc_scores, _nb_scores, _int_scores
     else:
         return _scores
+
+
+
+def Normalize_Intensities(spots, all_spots, method='median'):
+    _spots = spots.copy()
+    _method = getattr(np, method)
+    _norm = _method(all_spots.to_intensities())
+    _spots[:,0] = _spots.to_intensities() / _norm
+    return _spots

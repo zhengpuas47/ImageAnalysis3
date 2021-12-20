@@ -343,7 +343,7 @@ class Field_of_View():
             self.annotated_folders = []
             for _hyb_fd, _info in self.color_dic.items():
                 # only select the ones with existing image
-                _matches = [_fd for _fd in self.folders if _hyb_fd == _fd.split(os.sep)[-1] and os.path.exists()(os.path.join(_fd, self.fov_name))]
+                _matches = [_fd for _fd in self.folders if _hyb_fd == _fd.split(os.sep)[-1] and os.path.exists(os.path.join(_fd, self.fov_name)) ]
                 if len(_matches)==1:
                     self.annotated_folders.append(_matches[0])
             print(f"- {len(self.annotated_folders)} folders are found according to color-usage annotation.")
