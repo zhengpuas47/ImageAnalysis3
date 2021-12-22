@@ -1,5 +1,6 @@
 import os, glob, sys, time
 import numpy as np 
+import re
 
 ### This sub package is aiming to manage data folders ###
 
@@ -20,17 +21,28 @@ def get_folders(data_folder, feature='H', verbose=True):
         folders: list of full directory of folders, list of strings
         fovs: list of field-of-view file basenames, list of strings
     '''
-    folders = [folder for folder in glob.glob(data_folder+os.sep+'*') if os.path.basename(folder)[0]==feature] # get folders start with 'H'
-    folders = list(np.array(folders)[np.argsort(list(map(get_hybe,folders)))])
+    if not os.path.exists(data_folder):
+        raise FileNotFoundError(f"data_folder:{data_folder} not exist.")
+
+    folders = [folder for folder in glob.glob(data_folder+os.sep+'*') if os.path.basename(folder)[:len(feature)]==feature] # get folders start with 'H'
+    #for __name in sorted(__color_dic.keys(), key=lambda _v:int( re.split(r'^H([0-9]+)[RQBUGCMP](.*)', _v)[1] ) ):
+    # try sort folder by hyb
+    try:
+        folders = list(sorted(folders, key=lambda _path:int(re.split(r'^H([0-9]+)[RQBUGCMP](.*)', os.path.basename(_path) )[1])  ) ) 
+    except:
+        pass
+    
     if len(folders) > 0:
         fovs = sorted(list(map(os.path.basename,glob.glob(folders[0]+os.sep+'*.dax'))),key=lambda l:int(l.split('.dax')[0].split('_')[-1]))
     else:
-        raise IOError("No folders detected!")
+        raise FileNotFoundError(f"No sub-folders detected in {data_folder}!")
+    
     if verbose:
         print("Get Folder Names: (ia.get_img_info.get_folders)")
         print("- Number of folders:", len(folders))
         print("- Number of field of views:", len(fovs))
     return folders, fovs
+
 
 
 def copy_fov_for_data(data_folder, target_parent_directory, 

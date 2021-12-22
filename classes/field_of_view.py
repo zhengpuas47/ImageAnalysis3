@@ -93,11 +93,18 @@ class Field_of_View():
             self.data_folder = [str(parameters['data_folder'])]
         ## extract hybe folders and field-of-view names
         self.folders = []
+        _all_fov_names = []
         for _fd in self.data_folder:
-            from ..get_img_info import get_folders
-            _hyb_fds, _fovs = get_folders(_fd, feature='H', verbose=True)
-            self.folders += _hyb_fds # here only extract folders not fovs
-
+            from ..io_tools.data import get_folders
+            try:
+                _hyb_fds, _fovs = get_folders(_fd, feature='H', verbose=True)
+                self.folders += _hyb_fds # here only extract folders not fovs
+                _all_fov_names.append(_fovs)
+            except:
+                pass
+        # select longest
+        _fovs = _all_fov_names[np.argmax([len(_fs) for _fs in _all_fov_names])]
+        
         if _fov_name is None and _fov_id is None:
             raise ValueError(f"either _fov_name or _fov_id should be given!")
         elif _fov_id is not None:
