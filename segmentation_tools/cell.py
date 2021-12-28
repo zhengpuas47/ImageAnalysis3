@@ -219,14 +219,13 @@ class Cellpose_Segmentation_Psedu3D:
         
         return np.array(_final_mask)
 
-class Cellpose_Segmentation_3D:
+class Cellpose_Segmentation_3D():
     """Do 3D cellpose segmentation to DAPI image, and additionally watershed on polyT iamge given the DAPI seeds
     Minimal usage:
     seg_cls = Cellpose_Segmentation_3D(dapi_im, polyt_im, pixel_size, save_filename=filename) # create class
     labels = seg_cls.run() # run segmentation 
     seg_cls.save() # save segmentation results
     """
-    @classmethod
     def __init__(self, dapi_im, polyt_im=None,
                  pixel_sizes=default_pixel_sizes,
                  cellpose_kwargs={},
@@ -249,12 +248,13 @@ class Cellpose_Segmentation_3D:
         self.save_filename = save_filename
         self.verbose = verbose
         # load 
-        if load_from_savefile and save_filename is not None:
+        if load_from_savefile and save_filename is not None and os.path.exists(save_filename):
             self.load()
-    @classmethod
     def run(self, model_type='nuclei', overwrite=False,):
         """Composite segmentation with reshaped image"""
         if hasattr(self, 'segmentation_masks') and not overwrite:
+            if self.verbose:
+                print(f"-- segmentation_masks already exist, skip.")
             return self.segmentation_masks
         else:
             # 
@@ -277,9 +277,8 @@ class Cellpose_Segmentation_3D:
             else:
                 _extended_masks = self.watershed_with_mask(self.dapi_im, _masks, self.watershed_beta)
             # add to attributes
-            self.segmentation_masks = _extended_masks
+            setattr(self, 'segmentation_masks', _extended_masks)
             return _extended_masks
-    @classmethod
     def save(self, save_filename=None, overwrite=False):
         # decide save_filename
         if save_filename is None and self.save_filename is None:
@@ -298,7 +297,6 @@ class Cellpose_Segmentation_3D:
         else:
             if self.verbose:
                 print(f"-- save_file:{_save_filename} already exists, skip. ")
-    @classmethod
     def load(self, save_filename=None, overwrite=False):
         # decide save_filename
         if save_filename is None and self.save_filename is None:
@@ -319,7 +317,12 @@ class Cellpose_Segmentation_3D:
         else:
             if self.verbose:
                 print(f"-- segmentation_masks already exists, skip. ")
-
+    def clear(self):
+        if self.verbose:
+            print(f"-- removing segmentation_masks from class")
+        if hasattr(self, 'segmentation_masks'):
+            delattr(self, 'segmentation_masks')
+    
     @staticmethod    
     def generate_resize_shape(image_shape, pixel_sizes):
         resize_shape = np.floor(np.array(image_shape)[1:] * np.array(pixel_sizes)[1:] \

@@ -19,7 +19,6 @@ default_pixel_sizes = [250,108,108]
 
 class Spots_Partition():
     """"""
-    @classmethod
     def __init__(self,
                  segmentation_masks:np.ndarray, 
                  readout_filename:str,
@@ -39,7 +38,6 @@ class Spots_Partition():
         self.readout_filename = readout_filename
         self.save_filename = save_filename
     
-    @classmethod
     def run(self, spots_list, bits=None,
             query_label='Gene', 
             save=True,
