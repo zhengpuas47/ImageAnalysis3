@@ -14,7 +14,7 @@ from . import _num_buffer_frames, _num_empty_frames
 from .crop import decide_starting_frames, translate_crop_by_drift
 
 
-def get_num_frame(dax_filename, frame_per_color=_image_size[0], buffer_frame=10, verbose=False):
+def get_num_frame(dax_filename, frame_per_color=_image_size[0], buffer_frame=10, empty_frame=0, verbose=False):
     """Function to extract image size and number of colors"""
     ## check input
     if '.dax' not in dax_filename:
@@ -33,7 +33,7 @@ def get_num_frame(dax_filename, frame_per_color=_image_size[0], buffer_frame=10,
         _line = _line.rstrip()
         if "number of frames" in _line:
             _num_frame = int(_line.split('=')[1])
-            _num_color = (_num_frame - 2*buffer_frame) / frame_per_color
+            _num_color = (_num_frame - 2*buffer_frame - empty_frame) / frame_per_color
             if _num_color != int(_num_color):
                 raise ValueError("Wrong num_color, should be integer!")
             _num_color = int(_num_color)
@@ -310,7 +310,8 @@ def correct_fov_image(dax_filename, sel_channels,
     #from ..get_img_info import get_num_frame, split_channels
     _full_im_shape, _num_color = get_num_frame(dax_filename,
                                                frame_per_color=single_im_size[0],
-                                               buffer_frame=num_buffer_frames)
+                                               buffer_frame=num_buffer_frames, 
+                                               empty_frame=num_empty_frames)
     _ims = split_im_by_channels(_im, _load_channels, all_channels[:_num_color], 
                                 single_im_size=single_im_size, 
                                 num_buffer_frames=num_buffer_frames,
@@ -535,9 +536,11 @@ def split_im_by_channels(im, sel_channels, all_channels, single_im_size=_image_s
         if _ch not in _all_channels:
             raise ValueError(f"Wrong input channel:{_ch}, should be within {_all_channels}")
     _ch_inds = [_all_channels.index(_ch) for _ch in _sel_channels]
-    _ch_starts = [num_buffer_frames \
-                    + (_i + num_empty_frames-num_buffer_frames) %_num_colors 
+    _ch_starts = [num_empty_frames + num_buffer_frames \
+                    + (_i - num_empty_frames - num_buffer_frames) %_num_colors 
                     for _i in _ch_inds]
+    print(_ch_inds)
+    print(_ch_starts)
     if skip_frame0:
         for _i,_s in enumerate(_ch_starts):
             if _s == _num_buffer_frames:
