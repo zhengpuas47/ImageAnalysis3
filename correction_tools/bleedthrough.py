@@ -241,7 +241,7 @@ def interploate_bleedthrough_correction_from_channel(
     save_temp=True, save_folder=None, 
     make_plots=True, save_plots=True,
     overwrite=False, verbose=True,
-):
+    ):
     """Function to interpolate and generate the bleedthrough correction profiles between two channels
     
     """
