@@ -78,7 +78,7 @@ class Spots_Partition():
             for _cell, _cell_spots in _cell_spots_list.items():
                 _info_dict = {'cell_id': _cell}
                 if hasattr(self, 'fov_id') or self.fov_id is not None:
-                    _info_dict['fov_id'] = int(self.fov_id)
+                    _info_dict['fov_id'] = self.fov_id
                 for _bit, _spots in _cell_spots.items():
                     if _bit in self.readout_df['Bit number'].values:
                         _gene = self.readout_df.loc[self.readout_df['Bit number']==_bit, query_label].values[0]
@@ -154,7 +154,8 @@ def Merge_GeneCounts(gene_counts_list,
             else:
                 raise TypeError(f"Wrong input type for _gene_counts")
             # add fov 
-            if 'fov_id' not in _gene_counts.columns:
+            if 'fov_id' not in _gene_counts.columns or np.isnan(_gene_counts['fov_id']).all():
+                
                 _gene_counts['fov_id'] = _fov_id * np.ones(len(_gene_counts), dtype=np.int32)
             # merge
             merged_gene_counts_df = pd.concat([merged_gene_counts_df, _gene_counts],
