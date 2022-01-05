@@ -250,7 +250,7 @@ class Cellpose_Segmentation_3D():
         # load 
         if load_from_savefile and save_filename is not None and os.path.exists(save_filename):
             self.load()
-    def run(self, model_type='nuclei', overwrite=False,):
+    def run(self, model_type='nuclei', use_gpu=True, overwrite=False,):
         """Composite segmentation with reshaped image"""
         if hasattr(self, 'segmentation_masks') and not overwrite:
             if self.verbose:
@@ -268,6 +268,7 @@ class Cellpose_Segmentation_3D():
             #
             _resized_masks = self.run_segmentation(_resized_dapi_im, _resized_polyt_im,
                                 model_type=model_type,
+                                use_gpu=use_gpu,
                                 cellpose_kwargs=self.cellpose_kwargs)
             # revert mask size
             _masks = self.reshape_masks(_resized_masks, np.shape(self.dapi_im))
