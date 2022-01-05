@@ -389,3 +389,37 @@ class Cellpose_Segmentation_3D():
         from skimage.segmentation import random_walker
         _extended_masks = random_walker(target_im, seed_labels, beta=beta, tol=0.001, prob_tol=0.001)
         return _extended_masks
+
+import math
+import cv2
+
+def translate_segmentation(dapi_before, dapi_after, before_to_after_rotation,
+                           label_before=None, label_after=None,
+                           ):
+    """ """
+    from ..correction_tools.alignment import calculate_translation
+    # calculate drift
+    rot_dna_dapi_im, _rot, _dft = calculate_translation(dapi_before, dapi_after, before_to_after_rotation,)
+    # get dimensions
+    _dz,_dx,_dy = np.shape(dapi_before)
+    _rotation_angle = np.arcsin(_rot[0,1])/math.pi*180
+    
+    if label_before is not None:
+        _seg_labels = np.array(label_before, dtype=np.int32)
+        _rotation_angle = -1 * _rotation_angle
+        _dft = -1 * _dft
+    elif label_after is not None:
+        _seg_labels = np.array(label_after, dtype=np.int32)
+    else:
+        ValueError('Either label_before or label_after should be given!')
+    # generate rotation matrix in cv2
+    _rotation_M = cv2.getRotationMatrix2D((_dx/2, _dy/2), _rotation_angle, 1)
+    # rotate segmentation
+    _rot_seg_labels = np.array([cv2.warpAffine(_seg_layer,#.astype(np.float), 
+                                              _rotation_M, 
+                                              _seg_layer.shape, borderMode=cv2.BORDER_CONSTANT)
+                               for _seg_layer in _seg_labels])
+    # warp the segmentation label by drift
+    _dft_rot_seg_labels = ia.correction_tools.translate.warp_3d_image(_rot_seg_labels, _dft)
+    
+    return _dft_rot_seg_labels.astype(np.int32)
