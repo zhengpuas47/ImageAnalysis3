@@ -20,7 +20,7 @@ class Merfish_Decoder():
 
     def __init__(self, 
                  cand_spots_list, 
-                 codebook_filename,
+                 codebook_df,
                  bits=None,
                  savefile=None,
                  pixel_sizes=default_pixel_sizes,
@@ -32,7 +32,7 @@ class Merfish_Decoder():
                  ):
         """Inttialize"""
         # parameters
-        self.codebook_filename = codebook_filename
+        self.codebook_df = codebook_df
         self.pixel_sizes = np.array(pixel_sizes)
         self.inner_dist_factor = float(inner_dist_factor)
         self.intensity_factor = float(intensity_factor)
@@ -55,7 +55,7 @@ class Merfish_Decoder():
                 _cand_spots_list.append(_spots)
         #merge cand_spots
         cand_spots = Spots3D(np.concatenate(_cand_spots_list), 
-                            bits=np.concatenate([_spots.bits for _spots in _cand_spots_list]), 
+                             bits=np.concatenate([_spots.bits for _spots in _cand_spots_list if len(_spots) > 0]), 
                             pixel_sizes=self.pixel_sizes)
         self.cand_spots = cand_spots
         # load codebook if automatic
@@ -95,7 +95,7 @@ class Merfish_Decoder():
 
 
     def load_codebook(self):
-        codebook_df = pd.read_csv(self.codebook_filename, header=0)
+        codebook_df = getattr(self, 'codebook_df')
         codebook_df.set_index('id')
         # add to attribute
         self.codebook = codebook_df
@@ -293,7 +293,7 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
     """DNA MERFISH decoder, based on merfish decoder but allow some special features"""
     def __init__(self, 
                  cand_spots_list, 
-                 codebook_filename,
+                 codebook_df,
                  bits=None,
                  savefile=None,
                  pixel_sizes=default_pixel_sizes,
@@ -305,7 +305,7 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
                  auto=True,
                  verbose=True,
                  ):
-        super().__init__(cand_spots_list=cand_spots_list, codebook_filename=codebook_filename, bits=bits,
+        super().__init__(cand_spots_list=cand_spots_list, codebook_df=codebook_df, bits=bits,
             savefile=savefile,
             pixel_sizes=pixel_sizes, inner_dist_factor=inner_dist_factor, intensity_factor=intensity_factor,
             auto=auto, verbose=verbose)
@@ -316,20 +316,27 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
         self.valid_score_th = float(valid_score_th)
 
 
-    def prepare_spot_tuples(self, pair_search_radius=200):
+    def prepare_spot_tuples(self, pair_search_radius=200, overwrite=False):
         """ """
-        # find pairs
-        self.find_spot_pairs_in_radius(search_th=pair_search_radius,)
-        # assemble tuples
-        spot_groups = self.assemble_complete_codes()
+        if hasattr(self, 'spot_groups') and not overwrite:
+            print("spot_groups already exists.")
+        else:
+            # find pairs
+            self.find_spot_pairs_in_radius(search_th=pair_search_radius,)
+            # assemble tuples
+            spot_groups = self.assemble_complete_codes()
         # update chromosome info
         for _ig, _g in enumerate(self.spot_groups):
             _g.chr = self.codebook.loc[self.codebook['id']==_g.tuple_id, 'chr'].values[0]
             _g.chr_order = self.codebook.loc[self.codebook['id']==_g.tuple_id, 'chr_order'].values[0]
 
 
-    def calculate_self_scores(self, use_invalid_control=True, make_plots=True):
+    def calculate_self_scores(self, use_invalid_control=True, make_plots=True, overwrite=False):
         from ..spot_tools.scoring import generate_cdf_scores
+
+        if np.sum([hasattr(_g, 'self_score') for _g in self.spot_groups]) == len(self.spot_groups) and not overwrite:
+            return np.array([getattr(_g, 'self_score') for _g in self.spot_groups])
+
         # generate metrics
         valid_ints, valid_inner_dists = self.generate_reference(self.spot_groups)
         if use_invalid_control:
@@ -762,14 +769,40 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
         
         return homolog_zxys_list, homolog_labels, homolog_centers
 
+    @staticmethod
+    def summarize_zxys_by_regions(chr_2_zxys_list, codebook_df, num_homologs=2,     
+        keep_valid=False):
+        """Summarization of ."""
+        # summarize chromosome information from codebook
+        chr_2_indices = {_chr:np.array(codebook_df.loc[codebook_df['chr']==_chr].index)
+                        for _chr in np.unique(codebook_df['chr'].values)}
 
-def batch_decode_DNA(spot_filename, codebook_filename, 
+        _ordered_chr_names = []
+        for _chr_name, _chr_reg_id in zip(codebook_df['chr'], codebook_df['chr_order']):
+            if _chr_name not in _ordered_chr_names:
+                _ordered_chr_names.append(_chr_name)
+
+        # assemble sorted-zxys for each homolog
+        total_zxys_dict = [{_rid:np.ones(3)*np.nan 
+                            for _rid in codebook_df.index} for _ihomo in np.arange(num_homologs)]
+        for _chr_name, _zxys_list in chr_2_zxys_list.items():
+            for _ihomo, _zxys in enumerate(_zxys_list):
+                for _i_chr_reg, _zxy in enumerate(_zxys):
+                    #print(_chr_name, _ihomo, _i_chr_reg)
+                    _rid = codebook_df.loc[(codebook_df['chr']==_chr_name) \
+                                            & (codebook_df['chr_order']==_i_chr_reg)].index[0]
+                    total_zxys_dict[_ihomo][_rid] = _zxy
+
+        # convert to zxy coordinates in um
+        homolog_zxys = [np.array(list(_dict.values()))/1000 for _dict in total_zxys_dict]
+        return homolog_zxys
+
+def batch_decode_DNA(spot_filename, codebook_df, 
                      pixel_sizes=default_pixel_sizes, num_homologs=2, keep_ratio_th=0.2,
                      valid_score_th=-10, overwrite=False,
     ):
     """Batch process DNA-MERFISH decoding"""
 
-    codebook_df = pd.read_csv(codebook_filename)
     codebook = np.array(codebook_df[[_name for _name in codebook_df.columns 
                                     if 'name' not in _name and  'id' not in _name and 'chr' not in _name]])
 
@@ -794,14 +827,14 @@ def batch_decode_DNA(spot_filename, codebook_filename,
         os.makedirs(os.path.dirname(decoder_filename))
 
     # create decoder class
-    decoder = DNA_Merfish_Decoder(cand_spots_list, codebook_filename, 
+    decoder = DNA_Merfish_Decoder(cand_spots_list, codebook_df, 
                                   pixel_sizes=pixel_sizes, valid_score_th=valid_score_th,
-                                  savefile=decoder_filename,
+                                  savefile=decoder_filename, 
                                   )
 
-    decoder.prepare_spot_tuples(pair_search_radius=250)
+    decoder.prepare_spot_tuples(pair_search_radius=250, overwrite=overwrite)
 
-    self_scores = decoder.calculate_self_scores(make_plots=False)
+    self_scores = decoder.calculate_self_scores(make_plots=False, overwrite=overwrite)
 
     chrs_2_init_centers = decoder.init_homolog_assignment(overwrite=overwrite)
 
@@ -815,3 +848,12 @@ def batch_decode_DNA(spot_filename, codebook_filename,
     _ax = decoder.summarize_to_distmap(decoder, save_filename=distmap_filename) 
 
     decoder.save(overwrite=overwrite)
+
+def batch_load_attr(decoder_savefile, attr):
+    """Batch load one attribute from decoder file"""    
+    try:
+        _cls = pickle.load(open(decoder_savefile, 'rb'))
+        return getattr(_cls, attr)
+    except:
+        print(f"Loading failed.")
+        return None
