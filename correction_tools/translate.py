@@ -2,7 +2,9 @@ import numpy as np
 import time
 from scipy.ndimage.interpolation import map_coordinates
 
-def warp_3d_image(image, drift, chromatic_profile=None, verbose=False):
+def warp_3d_image(image, drift, chromatic_profile=None, 
+                  warp_order=1, warp_mode='constant', 
+                  verbose=False):
     """Warp image given chromatic profile and drift"""
     _start_time = time.time()
     # 1. get coordiates to be mapped
@@ -21,8 +23,9 @@ def warp_3d_image(image, drift, chromatic_profile=None, verbose=False):
     # 4. map coordinates
     _corr_im = map_coordinates(image, 
                                _coords.reshape(_coords.shape[0], -1),
-                               mode='nearest').astype(image.dtype)
-    _corr_im = _corr_im.reshape(np.shape(image))
+                               order=warp_order,
+                               mode=warp_mode, cval=np.min(image))
+    _corr_im = _corr_im.reshape(np.shape(image)).astype(image.dtype)
     if verbose:
         print(f"-- finish warp image in {time.time()-_start_time:.3f}s. ")
     return _corr_im

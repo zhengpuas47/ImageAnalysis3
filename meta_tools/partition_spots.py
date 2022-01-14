@@ -126,6 +126,27 @@ class Spots_Partition():
                 _spot_labels.append(_mks[np.argmax(_counts)])
 
         return np.array(_spot_labels, dtype=np.int16)
+    @staticmethod
+    def spots_to_DAPI(dapi_im:np.ndarray, 
+                      spots:Spots3D, 
+                      single_im_size:(list or np.ndarray),
+                      search_radius:int=5,
+                      verbose:bool=True,
+                      ):
+        if verbose:
+            print(f"- calculate local DAPI signal for {len(spots)} spots")
+        # initialize
+        _spot_signals = []
+        # loop through each spot
+        for _coord in spots.to_coords():
+            # generate crop
+            _crop = generate_neighboring_crop(_coord, crop_size=search_radius, 
+                                            single_im_size=single_im_size)
+            # crop locally
+            _signal = np.median(dapi_im[_crop.to_slices()])
+            _spot_signals.append(_signal)
+
+        return np.array(_spot_signals)
 
     @staticmethod
     def read_gene_list(readout_filename):
@@ -201,3 +222,17 @@ def batch_partition_spots(
     _df = _partition_cls.run(spots_list, bits, query_label=query_label)
     # return
     return _df
+
+
+def batch_partition_DNA_spots(all_spots_list, bits,
+    segmentation_labels, 
+    dapi_image, search_radius=5, ):
+    
+    image_size = np.array(np.shape(dapi_image))
+
+    for _spots, _id in zip(all_spots_list, bits):
+        _labels = sp.spots_to_labels(segmentation_labels, _spots, image_size)
+
+        _signals = sp.spots_to_DAPI(dapi_image, _spots, image_size, search_radius=search_radius)
+
+    return _labels, _signals

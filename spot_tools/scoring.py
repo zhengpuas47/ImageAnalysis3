@@ -1,6 +1,7 @@
 import numpy as np
 import time 
 from . import _distance_zxy
+
 # Function to give scores
 def distance_score(dist, ref_dist, weight=1., 
                    metric='linear', distance_limits=[-np.inf, np.inf],
@@ -524,3 +525,22 @@ def Normalize_Intensities(spots, all_spots, method='median'):
     _norm = _method(all_spots.to_intensities())
     _spots[:,0] = _spots.to_intensities() / _norm
     return _spots
+
+# scoring used by classes.decode
+def generate_cdf_scores(values, pos_refs, neg_refs=None):
+    #
+    from scipy import stats
+    pos_cdf = np.log([stats.percentileofscore(pos_refs, _v, kind='weak')/100 + 0.5/len(pos_refs) 
+                      for _v in values])
+    if neg_refs is not None:
+        neg_cdf = np.log([1-stats.percentileofscore(neg_refs, _v, kind='weak')/100 + 0.5/len(neg_refs) 
+                          for _v in values])
+        return pos_cdf - np.log(0.5/len(pos_refs)) - neg_cdf - np.log(0.5/len(neg_refs))
+    else:
+        return pos_cdf - np.log(0.5/len(pos_refs))
+
+def log_distance_scores(values, ref_length=2000):
+    return np.log(np.array(values)/ref_length + 1)
+
+def exp_distance_scores(values, ref_length=2000):
+    return - np.exp( np.array(values)/ref_length )
