@@ -19,14 +19,15 @@ class Merfish_Decoder():
     """Class to decode spot-based merfish results"""    
 
     def __init__(self, 
-                 cand_spots_list, 
                  codebook_df,
+                 cand_spots,
                  bits=None,
                  savefile=None,
                  pixel_sizes=default_pixel_sizes,
                  inner_dist_factor=-1,
                  intensity_factor=1,
                  auto=True,
+                 load_from_file=True,
                  overwrite=False,
                  verbose=True,
                  ):
@@ -38,32 +39,20 @@ class Merfish_Decoder():
         self.intensity_factor = float(intensity_factor)
         # savefile
         self.savefile = savefile
-        # bits
-        if bits is None:
-            _bits = np.arange(1, len(cand_spots_list)+1)
+        # cand_spots
+        if not isinstance(cand_spots, Spots3D):
+            if len(cand_spots) != len(bits):
+                raise IndexError(f"lengh of _bits: {len(_bits)} doesn't match length of cand_spots: {len(cand_spots)}")
+            self.cand_spots = Spots3D(cand_spots, bits=bits, pixel_sizes=pixel_sizes)
         else:
-            _bits = np.array(bits, dtype=np.int32)
-        self.bits = _bits
-        # spots
-        if len(cand_spots_list) != len(_bits):
-            raise IndexError(f"lengh of _bits: {len(_bits)} doesn't match length of cand_spots_list: {len(cand_spots_list)}")
-        _cand_spots_list = []
-        for _spots, _bit in zip(cand_spots_list, _bits):
-            if not isinstance(_spots, Spots3D):
-                _cand_spots_list.append(Spots3D(_spots, _bit, pixel_sizes=pixel_sizes) )
-            else:
-                _cand_spots_list.append(_spots)
-        #merge cand_spots
-        cand_spots = Spots3D(np.concatenate(_cand_spots_list), 
-                             bits=np.concatenate([_spots.bits for _spots in _cand_spots_list if len(_spots) > 0]), 
-                            pixel_sizes=self.pixel_sizes)
-        self.cand_spots = cand_spots
+            self.cand_spots = cand_spots
         # load codebook if automatic
         if auto:
             self.load_codebook()
             self.find_valid_pairs_in_codebook()
             self.find_valid_tuples_in_codebook()
-            # load from savefile
+        # load from savefile
+        if load_from_file:
             self.load(overwrite=overwrite)
         # other attributes
         self.verbose = verbose
@@ -115,8 +104,8 @@ class Merfish_Decoder():
         valid_pair_bits = []
         valid_pair_ids = []
         for _icode, _code in enumerate(self.codebook_matrix):
-            for _p in combinations(np.where(_code)[0], 2):
-                _bs = tuple(np.sort(self.bits[np.array(_p)]))
+            for _p in combinations(np.where(_code > 0)[0], 2):
+                _bs = tuple(np.sort(self.bit_ids[np.array(_p)]))
                 if _bs not in valid_pair_bits:
                     valid_pair_bits.append(_bs)
                     valid_pair_ids.append(self.ids[_icode])
@@ -129,7 +118,7 @@ class Merfish_Decoder():
     def find_valid_tuples_in_codebook(self):
         valid_tuples = {}
         for _icode, _code in enumerate(self.codebook_matrix):
-            _bs = tuple(np.sort(self.bits[np.where(_code>0)[0]]))
+            _bs = tuple(np.sort(self.bit_ids[np.where(_code>0)[0]]))
             if _bs not in valid_tuples:
                 valid_tuples[self.ids[_icode]] = _bs
         # attribute
@@ -287,28 +276,28 @@ class Merfish_Decoder():
     def extract_chr_region_ids(codebook, _chr_name):
         return codebook.loc[codebook['chr']==_chr_name, 'chr_order'].values
 
-
-
 class DNA_Merfish_Decoder(Merfish_Decoder):
     """DNA MERFISH decoder, based on merfish decoder but allow some special features"""
     def __init__(self, 
-                 cand_spots_list, 
                  codebook_df,
+                 cand_spots,
                  bits=None,
                  savefile=None,
                  pixel_sizes=default_pixel_sizes,
-                 inner_dist_factor=-0.5,
-                 intensity_factor=1.5,
+                 inner_dist_factor=-1,
+                 intensity_factor=1,
                  ct_dist_factor=3.5,
                  local_dist_factor=0.5,
-                 valid_score_th=-3,
+                 valid_score_th=-10,
                  auto=True,
+                 load_from_file=True,
                  verbose=True,
                  ):
-        super().__init__(cand_spots_list=cand_spots_list, codebook_df=codebook_df, bits=bits,
+        super().__init__(codebook_df=codebook_df, cand_spots=cand_spots, bits=bits,
             savefile=savefile,
-            pixel_sizes=pixel_sizes, inner_dist_factor=inner_dist_factor, intensity_factor=intensity_factor,
-            auto=auto, verbose=verbose)
+            pixel_sizes=pixel_sizes, 
+            inner_dist_factor=inner_dist_factor, intensity_factor=intensity_factor,
+            auto=auto, load_from_file=load_from_file, verbose=verbose)
         
         # extra parameters
         self.ct_dist_factor = float(ct_dist_factor)
@@ -527,7 +516,11 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
 
         return figure_zxys_list, figure_labels, figure_label_ids
 
-    def summarize_to_distmap(self, distmap_plot_kwargs={}, save_filename=None):
+    def summarize_to_distmap(self, distmap_plot_kwargs={}, 
+                             color_limits=[1,5],
+                             figsize=(6,5),
+                             dpi=150,
+                             save_filename=None):
         
         cmap = copy(cm.seismic_r)
         cmap.set_bad([0.5,0.5,0.5])
@@ -537,8 +530,8 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
         
         _distmap = squareform(pdist(np.concatenate(getattr(self, 'final_zxys_list'))))
         
-        fig, ax = plt.subplots(figsize=(6,5),dpi=100)
-        _pf = ax.imshow(_distmap, cmap=cmap, vmin=0.2, vmax=6)
+        fig, ax = plt.subplots(figsize=figsize,dpi=dpi)
+        _pf = ax.imshow(_distmap, cmap=cmap, vmin=min(color_limits), vmax=max(color_limits))
         plt.colorbar(_pf, label=f'Pairwise distance (\u03bcm)')
 
         ax.set_xticks((_label_bds[1:] + _label_bds[:-1])/2)
@@ -601,7 +594,7 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
     @staticmethod
     def assign_homologs_by_chr(_chr_tuples, _chr_centers, _chr_region_ids,
                             _init_homolog_flags=None, _init_homolog_zxys_list=None,
-                            allow_overlap=False, ct_dist_f=2.5, local_dist_f=0.5,
+                            allow_overlap=False, ct_dist_f=3, local_dist_f=0.5,
                             valid_score_th=-15, max_n_iter=20,
                             plot_stats=True, verbose=True):
         """Assign spot_groups into given number of homologs"""
@@ -797,42 +790,39 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
         homolog_zxys = [np.array(list(_dict.values()))/1000 for _dict in total_zxys_dict]
         return homolog_zxys
 
-def batch_decode_DNA(spot_filename, codebook_df, 
+def batch_decode_DNA(spot_filename, codebook_df, decoder_filename=None,
                      pixel_sizes=default_pixel_sizes, num_homologs=2, keep_ratio_th=0.2,
-                     valid_score_th=-10, overwrite=False,
-    ):
+                     pair_search_radius=150,
+                     valid_score_th=-20, load_from_file=True, overwrite=False,
+                    ):
     """Batch process DNA-MERFISH decoding"""
 
     codebook = np.array(codebook_df[[_name for _name in codebook_df.columns 
                                     if 'name' not in _name and  'id' not in _name and 'chr' not in _name]])
+    # load cand_spots
+    cand_spots = spots_dict_to_cand_spots(spot_filename)
 
     cand_spots_dict = pickle.load(open(spot_filename, 'rb'))
-    total_num_spots = np.sum([len(_spots) for _spots in cand_spots_dict.values()])
-    print(spot_filename, total_num_spots)
+    print(spot_filename, len(cand_spots))
 
-    if total_num_spots < num_homologs * codebook.sum() * keep_ratio_th:
+    if len(cand_spots) < num_homologs * codebook.sum() * keep_ratio_th:
         return
-    
-    cand_spots_list = []
-    for _i in np.arange(1, codebook.shape[1]+1):
-        if _i in cand_spots_dict:
-            cand_spots_list.append(Spots3D(cand_spots_dict[_i], bits=_i))
-        else:
-            cand_spots_list.append([])
             
     # create decoder folder
-    decoder_filename = spot_filename.replace('CandSpots', 'Decoder')
+    if decoder_filename is None:
+        decoder_filename = spot_filename.replace('CandSpots', 'Decoder')
     if not os.path.exists(os.path.dirname(decoder_filename)):
         print(os.path.dirname(decoder_filename))
         os.makedirs(os.path.dirname(decoder_filename))
 
     # create decoder class
-    decoder = DNA_Merfish_Decoder(cand_spots_list, codebook_df, 
+    decoder = DNA_Merfish_Decoder(codebook_df, cand_spots,
                                   pixel_sizes=pixel_sizes, valid_score_th=valid_score_th,
                                   savefile=decoder_filename, 
+                                  load_from_file=load_from_file,
                                   )
 
-    decoder.prepare_spot_tuples(pair_search_radius=250, overwrite=overwrite)
+    decoder.prepare_spot_tuples(pair_search_radius=pair_search_radius, overwrite=overwrite)
 
     self_scores = decoder.calculate_self_scores(make_plots=False, overwrite=overwrite)
 
@@ -857,3 +847,19 @@ def batch_load_attr(decoder_savefile, attr):
     except:
         print(f"Loading failed.")
         return None
+
+
+def spots_dict_to_cand_spots(cand_spot_filename, pixel_sizes=default_pixel_sizes):
+    cand_spots_dict = pickle.load(open(cand_spot_filename, 'rb'))
+    _all_spots, _all_bits = [], []
+    for _bit, _spots in cand_spots_dict.items():
+        if len(_spots) > 0:
+            _all_spots.append(_spots)
+            _all_bits.append(np.ones(len(_spots), dtype=np.uint16) * _bit)
+            
+    # concatenate
+    return Spots3D(np.concatenate(_all_spots), 
+                   bits=np.concatenate(_all_bits),
+                   pixel_sizes=pixel_sizes)
+        
+    
