@@ -87,6 +87,23 @@ def generate_neighboring_crop(coord, crop_size=5,
 
     return _crop
 
+def batch_crop(im, coord, crop_size=5, ):
+    single_im_size = np.array(im.shape)
+    _crop = generate_neighboring_crop(
+        coord=coord, crop_size=crop_size, 
+        single_im_size=single_im_size, sub_pixel_precision=False,
+    )
+    # crop locally
+    try:
+        _signals = im[_crop.to_slices()]
+        if np.size(_signals) == 0:
+            _signals = -1 * np.ones(1, dtype=im.dtype)
+    except:
+        _signals = -1 * np.ones(1, dtype=im.dtype)
+
+    return _signals
+
+
 def crop_neighboring_area(im, center, crop_sizes, 
                           extrapolate_mode='nearest'):
     

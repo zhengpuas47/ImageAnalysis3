@@ -68,7 +68,7 @@ class Merfish_Decoder():
                     elif not hasattr(self, _attr) or overwrite:
                         setattr(self, _attr, getattr(_cls, _attr))
             else:
-                print(f"- Skip loading because file: {self.savefile} doesn't exists")
+                print(f"- Skip loading because file: {self.savefile} doesn't exist")
         else:
             print(f"- Decoder.savefile is not given, skip loading.")
 
@@ -393,7 +393,7 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
         
         return chrs_2_init_centers
 
-    def finish_homolog_assignment(self, allow_overlap=False, max_n_iter=20, plot_stats=False, 
+    def finish_homolog_assignment(self, allow_overlap=False, max_n_iter=15, plot_stats=False, 
                                   overwrite=False, verbose=False):
         """chr_2_assigned_tuple_list stores all assigned spot_groups despite valid_score_th, 
             wihch allows further thresholding"""
@@ -528,8 +528,12 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
         _label_bds = getattr(self, 'final_zxys_boundaries')
         _labels = getattr(self, 'final_zxys_names')
         
-        _distmap = squareform(pdist(np.concatenate(getattr(self, 'final_zxys_list'))))
-        
+        try:
+            _distmap = squareform(pdist(np.concatenate(getattr(self, 'final_zxys_list'))))
+        except:
+            print(len( getattr(self, 'final_zxys_list') ))
+            return None
+
         fig, ax = plt.subplots(figsize=figsize,dpi=dpi)
         _pf = ax.imshow(_distmap, cmap=cmap, vmin=min(color_limits), vmax=max(color_limits))
         plt.colorbar(_pf, label=f'Pairwise distance (\u03bcm)')
@@ -544,7 +548,7 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
         ax.vlines(_label_bds, 0, len(_distmap), color='black', linewidth=0.5)
         ax.set_xlim([0, len(_distmap)])
         ax.set_ylim([len(_distmap), 0])
-        
+        ax.set_title(f"kept_spots: { np.sum(np.isnan(np.concatenate(getattr(self, 'final_zxys_list'))).any(1)==0) }")        
         if save_filename is not None:
             fig.savefig(save_filename, dpi=200, transparent=True)
             # add attribute
@@ -595,7 +599,7 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
     def assign_homologs_by_chr(_chr_tuples, _chr_centers, _chr_region_ids,
                             _init_homolog_flags=None, _init_homolog_zxys_list=None,
                             allow_overlap=False, ct_dist_f=3, local_dist_f=0.5,
-                            valid_score_th=-15, max_n_iter=20,
+                            valid_score_th=-15, max_n_iter=15,
                             plot_stats=True, verbose=True):
         """Assign spot_groups into given number of homologs"""
         from ..spot_tools.scoring import log_distance_scores, exp_distance_scores, _local_distance, _center_distance
@@ -611,6 +615,7 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
 
         _assignment_diff = 1
         # store homolog flags in each step
+        _homolog_centers_steps = [_chr_centers]
         _homolog_flags_steps = []
         if _init_homolog_zxys_list is not None:
             _homolog_zxys_list_steps = [_init_homolog_zxys_list]
@@ -621,12 +626,16 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
             # assignment within this iteration
             if len(_homolog_flags_steps) > max_n_iter:
                 break
-            #print("chr_center:", _chr_centers)
-            _assigned_homolog_tuple_list = [[] for _ct in _chr_centers]
+
+            #print("chr_center:", _homolog_centers_steps[-1])
+            _assigned_homolog_tuple_list = [[] for _ct in _homolog_centers_steps[-1]]
 
             # loop through regions
             for _ireg, _cand_tuples in enumerate(_cand_tuples_list):
                 #print(f"-- region:{_ireg} has {len(_cand_tuples)} candidates.")   
+                # initialize tuple to homolog assignment
+                for _tp in _cand_tuples:
+                    _tp.homolog = -1
                 # Case 1: if no candidates, append None for all homologs 
                 if len(_cand_tuples) == 0:
                     for _homolog_tuple in _assigned_homolog_tuple_list:
@@ -636,7 +645,7 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
                 _cand_self_scores = np.array([_g.self_score for _g in _cand_tuples])
                 # calcuate distance to centers
                 _cand_ct_dists = np.array([_center_distance(_cand_zxys, _ct) 
-                                        for _ct in _chr_centers])
+                                        for _ct in _homolog_centers_steps[-1]])
                 #_cand_ct_scores = ..spot_tools.scoring.log_distance_scores(_cand_ct_dists)
                 _cand_ct_scores = exp_distance_scores(_cand_ct_dists)
                 # add to score
@@ -654,12 +663,12 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
                     _cand_final_scores = _cand_final_scores + _cand_local_scores * local_dist_f
 
                 # Case 3: assign one spot for each chr
-                if len(_cand_tuples) >= len(_chr_centers):
+                if len(_cand_tuples) >= len(_homolog_centers_steps[-1]):
                     # for each assignment, calculate total scores
                     if allow_overlap:
-                        _assigns = list(product(np.arange(len(_cand_tuples)), len(_chr_centers)))
+                        _assigns = list(product(np.arange(len(_cand_tuples)), len(_homolog_centers_steps[-1])))
                     else:
-                        _assigns = list(permutations(np.arange(len(_cand_tuples)), len(_chr_centers)))
+                        _assigns = list(permutations(np.arange(len(_cand_tuples)), len(_homolog_centers_steps[-1])))
                     _assign_scores = []
                     for _assign in _assigns:
                         _assign_scores.append( np.nansum([_scores[_j] for _scores, _j in zip(_cand_final_scores, _assign)]) )
@@ -667,19 +676,22 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
                     _best_assign = _assigns[np.argmax(_assign_scores)]
 
                     for _ihomo, _ituple in enumerate(_best_assign):
-                        _tuple = _cand_tuples[_ituple]
-                        _tuple.homolog = _ihomo
-                        _tuple.chr_ct_dist = _cand_ct_dists[_ihomo, _ituple]
-                        _tuple.chr_ct_score = _cand_ct_scores[_ihomo, _ituple]
-                        _tuple.final_score = _cand_final_scores[_ihomo, _ituple]
-                        # append
-                        _assigned_homolog_tuple_list[_ihomo].append(_tuple)
+                        if _cand_final_scores[_ihomo, _ituple] >= valid_score_th:
+                            _tuple = _cand_tuples[_ituple]
+                            _tuple.homolog = _ihomo
+                            _tuple.chr_ct_dist = _cand_ct_dists[_ihomo, _ituple]
+                            _tuple.chr_ct_score = _cand_ct_scores[_ihomo, _ituple]
+                            _tuple.final_score = _cand_final_scores[_ihomo, _ituple]
+                            # append
+                            _assigned_homolog_tuple_list[_ihomo].append(_tuple)
+                        else:
+                            _assigned_homolog_tuple_list[_ihomo].append(None)
 
                 else:
                     if allow_overlap:
-                        _assigns = list(product(np.arange(len(_chr_centers)), len(_cand_tuples)))
+                        _assigns = list(product(np.arange(len(_homolog_centers_steps[-1])), len(_cand_tuples)))
                     else:
-                        _assigns = list(permutations(np.arange(len(_chr_centers)), len(_cand_tuples)))        
+                        _assigns = list(permutations(np.arange(len(_homolog_centers_steps[-1])), len(_cand_tuples)))        
                     _assign_scores = []
                     for _assign in _assigns:
                         _assign_scores.append( np.nansum([_cand_final_scores[_ihomo, _ituple] 
@@ -687,14 +699,16 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
                     # select the best
                     _best_assign = _assigns[np.argmax(_assign_scores)]
                     for _ituple, _ihomo in enumerate(_best_assign):
-                        _tuple = _cand_tuples[_ituple]
-                        _tuple.homolog = _ihomo
-                        _tuple.chr_ct_dist = _cand_ct_dists[_ihomo, _ituple]
-                        _tuple.chr_ct_score = _cand_ct_scores[_ihomo, _ituple]
-                        _tuple.final_score = _cand_final_scores[_ihomo, _ituple]
-                        # append
-                        _assigned_homolog_tuple_list[_ihomo].append(_tuple)
-
+                        if _cand_final_scores[_ihomo, _ituple] >= valid_score_th:
+                            _tuple = _cand_tuples[_ituple]
+                            _tuple.homolog = _ihomo
+                            _tuple.chr_ct_dist = _cand_ct_dists[_ihomo, _ituple]
+                            _tuple.chr_ct_score = _cand_ct_scores[_ihomo, _ituple]
+                            _tuple.final_score = _cand_final_scores[_ihomo, _ituple]
+                            # append
+                            _assigned_homolog_tuple_list[_ihomo].append(_tuple)
+                        else:
+                            _assigned_homolog_tuple_list[_ihomo].append(None)
                     # assign None for not used homolog
                     for _ihomo, _tuple_list in enumerate(_assigned_homolog_tuple_list):
                         if _ihomo not in list(_best_assign):
@@ -703,7 +717,7 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
             # update chr_centers
             _homolog_zxys_list = [DNA_Merfish_Decoder.tuple_list_to_zxys(_tuple_list, score_th=valid_score_th) 
                                     for _tuple_list in _assigned_homolog_tuple_list]
-            _chr_centers = np.array([np.nanmean(_zxys, axis=0) for _zxys in _homolog_zxys_list])
+            _homolog_centers_steps.append( np.array([np.nanmean(_zxys, axis=0) for _zxys in _homolog_zxys_list]) )
 
             # update chromosome homolog assignment
             _new_homolog_flags = DNA_Merfish_Decoder.collect_homolog_flags(_chr_tuples, _score_th=valid_score_th)
@@ -791,9 +805,14 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
         return homolog_zxys
 
 def batch_decode_DNA(spot_filename, codebook_df, decoder_filename=None,
-                     pixel_sizes=default_pixel_sizes, num_homologs=2, keep_ratio_th=0.2,
+                     pixel_sizes=default_pixel_sizes, num_homologs=2, keep_ratio_th=0.5,
                      pair_search_radius=150,
-                     valid_score_th=-20, load_from_file=True, overwrite=False,
+                     inner_dist_factor=-1,
+                     intensity_factor=1,
+                     ct_dist_factor=4,
+                     local_dist_factor=0.,
+                     valid_score_th=-30,
+                     load_from_file=True, overwrite=False,
                     ):
     """Batch process DNA-MERFISH decoding"""
 
@@ -803,7 +822,7 @@ def batch_decode_DNA(spot_filename, codebook_df, decoder_filename=None,
     cand_spots = spots_dict_to_cand_spots(spot_filename)
 
     cand_spots_dict = pickle.load(open(spot_filename, 'rb'))
-    print(spot_filename, len(cand_spots))
+    #print(spot_filename, len(cand_spots))
 
     if len(cand_spots) < num_homologs * codebook.sum() * keep_ratio_th:
         return
@@ -817,9 +836,14 @@ def batch_decode_DNA(spot_filename, codebook_df, decoder_filename=None,
 
     # create decoder class
     decoder = DNA_Merfish_Decoder(codebook_df, cand_spots,
-                                  pixel_sizes=pixel_sizes, valid_score_th=valid_score_th,
+                                  pixel_sizes=pixel_sizes, 
                                   savefile=decoder_filename, 
                                   load_from_file=load_from_file,
+                                  inner_dist_factor=inner_dist_factor,
+                                  intensity_factor=intensity_factor,
+                                  ct_dist_factor=ct_dist_factor,
+                                  local_dist_factor=local_dist_factor,
+                                  valid_score_th=valid_score_th,
                                   )
 
     decoder.prepare_spot_tuples(pair_search_radius=pair_search_radius, overwrite=overwrite)
@@ -856,6 +880,9 @@ def spots_dict_to_cand_spots(cand_spot_filename, pixel_sizes=default_pixel_sizes
         if len(_spots) > 0:
             _all_spots.append(_spots)
             _all_bits.append(np.ones(len(_spots), dtype=np.uint16) * _bit)
+    
+    if len(_all_spots) == 0:
+        return Spots3D([], bits=[])
             
     # concatenate
     return Spots3D(np.concatenate(_all_spots), 
