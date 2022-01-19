@@ -539,8 +539,8 @@ def split_im_by_channels(im, sel_channels, all_channels, single_im_size=_image_s
     _ch_starts = [num_empty_frames + num_buffer_frames \
                     + (_i - num_empty_frames - num_buffer_frames) %_num_colors 
                     for _i in _ch_inds]
-    print(_ch_inds)
-    print(_ch_starts)
+    #print(_ch_inds)
+    #print(_ch_starts)
     if skip_frame0:
         for _i,_s in enumerate(_ch_starts):
             if _s == _num_buffer_frames:

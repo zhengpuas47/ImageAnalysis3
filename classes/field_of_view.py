@@ -750,6 +750,8 @@ class Field_of_View():
                 print(f"++ directly return existing attribute.")
             _ref_im = getattr(self, f'{_data_type}_ref_im')
         else:
+            #print("**", _used_channels)
+            #print("**", _ref_filename)
             # load
             _ref_im = correct_fov_image(_ref_filename, 
                                         [self.drift_channel], 
@@ -1064,9 +1066,10 @@ class Field_of_View():
                 _round_correction_args['bleed_profile'] = None
             # if length of round_correction_channels is smaller than corr_channel, subsample the correction profile
             elif len(_round_corr_channels) != len(_correction_args['corr_channels']):
-                _round_corr_ch_inds = np.array([ _i for _i, _ch in enumerate(_correction_args['corr_channels']) ], dtype=np.int32)
-                
-                _round_correction_args['bleed_profile'] = _round_correction_args['bleed_profile'][_round_corr_ch_inds, _round_corr_ch_inds]
+                # get corr_ch_inds
+                _round_corr_ch_inds = np.array([ _i for _i, _ch in enumerate(_correction_args['corr_channels']) if _ch in _used_channels], dtype=np.int32)
+                # modify bleedthrough profile
+                _round_correction_args['bleed_profile'] = _round_correction_args['bleed_profile'][_round_corr_ch_inds][:, _round_corr_ch_inds]
 
 
             # append if any channels selected
