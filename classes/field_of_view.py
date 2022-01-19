@@ -1724,7 +1724,7 @@ class Field_of_View():
                         _chrom_fd_ind = self.annotated_folders.index(_chrom_fd)
                         # load reference of chromosome image
                         if _chrom_fd_ind != self.ref_id:                                
-                            if not hasattr(self, 'ref_im'):
+                            if not hasattr(self, '_ref_im'):
                                 self._load_reference_image(_verbose=_verbose)
                             _use_ref_im = True
                         else:
@@ -1746,8 +1746,8 @@ class Field_of_View():
             _chrom_filename = os.path.join(_chrom_fd, self.fov_name)
             
             # load from Dax file
-            if hasattr(self, 'ref_im'):
-                _drift_ref = getattr(self, 'ref_im')
+            if hasattr(self, '_ref_im'):
+                _drift_ref = getattr(self, '_ref_im')
             else:
                 _drift_ref = getattr(self, 'ref_filename')
 
@@ -2323,8 +2323,6 @@ class Field_of_View():
         else:
             _use_ref_im = False
 
-
-
             # find DAPI in color_usage
             _dapi_fds = []
             for _fd, _infos in self.color_dic.items():
@@ -2349,7 +2347,7 @@ class Field_of_View():
                 # decide whether use extra reference id
                 _dapi_fd_ind = list(self.annotated_folders).index((_dapi_fd))
                 if _dapi_fd_ind != self.ref_id:                                
-                    if not hasattr(self, 'ref_im'):
+                    if not hasattr(self, '_ref_im'):
                         self._load_reference_image(_verbose=_verbose)
                     _use_ref_im = True
                 else:
@@ -2369,8 +2367,8 @@ class Field_of_View():
             _dapi_channel = self.dapi_channel
 
             # load from Dax file
-            if hasattr(self, 'ref_im'):
-                _drift_ref = getattr(self, 'ref_im', None)
+            if hasattr(self, '_ref_im'):
+                _drift_ref = getattr(self, '_ref_im', None)
             else:
                 _drift_ref = getattr(self, 'ref_filename', None)
 
@@ -2433,8 +2431,8 @@ class Field_of_View():
                 _used_channels.append(_ch)
 
         # load from Dax file
-        if hasattr(self, 'ref_im'):
-            _drift_ref = getattr(self, 'ref_im')
+        if hasattr(self, '_ref_im'):
+            _drift_ref = getattr(self, '_ref_im')
         else:
             _drift_ref = getattr(self, 'ref_filename')
         # load this beads image
