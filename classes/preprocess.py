@@ -113,7 +113,8 @@ class Spots3D(np.ndarray):
                 bits=None,
                 pixel_sizes=None,
                 #info=None,
-                copy_data=True):
+                copy_data=True,
+                intensity_index=0):
         # Input array is an already formed ndarray instance
         # We first cast to be our class type
         if copy_data:
@@ -135,6 +136,7 @@ class Spots3D(np.ndarray):
             obj.bits = bits
 
         obj.pixel_sizes = np.array(pixel_sizes)
+        obj.intensity_index = intensity_index
         #obj.info = info
         # Finally, we must return the newly created object:
         return obj
@@ -175,8 +177,6 @@ class Spots3D(np.ndarray):
         #print(f"**finalizing, {obj}, {type(obj)}")
         return obj
 
-
-
     def to_coords(self):
         """ convert into 3D coordinates in pixels """
         return np.array(self[:,1:4])
@@ -193,7 +193,8 @@ class Spots3D(np.ndarray):
 
     def to_intensities(self):
         """ """
-        return np.array(self[:,0])
+        _intensity_index = getattr(self, 'intensity_index', 0 )
+        return np.array(self[:,_intensity_index])
 
 
 # scoring spot Tuple
