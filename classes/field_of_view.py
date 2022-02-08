@@ -5,11 +5,16 @@ import time
 import copy
 import numpy as np
 import pickle as pickle
-import multiprocessing as mp
 # fix mp reducer 4GB limit
-from ..required_files import pickle2reducer
+#from ..required_files import pickle2reducer
+#import multiprocessing as mp
+#ctx = mp.get_context()
+#ctx.reducer = pickle2reducer.Pickle2Reducer()
+from ..required_files import pickle4reducer
+import multiprocessing as mp
 ctx = mp.get_context()
-ctx.reducer = pickle2reducer.Pickle2Reducer()
+ctx.reducer = pickle4reducer.Pickle4Reducer()
+
 # saving
 import h5py
 import ast
