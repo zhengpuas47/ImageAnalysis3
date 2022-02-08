@@ -3,7 +3,7 @@ from .. import _distance_zxy, _sigma_zxy, _allowed_colors
 from .. import visual_tools
 
 ## Define some global settings
-_dpi = 600 # dpi required by figure
+_dpi = 300 # dpi required by figure
 _single_col_width = 2.25 # figure width in inch if occupy 1 colomn
 _double_col_width = 4.75 # figure width in inch if occupy 1 colomn
 _single_row_height= 2 # comparable height to match single-colomn-width

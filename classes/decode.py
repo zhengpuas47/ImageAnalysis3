@@ -71,6 +71,7 @@ class Merfish_Decoder():
         self.verbose = verbose
 
     def load(self, overwrite=False):
+        from .preprocess import Spots3D, SpotTuple
         if self.savefile is not None:
             if os.path.isfile(self.savefile):
                 print(f"- Loading decoder into file: {self.savefile}")
@@ -684,6 +685,7 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
             # assemble tuples
             #spot_groups = self.assemble_complete_codes() # OLD
             spot_groups, spot_usage = self.select_spot_tuples(max_usage=max_spot_usage, 
+                search_th=pair_search_radius, 
                 region_2_expect_num=_region_2_expect_num, weights=self.metric_weights,
                 overwrite=overwrite)
         # update used parameters
@@ -1538,6 +1540,7 @@ def batch_decode_DNA(spot_filename, codebook_df, decoder_filename=None,
     #print(spot_filename, len(cand_spots))
 
     if len(cand_spots) < num_homologs * codebook.sum() * keep_ratio_th:
+        print(f"Not enough cand_spots ({len(cand_spots)}) found, skip.")
         return
             
     # create decoder folder
@@ -1960,7 +1963,7 @@ def batch_decode_BB_like(spot_filename, codebook_df, decoder_filename=None,
     figure_zxys_list, figure_labels, figure_label_ids = new_decoder.summarize_zxys_all_chromosomes()
     # distmap
     distmap_filename = decoder_filename.replace('Decoder.pkl', 'AllDistmap.png')
-    _ax = new_decoder.summarize_to_distmap(new_decoder, color_limits=[0,5], save_filename=distmap_filename) 
+    _ax = new_decoder.summarize_to_distmap(color_limits=[0,5], save_filename=distmap_filename) 
     # save
     new_decoder.save(overwrite=overwrite)
 
