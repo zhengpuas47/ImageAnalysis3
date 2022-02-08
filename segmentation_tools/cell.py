@@ -387,7 +387,7 @@ class Cellpose_Segmentation_3D():
     @staticmethod
     def watershed_with_mask(target_im, seed_labels, beta=1.):
         from skimage.segmentation import random_walker
-        _extended_masks = random_walker(target_im, seed_labels, beta=beta, tol=0.001, prob_tol=0.001)
+        _extended_masks = random_walker(target_im, seed_labels, beta=beta, tol=0.001, )
         return _extended_masks
 
 import math

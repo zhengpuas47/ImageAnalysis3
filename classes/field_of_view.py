@@ -755,6 +755,8 @@ class Field_of_View():
                 print(f"++ directly return existing attribute.")
             _ref_im = getattr(self, f'{_data_type}_ref_im')
         else:
+            #print("**", _used_channels)
+            #print("**", _ref_filename)
             # load
             _ref_im = correct_fov_image(_ref_filename, 
                                         [self.drift_channel], 
@@ -1069,9 +1071,10 @@ class Field_of_View():
                 _round_correction_args['bleed_profile'] = None
             # if length of round_correction_channels is smaller than corr_channel, subsample the correction profile
             elif len(_round_corr_channels) != len(_correction_args['corr_channels']):
-                _round_corr_ch_inds = np.array([ _i for _i, _ch in enumerate(_correction_args['corr_channels']) ], dtype=np.int32)
-                
-                _round_correction_args['bleed_profile'] = _round_correction_args['bleed_profile'][_round_corr_ch_inds, _round_corr_ch_inds]
+                # get corr_ch_inds
+                _round_corr_ch_inds = np.array([ _i for _i, _ch in enumerate(_correction_args['corr_channels']) if _ch in _used_channels], dtype=np.int32)
+                # modify bleedthrough profile
+                _round_correction_args['bleed_profile'] = _round_correction_args['bleed_profile'][_round_corr_ch_inds][:, _round_corr_ch_inds]
 
 
             # append if any channels selected
@@ -1726,7 +1729,7 @@ class Field_of_View():
                         _chrom_fd_ind = self.annotated_folders.index(_chrom_fd)
                         # load reference of chromosome image
                         if _chrom_fd_ind != self.ref_id:                                
-                            if not hasattr(self, 'ref_im'):
+                            if not hasattr(self, '_ref_im'):
                                 self._load_reference_image(_verbose=_verbose)
                             _use_ref_im = True
                         else:
@@ -1748,8 +1751,8 @@ class Field_of_View():
             _chrom_filename = os.path.join(_chrom_fd, self.fov_name)
             
             # load from Dax file
-            if hasattr(self, 'ref_im'):
-                _drift_ref = getattr(self, 'ref_im')
+            if hasattr(self, '_ref_im'):
+                _drift_ref = getattr(self, '_ref_im')
             else:
                 _drift_ref = getattr(self, 'ref_filename')
 
@@ -2325,8 +2328,6 @@ class Field_of_View():
         else:
             _use_ref_im = False
 
-
-
             # find DAPI in color_usage
             _dapi_fds = []
             for _fd, _infos in self.color_dic.items():
@@ -2351,7 +2352,7 @@ class Field_of_View():
                 # decide whether use extra reference id
                 _dapi_fd_ind = list(self.annotated_folders).index((_dapi_fd))
                 if _dapi_fd_ind != self.ref_id:                                
-                    if not hasattr(self, 'ref_im'):
+                    if not hasattr(self, '_ref_im'):
                         self._load_reference_image(_verbose=_verbose)
                     _use_ref_im = True
                 else:
@@ -2371,8 +2372,8 @@ class Field_of_View():
             _dapi_channel = self.dapi_channel
 
             # load from Dax file
-            if hasattr(self, 'ref_im'):
-                _drift_ref = getattr(self, 'ref_im', None)
+            if hasattr(self, '_ref_im'):
+                _drift_ref = getattr(self, '_ref_im', None)
             else:
                 _drift_ref = getattr(self, 'ref_filename', None)
 
@@ -2435,8 +2436,8 @@ class Field_of_View():
                 _used_channels.append(_ch)
 
         # load from Dax file
-        if hasattr(self, 'ref_im'):
-            _drift_ref = getattr(self, 'ref_im')
+        if hasattr(self, '_ref_im'):
+            _drift_ref = getattr(self, '_ref_im')
         else:
             _drift_ref = getattr(self, 'ref_filename')
         # load this beads image
@@ -2576,7 +2577,7 @@ class Field_of_View():
 # add test comment
 def find_bit_folder(bit_id, data_type, color_dict, allowed_type_dict):
     _feature_ref = f"{allowed_type_dict[data_type]}{bit_id}"
-    print(_feature_ref)
+    #print(_feature_ref)
     for _fd, _infos in color_dict.items():
         for _info in _infos:
             if _info == _feature_ref:

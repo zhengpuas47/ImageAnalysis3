@@ -3,6 +3,7 @@ import os
 import time
 import numpy as np
 import pandas as pd
+import multiprocessing as mp
 # required internal functions
 from ..classes.preprocess import Spots3D
 from ..io_tools.crop import generate_neighboring_crop
@@ -10,6 +11,7 @@ from ..io_tools.crop import generate_neighboring_crop
 
 default_search_radius = 10
 default_pixel_sizes = [250,108,108]
+default_num_threads = 12
 
 ######################################################################
 # Notes:
@@ -32,7 +34,7 @@ class Spots_Partition():
         self.segmentation_masks = np.array(segmentation_masks, dtype=np.int16)
         self.image_size = np.shape(segmentation_masks)
         self.fov_id=fov_id
-        self.radius = int(search_radius)
+        self.search_radius = int(search_radius)
         self.pixel_sizes = pixel_sizes
         # filenames
         self.readout_filename = readout_filename
@@ -67,7 +69,7 @@ class Spots_Partition():
                 _bit = int(bit)
                 _spots = Spots3D(spots, _bit, self.pixel_sizes)
                 _labels = self.spots_to_labels(self.segmentation_masks,
-                    _spots, self.image_size, self.radius, 
+                    _spots, self.image_size, self.search_radius, 
                     verbose=verbose)
                 _labels_list.append(_labels)
                 for _l in np.unique(_labels):
@@ -100,22 +102,22 @@ class Spots_Partition():
     @staticmethod
     def spots_to_labels(segmentation_masks:np.ndarray, 
                         spots:Spots3D, 
-                        single_im_size:(list or np.ndarray),
                         search_radius:int=10,
                         verbose:bool=True,
                         ):
+        from ..io_tools.crop import batch_crop
         if verbose:
-            print(f"- partition barcodes for {len(spots)} spots")
+            print(f"-- partition barcodes for {len(spots)} spots")
         # initialize
         _spot_labels = []
+        _crop_args = []
+
         # loop through each spot
         for _coord in spots.to_coords():
-            # generate crop
-            _crop = generate_neighboring_crop(_coord, crop_size=search_radius, 
-                                            single_im_size=single_im_size)
-            # crop locally
-            _mks, _counts = np.unique(segmentation_masks[_crop.to_slices()], 
-                                    return_counts=True)
+            # get local signals
+            _signals = batch_crop(segmentation_masks, _coord, search_radius)
+            # get unique markers
+            _mks, _counts = np.unique(_signals, return_counts=True)
             # filter counts and mks
             _counts = _counts[_mks>0]
             _mks = _mks[_mks>0]
@@ -125,25 +127,25 @@ class Spots_Partition():
             else:
                 _spot_labels.append(_mks[np.argmax(_counts)])
 
-        return np.array(_spot_labels, dtype=np.int16)
+        return np.array(_spot_labels, dtype=np.int32)
+
     @staticmethod
     def spots_to_DAPI(dapi_im:np.ndarray, 
                       spots:Spots3D, 
-                      single_im_size:(list or np.ndarray),
                       search_radius:int=5,
                       verbose:bool=True,
                       ):
+        from ..io_tools.crop import batch_crop
         if verbose:
-            print(f"- calculate local DAPI signal for {len(spots)} spots")
+            print(f"-- calculate local DAPI signal for {len(spots)} spots")
         # initialize
         _spot_signals = []
         # loop through each spot
         for _coord in spots.to_coords():
-            # generate crop
-            _crop = generate_neighboring_crop(_coord, crop_size=search_radius, 
-                                            single_im_size=single_im_size)
-            # crop locally
-            _signal = np.median(dapi_im[_crop.to_slices()])
+            # get local signals
+            _signals = batch_crop(dapi_im, _coord, search_radius)
+            # find local max
+            _signal = np.max(_signals)
             _spot_signals.append(_signal)
 
         return np.array(_spot_signals)
@@ -151,6 +153,24 @@ class Spots_Partition():
     @staticmethod
     def read_gene_list(readout_filename):
         return pd.read_csv(readout_filename, header=0, )
+
+
+def batch_partition_DNA_spots(_spots, 
+    segmentation_labels, dapi_image, 
+    search_radius=5, dapi_th=2000):
+    # partition by segmentation label
+    _labels = Spots_Partition.spots_to_labels(segmentation_labels, _spots, search_radius=search_radius)
+    # record neighboring DAPI
+    _signals = Spots_Partition.spots_to_DAPI(dapi_image, _spots, search_radius=search_radius)
+    # define partitioned dict
+    _cell_2_spots = {}
+    for _l in np.unique(_labels):
+        if _l > 0:
+            _cell_2_spots[_l] = _spots[(_labels==_l) * (_signals > dapi_th)]
+            if hasattr(_spots, 'bits'):
+                _cell_2_spots[_l].bits = _spots.bits[(_labels==_l) * (_signals > dapi_th)]
+
+    return _cell_2_spots, _labels, _signals
 
 
 def Merge_GeneCounts(gene_counts_list,
@@ -224,15 +244,3 @@ def batch_partition_spots(
     return _df
 
 
-def batch_partition_DNA_spots(all_spots_list, bits,
-    segmentation_labels, 
-    dapi_image, search_radius=5, ):
-    
-    image_size = np.array(np.shape(dapi_image))
-
-    for _spots, _id in zip(all_spots_list, bits):
-        _labels = sp.spots_to_labels(segmentation_labels, _spots, image_size)
-
-        _signals = sp.spots_to_DAPI(dapi_image, _spots, image_size, search_radius=search_radius)
-
-    return _labels, _signals
