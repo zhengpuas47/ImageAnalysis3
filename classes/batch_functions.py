@@ -222,34 +222,10 @@ def batch_process_image_to_spots(dax_filename, sel_channels,
         # run saving
         _save_img_success = save_image_to_fov_file(
             save_filename, _sel_ims, data_type, region_ids, 
-            warp_image, _drift, overwrite_image, verbose)
+            warp_image, _drift, overwrite_image, verbose) # this step also save drift
         # release lock
         if 'fov_savefile_lock' in locals() and fov_savefile_lock is not None:
             fov_savefile_lock.release()
-
-    ## save drift if specified
-    if save_drift:
-        # judge if drift correction is required
-        if drift_filename is None:
-            drift_folder = os.path.join(os.path.dirname(os.path.dirname(dax_filename)),
-                                'Analysis', 'drift')
-            if not os.path.exists(drift_folder):
-                print(f'* Create drift folder: {drift_folder}')
-                os.makedirs(drift_folder)
-            drift_filename = os.path.join(drift_folder, 
-                                os.path.basename(dax_filename).replace('.dax', '_current_cor.pkl'))
-        _key = os.path.join(os.path.basename(os.path.dirname(dax_filename)),
-                            os.path.basename(dax_filename))
-        # initiate lock
-        if 'drift_file_lock' in locals() and drift_file_lock is not None:
-            drift_file_lock.acquire()
-        # run saving
-        _save_drift_success = save_drift_to_file(drift_filename,
-                                                dax_filename, _drift, 
-                                                overwrite_drift, verbose)
-        # release lock
-        if 'drift_file_lock' in locals() and drift_file_lock is not None:
-            drift_file_lock.release()
 
     ## multi-fitting
     if fit_spots:
