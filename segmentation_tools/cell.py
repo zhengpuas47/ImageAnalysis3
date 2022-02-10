@@ -83,9 +83,7 @@ class Cellpose_Segmentation_Psedu3D:
         # segmentation
         seg_model = models.Cellpose(gpu=use_gpu, model_type=model_type)
         masks, _, _, _ = seg_model.eval(
-            np.array([_projected_im,_projected_im]),
-            z_axis=1,
-            channel_axis=0,
+            np.stack([_projected_im, _projected_im], axis=3),
             diameter=diameter, 
             channels=[0,0], 
             min_size=min_size,
