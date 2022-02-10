@@ -585,7 +585,7 @@ def align_image(
     from ..spot_tools.fitting import fit_fov_image
     from ..spot_tools.fitting import select_sparse_centers
     from skimage.registration import phase_cross_correlation
-    print("**", type(src_im), type(ref_im))
+    #print("**", type(src_im), type(ref_im))
     ## check inputs
     # correciton keywords
     _correction_args = {_k:_v for _k,_v in _default_align_corr_args.items()}
