@@ -7,7 +7,7 @@ import multiprocessing as mp
 # required internal functions
 from ..classes.preprocess import Spots3D
 from ..io_tools.crop import generate_neighboring_crop
-
+import copy
 
 default_search_radius = 10
 default_pixel_sizes = [250,108,108]
@@ -28,10 +28,14 @@ class Spots_Partition():
                  search_radius=default_search_radius,
                  pixel_sizes=default_pixel_sizes,
                  save_filename=None,
+                 make_copy=True,
                  ):
         print("- Partition spots")
         # localize segmentation_masks
-        self.segmentation_masks = np.array(segmentation_masks, dtype=np.int16)
+        if make_copy:
+            self.segmentation_masks = copy.copy(segmentation_masks)
+        else:
+            self.segmentation_masks = segmentation_masks
         self.image_size = np.shape(segmentation_masks)
         self.fov_id=fov_id
         self.search_radius = int(search_radius)
@@ -40,7 +44,7 @@ class Spots_Partition():
         self.readout_filename = readout_filename
         self.save_filename = save_filename
     
-    def run(self, spots_list, bits=None,
+    def run_RNA(self, spots_list, bits=None,
             query_label='Gene', 
             save=True,
             overwrite=False, verbose=True):
@@ -105,19 +109,19 @@ class Spots_Partition():
                         search_radius:int=10,
                         verbose:bool=True,
                         ):
-        from ..io_tools.crop import batch_crop
+        #from ..io_tools.crop import batch_crop
         if verbose:
             print(f"-- partition barcodes for {len(spots)} spots")
         # initialize
         _spot_labels = []
-        _crop_args = []
 
-        # loop through each spot
-        for _coord in spots.to_coords():
-            # get local signals
-            _signals = batch_crop(segmentation_masks, _coord, search_radius)
+        # calculate
+        _signals = find_coordinate_intensities(segmentation_masks, spots, 
+            search_radius=search_radius)
+        # stats
+        for _spot_signal in _signals.transpose():
             # get unique markers
-            _mks, _counts = np.unique(_signals, return_counts=True)
+            _mks, _counts = np.unique(_spot_signal, return_counts=True)
             # filter counts and mks
             _counts = _counts[_mks>0]
             _mks = _mks[_mks>0]
@@ -135,20 +139,16 @@ class Spots_Partition():
                       search_radius:int=5,
                       verbose:bool=True,
                       ):
-        from ..io_tools.crop import batch_crop
+        #from ..io_tools.crop import batch_crop
         if verbose:
             print(f"-- calculate local DAPI signal for {len(spots)} spots")
-        # initialize
-        _spot_signals = []
-        # loop through each spot
-        for _coord in spots.to_coords():
-            # get local signals
-            _signals = batch_crop(dapi_im, _coord, search_radius)
-            # find local max
-            _signal = np.max(_signals)
-            _spot_signals.append(_signal)
+        # calculate
+        _signals = find_coordinate_intensities(dapi_im, spots, 
+            search_radius=search_radius)
+        # stats
+        _dapi_stats = np.max(_signals, axis=0)
 
-        return np.array(_spot_signals)
+        return _dapi_stats
 
     @staticmethod
     def read_gene_list(readout_filename):
@@ -239,8 +239,33 @@ def batch_partition_spots(
     readout_filename, fov_id=fov_id, search_radius=search_radius,
     pixel_sizes=pixel_sizes, save_filename=save_filename)
     # run
-    _df = _partition_cls.run(spots_list, bits, query_label=query_label)
+    _df = _partition_cls.run_RNA(spots_list, bits, query_label=query_label)
     # return
     return _df
 
 
+def find_coordinate_intensities(image:np.ndarray,
+                                spots:Spots3D,
+                                search_radius=5,
+                                ):
+    """Get nearest coordinate intensity"""
+    image_size = np.array(np.shape(image))
+    # round up coordinates
+    _coords = np.round(spots.to_coords()).astype(np.int32).transpose()
+    # generate local searches
+    _local_coords =np.meshgrid(np.arange(-search_radius,search_radius+1), 
+                               np.arange(-search_radius,search_radius+1), 
+                               np.arange(-search_radius,search_radius+1), 
+                              )
+    _local_coords = np.stack(_local_coords).transpose((2, 1, 3, 0)).reshape(-1,3)
+    # modify_coords
+    all_ints = []
+    for _lc in _local_coords:
+        _modified_coords = _coords + _lc[:,np.newaxis]
+        for _ic, _size in enumerate(image_size):
+            _modified_coords[_ic][_modified_coords[_ic] < 0] = 0
+            _modified_coords[_ic][_modified_coords[_ic] >= _size] = _size-1
+        # get intensity
+        all_ints.append(image[tuple(_modified_coords)])
+    all_ints = np.array(all_ints)
+    return all_ints
