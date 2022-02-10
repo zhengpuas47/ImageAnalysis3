@@ -2408,6 +2408,7 @@ class Field_of_View():
 
     ## load bead image, for checking purposes
     def _load_bead_image(self, _bead_id, _drift=None,
+                        _warp=True, 
                         _overwrite=False, _verbose=True):
         """Function to load bead image for fov class
         
@@ -2451,7 +2452,7 @@ class Field_of_View():
                                     drift_channel=_drift_channel,
                                     ref_filename=_drift_ref,
                                     correction_folder=self.correction_folder,
-                                    warp_image=True,
+                                    warp_image=_warp,
                                     illumination_corr=self.shared_parameters['corr_illumination'],
                                     bleed_corr=False, 
                                     chromatic_corr=False, 
@@ -2486,7 +2487,7 @@ class Field_of_View():
             # check whether bit_id is valid
             if _bit_id not in getattr(self, f"{data_type}_ids"):
                 raise ValueError(f"bit_id: {_bit_id} doesn't exist in {data_type}_ids" )
-            elif getattr(self, f"{data_type}_flags")[np.where(getattr(self, f"{data_type}_ids")==40)[0][0]] == 0:
+            elif getattr(self, f"{data_type}_flags")[np.where(getattr(self, f"{data_type}_ids")==_bit_id)[0][0]] == 0:
                 raise ValueError(f"bit_id: {_bit_id} for data_type: {data_type} hasn't been processed." )
 
             _bit_ind = np.where(getattr(self, f"{data_type}_ids")==_bit_id)[0][0]
