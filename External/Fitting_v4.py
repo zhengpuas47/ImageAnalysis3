@@ -283,6 +283,8 @@ class GaussianFit():
         
         xsigmax = x2c*xt*xt+y2c*yt*yt+z2c*zt*zt+xyc*xt*yt+xzc*xt*zt+yzc*yt*zt
         self.f0 = np.exp(h-0.5*xsigmax)
+        # clip bk
+        bk = np.clip(bk, -709.78, 709.78)
         self.f = np.exp(bk)+self.f0
         
         return self.f
