@@ -91,7 +91,7 @@ def generate_drift_crops(single_im_size=_image_size, coord_sel=None, drift_size=
     if coord_sel[-2] >= _single_im_size[-2] or coord_sel[-1] >= _single_im_size[-1]:
         raise ValueError(f"wrong input coord_sel:{coord_sel}, should be smaller than single_im_size:{single_im_size}")
     if drift_size is None:
-        drift_size = int(np.max(_single_im_size)/3)
+        drift_size = int(np.max(_single_im_size)/4)
         
     # generate crop centers
     crop_cts = [
