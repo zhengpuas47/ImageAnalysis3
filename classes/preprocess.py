@@ -2,6 +2,9 @@ from .. import _image_size
 import numpy as np
 from scipy.spatial.distance import cdist, pdist
 
+# default info for spots
+from ..spot_tools import _3d_infos, _3d_spot_infos, _spot_coord_inds
+
 class ImageCrop():
     """ """
     def __init__(self, 
@@ -112,7 +115,7 @@ class Spots3D(np.ndarray):
                 input_array, 
                 bits=None,
                 pixel_sizes=None,
-                #info=None,
+                channels=None,
                 copy_data=True,
                 intensity_index=0):
         # Input array is an already formed ndarray instance
@@ -134,10 +137,22 @@ class Spots3D(np.ndarray):
             obj.bits = np.array(bits, dtype=np.int32) 
         else:
             obj.bits = bits
-
+        # channels
+        if isinstance(channels, (int, np.int32)):
+            obj.channels = np.ones(len(obj), dtype=np.int32) * int(channels)
+        elif channels is not None and isinstance(channels, str):
+            obj.channels = np.array([channels]*len(obj))
+        elif channels is not None and len(channels) == len(obj):
+            obj.channels = np.array(channels) 
+        else:
+            obj.channels = channels
+        # others
         obj.pixel_sizes = np.array(pixel_sizes)
         obj.intensity_index = intensity_index
-        #obj.info = info
+        # default parameters
+        obj._3d_infos = _3d_infos
+        obj._3d_spot_infos = _3d_spot_infos
+        obj._spot_coord_inds = np.array(_spot_coord_inds)
         # Finally, we must return the newly created object:
         return obj
 

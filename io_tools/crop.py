@@ -75,11 +75,11 @@ def generate_neighboring_crop(coord, crop_size=5,
     # find limits for this crop
     if sub_pixel_precision:
         _left_lims = np.max([_coord-_crop_size, np.zeros(len(_single_image_size))], axis=0)
-        _right_lims = np.min([_coord+_crop_size, _single_image_size], axis=0)
+        _right_lims = np.min([_coord+_crop_size+1, _single_image_size], axis=0)
     else:
         # limits
         _left_lims = np.max([np.round(_coord-_crop_size), np.zeros(len(_single_image_size))], axis=0)
-        _right_lims = np.min([np.round(_coord+_crop_size), _single_image_size], axis=0)
+        _right_lims = np.min([np.round(_coord+_crop_size+1), _single_image_size], axis=0)
 
     _crop = ImageCrop(len(single_im_size), 
                       np.array([_left_lims, _right_lims]).transpose(), 

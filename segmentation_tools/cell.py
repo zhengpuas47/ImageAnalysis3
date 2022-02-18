@@ -425,3 +425,14 @@ def translate_segmentation(dapi_before, dapi_after, before_to_after_rotation,
     _dft_rot_seg_labels = warp_3d_image(_rot_seg_labels, _dft, warp_order=0)
     
     return _dft_rot_seg_labels#.astype(np.int32)
+
+
+# generate bounding box
+def segmentation_mask_2_bounding_box(mask, cell_id=None):
+    from ..classes.preprocess import ImageCrop_3d
+    _crop = []
+    for _i, _sz in enumerate(mask.shape):
+        _inds = np.where(np.max(mask, axis=tuple(np.setdiff1d(np.arange(len(mask.shape)), _i)) ) )[0]
+        _crop.append([np.min(_inds), np.max(_inds)])
+    _crop = ImageCrop_3d(_crop, mask.shape)
+    return _crop
