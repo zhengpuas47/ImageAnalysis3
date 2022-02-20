@@ -1607,7 +1607,7 @@ def batch_decode_DNA(spot_filename, codebook_df, decoder_filename=None,
     figure_zxys_list, figure_labels, figure_label_ids = decoder.summarize_zxys_all_chromosomes()
 
     # distmap
-    distmap_filename = decoder_filename.replace('Decoder.pkl', 'AllDistmap.png')
+    distmap_filename = decoder_filename.replace('Decoder.pkl', 'AllChrDistmap.png')
     _ax = decoder.summarize_to_distmap(decoder, save_filename=distmap_filename) 
 
     decoder.save(overwrite=overwrite)
