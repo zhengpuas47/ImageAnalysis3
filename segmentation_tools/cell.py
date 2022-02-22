@@ -9,9 +9,10 @@ import skimage
 
 default_cellpose_kwargs = {
     'anisotropy': 1,
-    'diameter': 40,
-    'min_size': 500,
+    'diameter': 60,
+    'min_size': 200,
     'stitch_threshold': 0.1,
+    'do_3D':True,
 }
 default_pixel_sizes = [250,108,108]
 
@@ -133,7 +134,7 @@ class Cellpose_Segmentation_Psedu3D:
                 _j_percent = np.sum(_i_msk*_j_msk) / np.sum(_j_msk)
                 if _i_percent > 0 or _j_percent > 0:
                     if verbose:
-                        print(f"-- overlap found for cell:{_i} to {_j}", _i_percent, _j_percent)
+                        print(f"-- overlap found for cell:{_i} to {_j}, {_i_percent:.4f}, {_j_percent:.4f}")
 
                 # remove i, merge into j
                 if _i_percent > overlap_th:
@@ -184,7 +185,7 @@ class Cellpose_Segmentation_Psedu3D:
                             ):
 
         # target z
-        _final_mask = []
+        _final_mask = [] 
         _final_coords = np.round(target_z_coords, 3)
         for _fz in _final_coords:
             if _fz in z_coords:
@@ -369,7 +370,6 @@ class Cellpose_Segmentation_3D():
             np.stack([small_polyt_im, small_dapi_im], axis=3),
             channels=[0,0], 
             resample=True,
-            do_3D=True,
             **_cellpose_kwargs)
         # clear ram
         del(seg_model)
