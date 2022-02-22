@@ -490,55 +490,6 @@ def cross_correlation_align_single_image(im, ref_im, precision_fold=100,
     else:
         return _drift
 
-def calculate_translation(reference_im:np.ndarray, 
-                          target_im:np.ndarray,
-                          ref_to_tar_rotation:np.ndarray=None,
-                          cross_corr_align:bool=True,
-                          alignment_kwargs:dict={},
-                          verbose:bool=True,
-                          ):
-    """Calculate translation between two images with rotation """
-    from math import pi
-    import cv2
-    ## quality check
-    # images
-    if np.shape(reference_im) != np.shape(target_im):
-        raise IndexError(f"two images should be of the same shape")
-    # rotation matrix
-    if ref_to_tar_rotation is None:
-        ref_to_tar_rotation = np.diag([1,1])
-    elif np.shape(ref_to_tar_rotation) != tuple([2,2]):
-        raise IndexError(f"wrong shape for rotation matrix, should be 2x2. ")
-    # get dimensions
-    _dz,_dx,_dy = np.shape(reference_im)
-    # calculate angle
-    if verbose:
-        print(f"-- start calculating drift with rotation between images")
-    _rotation_angle = np.arcsin(ref_to_tar_rotation[0,1])/pi*180
-    _temp_new_rotation_M = cv2.getRotationMatrix2D((_dx/2, _dy/2), _rotation_angle, 1) # temporary rotation angle
-    # rotate image
-    if _rotation_angle != 0:
-        _rot_target_im = np.array([cv2.warpAffine(_lyr, _temp_new_rotation_M, 
-                                                  _lyr.shape, borderMode=cv2.BORDER_DEFAULT) 
-                                   for _lyr in target_im], dtype=reference_im.dtype)
-    else:
-        _rot_target_im = target_im
-    # calculate drift
-    if cross_corr_align:
-        _drift = cross_correlation_align_single_image(_rot_target_im,
-                                                      reference_im,
-                                                      single_im_size=np.array(np.shape(reference_im)),
-                                                      **alignment_kwargs,)
-    else:
-        _drift_crops = generate_drift_crops()
-        _drift = align_single_image(reference_im, _drift_crops,
-                                    single_im_size=np.array(np.shape(reference_im)), 
-                                    ref_filename=_rot_target_im, **alignment_kwargs)
-    if verbose:
-        print(f"--- drift: {np.round(_drift,2)} pixels")
-        
-    return _rot_target_im, ref_to_tar_rotation, _drift
-
 # updated function to align drift of single image:
 
 _default_align_corr_args={
@@ -617,9 +568,6 @@ def align_image(
         if verbose:
             print(f"-- start aligning given source image to", end=' ')
         _src_im = src_im
-        if np.shape(_src_im) != tuple(_correction_args['single_im_size']):
-            _size = tuple(_correction_args['single_im_size'])
-            raise IndexError(f"shape of target image:{np.shape(_src_im)} and single_im_size:{_size} doesnt match!")
     elif isinstance(src_im, str):
         if verbose:
             print(f"-- start aligning file {src_im}.", end=' ')
@@ -638,9 +586,6 @@ def align_image(
         if verbose:
             print(f"given reference image.")
         _ref_im = ref_im
-        if np.shape(_ref_im) != tuple(_correction_args['single_im_size']):
-            _size = tuple(_correction_args['single_im_size'])
-            raise IndexError(f"shape of reference image:{np.shape(_ref_im)} and single_im_size:{_size} doesnt match!")
     elif isinstance(ref_im, str):
         if verbose:
             print(f"reference file:{ref_im}.")
@@ -653,7 +598,10 @@ def align_image(
                                     **_correction_args)[0][0]
     else:
         raise IOError(f"Wrong input ref file type, {type(ref_im)} should be .dax file or np.ndarray")
-    
+
+    if np.shape(_src_im) != np.shape(_ref_im):
+        raise IndexError(f"shape of target image:{np.shape(_src_im)} and reference image:{np.shape(_ref_im)} doesnt match!")
+
     ## crop images
     _crop_src_ims, _crop_ref_ims = [], []
     for _crop in crop_list:
@@ -699,7 +647,7 @@ def align_image(
         # append
         _drifts.append(_dft) 
         if verbose:
-            print(f"--- align image {_i} in {time.time()-_start_time:.3f}s.")
+            print(f"-- aligned image {_i} in {time.time()-_start_time:.3f}s.")
             if detailed_verbose:
                 print(f"--- drift {_i}: {np.around(_dft, 2)}")
 
@@ -717,6 +665,66 @@ def align_image(
     if '_updated_mean_dft' not in locals():
         if verbose:
             print(f"-- return a sub-optimal drift")
-        _updated_mean_dft = np.nanmean(_drifts, axis=0)
+        _drifts = np.array(_drifts)
+        # select top 3 drifts
+        from scipy.spatial.distance import pdist, squareform
+        _dist_mat = squareform(pdist(_drifts))
+        np.fill_diagonal(_dist_mat, np.inf)
+        # select closest pair
+        _sel_inds = np.array(np.unravel_index(np.argmin(_dist_mat), np.shape(_dist_mat)))
+        _sel_drifts = list(_drifts[_sel_inds])
+        # select closest 3rd drift
+        _sel_drifts.append(_drifts[np.argmin(_dist_mat[:, _sel_inds].sum(1))])
+        if detailed_verbose:
+            print(f"--- select drifts: {np.round(_sel_drifts, 2)}")
+        # return mean
+        _updated_mean_dft = np.nanmean(_sel_drifts, axis=0)
 
     return  _updated_mean_dft
+
+# Function to calculate translation for alignment of re-mounted samples
+def calculate_translation(reference_im:np.ndarray, 
+                          target_im:np.ndarray,
+                          ref_to_tar_rotation:np.ndarray=None,
+                          use_autocorr:bool=True,
+                          alignment_kwargs:dict={},
+                          verbose:bool=True,
+                          ):
+    """Calculate translation between two images with rotation """
+    from math import pi
+    import cv2
+    ## quality check
+    # images
+    if np.shape(reference_im) != np.shape(target_im):
+        raise IndexError(f"two images should be of the same shape")
+    # rotation matrix
+    if ref_to_tar_rotation is None:
+        ref_to_tar_rotation = np.diag([1,1])
+    elif np.shape(ref_to_tar_rotation) != tuple([2,2]):
+        raise IndexError(f"wrong shape for rotation matrix, should be 2x2. ")
+    # get dimensions
+    _dz,_dx,_dy = np.shape(reference_im)
+    # calculate angle
+    if verbose:
+        print(f"-- start calculating drift with rotation between images")
+    _rotation_angle = np.arcsin(ref_to_tar_rotation[0,1])/pi*180
+    _temp_new_rotation_M = cv2.getRotationMatrix2D((_dx/2, _dy/2), _rotation_angle, 1) # temporary rotation angle
+    # rotate image
+    if _rotation_angle != 0:
+        _rot_target_im = np.array([cv2.warpAffine(_lyr, _temp_new_rotation_M, 
+                                                  _lyr.shape, borderMode=cv2.BORDER_DEFAULT) 
+                                   for _lyr in target_im], dtype=reference_im.dtype)
+    else:
+        _rot_target_im = target_im
+    # calculate drift    
+    _drift = align_image(_rot_target_im,
+                         reference_im,
+                         use_autocorr=use_autocorr,
+                         verbose=verbose,
+                         #detailed_verbose=verbose,
+                         **alignment_kwargs,)
+
+    if verbose:
+        print(f"--- drift: {np.round(_drift,2)} pixels")
+        
+    return _rot_target_im, ref_to_tar_rotation, _drift

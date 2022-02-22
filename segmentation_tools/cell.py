@@ -393,6 +393,7 @@ import cv2
 
 def translate_segmentation(dapi_before, dapi_after, before_to_after_rotation,
                            label_before=None, label_after=None,
+                           return_new_dapi=False,
                            verbose=True,
                            ):
     """ """
@@ -413,8 +414,12 @@ def translate_segmentation(dapi_before, dapi_after, before_to_after_rotation,
     else:
         ValueError('Either label_before or label_after should be given!')
     # generate rotation matrix in cv2
+    if verbose:
+        print('- generate rotation matrix')
     _rotation_M = cv2.getRotationMatrix2D((_dx/2, _dy/2), _rotation_angle, 1)
     # rotate segmentation
+    if verbose:
+        print('- rotate segmentation label with rotation matrix')
     _rot_seg_labels = np.array([cv2.warpAffine(_seg_layer,
                                               _rotation_M, 
                                               _seg_layer.shape, 
@@ -423,5 +428,18 @@ def translate_segmentation(dapi_before, dapi_after, before_to_after_rotation,
                                for _seg_layer in _seg_labels])
     # warp the segmentation label by drift
     _dft_rot_seg_labels = warp_3d_image(_rot_seg_labels, _dft, warp_order=0)
-    
-    return _dft_rot_seg_labels#.astype(np.int32)
+    if return_new_dapi:
+        return _dft_rot_seg_labels, rot_dna_dapi_im
+    else:
+        return _dft_rot_seg_labels
+
+
+# generate bounding box
+def segmentation_mask_2_bounding_box(mask, cell_id=None):
+    from ..classes.preprocess import ImageCrop_3d
+    _crop = []
+    for _i, _sz in enumerate(mask.shape):
+        _inds = np.where(np.max(mask, axis=tuple(np.setdiff1d(np.arange(len(mask.shape)), _i)) ) )[0]
+        _crop.append([np.min(_inds), np.max(_inds)])
+    _crop = ImageCrop_3d(_crop, mask.shape)
+    return _crop

@@ -44,10 +44,14 @@ class Merfish_Decoder():
         # savefile
         self.savefile = savefile
         # cand_spots
+        from .preprocess import Spots3D, SpotTuple
         if not isinstance(cand_spots, Spots3D):
-            if len(cand_spots) != len(bits):
+            if bits is not None and len(cand_spots) != len(bits):
                 raise IndexError(f"lengh of _bits: {len(_bits)} doesn't match length of cand_spots: {len(cand_spots)}")
-            self.cand_spots = Spots3D(cand_spots, bits=bits, pixel_sizes=pixel_sizes)
+            elif bits is None:
+                raise ValueError('given bits doesnot match size')
+            else:
+                self.cand_spots = Spots3D(cand_spots, bits=bits, pixel_sizes=pixel_sizes)
         else:
             self.cand_spots = copy(cand_spots)
             if hasattr(cand_spots, 'bits'):
@@ -194,7 +198,7 @@ class Merfish_Decoder():
         # initlaize otherwise
         else:
             if self.verbose:
-                print(f"- search spot_groups given search radius {search_th} nm, keep_pairs={keep_pairs}")
+                print(f"- search spot_groups given search radius {search_th} nm, max_usage={max_usage}")
             self.spot_groups = [] 
 
         # decide whether generate pair_ind_list
@@ -205,11 +209,19 @@ class Merfish_Decoder():
             self.search_eps = eps
 
         # create pair_list
-        _pair_list = self.create_tuples_from_inds(self.cand_spots, self.pair_inds_list, self.valid_bit_pair_2_region)
-        if len(_pair_list) == 0:
-            return 
+        if not hasattr(self, 'cand_pair_list') or overwrite:
+            _pair_list = self.create_tuples_from_inds(self.cand_spots, self.pair_inds_list, self.valid_bit_pair_2_region)
+            setattr(self, 'cand_pair_list', _pair_list)
+            if len(_pair_list) == 0:
+                return 
         else:
-            self.cand_pair_list = _pair_list
+            _pair_list = self.cand_pair_list
+        # create pair_spot_usage
+        _pair_spot_usage = np.zeros(len(self.cand_spots))
+        for _pair in _pair_list:
+            _pair.select = False
+            _pair_spot_usage[_pair.spots_inds] += 1
+
         # generate scores for pair_list
         _pair_ref_metrics = generate_score_metrics(self.cand_pair_list,)
         _pair_ref_metrics = np.concatenate(_pair_ref_metrics, axis=0)
@@ -247,7 +259,8 @@ class Merfish_Decoder():
                 if _b in _related_bits:
                     _merged_inds = np.concatenate([_pair.spots_inds, [_ind]])
                     # skip if the additional spot has been used.
-                    if (_spot_usage[_merged_inds] >= max_usage).any():
+                    #if (_spot_usage[_merged_inds] >= max_usage).any():
+                    if (_spot_usage[_pair.spots_inds] >= max_usage).any():
                         continue
                     # assemble tentative tuples
                     _merged_bits = np.concatenate([_pair.bits, [_b]])
@@ -289,7 +302,11 @@ class Merfish_Decoder():
             delattr(_g, 'final_score')
         if self.verbose:
             print(f"- {len(self.spot_groups)} spot_groups detected")
-        return self.spot_groups, _spot_usage
+        
+        # save spot_usage
+        setattr(self, 'spot_usage', _spot_usage)
+
+        return self.spot_groups, self.spot_usage
 
     def select_spot_tuples(self, max_usage=np.inf, 
         region_2_expect_num=None, 
@@ -322,10 +339,11 @@ class Merfish_Decoder():
         # create pair_list
         if not hasattr(self, 'cand_pair_list') or overwrite:
             _pair_list = self.create_tuples_from_inds(self.cand_spots, self.pair_inds_list, self.valid_bit_pair_2_region)
+            setattr(self, 'cand_pair_list', _pair_list)
             if len(_pair_list) == 0:
                 return 
-            else:
-                self.cand_pair_list = _pair_list
+        else:
+            _pair_list = self.cand_pair_list
         # create pair_spot_usage
         _pair_spot_usage = np.zeros(len(self.cand_spots))
         for _pair in _pair_list:
@@ -684,9 +702,10 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
             self.update_spot_groups_chr_info(self.cand_pair_list, self.codebook)
             # assemble tuples
             #spot_groups = self.assemble_complete_codes() # OLD
-            spot_groups, spot_usage = self.select_spot_tuples(max_usage=max_spot_usage, 
+            spot_groups, spot_usage = self.select_spot_tuples_old(max_usage=max_spot_usage, 
                 search_th=pair_search_radius, 
-                region_2_expect_num=_region_2_expect_num, weights=self.metric_weights,
+                #region_2_expect_num=_region_2_expect_num, 
+                weights=self.metric_weights,
                 overwrite=overwrite)
         # update used parameters
 
@@ -1525,17 +1544,26 @@ def batch_decode_DNA(spot_filename, codebook_df, decoder_filename=None,
                      return_decoder=False, make_plots=False, 
                     ):
     """Batch process DNA-MERFISH decoding"""
-
+    from ..classes.preprocess import Spots3D
     codebook = np.array(codebook_df[[_name for _name in codebook_df.columns 
                                     if 'name' not in _name and  'id' not in _name and 'chr' not in _name]])
     # load cand_spots
-    cand_spots = spots_dict_to_cand_spots(spot_filename, 
-        pixel_sizes=pixel_sizes, 
-        normalize_intensity=normalize_intensity, 
-        refine_chromatic=refine_chromatic,
-        id_2_channel=id_2_channel,
-    )
-
+    import pandas as pd
+    if isinstance(spot_filename, pd.DataFrame):
+        from ..io_tools.spots import CellSpotsDf_2_CandSpots
+        cand_spots = CellSpotsDf_2_CandSpots(spot_filename)
+        if refine_chromatic:
+            cand_spots = adjust_spots_by_chromatic_center(cand_spots, id_2_channel)   
+        #cand_spots.pixel_sizes = np.array(pixel_sizes)
+    elif isinstance(spot_filename, str):
+        cand_spots = spots_dict_to_cand_spots(spot_filename, 
+            pixel_sizes=pixel_sizes, 
+            normalize_intensity=normalize_intensity, 
+            refine_chromatic=refine_chromatic,
+            id_2_channel=id_2_channel,
+        )
+    else:
+        raise TypeError("Wrong input type for cand_spots")
     #cand_spots_dict = pickle.load(open(spot_filename, 'rb'))
     #print(spot_filename, len(cand_spots))
 
@@ -1579,7 +1607,7 @@ def batch_decode_DNA(spot_filename, codebook_df, decoder_filename=None,
     figure_zxys_list, figure_labels, figure_label_ids = decoder.summarize_zxys_all_chromosomes()
 
     # distmap
-    distmap_filename = decoder_filename.replace('Decoder.pkl', 'AllDistmap.png')
+    distmap_filename = decoder_filename.replace('Decoder.pkl', 'AllChrDistmap.png')
     _ax = decoder.summarize_to_distmap(decoder, save_filename=distmap_filename) 
 
     decoder.save(overwrite=overwrite)
@@ -1683,6 +1711,29 @@ def refine_chromatic_by_channel_center(id_2_spots, id_2_channel, ref_channel='64
         _new_spots[:,1:4] = _new_spots[:,1:4] - _ch_2_centers[_ch] + _ref_center
         id_2_translated_spots[_id] = _new_spots
     return id_2_translated_spots
+
+def adjust_spots_by_chromatic_center(
+    cand_spots:Spots3D, 
+    bit_2_channel:dict, 
+    ref_channel='647'):
+    _channels = np.unique(list(bit_2_channel.values()))
+    _spot_channels = np.array([bit_2_channel[_b] for _b in cand_spots.bits])
+    _ch_2_centers = {
+        _ch: np.mean(cand_spots.to_coords()[_spot_channels==_ch], axis=0)
+        for _ch in _channels
+    }
+    # get ref
+    if ref_channel not in _ch_2_centers:
+        ref_channel = list(_ch_2_centers.keys())[0]
+    # correct dict
+    _ch_2_shift = {_ch:_ct-_ch_2_centers[ref_channel] for _ch,_ct in _ch_2_centers.items()}
+    # correct coordinates
+    _new_cand_spots = copy(cand_spots)
+    for _ch in _ch_2_shift:
+        _new_cand_spots[_spot_channels==_ch, 1:4] -= _ch_2_shift[_ch]
+
+    return _new_cand_spots
+
 
 def generate_score_metrics(spot_groups, chr_tree=None, homolog_centers=None,
                           n_neighbors=10, 
@@ -1828,11 +1879,14 @@ def generate_scores(spot_groups, ref_metrics_list,
 
 
 
-def summarize_score(spot_groups, weights=np.ones(5), update_attr=True):
+def summarize_score(spot_groups, weights=np.ones(5), 
+                    normalize_spot_num=True, update_attr=True):
     if isinstance(spot_groups, list) and isinstance(spot_groups[0], SpotTuple):
         final_scores = []
         for _g in spot_groups:
             _final_score = np.nansum(_g.scores * weights, axis=-1)
+            if normalize_spot_num:
+                _final_score *= 1 / len(_g.spots)  
             # append
             final_scores.append(_final_score)
             if update_attr:
@@ -1841,6 +1895,7 @@ def summarize_score(spot_groups, weights=np.ones(5), update_attr=True):
     elif isinstance(spot_groups, np.ndarray) or isinstance(spot_groups, list):
         scores = np.array(spot_groups)
         final_scores = np.nansum(scores * np.ones(5), axis=-1)
+
 
     return np.array(final_scores)
 

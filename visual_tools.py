@@ -2827,6 +2827,7 @@ def translate_segmentation(old_segmentation, old_dapi_im, new_dapi_im,
     # rotate segmentation
     _rot_seg_label = np.array(cv2.warpAffine(old_segmentation.astype(np.float), 
                                              _rot_old_M, old_segmentation.shape, 
+                                             flags=cv2.INTER_NEAREST,
                                              borderMode=cv2.BORDER_CONSTANT), dtype=np.int)
     
     ## 3. generate cleaned_segmentation_label
