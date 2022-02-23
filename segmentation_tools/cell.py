@@ -42,7 +42,7 @@ class Cellpose_Segmentation_Psedu3D:
         _clean_mask = Cellpose_Segmentation_Psedu3D.merge_3d_masks(_mask)
         
         _z = Cellpose_Segmentation_Psedu3D.convert_layer_list_to_um(_sel_ids)
-        _full_mask = Cellpose_Segmentation_Psedu3D.interploate_z_masks(_clean_mask, _z)
+        _full_mask = interploate_z_masks(_clean_mask, _z)
         
         return _full_mask
         
@@ -175,47 +175,7 @@ class Cellpose_Segmentation_Psedu3D:
                                  select_method:'function'=np.median):
         return step_sizes * np.array([select_method(_lys) for _lys in layer_lists])
     
-    @staticmethod
-    def interploate_z_masks(z_masks, 
-                            z_coords, 
-                            target_z_coords=np.round(np.arange(0,12,0.2),2),
-                            mode='nearest',
-                            verbose=True,
-                            ):
 
-        # target z
-        _final_mask = []
-        _final_coords = np.round(target_z_coords, 3)
-        for _fz in _final_coords:
-            if _fz in z_coords:
-                _final_mask.append(z_masks[np.where(z_coords==_fz)[0][0]])
-            else:
-                if mode == 'nearest':
-                    _final_mask.append(z_masks[np.argmin(np.abs(z_coords-_fz))])
-                    continue
-                # find nearest neighbors
-                if np.sum(z_coords > _fz) > 0:
-                    _upper_z = np.min(z_coords[z_coords > _fz])
-                else:
-                    _upper_z = np.max(z_coords)
-                if np.sum(z_coords < _fz) > 0:
-                    _lower_z = np.max(z_coords[z_coords < _fz])
-                else:
-                    _lower_z = np.min(z_coords)
-
-                if _upper_z == _lower_z:
-                    # copy the closest mask to extrapolate
-                    _final_mask.append(z_masks[np.where(z_coords==_upper_z)[0][0]])
-                else:
-                    # interploate
-                    _upper_mask = z_masks[np.where(z_coords==_upper_z)[0][0]].astype(np.float32)
-                    _lower_mask = z_masks[np.where(z_coords==_lower_z)[0][0]].astype(np.float32)
-                    _inter_mask = (_upper_z-_fz)/(_upper_z-_lower_z) * _lower_mask 
-                    
-        if verbose:
-            print(f"- reconstruct {len(_final_mask)} layers")
-        
-        return np.array(_final_mask)
 
 class Cellpose_Segmentation_3D():
     """Do 3D cellpose segmentation to DAPI image, and additionally watershed on polyT iamge given the DAPI seeds
@@ -443,3 +403,45 @@ def segmentation_mask_2_bounding_box(mask, cell_id=None):
         _crop.append([np.min(_inds), np.max(_inds)])
     _crop = ImageCrop_3d(_crop, mask.shape)
     return _crop
+
+# interpolate matrices
+def interploate_z_masks(z_masks, 
+                        z_coords, 
+                        target_z_coords=np.round(np.arange(0,12,0.2),2),
+                        mode='nearest',
+                        verbose=True,
+                        ):
+
+    # target z
+    _final_mask = []
+    _final_coords = np.round(target_z_coords, 3)
+    for _fz in _final_coords:
+        if _fz in z_coords:
+            _final_mask.append(z_masks[np.where(z_coords==_fz)[0][0]])
+        else:
+            if mode == 'nearest':
+                _final_mask.append(z_masks[np.argmin(np.abs(z_coords-_fz))])
+                continue
+            # find nearest neighbors
+            if np.sum(z_coords > _fz) > 0:
+                _upper_z = np.min(z_coords[z_coords > _fz])
+            else:
+                _upper_z = np.max(z_coords)
+            if np.sum(z_coords < _fz) > 0:
+                _lower_z = np.max(z_coords[z_coords < _fz])
+            else:
+                _lower_z = np.min(z_coords)
+
+            if _upper_z == _lower_z:
+                # copy the closest mask to extrapolate
+                _final_mask.append(z_masks[np.where(z_coords==_upper_z)[0][0]])
+            else:
+                # interploate
+                _upper_mask = z_masks[np.where(z_coords==_upper_z)[0][0]].astype(np.float32)
+                _lower_mask = z_masks[np.where(z_coords==_lower_z)[0][0]].astype(np.float32)
+                _inter_mask = (_upper_z-_fz)/(_upper_z-_lower_z) * _lower_mask 
+                
+    if verbose:
+        print(f"- reconstruct {len(_final_mask)} layers")
+    
+    return np.array(_final_mask)
