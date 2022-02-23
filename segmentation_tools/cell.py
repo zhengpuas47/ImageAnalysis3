@@ -9,9 +9,10 @@ import skimage
 
 default_cellpose_kwargs = {
     'anisotropy': 1,
-    'diameter': 40,
-    'min_size': 500,
+    'diameter': 60,
+    'min_size': 200,
     'stitch_threshold': 0.1,
+    'do_3D':True,
 }
 default_pixel_sizes = [250,108,108]
 
@@ -133,7 +134,7 @@ class Cellpose_Segmentation_Psedu3D:
                 _j_percent = np.sum(_i_msk*_j_msk) / np.sum(_j_msk)
                 if _i_percent > 0 or _j_percent > 0:
                     if verbose:
-                        print(f"-- overlap found for cell:{_i} to {_j}", _i_percent, _j_percent)
+                        print(f"-- overlap found for cell:{_i} to {_j}, {_i_percent:.4f}, {_j_percent:.4f}")
 
                 # remove i, merge into j
                 if _i_percent > overlap_th:
@@ -176,6 +177,42 @@ class Cellpose_Segmentation_Psedu3D:
         return step_sizes * np.array([select_method(_lys) for _lys in layer_lists])
     
 
+<<<<<<< HEAD
+=======
+        # target z
+        _final_mask = [] 
+        _final_coords = np.round(target_z_coords, 3)
+        for _fz in _final_coords:
+            if _fz in z_coords:
+                _final_mask.append(z_masks[np.where(z_coords==_fz)[0][0]])
+            else:
+                if mode == 'nearest':
+                    _final_mask.append(z_masks[np.argmin(np.abs(z_coords-_fz))])
+                    continue
+                # find nearest neighbors
+                if np.sum(z_coords > _fz) > 0:
+                    _upper_z = np.min(z_coords[z_coords > _fz])
+                else:
+                    _upper_z = np.max(z_coords)
+                if np.sum(z_coords < _fz) > 0:
+                    _lower_z = np.max(z_coords[z_coords < _fz])
+                else:
+                    _lower_z = np.min(z_coords)
+
+                if _upper_z == _lower_z:
+                    # copy the closest mask to extrapolate
+                    _final_mask.append(z_masks[np.where(z_coords==_upper_z)[0][0]])
+                else:
+                    # interploate
+                    _upper_mask = z_masks[np.where(z_coords==_upper_z)[0][0]].astype(np.float32)
+                    _lower_mask = z_masks[np.where(z_coords==_lower_z)[0][0]].astype(np.float32)
+                    _inter_mask = (_upper_z-_fz)/(_upper_z-_lower_z) * _lower_mask 
+                    
+        if verbose:
+            print(f"- reconstruct {len(_final_mask)} layers")
+        
+        return np.array(_final_mask)
+>>>>>>> f5c0d353b9e0e88e16ee4dd1c1c298cb5679e063
 
 class Cellpose_Segmentation_3D():
     """Do 3D cellpose segmentation to DAPI image, and additionally watershed on polyT iamge given the DAPI seeds
@@ -329,7 +366,6 @@ class Cellpose_Segmentation_3D():
             np.stack([small_polyt_im, small_dapi_im], axis=3),
             channels=[0,0], 
             resample=True,
-            do_3D=True,
             **_cellpose_kwargs)
         # clear ram
         del(seg_model)

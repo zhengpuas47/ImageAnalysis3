@@ -14,7 +14,7 @@ _image_size = [30,2048,2048]
 _allowed_colors = ['750', '647', '561', '488', '405']
 _corr_channels = ['750', '647', '561']
 # number of buffer frames and empty frames
-_num_buffer_frames = 10
+_num_buffer_frames = 0
 _num_empty_frames = 0
 # image datatype
 _image_dtype = np.uint16
