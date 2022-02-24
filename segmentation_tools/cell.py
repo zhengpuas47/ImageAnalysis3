@@ -6,6 +6,11 @@ import torch
 import cv2
 import os,sys,time
 import skimage 
+import math
+import h5py
+import json
+import copy 
+from scipy.ndimage import grey_dilation
 
 default_cellpose_kwargs = {
     'anisotropy': 1,
@@ -14,7 +19,12 @@ default_cellpose_kwargs = {
     'stitch_threshold': 0.1,
     'do_3D':True,
 }
+default_alignment_params = {
+    'dialation_size':4,
+}
 default_pixel_sizes = [250,108,108]
+default_Zcoords = np.arange(13)
+default_dna_Zcoords = np.round(np.arange(0,12.5,0.25),2)
 
 class Cellpose_Segmentation_Psedu3D:
     """"""
@@ -176,43 +186,6 @@ class Cellpose_Segmentation_Psedu3D:
                                  select_method:'function'=np.median):
         return step_sizes * np.array([select_method(_lys) for _lys in layer_lists])
     
-
-<<<<<<< HEAD
-=======
-        # target z
-        _final_mask = [] 
-        _final_coords = np.round(target_z_coords, 3)
-        for _fz in _final_coords:
-            if _fz in z_coords:
-                _final_mask.append(z_masks[np.where(z_coords==_fz)[0][0]])
-            else:
-                if mode == 'nearest':
-                    _final_mask.append(z_masks[np.argmin(np.abs(z_coords-_fz))])
-                    continue
-                # find nearest neighbors
-                if np.sum(z_coords > _fz) > 0:
-                    _upper_z = np.min(z_coords[z_coords > _fz])
-                else:
-                    _upper_z = np.max(z_coords)
-                if np.sum(z_coords < _fz) > 0:
-                    _lower_z = np.max(z_coords[z_coords < _fz])
-                else:
-                    _lower_z = np.min(z_coords)
-
-                if _upper_z == _lower_z:
-                    # copy the closest mask to extrapolate
-                    _final_mask.append(z_masks[np.where(z_coords==_upper_z)[0][0]])
-                else:
-                    # interploate
-                    _upper_mask = z_masks[np.where(z_coords==_upper_z)[0][0]].astype(np.float32)
-                    _lower_mask = z_masks[np.where(z_coords==_lower_z)[0][0]].astype(np.float32)
-                    _inter_mask = (_upper_z-_fz)/(_upper_z-_lower_z) * _lower_mask 
-                    
-        if verbose:
-            print(f"- reconstruct {len(_final_mask)} layers")
-        
-        return np.array(_final_mask)
->>>>>>> f5c0d353b9e0e88e16ee4dd1c1c298cb5679e063
 
 class Cellpose_Segmentation_3D():
     """Do 3D cellpose segmentation to DAPI image, and additionally watershed on polyT iamge given the DAPI seeds
@@ -384,8 +357,132 @@ class Cellpose_Segmentation_3D():
         _extended_masks = random_walker(target_im, seed_labels, beta=beta, tol=0.001, )
         return _extended_masks
 
-import math
-import cv2
+
+class Align_Segmentation():
+    """
+    Align segmentation from remounted RNA-DNA sample
+    """
+    def __init__(self, 
+        rna_feature_file:str, 
+        rna_dapi_file:str, 
+        dna_save_file:str,
+        microscope_file:str,
+        rotation_mat:np.ndarray, #
+        parameters:dict={},
+        overwrite:bool=False,
+        debug:bool=False,
+        verbose:bool=True,
+        ):
+        self.rna_feature_file = rna_feature_file
+        self.rna_dapi_file = rna_dapi_file
+        self.dna_save_file = dna_save_file
+        self.microscope_file = microscope_file
+        self.rotation_mat = rotation_mat
+        # params
+        self.parameters = {_k:_v for _k,_v in default_alignment_params.items()}
+        self.parameters.update(parameters)
+        self.overwrite = overwrite
+        self.debug = debug
+        self.verbose = verbose
+
+    @staticmethod
+    def _load_rna_feature(rna_feature_file:str, microscpe_params:dict, _z_coords=default_Zcoords):
+        """Load RNA feature from my MERLIN output"""
+        _fovcell_2_uid = {}
+        with h5py.File(rna_feature_file, 'r') as _f:
+            _label_group = _f['labeldata']
+            rna_mask = _label_group['label3D'][:] # read
+            rna_mask = Align_Segmentation._correct_image3D_by_microscope_param(rna_mask, microscpe_params) # transpose and flip
+            if np.max(rna_mask) <= 0:
+                print(f'No cell found in feature file: {rna_feature_file}')
+                return rna_mask, _fovcell_2_uid
+            else:
+                # load feature info
+                _feature_group = _f['featuredata']
+                for _cell_uid in _feature_group.keys():
+                    _cell_group = _feature_group[_cell_uid]
+                    _z_coords = _cell_group['z_coordinates'][:]
+                    _fovcell_2_uid[(_cell_group.attrs['fov'], _cell_group.attrs['label'])] = _cell_uid
+        return rna_mask, _z_coords, _fovcell_2_uid
+
+    @staticmethod
+    def _load_dna_info(dna_save_file:str):
+        # Load DAPI
+        with h5py.File(dna_save_file, "r", libver='latest') as _f:
+            _fov_id = _f.attrs['fov_id']
+            _fov_name = _f.attrs['fov_name']
+            # load DAPI
+            if 'dapi_im' in _f.attrs.keys():
+                dapi_im = _f.attrs['dapi_im']
+            else:
+                dapi_im = None
+        return dapi_im, _fov_id, _fov_name
+    @staticmethod
+    def _load_rna_dapi(rna_dapi_file:str):
+        return np.load(rna_dapi_file)
+    @staticmethod
+    def _read_microscope_json(microscope_file:str,):
+        return json.load(open(microscope_file, 'r'))
+
+    @staticmethod
+    def _correct_image3D_by_microscope_param(image3D:np.ndarray, microscope_params:dict):
+        """Correct 3D image with microscopy parameter"""
+        _image = copy.copy(image3D)
+        # transpose
+        if 'transpose' in microscope_params and microscope_params['transpose']:
+            _image = _image.transpose((0,2,1))
+        if 'flip_horizontal' in microscope_params and microscope_params['flip_horizontal']:
+            _image = np.flip(_image, 1)
+        if  'flip_vertical' in microscope_params and microscope_params['flip_vertical']:
+            _image = np.flip(_image, 2)
+        return _image
+
+    def _generate_dna_mask(self, target_dna_Zcoords=default_dna_Zcoords):
+        # process microscope.json
+        _mparam = self._read_microscope_json(self.microscope_file)
+        # load RNA
+        _rna_mask, _rna_Zcoords, _fovcell_2_uid = self._load_rna_feature(self.rna_feature_file, _mparam)
+        _rna_dapi = self._load_rna_dapi(self.rna_dapi_file)
+        # generate full
+        _full_rna_mask = interploate_z_masks(_rna_mask, _rna_Zcoords, 
+                                             target_dna_Zcoords, verbose=self.verbose)
+        # load DNA
+        _dna_dapi, _fov_id, _fov_name = self._load_dna_info(self.dna_save_file)
+        # translate
+        _dna_mask, _rot_rna_dapi = translate_segmentation(_rna_dapi, _dna_dapi, self.rotation_mat, 
+                                                         label_before=_full_rna_mask, 
+                                                         return_new_dapi=True, verbose=self.verbose)
+        # Do dialation
+        if 'dialation_size' in self.parameters:
+            _dna_mask = grey_dilation(_dna_mask, size=self.parameters['dialation_size'])
+        _dna_mask[_dna_mask==0] = -1
+        # add to attribute
+        self.dna_mask = _dna_mask
+        self.fov_id = _fov_id
+        self.fov_name = _fov_name
+        self.fovcell_2_uid = _fovcell_2_uid
+        if self.debug:
+            return _dna_mask, _full_rna_mask, _rna_dapi, _rot_rna_dapi, _dna_dapi
+        else:
+            return _dna_mask
+
+    def _save(self, save_hdf5_file:str)->None:
+        if self.verbose:
+            print(f"-- saving segmentation info from fov:{self.fov_id} into file: {save_hdf5_file}")
+        with h5py.File(save_hdf5_file,'a') as _f:
+            _fov_group = _f.require_group(str(self.fov_id))
+            _fov_group.attrs['fov_id'] = self.fov_id
+            _fov_group.attrs['fov_name'] = self.fov_name
+            # add dataset:
+            _mask_dataset = _fov_group.require_dataset('dna_mask', data=self.dna_mask)
+            _uid_group = _fov_group.require_group('cell_2_uid')
+            for (_fov_id, _cell_id), _uid in self.fovcell_2_uid.items():
+                _uid_group.require_dataset(str(_cell_id), data=_uid)
+        return
+
+
+
+
 
 def translate_segmentation(dapi_before, dapi_after, before_to_after_rotation,
                            label_before=None, label_after=None,
@@ -443,7 +540,7 @@ def segmentation_mask_2_bounding_box(mask, cell_id=None):
 # interpolate matrices
 def interploate_z_masks(z_masks, 
                         z_coords, 
-                        target_z_coords=np.round(np.arange(0,12,0.2),2),
+                        target_z_coords=default_dna_Zcoords,
                         mode='nearest',
                         verbose=True,
                         ):
