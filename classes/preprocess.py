@@ -156,9 +156,9 @@ class Spots3D(np.ndarray):
         # Finally, we must return the newly created object:
         return obj
 
-#    def __str__(self):
-#        """Spots3D object with dimension"""
-#        return ""
+    #    def __str__(self):
+    #        """Spots3D object with dimension"""
+    #        return ""
 
     def __getitem__(self, key):
         """Modified getitem to allow slicing of bits as well"""
