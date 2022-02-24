@@ -21,6 +21,7 @@ def CellSpotsDf_2_CandSpots(_cell_spots_df,
 def FovCell2Spots_2_DataFrame(cell_2_spots:dict,
                               fov_id=None,
                               bit_2_channel=None,
+                              fovcell_2_uid=None,
                               spot_info_names=Spot3D_infos,
                               pixel_sizes=default_pixel_sizes,
                               pixel_info_names=Pixel3D_infos,
@@ -35,7 +36,7 @@ def FovCell2Spots_2_DataFrame(cell_2_spots:dict,
     # add spot info
     _columns.extend(spot_info_names)
     # add bits
-    _columns.extend(['bit', 'channel'])
+    _columns.extend(['bit', 'channel', 'uid'])
     # add pixel
     _columns.extend(pixel_info_names)
 
@@ -46,10 +47,19 @@ def FovCell2Spots_2_DataFrame(cell_2_spots:dict,
             for _spot, _bit in zip(_spots, _spots.bits):
                 _spot_info = [fov_id, _cell_id]
                 _spot_info.extend(list(_spot))
-                if isinstance(bit_2_channel, dict):
-                    _spot_info.extend([_bit, bit_2_channel[_bit]])
+                # bit
+                _spot_info.append(_bit)
+                # channel
+                if isinstance(bit_2_channel, dict) and _bit in bit_2_channel:
+                    _spot_info.append(bit_2_channel[_bit])
                 else:
-                    _spot_info.extend([_bit, None])
+                    _spot_info.append(None)
+                # uid
+                if isinstance(fovcell_2_uid, dict) and (fov_id, _cell_id) in fovcell_2_uid:
+                    _spot_info.append(fovcell_2_uid[(fov_id, _cell_id)])
+                else:
+                    _spot_info.append(None)
+
                 _spot_info.extend(list(pixel_sizes))
                 # append
                 _spot_info_list.append(_spot_info)
