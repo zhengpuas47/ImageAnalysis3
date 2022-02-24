@@ -719,6 +719,7 @@ def calculate_translation(reference_im:np.ndarray,
     # calculate drift    
     _drift = align_image(_rot_target_im,
                          reference_im,
+                         precision_fold=10,
                          use_autocorr=use_autocorr,
                          verbose=verbose,
                          #detailed_verbose=verbose,
