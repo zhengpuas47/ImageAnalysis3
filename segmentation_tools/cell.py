@@ -474,10 +474,17 @@ class Align_Segmentation():
             _fov_group.attrs['fov_id'] = self.fov_id
             _fov_group.attrs['fov_name'] = self.fov_name
             # add dataset:
-            _mask_dataset = _fov_group.require_dataset('dna_mask', data=self.dna_mask)
+            if 'dna_mask' in _fov_groups.keys() and self.overwrite:
+                del(_fov_group['dna_mask'])
+            if 'dna-mask' not in _fov_groups.keys():
+                _mask_dataset = _fov_group.create_dataset('dna_mask', data=self.dna_mask)
+            # add uid info
             _uid_group = _fov_group.require_group('cell_2_uid')
             for (_fov_id, _cell_id), _uid in self.fovcell_2_uid.items():
-                _uid_group.require_dataset(str(_cell_id), data=_uid)
+                if str(_cell_id) in _uid_group.keys() and self.overwrite:
+                    del(_uid_group[str(_cell_id)])
+                if str(_cell_id) not in _uid_group.keys():
+                    _uid_group.create_dataset(str(_cell_id), data=_uid)
         return
 
 
