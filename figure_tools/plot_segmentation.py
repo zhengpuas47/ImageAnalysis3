@@ -17,7 +17,7 @@ def plot_segmentation(_mask, _figsize=(4,3), _dpi=150, _cmap='Spectral',
     elif len(np.shape(_mask)) == 3:
         _plot_mask = _mask.max(0).astype(np.float32)
     # set nan
-    _plot_mask[_plot_mask < 0] = np.nan
+    _plot_mask[_plot_mask <= 0] = np.nan
     # plot
     fig, ax = plt.subplots(figsize=_figsize, dpi=_dpi)
     _pf = ax.imshow(_plot_mask, cmap=_cmap, vmin=0)
