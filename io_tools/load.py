@@ -302,7 +302,7 @@ def correct_fov_image(dax_filename, sel_channels,
     if 'load_file_lock' in locals() and load_file_lock is not None:
         load_file_lock.acquire()
     _reader = DaxReader(dax_filename, verbose=verbose)
-    _im = _reader.loadAll()
+    _raw_im = _reader.loadAll()
     _reader.close()
     if 'load_file_lock' in locals() and load_file_lock is not None:
         load_file_lock.release()
@@ -312,12 +312,12 @@ def correct_fov_image(dax_filename, sel_channels,
                                                frame_per_color=single_im_size[0],
                                                buffer_frame=num_buffer_frames, 
                                                empty_frame=num_empty_frames)
-    _ims = split_im_by_channels(_im, _load_channels, all_channels[:_num_color], 
+    _ims = split_im_by_channels(_raw_im, _load_channels, all_channels[:_num_color], 
                                 single_im_size=single_im_size, 
                                 num_buffer_frames=num_buffer_frames,
-                                num_empty_frames=num_empty_frames)
+                                num_empty_frames=num_empty_frames, skip_first_frame=False)
     # clear memory
-    del(_im)
+    del(_raw_im)
     if verbose:
         print(f" in {time.time()-_load_time:.3f}s")
 
@@ -344,7 +344,6 @@ def correct_fov_image(dax_filename, sel_channels,
                 dtype=output_dtype, normalization=False)
         if verbose:
             print(f"in {time.time()-_z_time:.3f}s")
-    
     ## bleedthrough correction
     # do bleedthrough correction if there's any final required image within corr_channels
     if len(_overlap_channels) > 0 and bleed_corr:
@@ -523,7 +522,7 @@ def correct_fov_image(dax_filename, sel_channels,
 
 # split multi-channel images from DNA-FISH
 def split_im_by_channels(im, sel_channels, all_channels, single_im_size=_image_size,
-                         num_buffer_frames=10, num_empty_frames=0, skip_frame0=True):
+                         num_buffer_frames=10, num_empty_frames=0, skip_frame0=False):
     """Function to split a full image by channels"""
     _num_colors = len(all_channels)
     if isinstance(sel_channels, str) or isinstance(sel_channels, int):
@@ -539,8 +538,8 @@ def split_im_by_channels(im, sel_channels, all_channels, single_im_size=_image_s
     _ch_starts = [num_empty_frames + num_buffer_frames \
                     + (_i - num_empty_frames - num_buffer_frames) %_num_colors 
                     for _i in _ch_inds]
-    #print(_ch_inds)
-    #print(_ch_starts)
+    #print('_ch_inds', _ch_inds)
+    #print('_ch_starts', _ch_starts)
     if skip_frame0:
         for _i,_s in enumerate(_ch_starts):
             if _s == _num_buffer_frames:
