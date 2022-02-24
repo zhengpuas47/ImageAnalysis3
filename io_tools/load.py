@@ -315,7 +315,7 @@ def correct_fov_image(dax_filename, sel_channels,
     _ims = split_im_by_channels(_raw_im, _load_channels, all_channels[:_num_color], 
                                 single_im_size=single_im_size, 
                                 num_buffer_frames=num_buffer_frames,
-                                num_empty_frames=num_empty_frames, skip_first_frame=False)
+                                num_empty_frames=num_empty_frames, skip_frame0=False)
     # clear memory
     del(_raw_im)
     if verbose:
