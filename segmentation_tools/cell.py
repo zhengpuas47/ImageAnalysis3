@@ -464,7 +464,7 @@ class Align_Segmentation():
         if self.debug:
             return _dna_mask, _full_rna_mask, _rna_dapi, _rot_rna_dapi, _dna_dapi
         else:
-            return _dna_mask
+            return _dna_mask,
 
     def _save(self, save_hdf5_file:str)->None:
         if self.verbose:
