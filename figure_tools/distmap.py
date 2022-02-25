@@ -54,10 +54,10 @@ def plot_distance_map(distmap, ax=None, cmap='seismic_r',
         # apply tick labels 
         if len(tick_labels) == len(_distmap):
             _used_labels = [_l for _i, _l in enumerate(tick_labels) if _i in _used_ticks]
-            ax.set_xticklabels(_used_labels)
+            ax.set_xticklabels(_used_labels, rotation=60)
             ax.set_yticklabels(_used_labels)
         elif len(tick_labels) == len(_used_ticks):
-            ax.set_xticklabels(tick_labels)
+            ax.set_xticklabels(tick_labels, rotation=60)
             ax.set_yticklabels(tick_labels)
         else:
             print(f"tick_labels length:{len(tick_labels)} doesn't match distmap:{len(_distmap)}, skip!")
