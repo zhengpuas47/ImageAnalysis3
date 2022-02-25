@@ -1577,44 +1577,47 @@ def batch_decode_DNA(spot_filename, codebook_df, decoder_filename=None,
     if not os.path.exists(os.path.dirname(decoder_filename)):
         print(os.path.dirname(decoder_filename))
         os.makedirs(os.path.dirname(decoder_filename))
+    try:
+        # create decoder class
+        decoder = DNA_Merfish_Decoder(codebook_df, cand_spots,
+                                    pixel_sizes=pixel_sizes, 
+                                    savefile=decoder_filename, 
+                                    load_from_file=load_from_file,
+                                    inner_dist_factor=inner_dist_factor,
+                                    intensity_factor=intensity_factor,
+                                    ct_dist_factor=ct_dist_factor,
+                                    local_dist_factor=local_dist_factor,
+                                    valid_score_th=valid_score_th,
+                                    metric_weights=[1,1,3,2,2],
+                                    )
 
-    # create decoder class
-    decoder = DNA_Merfish_Decoder(codebook_df, cand_spots,
-                                  pixel_sizes=pixel_sizes, 
-                                  savefile=decoder_filename, 
-                                  load_from_file=load_from_file,
-                                  inner_dist_factor=inner_dist_factor,
-                                  intensity_factor=intensity_factor,
-                                  ct_dist_factor=ct_dist_factor,
-                                  local_dist_factor=local_dist_factor,
-                                  valid_score_th=valid_score_th,
-                                  metric_weights=[1,1,3,2,2],
-                                  )
+        decoder.prepare_spot_tuples(pair_search_radius=pair_search_radius, 
+            force_search_for_region=False,
+            overwrite=overwrite)
 
-    decoder.prepare_spot_tuples(pair_search_radius=pair_search_radius, 
-        force_search_for_region=False,
-        overwrite=overwrite)
+        self_scores = decoder.calculate_self_scores(make_plots=make_plots, overwrite=True)
 
-    self_scores = decoder.calculate_self_scores(make_plots=make_plots, overwrite=True)
+        chrs_2_init_centers = decoder.init_homolog_assignment(overwrite=overwrite)
 
-    chrs_2_init_centers = decoder.init_homolog_assignment(overwrite=overwrite)
-
-    chr_2_assigned_tuple_list, chr_2_zxys_list, chr_2_chr_centers= \
-        decoder.finish_homolog_assignment(plot_stats=make_plots, overwrite=overwrite, 
-        verbose=True)
+        chr_2_assigned_tuple_list, chr_2_zxys_list, chr_2_chr_centers= \
+            decoder.finish_homolog_assignment(plot_stats=make_plots, overwrite=overwrite, 
+            verbose=True)
 
 
-    figure_zxys_list, figure_labels, figure_label_ids = decoder.summarize_zxys_all_chromosomes()
+        figure_zxys_list, figure_labels, figure_label_ids = decoder.summarize_zxys_all_chromosomes()
 
-    # distmap
-    distmap_filename = decoder_filename.replace('Decoder.pkl', 'AllChrDistmap.png')
-    _ax = decoder.summarize_to_distmap(decoder, save_filename=distmap_filename) 
+        # distmap
+        distmap_filename = decoder_filename.replace('Decoder.pkl', 'AllChrDistmap.png')
+        _ax = decoder.summarize_to_distmap(decoder, save_filename=distmap_filename) 
 
-    decoder.save(overwrite=overwrite)
+        decoder.save(overwrite=overwrite)
 
-    if return_decoder:
-        return decoder
-    else:
+        if return_decoder:
+            return decoder
+        else:
+            return None
+    except:
+        print(f"failed for decoding: {decoder_filename}")
         return None
 
 def batch_load_attr(decoder_savefile, attr):
