@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 
 
 def plot_segmentation(_mask, _figsize=(4,3), _dpi=150, _cmap='Spectral', 
-                      show_image=True, save=True, save_filename=None):
+                      show_image=True, save=True, save_filename=None, verbose=True):
     """Plot segmentation result"""                      
     ## plot segmentation
     from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -40,7 +40,8 @@ def plot_segmentation(_mask, _figsize=(4,3), _dpi=150, _cmap='Spectral',
     # save 
     if save:
         if save_filename is not None:
-            print(f"-- save iamage to file: {save_filename}")
+            if verbose:
+                print(f"-- save iamage to file: {save_filename}")
             fig.savefig(save_filename)
     
     if show_image:

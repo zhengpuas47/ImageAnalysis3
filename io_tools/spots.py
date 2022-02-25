@@ -44,13 +44,15 @@ def FovCell2Spots_2_DataFrame(cell_2_spots:dict,
     _spot_info_list = []
     for _cell_id, _spot_dict in cell_2_spots.items():
         for _bit, _spots in _spot_dict.items():
-            for _spot, _bit in zip(_spots, _spots.bits):
+            for _ispot, (_spot, _bit) in enumerate(zip(_spots, _spots.bits)):
                 _spot_info = [fov_id, _cell_id]
                 _spot_info.extend(list(_spot))
                 # bit
                 _spot_info.append(_bit)
                 # channel
-                if isinstance(bit_2_channel, dict) and _bit in bit_2_channel:
+                if hasattr(_spots, 'channels') and len(_spots.channels) == len(_spots):
+                    _spot_info.append(_spots.channels[_ispot])
+                elif isinstance(bit_2_channel, dict) and _bit in bit_2_channel:
                     _spot_info.append(bit_2_channel[_bit])
                 else:
                     _spot_info.append(None)

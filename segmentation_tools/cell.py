@@ -12,6 +12,9 @@ import json
 import copy 
 from scipy.ndimage import grey_dilation
 
+# internal function
+from ..figure_tools.plot_segmentation import plot_segmentation
+
 default_cellpose_kwargs = {
     'anisotropy': 1,
     'diameter': 60,
@@ -437,7 +440,7 @@ class Align_Segmentation():
             _image = np.flip(_image, 2)
         return _image
 
-    def _generate_dna_mask(self, target_dna_Zcoords=default_dna_Zcoords):
+    def _generate_dna_mask(self, target_dna_Zcoords=default_dna_Zcoords, save_dtype=np.uint16):
         # process microscope.json
         _mparam = self._read_microscope_json(self.microscope_file)
         # load RNA
@@ -455,7 +458,8 @@ class Align_Segmentation():
         # Do dialation
         if 'dialation_size' in self.parameters:
             _dna_mask = grey_dilation(_dna_mask, size=self.parameters['dialation_size'])
-        _dna_mask[_dna_mask==0] = -1
+        _dna_mask = np.clip(_dna_mask, np.iinfo(save_dtype).min, np.iinfo(save_dtype).max,)
+        _dna_mask = _dna_mask.astype(save_dtype)
         # add to attribute
         self.dna_mask = _dna_mask
         self.fov_id = _fov_id
@@ -617,11 +621,15 @@ def _batch_align_segmentation(
     segmentation_save_file, save=True, 
     save_file_lock=None,
     align_parameters={},
+    make_plot=True, 
     overwrite:bool=False,
     debug:bool=False,
+    return_mask:bool=False,
     verbose:bool=True,
     )->np.ndarray:
     """Batch function to align the segmentation"""
+    if verbose:
+        print(f"- Aligning segmentation for fov: {_fov_id}")
     _align_seg = Align_Segmentation(
         rna_feature_file=rna_feature_file, 
         rna_dapi_file=rna_dapi_file,
@@ -633,7 +641,13 @@ def _batch_align_segmentation(
         )
     # test load if not overwrite
     if not overwrite:
+        # initiate lock
+        if 'save_file_lock' in locals() and save_file_lock is not None:
+            save_file_lock.acquire()
         _exist_flag = _align_seg._load(segmentation_save_file)
+        # release lock
+        if 'save_file_lock' in locals() and save_file_lock is not None:
+            save_file_lock.release()
     else:
         _exist_flag = False
         
@@ -649,4 +663,15 @@ def _batch_align_segmentation(
             # release lock
             if 'save_file_lock' in locals() and save_file_lock is not None:
                 save_file_lock.release()
-    return _align_seg.dna_mask
+    # make plot
+    if make_plot:
+        MaskFig_SaveFile = os.path.join(os.path.dirname(segmentation_save_file), 
+                                        os.path.basename(_align_seg.fov_name).replace('.dax', '_SegmentationMask.png'))
+        if not os.path.exists(os.path.dirname(MaskFig_SaveFile)):
+            os.makedirs(os.path.dirname(MaskFig_SaveFile))
+        ax = plot_segmentation(_align_seg.dna_mask, save_filename=MaskFig_SaveFile, verbose=verbose)
+
+    if return_mask:
+        return _align_seg.dna_mask
+    else:
+        return None
