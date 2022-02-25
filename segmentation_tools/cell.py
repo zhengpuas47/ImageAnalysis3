@@ -464,7 +464,7 @@ class Align_Segmentation():
         if self.debug:
             return _dna_mask, _full_rna_mask, _rna_dapi, _rot_rna_dapi, _dna_dapi
         else:
-            return _dna_mask
+            return _dna_mask,
 
     def _save(self, save_hdf5_file:str)->None:
         if self.verbose:
@@ -474,9 +474,9 @@ class Align_Segmentation():
             _fov_group.attrs['fov_id'] = self.fov_id
             _fov_group.attrs['fov_name'] = self.fov_name
             # add dataset:
-            if 'dna_mask' in _fov_groups.keys() and self.overwrite:
+            if 'dna_mask' in _fov_group.keys() and self.overwrite:
                 del(_fov_group['dna_mask'])
-            if 'dna-mask' not in _fov_groups.keys():
+            if 'dna_mask' not in _fov_group.keys():
                 _mask_dataset = _fov_group.create_dataset('dna_mask', data=self.dna_mask)
             # add uid info
             _uid_group = _fov_group.require_group('cell_2_uid')
@@ -484,11 +484,32 @@ class Align_Segmentation():
                 if str(_cell_id) in _uid_group.keys() and self.overwrite:
                     del(_uid_group[str(_cell_id)])
                 if str(_cell_id) not in _uid_group.keys():
-                    _uid_group.create_dataset(str(_cell_id), data=_uid)
+                    _uid_group.create_dataset(str(_cell_id), data=_uid, dtype=f"S{len(_uid)}", shape=(1,))
         return
 
-
-
+    def _load(self, save_hdf5_file:str)->bool:
+        # load DNA
+        _, _fov_id, _fov_name = self._load_dna_info(self.dna_save_file)
+        self.fov_id = _fov_id
+        self.fov_name = _fov_name
+        if self.verbose:
+            print(f"-- loading segmentation info from fov:{self.fov_id} into file: {save_hdf5_file}")
+        if not os.path.exists(save_hdf5_file):
+            print(f"sav_hdf5_file:{save_hdf5_file} does not exist, skip.")
+            return False
+        # load
+        with h5py.File(save_hdf5_file, 'r') as _f:
+            if str(self.fov_id) not in _f.keys():
+                return False
+            _fov_group = _f[str(self.fov_id)]
+            # mask
+            self.dna_mask = _fov_group['dna_mask'][:]
+            # uid
+            self.fovcell_2_uid = {}
+            _uid_group = _fov_group['cell_2_uid']
+            for _cell_id in _uid_group.keys():
+                self.fovcell_2_uid[(self.fov_id, int(_cell_id))] = _uid_group[_cell_id][:][0].decode()
+        return True
 
 
 def translate_segmentation(dapi_before, dapi_after, before_to_after_rotation,
@@ -580,8 +601,52 @@ def interploate_z_masks(z_masks,
                 _upper_mask = z_masks[np.where(z_coords==_upper_z)[0][0]].astype(np.float32)
                 _lower_mask = z_masks[np.where(z_coords==_lower_z)[0][0]].astype(np.float32)
                 _inter_mask = (_upper_z-_fz)/(_upper_z-_lower_z) * _lower_mask 
+                #_final_mask.append(_inter_mask)
                 
     if verbose:
         print(f"- reconstruct {len(_final_mask)} layers")
     
     return np.array(_final_mask)
+
+
+def _batch_align_segmentation(
+    _fov_id, target_dna_Zcoords,
+    rna_feature_file,rna_dapi_file,
+    dna_save_file,microscope_file,
+    rotation_mat, 
+    segmentation_save_file, save=True, 
+    save_file_lock=None,
+    align_parameters={},
+    overwrite:bool=False,
+    debug:bool=False,
+    verbose:bool=True,
+    )->np.ndarray:
+    """Batch function to align the segmentation"""
+    _align_seg = Align_Segmentation(
+        rna_feature_file=rna_feature_file, 
+        rna_dapi_file=rna_dapi_file,
+        dna_save_file=dna_save_file,
+        microscope_file=microscope_file, 
+        rotation_mat=rotation_mat,
+        parameters=align_parameters,
+        overwrite=overwrite, debug=debug, verbose=verbose,
+        )
+    # test load if not overwrite
+    if not overwrite:
+        _exist_flag = _align_seg._load(segmentation_save_file)
+    else:
+        _exist_flag = False
+        
+    if not _exist_flag:
+        # generate segmentation
+        _align_seg._generate_dna_mask(target_dna_Zcoords=target_dna_Zcoords)
+        # save
+        if save:
+            # initiate lock
+            if 'save_file_lock' in locals() and save_file_lock is not None:
+                save_file_lock.acquire()
+            _align_seg._save(segmentation_save_file)
+            # release lock
+            if 'save_file_lock' in locals() and save_file_lock is not None:
+                save_file_lock.release()
+    return _align_seg.dna_mask
