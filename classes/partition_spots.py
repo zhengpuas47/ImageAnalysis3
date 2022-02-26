@@ -6,6 +6,8 @@ import pandas as pd
 #import multiprocessing as mp
 # required internal functions
 from .preprocess import Spots3D
+from ..figure_tools.plot_partition import plot_cell_spot_counts
+from ..io_tools.spots import FovCell2Spots_2_DataFrame
 #from ..io_tools.crop import generate_neighboring_crop
 import copy
 
@@ -273,7 +275,7 @@ def _batch_partition_spots(
     fov_id, seg_label, fovcell_2_uid,
     cand_spots_list, cand_bits, cand_channels,
     cand_spots_savefile, 
-    search_radius=3,
+    search_radius=3, pixel_sizes=default_pixel_sizes,
     make_plot=True,
     overwrite:bool=False,
     debug:bool=False,
@@ -310,24 +312,24 @@ def _batch_partition_spots(
         _bit_2_channel = {_b:_ch for _b,_ch in zip(cand_bits, cand_channels)}
         _spots_df = FovCell2Spots_2_DataFrame(_cell_2_spots, fov_id, _bit_2_channel, fovcell_2_uid,
                                               save_filename=cand_spots_savefile, verbose=verbose)
-    # make plot if applicable
-    if make_plot:
-        _cell_spots_counts = []
-        for _cell, _spots_dict in _cell_2_spots.items():
-            _spots_counts = []
-            for _bit in combo_ids:
-                if _bit in _spots_dict:
-                    _spots_counts.append(len(_spots_dict[_bit]))
-                else:
-                    _spots_counts.append(0)
-            _cell_spots_counts.append(np.array(_spots_counts))
-        _cell_spots_counts = np.array(_cell_spots_counts)
-        # plot
-        SpotCount_SaveFile = os.path.join(os.path.dirname(cand_spots_savefile), 'Figures', 
-                                     f'Fov-{fov_id}_SpotCountPerCell.png')
-        if not os.path.exists(os.path.dirname(SpotCount_SaveFile)):
-            os.makedirs(os.path.dirname(SpotCount_SaveFile))
-        # Plot
-        count_ax = plot_partition.plot_cell_spot_counts(_cell_spots_counts, save=True, save_filename=SpotCount_SaveFile)
+        # make plot if applicable
+        if make_plot:
+            _cell_spots_counts = []
+            for _cell, _spots_dict in _cell_2_spots.items():
+                _spots_counts = []
+                for _bit in cand_bits:
+                    if _bit in _spots_dict:
+                        _spots_counts.append(len(_spots_dict[_bit]))
+                    else:
+                        _spots_counts.append(0)
+                _cell_spots_counts.append(np.array(_spots_counts))
+            _cell_spots_counts = np.array(_cell_spots_counts)
+            # plot
+            SpotCount_SaveFile = os.path.join(os.path.dirname(cand_spots_savefile), 'Figures', 
+                                        f'Fov-{fov_id}_SpotCountPerCell.png')
+            if not os.path.exists(os.path.dirname(SpotCount_SaveFile)):
+                os.makedirs(os.path.dirname(SpotCount_SaveFile))
+            # Plot
+            count_ax = plot_cell_spot_counts(_cell_spots_counts, save=True, save_filename=SpotCount_SaveFile)
         
     return _spots_df
