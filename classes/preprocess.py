@@ -117,7 +117,8 @@ class Spots3D(np.ndarray):
                 pixel_sizes=None,
                 channels=None,
                 copy_data=True,
-                intensity_index=0):
+                intensity_index=0,
+                coordinate_indices=[1,2,3]):
         # Input array is an already formed ndarray instance
         # We first cast to be our class type
         if copy_data:
@@ -148,7 +149,8 @@ class Spots3D(np.ndarray):
             obj.channels = channels
         # others
         obj.pixel_sizes = np.array(pixel_sizes)
-        obj.intensity_index = intensity_index
+        obj.intensity_index = int(intensity_index)
+        obj.coordinate_indices = np.array(coordinate_indices, dtype=np.int32)
         # default parameters
         obj._3d_infos = _3d_infos
         obj._3d_spot_infos = _3d_spot_infos
@@ -168,7 +170,9 @@ class Spots3D(np.ndarray):
         if hasattr(self, 'bits') and getattr(self, 'bits') is not None:
             if isinstance(key, slice) or isinstance(key, np.ndarray):
                 setattr(new_obj, 'bits', getattr(self, 'bits')[key] )
-                
+        if hasattr(self, 'channels') and getattr(self, 'channels') is not None:
+            if isinstance(key, slice) or isinstance(key, np.ndarray):
+                setattr(new_obj, 'channels', getattr(self, 'channels')[key] )
         #print(new_obj, type(new_obj))
         return new_obj
 
@@ -187,6 +191,7 @@ class Spots3D(np.ndarray):
                 obj = np.array(obj)
             # other attributes
             setattr(self, 'bits', getattr(obj, 'bits', None))
+            setattr(self, 'channels', getattr(obj, 'channels', None))
             setattr(self, 'pixel_sizes', getattr(obj, 'pixel_sizes', None))
 
         #print(f"**finalizing, {obj}, {type(obj)}")
@@ -194,7 +199,8 @@ class Spots3D(np.ndarray):
 
     def to_coords(self):
         """ convert into 3D coordinates in pixels """
-        return np.array(self[:,1:4])
+        _coordinate_indices = getattr(self, 'coordinate_indices', np.array([1,2,3]))
+        return np.array(self[:,_coordinate_indices])
     
     def to_positions(self, pixel_sizes=None):
         """ convert into 3D spatial positions"""

@@ -1,5 +1,6 @@
 import os, glob, sys, time
 import pickle
+import h5py
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -10,6 +11,7 @@ from scipy.spatial import KDTree
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 # local
+from ..io_tools.spots import CellSpotsDf_2_CandSpots, SpotTuple_2_Dict, Dataframe_2_SpotGroups
 from .preprocess import Spots3D, SpotTuple
 default_pixel_sizes=[250,108,108]
 default_search_th = 250
@@ -23,7 +25,8 @@ class Merfish_Decoder():
 
     def __init__(self, 
                  codebook_df,
-                 cand_spots,
+                 cand_spots_df,
+                 fov_id=None, cell_id=None,
                  bits=None,
                  savefile=None,
                  pixel_sizes=default_pixel_sizes,
@@ -37,6 +40,8 @@ class Merfish_Decoder():
         """Inttialize"""
         # parameters
         self.codebook_df = codebook_df
+        self.fov_id = fov_id
+        self.cell_id = cell_id
         self.pixel_sizes = np.array(pixel_sizes)
         self.inner_dist_factor = float(inner_dist_factor)
         self.intensity_factor = float(intensity_factor)
@@ -44,35 +49,54 @@ class Merfish_Decoder():
         # savefile
         self.savefile = savefile
         # cand_spots
-        from .preprocess import Spots3D, SpotTuple
-        if not isinstance(cand_spots, Spots3D):
-            if bits is not None and len(cand_spots) != len(bits):
-                raise IndexError(f"lengh of _bits: {len(_bits)} doesn't match length of cand_spots: {len(cand_spots)}")
-            elif bits is None:
-                raise ValueError('given bits doesnot match size')
-            else:
-                self.cand_spots = Spots3D(cand_spots, bits=bits, pixel_sizes=pixel_sizes)
-        else:
-            self.cand_spots = copy(cand_spots)
-            if hasattr(cand_spots, 'bits'):
-                self.cand_spots.bits = cand_spots.bits
-            if hasattr(cand_spots, 'pixel_sizes'):
-                self.cand_spots.pixel_sizes = cand_spots.pixel_sizes
+        if not isinstance(cand_spots_df, pd.DataFrame):
+            raise TypeError(f"Wrong input type for cand_spots_df: {type(cand_spots_df)}, should be DataFrame")
+        self.cand_spots_df = cand_spots_df
+        self.cand_spots = CellSpotsDf_2_CandSpots(self.cand_spots_df) # convert into cand_spots
+
+        # update fov_id and cell_id if not given
+        if self.fov_id is None:
+            try:
+                self.fov_id = np.unique(self.cand_spots_df['fov_id'])[0]
+            except:
+                pass
+        if self.cell_id is None:
+            try:
+                self.cell_id = np.unique(self.cand_spots_df['cell_id'])[0]
+            except:
+                pass
+        # load from savefile
+        if load_from_file:
+            self._load_basic(overwrite=overwrite)
         # define bits
         if bits is None:
-            self.load_codebook()
+            self._load_codebook()
         else:
             self.bits = np.array(bits, dtype=np.int32)
         # load codebook if automatic
         if auto:
-            self.load_codebook()
-            self.find_valid_pairs_in_codebook()
-            self.find_valid_tuples_in_codebook()
-        # load from savefile
-        if load_from_file:
-            self.load(overwrite=overwrite)
+            self._load_codebook()
+            self._find_valid_pairs_in_codebook()
+            self._find_valid_tuples_in_codebook()
+
         # other attributes
         self.verbose = verbose
+
+    def _create_bit_2_channel(self, save_attr=True):
+        """Create bit_2_channel dict"""
+        # try create bit_2_channel if possible
+        try:
+            _bit_2_channel = {}
+            for _bit in self.bits:
+                _chs = np.unique(self.cand_spots_df.loc[self.cand_spots_df['bit']==_bit, 'channel'].values)
+                if len(_chs) == 1:
+                    _bit_2_channel[_bit] = str(_chs[0])
+        except:
+            _bit_2_channel = None
+        if save_attr:
+            # assign attribute
+            self.bit_2_channel = _bit_2_channel
+        return _bit_2_channel
 
     def load(self, overwrite=False):
         from .preprocess import Spots3D, SpotTuple
@@ -100,8 +124,49 @@ class Merfish_Decoder():
         else:
             print(f"- Decoder.savefile is not given, skip saving")
 
+    def _load_basic(self):
+        if self.verbose:
+            print(f"- Loading decoder info from file: {self.savefile}")
+        # load basic attrs
+        with h5py.File(self.savefile, 'r') as _f:
+            self.fov_id = _f.attrs['fov_id']
+            self.cell_id = _f.attrs['cell_id']
+            self.pixel_sizes = _f.attrs['pixel_sizes']
+        # cand_spots
+        self.cand_spots_df = pd.read_hdf(self.savefile, 'cand_spots')
+        self.cand_spots = CellSpotsDf_2_CandSpots(self.cand_spots_df) # convert into cand_spots
+        # spot_groups
+        _group_df = pd.read_hdf(self.savefile, 'spot_groups')
+        self.spot_groups = Dataframe_2_SpotGroups(_group_df)
+        # codebook
+        self.codebook_df = pd.read_hdf(self.savefile, 'codebook')
 
-    def load_codebook(self):
+    def _save_basic(self, _uid=None, _complevel=1, _complib='blosc:zstd',
+        _overwrite=True):
+        """Save all information into an hdf5 file (with overwrite)"""
+        if self.verbose:
+            print(f"- Saving decoder into file: {self.savefile}")
+        # save basic attributes
+        with h5py.File(self.savefile, 'a') as _f:
+            _f.attrs['fov_id'] = self.fov_id
+            _f.attrs['cell_id'] = self.cell_id
+            _f.attrs['pixel_sizes'] = self.pixel_sizes
+            _f.attrs['savefile'] = self.savefile
+            _exist_groups = list(_f.keys())
+        print(_exist_groups, _overwrite)
+        # save cand_spots_df
+        self.cand_spots_df.to_hdf(self.savefile, 'cand_spots')
+        # save spot_groups
+        _bit_2_channel = self._create_bit_2_channel()
+        _infoDict_list = [SpotTuple_2_Dict(_g, self.fov_id, self.cell_id, 
+                                           _uid, _bit_2_channel, self.codebook_df) 
+                          for _g in self.spot_groups]
+        decoder_group_df = pd.DataFrame(_infoDict_list,)
+        decoder_group_df.to_hdf(self.savefile, 'spot_groups')
+        # save codebook
+        self.codebook_df.to_hdf(self.savefile, 'codebook')
+
+    def _load_codebook(self):
         codebook_df = getattr(self, 'codebook_df')
         codebook_df.set_index('id')
         # add to attribute
@@ -116,7 +181,7 @@ class Merfish_Decoder():
         self.bits = np.arange(1, len(self.bit_names)+1)
         self.codebook_matrix = codebook_df[self.bit_names].values
 
-    def find_valid_pairs_in_codebook(self):
+    def _find_valid_pairs_in_codebook(self):
         """Find valid 2-bit pairs given in the codebook """
         from itertools import combinations
        # valid_pair_bits = []
@@ -136,7 +201,7 @@ class Merfish_Decoder():
         return self.valid_bit_pair_2_region
         #return valid_pair_bits, valid_pair_ids
 
-    def find_valid_tuples_in_codebook(self):
+    def _find_valid_tuples_in_codebook(self):
         valid_tuples = {}
         for _icode, _code in enumerate(self.codebook_matrix):
             _bs = tuple(np.sort(self.bits[np.where(_code>0)[0]]))
@@ -146,7 +211,7 @@ class Merfish_Decoder():
         self.valid_region_2_bits = valid_tuples
         return valid_tuples
 
-    def find_spot_pairs_in_radius(self, search_th=default_search_th, eps=default_search_eps, 
+    def _find_spot_pairs_in_radius(self, search_th=default_search_th, eps=default_search_eps, 
         keep_valid=True, overwrite=False):
         """Build a KD tree to find pairs given a radius threshold in nm"""
         if hasattr(self, 'pair_inds_list') and not overwrite:
@@ -203,7 +268,7 @@ class Merfish_Decoder():
 
         # decide whether generate pair_ind_list
         if not hasattr(self, 'pair_inds_list'):
-            self.find_spot_pairs_in_radius(search_th=search_th, eps=eps)
+            self._find_spot_pairs_in_radius(search_th=search_th, eps=eps)
         else:
             self.search_th = search_th
             self.search_eps = eps
@@ -331,7 +396,7 @@ class Merfish_Decoder():
 
         # decide whether generate pair_ind_list
         if not hasattr(self, 'pair_inds_list'):
-            self.find_spot_pairs_in_radius(search_th=search_th, eps=eps)
+            self._find_spot_pairs_in_radius(search_th=search_th, eps=eps)
         else:
             self.search_th = search_th
             self.search_eps = eps
@@ -634,7 +699,8 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
     """DNA MERFISH decoder, based on merfish decoder but allow some special features"""
     def __init__(self, 
                  codebook_df,
-                 cand_spots,
+                 cand_spots_df,
+                 fov_id=None, cell_id=None,
                  bits=None,
                  savefile=None,
                  pixel_sizes=default_pixel_sizes,
@@ -649,7 +715,8 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
                  auto=True, load_from_file=True,
                  verbose=True,
                  ):
-        super().__init__(codebook_df=codebook_df, cand_spots=cand_spots, bits=bits,
+        super().__init__(codebook_df=codebook_df, cand_spots_df=cand_spots_df, 
+            fov_id=fov_id, cell_id=cell_id, bits=bits,
             savefile=savefile,
             pixel_sizes=pixel_sizes, 
             inner_dist_factor=inner_dist_factor, intensity_factor=intensity_factor,
@@ -669,7 +736,6 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
             self.chr_2_copy_num = chr_2_copy_num
         # generate
         self.region_2_expect_num = self.generate_region_2_copy_num(self.codebook, self.chr_2_copy_num, )
-
 
     def prepare_spot_tuples(self, pair_search_radius=200, 
         max_spot_usage=1, force_search_for_region=True,
@@ -697,7 +763,7 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
             else:
                 _region_2_expect_num = None
             # find pairs
-            self.find_spot_pairs_in_radius(search_th=pair_search_radius, overwrite=overwrite)
+            self._find_spot_pairs_in_radius(search_th=pair_search_radius, overwrite=overwrite)
             # update chromosome info for cand_pair_list
             self.update_spot_groups_chr_info(self.cand_pair_list, self.codebook)
             # assemble tuples
@@ -1531,7 +1597,7 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
         return homolog_zxys_list, new_chr_homolog_flags, new_homolog_centers
 
 
-def batch_decode_DNA(spot_filename, codebook_df, decoder_filename=None,
+def batch_decode_DNA(cand_spots_df, codebook_df, decoder_filename,
                      normalize_intensity=False, refine_chromatic=True, id_2_channel=None,
                      pixel_sizes=default_pixel_sizes, num_homologs=2, keep_ratio_th=0.5,
                      pair_search_radius=200,
@@ -1544,81 +1610,68 @@ def batch_decode_DNA(spot_filename, codebook_df, decoder_filename=None,
                      return_decoder=False, make_plots=False, 
                     ):
     """Batch process DNA-MERFISH decoding"""
-    from ..classes.preprocess import Spots3D
+    # load cand_spots
+    if not isinstance(cand_spots_df, pd.DataFrame):
+        raise TypeError("Wrong input type for cand_spots")
+
     codebook = np.array(codebook_df[[_name for _name in codebook_df.columns 
                                     if 'name' not in _name and  'id' not in _name and 'chr' not in _name]])
-    # load cand_spots
-    import pandas as pd
-    if isinstance(spot_filename, pd.DataFrame):
-        from ..io_tools.spots import CellSpotsDf_2_CandSpots
-        cand_spots = CellSpotsDf_2_CandSpots(spot_filename)
-        if refine_chromatic:
-            cand_spots = adjust_spots_by_chromatic_center(cand_spots, id_2_channel)   
-        #cand_spots.pixel_sizes = np.array(pixel_sizes)
-    elif isinstance(spot_filename, str):
-        cand_spots = spots_dict_to_cand_spots(spot_filename, 
-            pixel_sizes=pixel_sizes, 
-            normalize_intensity=normalize_intensity, 
-            refine_chromatic=refine_chromatic,
-            id_2_channel=id_2_channel,
-        )
-    else:
-        raise TypeError("Wrong input type for cand_spots")
-    #cand_spots_dict = pickle.load(open(spot_filename, 'rb'))
-    #print(spot_filename, len(cand_spots))
-
-    if len(cand_spots) < num_homologs * codebook.sum() * keep_ratio_th:
-        print(f"Not enough cand_spots ({len(cand_spots)}) found, skip.")
+    if len(cand_spots_df) < num_homologs * codebook.sum() * keep_ratio_th:
+        print(f"Not enough cand_spots ({len(cand_spots_df)}) found, skip.")
         return
             
     # create decoder folder
-    if decoder_filename is None:
-        decoder_filename = spot_filename.replace('CandSpots', 'Decoder')
     if not os.path.exists(os.path.dirname(decoder_filename)):
         print(os.path.dirname(decoder_filename))
         os.makedirs(os.path.dirname(decoder_filename))
-    try:
-        # create decoder class
-        decoder = DNA_Merfish_Decoder(codebook_df, cand_spots,
-                                    pixel_sizes=pixel_sizes, 
-                                    savefile=decoder_filename, 
-                                    load_from_file=load_from_file,
-                                    inner_dist_factor=inner_dist_factor,
-                                    intensity_factor=intensity_factor,
-                                    ct_dist_factor=ct_dist_factor,
-                                    local_dist_factor=local_dist_factor,
-                                    valid_score_th=valid_score_th,
-                                    metric_weights=[1,1,3,2,2],
-                                    )
 
-        decoder.prepare_spot_tuples(pair_search_radius=pair_search_radius, 
-            force_search_for_region=False,
-            overwrite=overwrite)
+    #try:
 
-        self_scores = decoder.calculate_self_scores(make_plots=make_plots, overwrite=True)
+    # create decoder class
+    decoder = DNA_Merfish_Decoder(
+        codebook_df, cand_spots_df,
+        pixel_sizes=pixel_sizes, 
+        savefile=decoder_filename, 
+        load_from_file=load_from_file,
+        inner_dist_factor=inner_dist_factor,
+        intensity_factor=intensity_factor,
+        ct_dist_factor=ct_dist_factor,
+        local_dist_factor=local_dist_factor,
+        valid_score_th=valid_score_th,
+        metric_weights=[1,1,3,2,2],
+        )
+    
+    decoder.prepare_spot_tuples(pair_search_radius=pair_search_radius, 
+        force_search_for_region=False,
+        overwrite=overwrite)
+    
+    # save DEBUG
+    decoder._save_basic()
+    return
 
-        chrs_2_init_centers = decoder.init_homolog_assignment(overwrite=overwrite)
+    self_scores = decoder.calculate_self_scores(make_plots=make_plots, overwrite=True)
 
-        chr_2_assigned_tuple_list, chr_2_zxys_list, chr_2_chr_centers= \
-            decoder.finish_homolog_assignment(plot_stats=make_plots, overwrite=overwrite, 
-            verbose=True)
+    chrs_2_init_centers = decoder.init_homolog_assignment(overwrite=overwrite)
 
+    chr_2_assigned_tuple_list, chr_2_zxys_list, chr_2_chr_centers= \
+        decoder.finish_homolog_assignment(plot_stats=make_plots, overwrite=overwrite, 
+        verbose=True)
 
-        figure_zxys_list, figure_labels, figure_label_ids = decoder.summarize_zxys_all_chromosomes()
+    figure_zxys_list, figure_labels, figure_label_ids = decoder.summarize_zxys_all_chromosomes()
 
-        # distmap
-        distmap_filename = decoder_filename.replace('Decoder.pkl', 'AllChrDistmap.png')
-        _ax = decoder.summarize_to_distmap(decoder, save_filename=distmap_filename) 
+    # distmap
+    distmap_filename = decoder_filename.replace('Decoder.pkl', 'AllChrDistmap.png')
+    _ax = decoder.summarize_to_distmap(decoder, save_filename=distmap_filename) 
 
-        decoder.save(overwrite=overwrite)
+    decoder.save(overwrite=overwrite)
 
-        if return_decoder:
-            return decoder
-        else:
-            return None
-    except:
-        print(f"failed for decoding: {decoder_filename}")
+    if return_decoder:
+        return decoder
+    else:
         return None
+    #except:
+    #    print(f"failed for decoding: {decoder_filename}")
+    #    return None
 
 def batch_load_attr(decoder_savefile, attr):
     """Batch load one attribute from decoder file"""    
@@ -1736,7 +1789,6 @@ def adjust_spots_by_chromatic_center(
         _new_cand_spots[_spot_channels==_ch, 1:4] -= _ch_2_shift[_ch]
 
     return _new_cand_spots
-
 
 def generate_score_metrics(spot_groups, chr_tree=None, homolog_centers=None,
                           n_neighbors=10, 
@@ -1880,8 +1932,6 @@ def generate_scores(spot_groups, ref_metrics_list,
 
     return _scores_list, _scores_by_group
 
-
-
 def summarize_score(spot_groups, weights=np.ones(5), 
                     normalize_spot_num=True, update_attr=True):
     if isinstance(spot_groups, list) and isinstance(spot_groups[0], SpotTuple):
@@ -1901,8 +1951,6 @@ def summarize_score(spot_groups, weights=np.ones(5),
 
 
     return np.array(final_scores)
-
-
 
 def init_homolog_centers_BB(xyz_all,chr_all):
     """
@@ -2024,7 +2072,6 @@ def batch_decode_BB_like(spot_filename, codebook_df, decoder_filename=None,
     _ax = new_decoder.summarize_to_distmap(color_limits=[0,5], save_filename=distmap_filename) 
     # save
     new_decoder.save(overwrite=overwrite)
-
 
 def generate_default_chr_2_copy_num(codebook_df, male=True):
     chr_2_copy_num = {_chr:2
