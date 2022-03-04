@@ -8,7 +8,7 @@ Axis3D_infos = ['z', 'x', 'y']
 Spot3D_infos = ['height', 'z', 'x', 'y', 'background', 'sigma_z', 'sigma_x', 'sigma_y', 'sin_t', 'sin_p', 'eps']
 
 Pixel3D_infos = [f"pixel_{_ax}" for _ax in Axis3D_infos]
-from ..classes.decode import default_pixel_sizes
+from ..classes import default_pixel_sizes
 from ..classes.preprocess import Spots3D, SpotTuple
 
 def CellSpotsDf_2_CandSpots(_cell_spots_df, 
@@ -80,14 +80,18 @@ def FovCell2Spots_2_DataFrame(cell_2_spots:dict,
 
 
 def SpotTuple_2_Dict(spot_tuple, 
-                     fov_id=None, cell_id=None, cell_uid=None,
+                     fov_id=None, cell_id=None, cell_uid=None, homolog=None,
                      bit_2_channel=None, codebook=None,
                      spot_infos=Spot3D_infos, pixel_infos=Pixel3D_infos,
                      ):
     """Convert SpotTuple class into a dict"""
+    if spot_tuple is None:
+        return {}
+    # init
     _tuple_info_dict = {'fov_id':fov_id, 
                         'cell_id':cell_id, 
-                        'uid':cell_uid}
+                        'uid':cell_uid,
+                        'homolog':homolog,}
     for _i, _spot in enumerate(spot_tuple.spots):
         _bit = spot_tuple.spots.bits[_i]
         if bit_2_channel is None:
@@ -145,6 +149,11 @@ def Dataframe_2_SpotGroups(decoder_group_df, spot_infos=Spot3D_infos, pixel_info
             _spot_channels.append(_grp_row[f"channel_{_sid}"])
             # append ind
             _spot_inds.append(_grp_row[f"cand_spot_ind_{_sid}"])
+        # if all-spots are invalid, return NOne
+        if len(_spots) == 0:
+            _spot_groups.append(None)
+            continue
+        # otherwise create tuple
         _spot3d = Spots3D(
             _spots, bits=_spot_bits, 
             pixel_sizes=_pixel_sizes,
@@ -160,6 +169,7 @@ def Dataframe_2_SpotGroups(decoder_group_df, spot_infos=Spot3D_infos, pixel_info
         _gp.fov_id = _grp_row.get('fov_id', None)
         _gp.cell_id = _grp_row.get('cell_id', None)
         _gp.uid = _grp_row.get('uid', None)
+        _gp.homolog = _grp_row.get('homolog', None)
         # chr info
         _gp.chr = _grp_row.get('chr', None)
         _gp.chr_order = _grp_row.get('chr_order', None)

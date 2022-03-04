@@ -13,9 +13,9 @@ import matplotlib.cm as cm
 # local
 from ..io_tools.spots import CellSpotsDf_2_CandSpots, SpotTuple_2_Dict, Dataframe_2_SpotGroups
 from .preprocess import Spots3D, SpotTuple
-default_pixel_sizes=[250,108,108]
-default_search_th = 250
-default_search_eps = 0.25
+from . import default_pixel_sizes, default_search_th,default_search_eps
+from ..figure_tools.plot_decode import plot_spot_stats
+from ..figure_tools.distmap import GenomeWide_DistMap
 
 default_metric_names = ['int. mean', 'int. CV', 'inner dist median', 'local dist mean', 'homolog dist']
 
@@ -48,6 +48,8 @@ class Merfish_Decoder():
         self.process_parameters = {}
         # savefile
         self.savefile = savefile
+        # other attributes
+        self.verbose = verbose
         # cand_spots
         if not isinstance(cand_spots_df, pd.DataFrame):
             raise TypeError(f"Wrong input type for cand_spots_df: {type(cand_spots_df)}, should be DataFrame")
@@ -66,8 +68,8 @@ class Merfish_Decoder():
             except:
                 pass
         # load from savefile
-        if load_from_file:
-            self._load_basic(overwrite=overwrite)
+        if load_from_file and os.path.isfile(self.savefile):
+            self._load_basic()
         # define bits
         if bits is None:
             self._load_codebook()
@@ -79,8 +81,7 @@ class Merfish_Decoder():
             self._find_valid_pairs_in_codebook()
             self._find_valid_tuples_in_codebook()
 
-        # other attributes
-        self.verbose = verbose
+
 
     def _create_bit_2_channel(self, save_attr=True):
         """Create bit_2_channel dict"""
@@ -98,32 +99,6 @@ class Merfish_Decoder():
             self.bit_2_channel = _bit_2_channel
         return _bit_2_channel
 
-    def load(self, overwrite=False):
-        from .preprocess import Spots3D, SpotTuple
-        if self.savefile is not None:
-            if os.path.isfile(self.savefile):
-                print(f"- Loading decoder into file: {self.savefile}")
-                _cls = pickle.load(open(self.savefile, 'rb'))
-                for _attr in dir(_cls):
-                    if _attr[0] == '_':
-                        continue
-                    elif not hasattr(self, _attr) or overwrite:
-                        setattr(self, _attr, getattr(_cls, _attr))
-            else:
-                print(f"- Skip loading because file: {self.savefile} doesn't exist")
-        else:
-            print(f"- Decoder.savefile is not given, skip loading.")
-
-    def save(self, overwrite=False):
-        if self.savefile is not None:
-            if not os.path.isfile(self.savefile) or overwrite:
-                print(f"- Saving decoder into file: {self.savefile}")
-                pickle.dump(self, open(self.savefile, 'wb'))
-            else:
-                print(f"- Skip saving because file: {self.savefile} already exists")
-        else:
-            print(f"- Decoder.savefile is not given, skip saving")
-
     def _load_basic(self):
         if self.verbose:
             print(f"- Loading decoder info from file: {self.savefile}")
@@ -132,6 +107,9 @@ class Merfish_Decoder():
             self.fov_id = _f.attrs['fov_id']
             self.cell_id = _f.attrs['cell_id']
             self.pixel_sizes = _f.attrs['pixel_sizes']
+            # spot_usage
+            if 'spot_usage' in _f.keys():
+                self.spot_usage = _f['spot_usage'][:].astype(np.int32)
         # cand_spots
         self.cand_spots_df = pd.read_hdf(self.savefile, 'cand_spots')
         self.cand_spots = CellSpotsDf_2_CandSpots(self.cand_spots_df) # convert into cand_spots
@@ -153,18 +131,33 @@ class Merfish_Decoder():
             _f.attrs['pixel_sizes'] = self.pixel_sizes
             _f.attrs['savefile'] = self.savefile
             _exist_groups = list(_f.keys())
-        print(_exist_groups, _overwrite)
+        #print(_exist_groups, _overwrite)
         # save cand_spots_df
-        self.cand_spots_df.to_hdf(self.savefile, 'cand_spots')
+        if hasattr(self, 'cand_spots'):
+            if self.verbose:
+                print(f"-- save cand_spots into: {self.savefile}")
+        self.cand_spots_df.to_hdf(self.savefile, 'cand_spots', complevel=_complevel, complib=_complib)
         # save spot_groups
-        _bit_2_channel = self._create_bit_2_channel()
-        _infoDict_list = [SpotTuple_2_Dict(_g, self.fov_id, self.cell_id, 
-                                           _uid, _bit_2_channel, self.codebook_df) 
-                          for _g in self.spot_groups]
-        decoder_group_df = pd.DataFrame(_infoDict_list,)
-        decoder_group_df.to_hdf(self.savefile, 'spot_groups')
+        if hasattr(self, 'spot_groups'):
+            if self.verbose:
+                print(f"-- save spot_groups into: {self.savefile}")
+            _bit_2_channel = self._create_bit_2_channel()
+            _infoDict_list = [SpotTuple_2_Dict(_g, self.fov_id, self.cell_id, 
+                                            _uid, bit_2_channel=_bit_2_channel, codebook=self.codebook_df) 
+                            for _g in self.spot_groups]
+            decoder_group_df = pd.DataFrame(_infoDict_list,)
+            decoder_group_df.to_hdf(self.savefile, 'spot_groups', complevel=_complevel, complib=_complib)
+        # save spot_usage
+        if hasattr(self, 'spot_usage'):
+            if self.verbose:
+                print(f"-- save spot_groups into: {self.savefile}")
+        with h5py.File(self.savefile, 'a') as _f:
+            if _overwrite and 'spot_usage' in _f.keys():
+                del(_f['spot_usage'])
+            if 'spot_usage' not in _f.keys():
+                _f.create_dataset('spot_usage', data=self.spot_usage)
         # save codebook
-        self.codebook_df.to_hdf(self.savefile, 'codebook')
+        self.codebook_df.to_hdf(self.savefile, 'codebook', complevel=_complevel, complib=_complib)
 
     def _load_codebook(self):
         codebook_df = getattr(self, 'codebook_df')
@@ -258,12 +251,14 @@ class Merfish_Decoder():
             for _g in self.spot_groups:
                 _spot_usage[_g.spots_inds] += 1
             if self.verbose:
-                print(f"- directly return {len(self.spot_groups)} spot_groups.")
-            return self.spot_groups, _spot_usage
+                print(f"-- directly return {len(self.spot_groups)} spot_groups.")
+            # save spot_usage
+            setattr(self, 'spot_usage', _spot_usage)
+            return self.spot_groups, self.spot_usage
         # initlaize otherwise
         else:
             if self.verbose:
-                print(f"- search spot_groups given search radius {search_th} nm, max_usage={max_usage}")
+                print(f"-- search spot_groups given search radius {search_th} nm, max_usage={max_usage}")
             self.spot_groups = [] 
 
         # decide whether generate pair_ind_list
@@ -721,7 +716,8 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
             pixel_sizes=pixel_sizes, 
             inner_dist_factor=inner_dist_factor, intensity_factor=intensity_factor,
             auto=auto, load_from_file=load_from_file, verbose=verbose)
-        
+        if self.verbose:
+            print(f"Creating DNA_Merfish_Decoder class.")
         # extra parameters
         self.ct_dist_factor = float(ct_dist_factor)
         self.local_dist_factor = float(local_dist_factor)
@@ -736,6 +732,136 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
             self.chr_2_copy_num = chr_2_copy_num
         # generate
         self.region_2_expect_num = self.generate_region_2_copy_num(self.codebook, self.chr_2_copy_num, )
+        
+        ## Load DNA decode results if applicable
+        if load_from_file and os.path.isfile(self.savefile):
+            _chr_2_zxys_list = self._load_picked_results()
+
+    def _save_picked_results(self, _complevel=1, _complib='blosc:zstd', _overwrite=False):
+        """Save chr_2_zxys_list into hdf5 group"""
+        # save chr_2_spot_tuple
+        if hasattr(self, 'chr_2_assigned_tuple_list'): 
+            if self.verbose:
+                print(f"- Save chr_2_assigned_tuple_list into file: {self.savefile}")
+            # create bit_2_channel
+            _bit_2_channel = self._create_bit_2_channel(save_attr=False)
+            for _chr, _groups_list in getattr(self, 'chr_2_assigned_tuple_list',{}).items():
+                for _homolog, _groups in enumerate(_groups_list):
+                    # check existence
+                    _key = f"chr_2_assigned_tuple_list/{_chr}/{_homolog}"
+                    with h5py.File(self.savefile, 'a') as _f: 
+                        if _key in _f and _overwrite:
+                            del(_f[_key])
+                        _write_homolog = (_key not in _f)
+                    if _write_homolog:
+                        # convert to DataFrame
+                        _df = [SpotTuple_2_Dict(
+                            _g, self.fov_id, self.cell_id, getattr(self,'uid',None), _homolog,
+                            bit_2_channel=_bit_2_channel, codebook=self.codebook_df)
+                            for _g in _groups]
+                        _df = pd.DataFrame(_df, )
+                        print(_chr, _homolog, len(_df))
+                        # write
+                        if self.verbose:
+                            print(f"-- save tuples for :{_key}")
+                        _df.to_hdf(self.savefile, _key, complevel=_complevel, complib=_complib)
+                    else:
+                        if self.verbose:
+                            print(f"-- skip :{_key}")
+        with h5py.File(self.savefile, 'a') as _f:
+            # chr_2_zxys_list
+            if hasattr(self, 'chr_2_zxys_list'):
+                if self.verbose:
+                    print(f"- Save chr_2_zxys_list into file: {self.savefile}")
+                _grp = _f.require_group('chr_2_zxys_list')
+                for _chr, _zxys in self.chr_2_zxys_list.items():
+                    # delete existing if overwrite
+                    if _chr in _grp.keys() and _overwrite:
+                        if self.verbose:
+                            print(f"-- overwrite coordinates of chr:{_chr}")
+                        del(_grp[_chr])
+                    # write
+                    if _chr not in _grp.keys():
+                        _grp.create_dataset(_chr, data=_zxys)
+                        if self.verbose:
+                            print(f"-- save coordinates of chr:{_chr}")
+                    else:
+                        if self.verbose:
+                            print(f"-- skip chr:{_chr}")
+            # chr_2_chr_centers
+            if hasattr(self, 'chr_2_chr_centers'):
+                if self.verbose:
+                    print(f"- Save chr_2_chr_centers into file: {self.savefile}")
+                _grp = _f.require_group('chr_2_chr_centers')
+                for _chr, _zxys in self.chr_2_chr_centers.items():
+                    # delete existing if overwrite
+                    if _chr in _grp.keys() and _overwrite:
+                        if self.verbose:
+                            print(f"-- overwrite chr-center of chr:{_chr}")
+                        del(_grp[_chr])
+                    # write
+                    if _chr not in _grp.keys():
+                        _grp.create_dataset(_chr, data=_zxys)
+                        if self.verbose:
+                            print(f"-- save chr-center of chr:{_chr}")
+                    else:
+                        if self.verbose:
+                            print(f"-- skip chr:{_chr}")        
+        return
+
+    def _load_picked_results(self, _save_attr=True):
+        """Load decode-picking results"""
+        with h5py.File(self.savefile, 'r') as _f:
+            ## chr_2_assigned_tuple_list
+            if self.verbose:
+                print(f"- Load chr_2_assigned_tuple_list from file: {self.savefile}")
+            _chr_2_assigned_tuple_list = {}
+            if 'chr_2_assigned_tuple_list' in _f.keys():
+                _grp = _f['chr_2_assigned_tuple_list']
+                for _chr in _grp.keys():
+                    _chr_group = _grp[_chr]
+                    _chr_tuple_list = []
+                    for _homolog in _chr_group.keys():
+                        _key = f"chr_2_assigned_tuple_list/{_chr}/{_homolog}"
+                        # load
+                        _group_df = pd.read_hdf(self.savefile, _key, )
+                        _chr_tuple_list.append(Dataframe_2_SpotGroups(_group_df))
+                    # append chr
+                    _chr_2_assigned_tuple_list[_chr] = _chr_tuple_list
+                if self.verbose:
+                    print(f"-- {len(_chr_2_assigned_tuple_list)} chromosome loaded.")
+                # save attributes
+                if _save_attr and len(_chr_2_assigned_tuple_list) > 0:
+                    setattr(self, 'chr_2_assigned_tuple_list', _chr_2_assigned_tuple_list)
+            ## chr_2_zxys_list
+            if self.verbose:
+                print(f"- Load chr_2_zxys_list from file: {self.savefile}")
+            _chr_2_zxys_list = {}
+            if 'chr_2_zxys_list' in _f.keys():
+                _grp = _f['chr_2_zxys_list']
+                for _chr in _grp.keys():
+                    _chr_2_zxys_list[_chr] = _grp[_chr][:].astype(np.float32)
+                if self.verbose:
+                    print(f"-- {len(_chr_2_zxys_list)} chromosome loaded.")
+                # save attributes
+                if _save_attr and len(_chr_2_zxys_list) > 0:
+                    setattr(self, 'chr_2_zxys_list', _chr_2_zxys_list)
+            ## chr_2_chr_centers
+            if self.verbose:
+                print(f"- Load chr_2_chr_centers from file: {self.savefile}")
+            _chr_2_chr_centers = {}
+            if 'chr_2_chr_centers' in _f.keys():
+                _grp = _f['chr_2_chr_centers']
+                for _chr in _grp.keys():
+                    _chr_2_chr_centers[_chr] = _grp[_chr][:].astype(np.float32)
+                if self.verbose:
+                    print(f"-- {len(_chr_2_chr_centers)} chromosome loaded.")
+                # save attributes
+                if _save_attr and len(_chr_2_chr_centers) > 0:
+                    setattr(self, 'chr_2_chr_centers', _chr_2_chr_centers)  
+                    
+        return _chr_2_assigned_tuple_list, _chr_2_zxys_list, _chr_2_chr_centers
+
 
     def prepare_spot_tuples(self, pair_search_radius=200, 
         max_spot_usage=1, force_search_for_region=True,
@@ -750,6 +876,7 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
         Generate invalid randomized control
         Generate chromosomal kdtree
          """
+        ## If everything exist, skip the entire process.
         if hasattr(self, 'spot_groups') \
             and hasattr(self, 'chr_2_groups') \
             and hasattr(self, 'chr_2_invalid_groups') \
@@ -757,26 +884,32 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
             and not overwrite:
             print("spot_groups already exists.")
             return 
+
+        # required params
+        if force_search_for_region:
+            _region_2_expect_num = getattr(self, 'region_2_expect_num', None)
         else:
-            if force_search_for_region:
-                _region_2_expect_num = getattr(self, 'region_2_expect_num', None)
-            else:
-                _region_2_expect_num = None
+            _region_2_expect_num = None
+        # Generate spot_groups
+        if hasattr(self, 'spot_groups') and hasattr(self, 'spot_usage') and len(getattr(self, 'spot_groups')) > 0:
+            if self.verbose:
+                print(f"- spot_groups and spot_usage already exist, skip.")
+        else:
             # find pairs
             self._find_spot_pairs_in_radius(search_th=pair_search_radius, overwrite=overwrite)
             # update chromosome info for cand_pair_list
             self.update_spot_groups_chr_info(self.cand_pair_list, self.codebook)
             # assemble tuples
-            #spot_groups = self.assemble_complete_codes() # OLD
             spot_groups, spot_usage = self.select_spot_tuples_old(max_usage=max_spot_usage, 
                 search_th=pair_search_radius, 
                 #region_2_expect_num=_region_2_expect_num, 
                 weights=self.metric_weights,
                 overwrite=overwrite)
+            # update chromosome info
+            self.update_spot_groups_chr_info(self.spot_groups, self.codebook)
         # update used parameters
 
-        # update chromosome info
-        self.update_spot_groups_chr_info(self.spot_groups, self.codebook)
+
         #for _ig, _g in enumerate(self.spot_groups):
         #    _g.chr = self.codebook.loc[self.codebook['id']==_g.tuple_id, 'chr'].values[0]
         #    _g.chr_order = self.codebook.loc[self.codebook['id']==_g.tuple_id, 'chr_order'].values[0]
@@ -1058,7 +1191,8 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
         if not overwrite and hasattr(self, 'chr_2_assigned_tuple_list')\
             and hasattr(self, 'chr_2_zxys_list') \
             and hasattr(self, 'chr_2_chr_centers'):
-
+            if self.verbose:
+                print("- Directly return assigned homolog results.")
             return getattr(self, 'chr_2_assigned_tuple_list'),\
                 getattr(self, 'chr_2_zxys_list'), \
                 getattr(self, 'chr_2_chr_centers')
@@ -1066,6 +1200,9 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
         chr_2_assigned_tuple_list = {}
         chr_2_zxys_list = {}
         chr_2_chr_centers = {}
+        # initialize if not exist
+        if not hasattr(self, 'chrs_2_init_centers'):
+            self.init_homolog_assignment(overwrite=overwrite)
 
         for _chr_name, _initial_centers in self.chrs_2_init_centers.items():
             if verbose:
@@ -1098,27 +1235,29 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
         
         return chr_2_assigned_tuple_list, chr_2_zxys_list, chr_2_chr_centers
 
-    def summarize_zxys_all_chromosomes(self, num_homologs=2, keep_valid=True, order_by_chr=True):
+    @staticmethod
+    def summarize_zxys_all_chromosomes(chr_2_zxys_list, codebook, 
+                                       num_homologs=2, keep_valid=True, order_by_chr=True):
         """Summarization of ."""
         # summarize chromosome information from codebook
-        chr_2_indices = {_chr:np.array(self.codebook.loc[self.codebook['chr']==_chr].index)
-                        for _chr in np.unique(self.codebook['chr'].values)}
+        chr_2_indices = {_chr:np.array(codebook.loc[codebook['chr']==_chr].index)
+                        for _chr in np.unique(codebook['chr'].values)}
 
         _ordered_chr_names = []
-        for _chr_name, _chr_reg_id in zip(self.codebook['chr'], self.codebook['chr_order']):
+        for _chr_name, _chr_reg_id in zip(codebook['chr'], codebook['chr_order']):
             if _chr_name not in _ordered_chr_names:
                 _ordered_chr_names.append(_chr_name)
         
         # assemble sorted-zxys for each homolog
         total_zxys_dict = [{_rid:np.ones(3)*np.nan 
-                            for _rid in self.codebook.index} for _ihomo in np.arange(num_homologs)]
-        for _chr_name, _zxys_list in self.chr_2_zxys_list.items():
+                            for _rid in codebook.index} for _ihomo in np.arange(num_homologs)]
+        for _chr_name, _zxys_list in chr_2_zxys_list.items():
             for _ihomo, _zxys in enumerate(_zxys_list):
-                _chr_region_ids = self.extract_chr_region_ids(self.codebook, _chr_name)
+                _chr_region_ids = DNA_Merfish_Decoder.extract_chr_region_ids(codebook, _chr_name)
                 for _i_chr_reg, _zxy in zip(_chr_region_ids, _zxys):
                     #print(_chr_name, _ihomo, _i_chr_reg)
-                    _rid = self.codebook.loc[(self.codebook['chr']==_chr_name) \
-                                              & (self.codebook['chr_order']==_i_chr_reg)].index[0]
+                    _rid = codebook.loc[(codebook['chr']==_chr_name) \
+                                              & (codebook['chr_order']==_i_chr_reg)].index[0]
                     total_zxys_dict[_ihomo][_rid] = _zxy
                 
         # convert to zxy coordinates in um
@@ -1164,62 +1303,9 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
                         figure_zxys_list.append(_chr_zxys)
                     # append
                     figure_label_ids.append(_curr_pos)
-
         # summarize
         figure_label_ids = np.array(figure_label_ids)            
-        # update attributes
-        setattr(self, 'final_zxys_list', figure_zxys_list)
-        setattr(self, 'final_zxys_names', figure_labels)
-        setattr(self, 'final_zxys_boundaries', figure_label_ids)
-
         return figure_zxys_list, figure_labels, figure_label_ids
-
-    def summarize_to_distmap(self, distmap_plot_kwargs={}, 
-                             color_limits=[0,5],
-                             figsize=(6,5),
-                             dpi=150,
-                             save_filename=None, add_attr=True, 
-                             no_show=False):
-        
-        cmap = copy(cm.seismic_r)
-        cmap.set_bad([0.5,0.5,0.5])
-        
-        _label_bds = getattr(self, 'final_zxys_boundaries')
-        _labels = getattr(self, 'final_zxys_names')
-        
-        try:
-            _distmap = squareform(pdist(np.concatenate(getattr(self, 'final_zxys_list'))))
-        except:
-            print(len( getattr(self, 'final_zxys_list') ))
-            return None
-
-        fig, ax = plt.subplots(figsize=figsize,dpi=dpi)
-        _pf = ax.imshow(_distmap, cmap=cmap, vmin=min(color_limits), vmax=max(color_limits))
-        plt.colorbar(_pf, label=f'Pairwise distance (\u03bcm)')
-
-        ax.set_xticks((_label_bds[1:] + _label_bds[:-1])/2)
-        ax.set_xticklabels(_labels, fontsize=6, rotation=60,)
-        ax.set_yticks((_label_bds[1:] + _label_bds[:-1])/2)
-        ax.set_yticklabels(_labels, fontsize=6,)
-        ax.tick_params(axis='both', which='major', pad=1)
-
-        ax.hlines(_label_bds-0.5, 0, len(_distmap), color='black', linewidth=0.5)
-        ax.vlines(_label_bds-0.5, 0, len(_distmap), color='black', linewidth=0.5)
-        ax.set_xlim([0, len(_distmap)])
-        ax.set_ylim([len(_distmap), 0])
-        ax.set_title(f"kept_spots: { np.sum(np.isnan(np.concatenate(getattr(self, 'final_zxys_list'))).any(1)==0) }")        
-        if save_filename is not None:
-            fig.savefig(save_filename, dpi=200, transparent=True)
-            # add attribute
-            self.distmap_savefile = save_filename
-        if add_attr:
-            self.final_distmap = _distmap
-        # return
-        if no_show:
-            fig.close()
-            return None
-        else:
-            return ax
 
     @staticmethod
     def extract_chr_region_ids(codebook, _chr_name):
@@ -1607,7 +1693,7 @@ def batch_decode_DNA(cand_spots_df, codebook_df, decoder_filename,
                      local_dist_factor=0.,
                      valid_score_th=-25,
                      load_from_file=True, overwrite=False,
-                     return_decoder=False, make_plots=False, 
+                     return_decoder=False, make_plots=False, verbose=True,
                     ):
     """Batch process DNA-MERFISH decoding"""
     # load cand_spots
@@ -1625,53 +1711,55 @@ def batch_decode_DNA(cand_spots_df, codebook_df, decoder_filename,
         print(os.path.dirname(decoder_filename))
         os.makedirs(os.path.dirname(decoder_filename))
 
-    #try:
+    try:
+        # create decoder class
+        decoder = DNA_Merfish_Decoder(
+            codebook_df, cand_spots_df,
+            pixel_sizes=pixel_sizes, 
+            savefile=decoder_filename, 
+            load_from_file=load_from_file,
+            inner_dist_factor=inner_dist_factor,
+            intensity_factor=intensity_factor,
+            ct_dist_factor=ct_dist_factor,
+            local_dist_factor=local_dist_factor,
+            valid_score_th=valid_score_th,
+            metric_weights=[1,1,3,2,2],
+            )
+        # assemble spot_groups
+        decoder.prepare_spot_tuples(pair_search_radius=pair_search_radius, 
+            force_search_for_region=False,
+            overwrite=overwrite)
+        # save 
+        decoder._save_basic()
+        # calculate scores
+        self_scores = decoder.calculate_self_scores(make_plots=make_plots, overwrite=True)
+        # spot picking
+        chr_2_assigned_tuple_list, chr_2_zxys_list, chr_2_chr_centers= \
+            decoder.finish_homolog_assignment(plot_stats=make_plots, overwrite=overwrite, 
+            verbose=verbose)
+        # save picked results
+        decoder._save_picked_results(_overwrite=overwrite)
+        ## Plot
+        # distmap
+        distmap_filename = decoder_filename.replace('Decoder.hdf5', 'AllChrDistmap.png')
+        _zxys_list, _fig_labels, _fig_label_bds = decoder.summarize_zxys_all_chromosomes(
+            chr_2_zxys_list, 
+            decoder.codebook_df,
+            keep_valid=True)
+        GenomeWide_DistMap(_zxys_list, _fig_labels, _fig_label_bds,
+            save_filename=distmap_filename, show_image=False, verbose=verbose)
+        # stats
+        SpotStat_filename = decoder_filename.replace('Decoder.hdf5', 'DecodeSpotStats.png')
+        plot_spot_stats(decoder.spot_groups, decoder.spot_usage, 
+            show_image=False, save_filename=SpotStat_filename, verbose=verbose)
 
-    # create decoder class
-    decoder = DNA_Merfish_Decoder(
-        codebook_df, cand_spots_df,
-        pixel_sizes=pixel_sizes, 
-        savefile=decoder_filename, 
-        load_from_file=load_from_file,
-        inner_dist_factor=inner_dist_factor,
-        intensity_factor=intensity_factor,
-        ct_dist_factor=ct_dist_factor,
-        local_dist_factor=local_dist_factor,
-        valid_score_th=valid_score_th,
-        metric_weights=[1,1,3,2,2],
-        )
-    
-    decoder.prepare_spot_tuples(pair_search_radius=pair_search_radius, 
-        force_search_for_region=False,
-        overwrite=overwrite)
-    
-    # save DEBUG
-    decoder._save_basic()
-    return
-
-    self_scores = decoder.calculate_self_scores(make_plots=make_plots, overwrite=True)
-
-    chrs_2_init_centers = decoder.init_homolog_assignment(overwrite=overwrite)
-
-    chr_2_assigned_tuple_list, chr_2_zxys_list, chr_2_chr_centers= \
-        decoder.finish_homolog_assignment(plot_stats=make_plots, overwrite=overwrite, 
-        verbose=True)
-
-    figure_zxys_list, figure_labels, figure_label_ids = decoder.summarize_zxys_all_chromosomes()
-
-    # distmap
-    distmap_filename = decoder_filename.replace('Decoder.pkl', 'AllChrDistmap.png')
-    _ax = decoder.summarize_to_distmap(decoder, save_filename=distmap_filename) 
-
-    decoder.save(overwrite=overwrite)
-
-    if return_decoder:
-        return decoder
-    else:
+        if return_decoder:
+            return decoder
+        else:
+            return None
+    except:
+        print(f"failed for decoding: {decoder_filename}")
         return None
-    #except:
-    #    print(f"failed for decoding: {decoder_filename}")
-    #    return None
 
 def batch_load_attr(decoder_savefile, attr):
     """Batch load one attribute from decoder file"""    
@@ -1680,6 +1768,22 @@ def batch_load_attr(decoder_savefile, attr):
         return getattr(_cls, attr)
     except:
         print(f"Loading failed.")
+        return None
+
+def load_hdf5_dict(_filename, data_key):
+    _dict = {}
+    with h5py.File(_filename, 'r') as _f:
+        if data_key not in _f.keys():
+            return None
+        _grp = _f[data_key]
+        for _key in _grp.keys():
+            _dict[_key] = _grp[_key][:]
+    return _dict
+
+def load_hdf5_DataFrame(_filename, data_key):
+    try:
+        return pd.read_hdf(_filename, data_key)
+    except:
         return None
 
 

@@ -31,6 +31,11 @@ _allowed_kwds = {'combo': 'c',
 _max_num_seeds = 4000 
 _min_num_seeds = 50 
 _spot_seeding_th = 200
+
+default_pixel_sizes=[250,108,108]
+default_search_th = 250
+default_search_eps = 0.25
+
 from . import batch_functions
 from . import field_of_view
 from . import preprocess

@@ -65,7 +65,7 @@ def plot_decoding_ims(combo_ids, cropped_ims, _sel_bit_2_coords=None,
 
 def plot_spot_stats(_spot_groups, _spot_usage, _max_usage=5,
                     save=True, save_filename=None,
-                    show_image=True,
+                    show_image=True, verbose=True,
                     ):
     """Plot spot_group stats in decoder groups"""
     fig, axes = plt.subplots(1,2, figsize=(4,2), dpi=150)
@@ -79,16 +79,18 @@ def plot_spot_stats(_spot_groups, _spot_usage, _max_usage=5,
     axes[1].set_title("Spot Num. in Groups", fontsize=8, pad=3)
     axes[1].set_xticks(np.arange(0.5, _max_usage+0.5))
     axes[1].set_xticklabels(np.arange(_max_usage))
-    fig.subplots_adjust(wspace=0.3, top=0.80, bottom=0.03)
+    fig.subplots_adjust(wspace=0.3, top=0.80, bottom=0.12)
     fig.suptitle(f"{len(_spot_usage)} spots, {len(_spot_groups)} groups", 
                  fontsize=10, y=0.97)
     # save 
     if save:
         if save_filename is not None:
-            print(f"-- save iamage to file: {save_filename}")
+            if verbose:
+                print(f"- Save spot_stats iamage to file: {save_filename}")
             fig.savefig(save_filename)
     if show_image:
         fig.show()
         return axes
     else:
+        plt.close(fig)
         return None
