@@ -488,7 +488,7 @@ class Align_Segmentation():
                 if str(_cell_id) in _uid_group.keys() and self.overwrite:
                     del(_uid_group[str(_cell_id)])
                 if str(_cell_id) not in _uid_group.keys():
-                    _uid_group.create_dataset(str(_cell_id), data=_uid, dtype=f"S{len(_uid)}", shape=(1,))
+                    _uid_group.create_dataset(str(_cell_id), data=_uid, shape=(1,))
         return
 
     def _load(self, save_hdf5_file:str)->bool:
@@ -512,7 +512,7 @@ class Align_Segmentation():
             self.fovcell_2_uid = {}
             _uid_group = _fov_group['cell_2_uid']
             for _cell_id in _uid_group.keys():
-                self.fovcell_2_uid[(self.fov_id, int(_cell_id))] = _uid_group[_cell_id][:][0].decode()
+                self.fovcell_2_uid[(self.fov_id, int(_cell_id))] = _uid_group[_cell_id][:][0]
         return True
 
 
