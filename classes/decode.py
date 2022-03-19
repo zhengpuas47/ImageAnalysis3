@@ -1786,6 +1786,25 @@ def load_hdf5_DataFrame(_filename, data_key):
     except:
         return None
 
+def save_hdf5_dict(_filename, _data_key, _dict, _overwrite=False, _verbose=False):
+    if _verbose:
+        print(f"- Update {_data_key} into {_filename}")
+    
+    with h5py.File(_filename, 'a') as _f:
+        _grp = _f.require_group(_data_key)
+        for _key, _array in _dict.items():
+            if _key in _grp.keys() and _overwrite:
+                if _verbose:
+                    print(f"-- overwrite {_key} in {_data_key}")
+                del(_grp[_key])
+            if _key not in _grp.keys():
+                if _verbose:
+                    print(f"-- saving {_key} in {_data_key}")
+                _grp.create_dataset(_key, data=_array)
+            else:
+                if _verbose:
+                    print(f"-- skip {_key} in {_data_key}")      
+    return 
 
 def spots_dict_to_cand_spots(cand_spot_filename, 
     pixel_sizes=default_pixel_sizes, 
