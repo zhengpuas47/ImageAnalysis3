@@ -7,10 +7,10 @@ from . import _allowed_kwds, _image_dtype
 from ..io_tools.load import correct_fov_image
 from ..spot_tools.fitting import fit_fov_image, get_centers
 
-_seed_th={
-    '750': 400,
-    '647': 600,
-    '561': 500,
+Channel_2_SeedTh = {
+    '750':800,
+    '647':1000,
+    '561':500,
 }
 
 ## Process managing
@@ -166,17 +166,18 @@ def batch_process_image_to_spots(dax_filename, sel_channels,
 
         ## correct images
         if warp_image:
-            _processed_ims, _drift = correct_fov_image(dax_filename, 
-                                    _process_sel_channels, 
-                                    load_file_lock=load_file_lock,
-                                    calculate_drift=_corr_drift, 
-                                    drift=_process_drift,
-                                    ref_filename=ref_filename, 
-                                    warp_image=warp_image,
-                                    return_drift=True, verbose=verbose, 
-                                    **correction_args, **drift_args)
+            _processed_ims, _drift, _drift_flag = correct_fov_image(
+                dax_filename, 
+                _process_sel_channels, 
+                load_file_lock=load_file_lock,
+                calculate_drift=_corr_drift, 
+                drift=_process_drift,
+                ref_filename=ref_filename, 
+                warp_image=warp_image,
+                return_drift=True, verbose=verbose, 
+                **correction_args, **drift_args)
         else:
-            _processed_ims, _processed_warp_funcs, _drift = correct_fov_image(
+            _processed_ims, _processed_warp_funcs, _drift, _drift_flag = correct_fov_image(
                                     dax_filename, 
                                     _process_sel_channels, 
                                     load_file_lock=load_file_lock,
@@ -192,6 +193,7 @@ def batch_process_image_to_spots(dax_filename, sel_channels,
         if not warp_image:
             _processed_warp_funcs = []
         _drift = np.array(_process_drift) # use old drift
+        _drift_flag = 0
 
     ## merge processed and carryover images
     _sel_ims = []
@@ -222,7 +224,8 @@ def batch_process_image_to_spots(dax_filename, sel_channels,
         # run saving
         _save_img_success = save_image_to_fov_file(
             save_filename, _sel_ims, data_type, region_ids, 
-            warp_image, _drift, overwrite_image, verbose) # this step also save drift
+            warp_image, _drift, _drift_flag, 
+            overwrite_image, verbose) # this step also save drift
         # release lock
         if 'fov_savefile_lock' in locals() and fov_savefile_lock is not None:
             fov_savefile_lock.release()
@@ -247,12 +250,17 @@ def batch_process_image_to_spots(dax_filename, sel_channels,
                                             cval=0)
             # store seed_mask
             fitting_args['seed_mask'] = _shifted_mask
+            
             if verbose:
                 print(f"-- in {time.time()-_translate_start:.2f}s.")
                 _translate_start = time.time()
         _raw_spot_list = []
         _spot_list = []
+        # get threshold
+        
         for _ich, (_im, _ch) in enumerate(zip(_sel_ims, sel_channels)):
+            fitting_args['th_seed'] = Channel_2_SeedTh[str(_ch)]
+
             _raw_spots = fit_fov_image(
                 _im, _ch, verbose=verbose, 
                 **fitting_args,
@@ -287,7 +295,7 @@ def batch_process_image_to_spots(dax_filename, sel_channels,
 
 # save image to fov file
 def save_image_to_fov_file(filename, ims, data_type, region_ids, 
-                           warp_image=False, drift=None,
+                           warp_image=False, drift=None, drift_flag=None,
                            overwrite=False, verbose=True):
     """Function to save image to fov-standard savefile(hdf5)
     Inputs:
@@ -324,7 +332,7 @@ def save_image_to_fov_file(filename, ims, data_type, region_ids,
     _saving_flag = False 
     ## start saving
     with h5py.File(filename, "a", libver='latest') as _f:
-        _grp = _f[data_type]
+        _grp = _f.require_group(data_type) # change to require_group
         for _i, (_id, _im) in enumerate(zip(region_ids, ims)):
             _index = list(_grp['ids'][:]).index(_id)
             _flag = _grp['flags'][_index]

@@ -1756,24 +1756,25 @@ class Field_of_View():
             else:
                 _drift_ref = getattr(self, 'ref_filename')
 
-            _chrom_im, _drift = correct_fov_image(_chrom_filename, 
-                                    [_chrom_channel],
-                                    single_im_size=self.shared_parameters['single_im_size'],
-                                    all_channels=self.channels,
-                                    num_buffer_frames=self.shared_parameters['num_buffer_frames'],
-                                    num_empty_frames=self.shared_parameters['num_empty_frames'],
-                                    drift=None, calculate_drift=_use_ref_im, 
-                                    drift_channel=self.drift_channel,
-                                    ref_filename=_drift_ref,
-                                    correction_folder=self.correction_folder,
-                                    corr_channels=self.shared_parameters['corr_channels'],
-                                    warp_image=True,
-                                    illumination_corr=self.shared_parameters['corr_illumination'],
-                                    bleed_corr=False, 
-                                    chromatic_corr=self.shared_parameters['corr_chromatic'], 
-                                    z_shift_corr=self.shared_parameters['corr_Z_shift'],
-                                    return_drift=True, verbose=_verbose,
-                                    )
+            _chrom_im, _drift, _drift_flag = correct_fov_image(
+                _chrom_filename, 
+                [_chrom_channel],
+                single_im_size=self.shared_parameters['single_im_size'],
+                all_channels=self.channels,
+                num_buffer_frames=self.shared_parameters['num_buffer_frames'],
+                num_empty_frames=self.shared_parameters['num_empty_frames'],
+                drift=None, calculate_drift=_use_ref_im, 
+                drift_channel=self.drift_channel,
+                ref_filename=_drift_ref,
+                correction_folder=self.correction_folder,
+                corr_channels=self.shared_parameters['corr_channels'],
+                warp_image=True,
+                illumination_corr=self.shared_parameters['corr_illumination'],
+                bleed_corr=False, 
+                chromatic_corr=self.shared_parameters['corr_chromatic'], 
+                z_shift_corr=self.shared_parameters['corr_Z_shift'],
+                return_drift=True, verbose=_verbose,
+                )
 
             _chrom_im = _chrom_im[0]
             if _verbose:
@@ -2378,24 +2379,25 @@ class Field_of_View():
                 _drift_ref = getattr(self, 'ref_filename', None)
 
             # load
-            _dapi_im = correct_fov_image(_dapi_filename, 
-                                        [_dapi_channel],
-                                        single_im_size=self.shared_parameters['single_im_size'],
-                                        all_channels=_used_channels,
-                                        num_buffer_frames=self.shared_parameters['num_buffer_frames'],
-                                        num_empty_frames=self.shared_parameters['num_empty_frames'],
-                                        drift=None, calculate_drift=_use_ref_im,
-                                        drift_channel=self.drift_channel,
-                                        ref_filename=_drift_ref,
-                                        correction_folder=self.correction_folder,
-                                        corr_channels=self.shared_parameters['corr_channels'],
-                                        warp_image=True,
-                                        illumination_corr=self.shared_parameters['corr_illumination'],
-                                        bleed_corr=False, 
-                                        chromatic_corr=False, 
-                                        z_shift_corr=self.shared_parameters['corr_Z_shift'],
-                                        verbose=_verbose,
-                                        )[0][0]
+            _dapi_im = correct_fov_image(
+                _dapi_filename, 
+                [_dapi_channel],
+                single_im_size=self.shared_parameters['single_im_size'],
+                all_channels=_used_channels,
+                num_buffer_frames=self.shared_parameters['num_buffer_frames'],
+                num_empty_frames=self.shared_parameters['num_empty_frames'],
+                drift=None, calculate_drift=_use_ref_im,
+                drift_channel=self.drift_channel,
+                ref_filename=_drift_ref,
+                correction_folder=self.correction_folder,
+                corr_channels=self.shared_parameters['corr_channels'],
+                warp_image=True,
+                illumination_corr=self.shared_parameters['corr_illumination'],
+                bleed_corr=False, 
+                chromatic_corr=False, 
+                z_shift_corr=self.shared_parameters['corr_Z_shift'],
+                verbose=_verbose,
+                )[0][0]
             setattr(self, 'dapi_im', _dapi_im)
             
             # save new chromosome image
@@ -2442,23 +2444,24 @@ class Field_of_View():
         else:
             _drift_ref = getattr(self, 'ref_filename')
         # load this beads image
-        _bead_im = correct_fov_image(_bead_filename, 
-                                    [_drift_channel],
-                                    single_im_size=self.shared_parameters['single_im_size'],
-                                    all_channels=_used_channels,
-                                    num_buffer_frames=self.shared_parameters['num_buffer_frames'],
-                                    num_empty_frames=self.shared_parameters['num_empty_frames'],
-                                    drift=_drift, calculate_drift=False,
-                                    drift_channel=_drift_channel,
-                                    ref_filename=_drift_ref,
-                                    correction_folder=self.correction_folder,
-                                    warp_image=_warp,
-                                    illumination_corr=self.shared_parameters['corr_illumination'],
-                                    bleed_corr=False, 
-                                    chromatic_corr=False, 
-                                    z_shift_corr=self.shared_parameters['corr_Z_shift'],
-                                    verbose=_verbose,
-                                    )[0][0]
+        _bead_im = correct_fov_image(
+            _bead_filename, 
+            [_drift_channel],
+            single_im_size=self.shared_parameters['single_im_size'],
+            all_channels=_used_channels,
+            num_buffer_frames=self.shared_parameters['num_buffer_frames'],
+            num_empty_frames=self.shared_parameters['num_empty_frames'],
+            drift=_drift, calculate_drift=False,
+            drift_channel=_drift_channel,
+            ref_filename=_drift_ref,
+            correction_folder=self.correction_folder,
+            warp_image=_warp,
+            illumination_corr=self.shared_parameters['corr_illumination'],
+            bleed_corr=False, 
+            chromatic_corr=False, 
+            z_shift_corr=self.shared_parameters['corr_Z_shift'],
+            verbose=_verbose,
+            )[0][0]
 
         return _bead_im
 

@@ -564,6 +564,9 @@ def align_image(
         _ref_all_channels = [str(_ch) for _ch in ref_all_channels]
     
     ## process source image
+    # define result flag
+    _result_flag = 0
+    # process image
     if isinstance(src_im, np.ndarray):
         if verbose:
             print(f"-- start aligning given source image to", end=' ')
@@ -658,6 +661,7 @@ def align_image(
             _kept_drift_inds = np.where(_dists <= drift_diff_th)[0]
             if len(_kept_drift_inds) >= min_good_drifts:
                 _updated_mean_dft = np.nanmean(np.array(_drifts)[_kept_drift_inds], axis=0)
+                _result_flag += 0
                 if verbose:
                     print(f"--- drifts for crops:{_kept_drift_inds} pass the thresold, exit cycle.")
                 break
@@ -679,8 +683,9 @@ def align_image(
             print(f"--- select drifts: {np.round(_sel_drifts, 2)}")
         # return mean
         _updated_mean_dft = np.nanmean(_sel_drifts, axis=0)
+        _result_flag += 1
 
-    return  _updated_mean_dft
+    return  _updated_mean_dft, _result_flag
 
 # Function to calculate translation for alignment of re-mounted samples
 def calculate_translation(reference_im:np.ndarray, 

@@ -404,7 +404,7 @@ def correct_fov_image(dax_filename, sel_channels,
             'num_empty_frames':num_empty_frames,
             'correction_folder':correction_folder,
         }
-        _drift = align_image(
+        _drift, _drift_flag = align_image(
             _ims[_load_channels.index(_drift_channel)],
             ref_filename, 
             use_autocorr=use_autocorr, 
@@ -417,6 +417,7 @@ def correct_fov_image(dax_filename, sel_channels,
             print(f"--- finish drift: {np.around(_drift,2)} in {time.time()-_drift_time:.3f}s")
     else:
         _drift = drift.copy()
+        _drift_flag = 0
         
     ## chromatic abbrevation
     _chromatic_channels = [_ch for _ch in corr_channels 
@@ -516,7 +517,7 @@ def correct_fov_image(dax_filename, sel_channels,
     if not warp_image:
         _return_args.append(_warp_functions)
     if return_drift:
-        _return_args.append(_drift)
+        _return_args.extend([_drift, _drift_flag])
     
     return tuple(_return_args)
 

@@ -197,7 +197,7 @@ def fit_fov_image(im, channel, seeds=None,
                         return_h=False, verbose=False,
                         **seeding_kwargs,)
         if verbose:
-            print(f"{len(_seeds)} seeded, ", end='')
+            print(f"{len(_seeds)} seeded with th={th_seed}, ", end='')
     else:
         _seeds = np.array(seeds)[:,:len(np.shape(im))]
         if verbose:
