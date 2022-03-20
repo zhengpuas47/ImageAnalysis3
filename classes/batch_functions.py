@@ -8,9 +8,9 @@ from ..io_tools.load import correct_fov_image
 from ..spot_tools.fitting import fit_fov_image, get_centers
 
 Channel_2_SeedTh = {
-    '750':800,
-    '647':1000,
-    '561':500,
+    '750':700,
+    '647':800,
+    '561':450,
 }
 
 ## Process managing
