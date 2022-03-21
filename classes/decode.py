@@ -143,7 +143,8 @@ class Merfish_Decoder():
                 print(f"-- save spot_groups into: {self.savefile}")
             _bit_2_channel = self._create_bit_2_channel()
             _infoDict_list = [SpotTuple_2_Dict(_g, self.fov_id, self.cell_id, 
-                                            _uid, bit_2_channel=_bit_2_channel, codebook=self.codebook_df) 
+                                               _uid, sel_ind=getattr(_g, 'sel_ind',None), 
+                                               bit_2_channel=_bit_2_channel, codebook=self.codebook_df) 
                             for _g in self.spot_groups]
             decoder_group_df = pd.DataFrame(_infoDict_list,)
             decoder_group_df.to_hdf(self.savefile, 'spot_groups', complevel=_complevel, complib=_complib)
@@ -362,10 +363,11 @@ class Merfish_Decoder():
             delattr(_g, 'final_score')
         if self.verbose:
             print(f"- {len(self.spot_groups)} spot_groups detected")
-        
+        # add select orders as attribute
+        for _i, _g in enumerate(self.spot_groups):
+            _g.sel_ind = _i
         # save spot_usage
         setattr(self, 'spot_usage', _spot_usage)
-
         return self.spot_groups, self.spot_usage
 
     def select_spot_tuples(self, max_usage=np.inf, 
@@ -756,11 +758,13 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
                     if _write_homolog:
                         # convert to DataFrame
                         _df = [SpotTuple_2_Dict(
-                            _g, self.fov_id, self.cell_id, getattr(self,'uid',None), _homolog,
+                            _g, self.fov_id, self.cell_id, 
+                            getattr(self,'uid',None), _homolog,
+                            sel_ind=getattr(_g, 'sel_ind',None), 
                             bit_2_channel=_bit_2_channel, codebook=self.codebook_df)
                             for _g in _groups]
                         _df = pd.DataFrame(_df, )
-                        print(_chr, _homolog, len(_df))
+                        #print(_chr, _homolog, len(_df))
                         # write
                         if self.verbose:
                             print(f"-- save tuples for :{_key}")
@@ -768,45 +772,16 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
                     else:
                         if self.verbose:
                             print(f"-- skip :{_key}")
-        with h5py.File(self.savefile, 'a') as _f:
-            # chr_2_zxys_list
-            if hasattr(self, 'chr_2_zxys_list'):
-                if self.verbose:
-                    print(f"- Save chr_2_zxys_list into file: {self.savefile}")
-                _grp = _f.require_group('chr_2_zxys_list')
-                for _chr, _zxys in self.chr_2_zxys_list.items():
-                    # delete existing if overwrite
-                    if _chr in _grp.keys() and _overwrite:
-                        if self.verbose:
-                            print(f"-- overwrite coordinates of chr:{_chr}")
-                        del(_grp[_chr])
-                    # write
-                    if _chr not in _grp.keys():
-                        _grp.create_dataset(_chr, data=_zxys)
-                        if self.verbose:
-                            print(f"-- save coordinates of chr:{_chr}")
-                    else:
-                        if self.verbose:
-                            print(f"-- skip chr:{_chr}")
-            # chr_2_chr_centers
-            if hasattr(self, 'chr_2_chr_centers'):
-                if self.verbose:
-                    print(f"- Save chr_2_chr_centers into file: {self.savefile}")
-                _grp = _f.require_group('chr_2_chr_centers')
-                for _chr, _zxys in self.chr_2_chr_centers.items():
-                    # delete existing if overwrite
-                    if _chr in _grp.keys() and _overwrite:
-                        if self.verbose:
-                            print(f"-- overwrite chr-center of chr:{_chr}")
-                        del(_grp[_chr])
-                    # write
-                    if _chr not in _grp.keys():
-                        _grp.create_dataset(_chr, data=_zxys)
-                        if self.verbose:
-                            print(f"-- save chr-center of chr:{_chr}")
-                    else:
-                        if self.verbose:
-                            print(f"-- skip chr:{_chr}")        
+        # save chr_2_indices_list
+        self.chr_2_indices_list = extract_group_indices(self.chr_2_assigned_tuple_list)
+        save_hdf5_dict(self.savefile, 'chr_2_indices_list', self.chr_2_indices_list,
+            _overwrite=_overwrite, _verbose=self.verbose)
+        # save chr_2_zxys_list
+        save_hdf5_dict(self.savefile, 'chr_2_zxys_list', self.chr_2_zxys_list,
+            _overwrite=_overwrite, _verbose=self.verbose)
+        # save chr_2_chr_centers
+        save_hdf5_dict(self.savefile, 'chr_2_chr_centers', self.chr_2_chr_centers,
+            _overwrite=_overwrite, _verbose=self.verbose)     
         return
 
     def _load_picked_results(self, _save_attr=True):
@@ -2074,6 +2049,21 @@ def summarize_score(spot_groups, weights=np.ones(5),
 
 
     return np.array(final_scores)
+
+def extract_group_indices(chr_2_assigned_tuple_list):
+    _chr_2_tuple_indices = {}
+    for _chr, _tuples_list in chr_2_assigned_tuple_list.items():
+        _chr_2_tuple_indices[_chr] = []
+        for _ihomolog, _tuples in enumerate(_tuples_list):
+            _homolog_indices = []
+            for _g in _tuples:
+                if _g is None:
+                    _homolog_indices.append(-1)
+                else:
+                    _homolog_indices.append(getattr(_g, 'sel_ind', -1))
+            _chr_2_tuple_indices[_chr].append(_homolog_indices)
+        _chr_2_tuple_indices[_chr] = np.array(_chr_2_tuple_indices[_chr], dtype=np.int32)
+    return _chr_2_tuple_indices
 
 def init_homolog_centers_BB(xyz_all,chr_all):
     """
