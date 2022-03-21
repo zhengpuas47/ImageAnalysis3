@@ -647,12 +647,10 @@ def align_image(
                 verbose=detailed_verbose,
             )
             _dft = _dft * -1 # beads center is the opposite as cross correlation
-        # append
+        # append 
         _drifts.append(_dft) 
         if verbose:
-            print(f"-- aligned image {_i} in {time.time()-_start_time:.3f}s.")
-            if detailed_verbose:
-                print(f"--- drift {_i}: {np.around(_dft, 2)}")
+            print(f"-- drift {_i}: {np.around(_dft, 2)} in {time.time()-_start_time:.3f}s.")
 
         # detect variance within existing drifts
         _mean_dft = np.nanmean(_drifts, axis=0)
@@ -722,13 +720,14 @@ def calculate_translation(reference_im:np.ndarray,
     else:
         _rot_target_im = target_im
     # calculate drift    
-    _drift = align_image(_rot_target_im,
-                         reference_im,
-                         precision_fold=10,
-                         use_autocorr=use_autocorr,
-                         verbose=verbose,
-                         #detailed_verbose=verbose,
-                         **alignment_kwargs,)
+    _drift, _drift_flag = align_image(
+        _rot_target_im,
+        reference_im,
+        precision_fold=10,
+        use_autocorr=use_autocorr,
+        verbose=verbose,
+        #detailed_verbose=verbose,
+        **alignment_kwargs,)
 
     if verbose:
         print(f"--- drift: {np.round(_drift,2)} pixels")
