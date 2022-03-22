@@ -53,7 +53,7 @@ def FovCell2Spots_2_DataFrame(cell_2_spots:dict,
                 # bit
                 _spot_info.append(_bit)
                 # channel
-                if hasattr(_spots, 'channels') and len(_spots.channels) == len(_spots):
+                if hasattr(_spots, 'channels') and _spots.channels != None and len(_spots.channels) == len(_spots):
                     _spot_info.append(_spots.channels[_ispot])
                 elif isinstance(bit_2_channel, dict) and _bit in bit_2_channel:
                     _spot_info.append(bit_2_channel[_bit])
