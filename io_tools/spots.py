@@ -80,7 +80,7 @@ def FovCell2Spots_2_DataFrame(cell_2_spots:dict,
 
 
 def SpotTuple_2_Dict(spot_tuple, 
-                     fov_id=None, cell_id=None, cell_uid=None, homolog=None,
+                     fov_id=None, cell_id=None, cell_uid=None, homolog=None, sel_ind=None,
                      bit_2_channel=None, codebook=None,
                      spot_infos=Spot3D_infos, pixel_infos=Pixel3D_infos,
                      ):
@@ -91,7 +91,8 @@ def SpotTuple_2_Dict(spot_tuple,
     _tuple_info_dict = {'fov_id':fov_id, 
                         'cell_id':cell_id, 
                         'uid':cell_uid,
-                        'homolog':homolog,}
+                        'homolog':homolog,
+                        'sel_index':sel_ind,}
     for _i, _spot in enumerate(spot_tuple.spots):
         _bit = spot_tuple.spots.bits[_i]
         if bit_2_channel is None:
@@ -170,6 +171,7 @@ def Dataframe_2_SpotGroups(decoder_group_df, spot_infos=Spot3D_infos, pixel_info
         _gp.cell_id = _grp_row.get('cell_id', None)
         _gp.uid = _grp_row.get('uid', None)
         _gp.homolog = _grp_row.get('homolog', None)
+        _gp.sel_ind = _grp_row.get('sel_index',None)
         # chr info
         _gp.chr = _grp_row.get('chr', None)
         _gp.chr_order = _grp_row.get('chr_order', None)
