@@ -3,6 +3,9 @@ import numpy as np
 import pandas as pd
 import re
 import copy
+import h5py
+from tqdm import tqdm
+from scipy.spatial import KDTree
 
 Axis3D_infos = ['z', 'x', 'y']
 Spot3D_infos = ['height', 'z', 'x', 'y', 'background', 'sigma_z', 'sigma_x', 'sigma_y', 'sin_t', 'sin_p', 'eps']
@@ -180,3 +183,152 @@ def Dataframe_2_SpotGroups(decoder_group_df, spot_infos=Spot3D_infos, pixel_info
         _spot_groups.append(_gp)
 
     return _spot_groups
+
+
+def load_preprocess_spots(
+    savefile:str, 
+    data_type:str, 
+    sel_bits:list=None,
+    pixel_sizes=default_pixel_sizes
+    ):
+    """Load spots from pre-processed output hdf5"""
+    _spots_list = []
+    with h5py.File(savefile, 'r') as _f:
+        # load pixel size
+        
+        if data_type in _f.keys():
+            _grp = _f[data_type]
+            # load infos
+            _ids = _grp['ids'][:]
+            # determine sel_bits if not given
+            if sel_bits is None:
+                sel_bits = _ids
+            # loop through sel_bits
+            for _bit in sel_bits:
+                _ind = list(_ids).index(_bit)
+                _spots = _grp['spots'][_ind]
+                _spots = _spots[_spots[:,0] > 0]
+                _channel = _grp['channels'][_ind].decode()
+                _spots_obj = Spots3D(_spots, bits=_bit, channels=_channel, pixel_sizes=pixel_sizes)
+                # append
+                _spots_list.append(_spots_obj)
+            return _spots_list, sel_bits
+        else:
+            return None, sel_bits
+
+
+def merge_Spots3DList(spots_list, pixel_sizes=default_pixel_sizes):
+    _combined_spots = np.concatenate(spots_list)
+    _combined_bits = np.concatenate([getattr(_spots, 'bits', [None]*len(_spots)) for _spots in spots_list])
+    _combined_channels = np.concatenate([getattr(_spots, 'channels', [None]*len(_spots)) for _spots in spots_list])
+    _combined_pixel_sizes = [getattr(_spots, 'pixel_sizes', pixel_sizes) for _spots in spots_list]
+    if len(np.unique(_combined_pixel_sizes, axis=0)) > 1:
+        raise ValueError(f"pixel sizes not consistent, exit")
+    else:
+        _pixel_sizes = np.unique(_combined_pixel_sizes, axis=0)[0]
+    # generate spots
+    return Spots3D(_combined_spots,
+                   bits=_combined_bits,
+                   channels=_combined_channels,
+                   pixel_sizes=_pixel_sizes,
+                  )
+
+def merge_RelabelSpots(
+    old_spots:Spots3D, 
+    new_spots:Spots3D,
+    search_radius=150,
+    pixel_sizes=default_pixel_sizes,
+    ):
+    """Merge two spots objects"""
+    _combined_bits = np.concatenate([old_spots.bits, new_spots.bits])
+    if hasattr(old_spots, 'channels') and hasattr(new_spots, 'channels') and old_spots.channels is not None:
+        _combined_channels = np.concatenate([old_spots.channels, new_spots.channels])
+    else:
+        _combined_channels = None
+    # generate combined spots
+    _combined_spots = Spots3D(np.concatenate([old_spots,new_spots]), 
+                              bits=_combined_bits, channels=_combined_channels,
+                              pixel_sizes=pixel_sizes)
+    # create flags to keep
+    _spot_flags = np.ones(len(_combined_spots), dtype=bool)
+    # create kdtree to query neighbors
+    _tree = KDTree(_combined_spots.to_positions())
+    # loop through spots from highest intensities
+    for _spot_ind in np.argsort(_combined_spots.to_intensities())[::-1]:
+        _sel_position = _combined_spots.to_positions()[_spot_ind]
+        # search neighbors 
+        _nb_spot_inds = _tree.query_ball_point(_sel_position,search_radius)
+        _nb_spot_inds = np.setdiff1d(_nb_spot_inds, [_spot_ind])
+        # don't use these spots later
+        if len(_nb_spot_inds) > 0:
+            _spot_flags[_nb_spot_inds] = False
+    
+    # return kept_spots
+    _kept_spots = _combined_spots[_spot_flags]
+    return _kept_spots
+
+    
+def FovSpots3D_2_DataFrame(
+    spots:Spots3D,
+    fov_id:int, 
+    cell_ids:list,
+    fovcell_2_uid:dict={},
+    pixel_sizes=default_pixel_sizes,
+    spot_info_names=Spot3D_infos,
+    pixel_info_names=Pixel3D_infos,
+    ignore_spots_out_cell=True,
+    ):
+    # Define two sub-function for names and infos
+    def _assemble_df_names(    
+        spot_info_names=Spot3D_infos,
+        pixel_info_names=Pixel3D_infos,
+    ):
+        # assemble columns
+        _columns = ['fov_id', 'cell_id',]
+        # add spot info
+        _columns.extend(spot_info_names)
+        # add bits
+        _columns.extend(['bit', 'channel', 'uid'])
+        # add pixel
+        _columns.extend(pixel_info_names)
+        return _columns
+
+    def _assemble_spot_info(
+        _fov_id, _cell_id,
+        _spot, 
+        _bit, _channel, _uid,
+        _pixel_sizes,
+    ):
+        _spot_info = [_fov_id, _cell_id]
+        _spot_info.extend(list(_spot))
+        _spot_info.extend([_bit, _channel, _uid])
+        _spot_info.extend(list(_pixel_sizes))
+        return _spot_info
+    _columns = _assemble_df_names(spot_info_names=spot_info_names,
+                                  pixel_info_names=pixel_info_names)
+    _infos = []
+    for _i, _spot in tqdm(enumerate(spots)):
+        # cell_id
+        _cell_id = cell_ids[_i]
+        if ignore_spots_out_cell and \
+            (_cell_id is None or _cell_id < 0 or np.isnan(_cell_id)):
+            continue
+        # uid
+        _uid = fovcell_2_uid.get((fov_id,_cell_id), None)
+        # bit
+        _bit = getattr(_spot, 'bits', None)
+        # channel
+        _channel = getattr(_spot, 'channels', None)
+        # generate spot_info
+        _info = _assemble_spot_info(
+            fov_id, _cell_id, 
+            _spot,
+            _bit, _channel, _uid,
+            pixel_sizes,
+        )
+        #print(_info)
+        # append
+        _infos.append(_info)
+        
+    # convert into DataFrame
+    return pd.DataFrame(_infos, columns=_columns)
