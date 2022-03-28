@@ -139,6 +139,8 @@ class Spots3D(np.ndarray):
         else:
             obj.bits = bits
         # channels
+        if isinstance(channels, bytes):
+            channels = channels.decode()
         if isinstance(channels, (int, np.int32)):
             obj.channels = np.ones(len(obj), dtype=np.int32) * int(channels)
         elif channels is not None and isinstance(channels, str):
@@ -164,14 +166,14 @@ class Spots3D(np.ndarray):
 
     def __getitem__(self, key):
         """Modified getitem to allow slicing of bits as well"""
-        #print(f" getitem {key}, {type(key)}")
+        #print(f" getitem {key}, {type(key)}", self.shape)
         new_obj = super().__getitem__(key)
         # if slice, slice bits as well
-        if hasattr(self, 'bits') and getattr(self, 'bits') is not None:
-            if isinstance(key, slice) or isinstance(key, np.ndarray):
+        if hasattr(self, 'bits') and getattr(self, 'bits') is not None and len(np.shape(getattr(self, 'bits')))==1:
+            if isinstance(key, slice) or isinstance(key, np.ndarray) or isinstance(key, int):
                 setattr(new_obj, 'bits', getattr(self, 'bits')[key] )
-        if hasattr(self, 'channels') and getattr(self, 'channels') is not None:
-            if isinstance(key, slice) or isinstance(key, np.ndarray):
+        if hasattr(self, 'channels') and getattr(self, 'channels') is not None and len(np.shape(getattr(self, 'channels')))==1:
+            if isinstance(key, slice) or isinstance(key, np.ndarray) or isinstance(key, int):
                 setattr(new_obj, 'channels', getattr(self, 'channels')[key] )
         #print(new_obj, type(new_obj))
         return new_obj

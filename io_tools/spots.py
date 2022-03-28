@@ -2,7 +2,6 @@ import os, glob, sys, time
 import numpy as np 
 import pandas as pd
 import re
-import copy
 import h5py
 from tqdm import tqdm
 from scipy.spatial import KDTree
@@ -14,11 +13,12 @@ Pixel3D_infos = [f"pixel_{_ax}" for _ax in Axis3D_infos]
 from ..classes import default_pixel_sizes
 from ..classes.preprocess import Spots3D, SpotTuple
 
-def CellSpotsDf_2_CandSpots(_cell_spots_df, 
+def CellSpotsDf_2_CandSpots(
+    _cell_spots_df, 
     spot_infos=Spot3D_infos, 
-    pixel_info_names=Pixel3D_infos):
+    pixel_info_names=Pixel3D_infos
+    ):
     """Convert spot_df of a cell into cand_spot format"""
-    from ..classes.preprocess import Spots3D
     return Spots3D(_cell_spots_df[spot_infos], 
                    bits=_cell_spots_df['bit'].values,
                    channels=_cell_spots_df['channel'].values,
@@ -184,7 +184,6 @@ def Dataframe_2_SpotGroups(decoder_group_df, spot_infos=Spot3D_infos, pixel_info
 
     return _spot_groups
 
-
 def load_preprocess_spots(
     savefile:str, 
     data_type:str, 
@@ -217,7 +216,11 @@ def load_preprocess_spots(
             return None, sel_bits
 
 
-def merge_Spots3DList(spots_list, pixel_sizes=default_pixel_sizes):
+def merge_Spots3DList(
+    spots_list, 
+    pixel_sizes=default_pixel_sizes
+    ):
+    """Merge a list of Spots3D objects"""
     _combined_spots = np.concatenate(spots_list)
     _combined_bits = np.concatenate([getattr(_spots, 'bits', [None]*len(_spots)) for _spots in spots_list])
     _combined_channels = np.concatenate([getattr(_spots, 'channels', [None]*len(_spots)) for _spots in spots_list])
@@ -267,7 +270,6 @@ def merge_RelabelSpots(
     _kept_spots = _combined_spots[_spot_flags]
     return _kept_spots
 
-    
 def FovSpots3D_2_DataFrame(
     spots:Spots3D,
     fov_id:int, 
@@ -280,8 +282,8 @@ def FovSpots3D_2_DataFrame(
     ):
     # Define two sub-function for names and infos
     def _assemble_df_names(    
-        spot_info_names=Spot3D_infos,
-        pixel_info_names=Pixel3D_infos,
+        spot_info_names=spot_info_names,
+        pixel_info_names=pixel_info_names,
     ):
         # assemble columns
         _columns = ['fov_id', 'cell_id',]
@@ -304,6 +306,7 @@ def FovSpots3D_2_DataFrame(
         _spot_info.extend([_bit, _channel, _uid])
         _spot_info.extend(list(_pixel_sizes))
         return _spot_info
+    # apply _assemble_df_names
     _columns = _assemble_df_names(spot_info_names=spot_info_names,
                                   pixel_info_names=pixel_info_names)
     _infos = []

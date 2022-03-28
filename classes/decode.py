@@ -72,7 +72,7 @@ class Merfish_Decoder():
             self._load_basic()
         # define bits
         if bits is None:
-            self._load_codebook()
+            self.bits = np.unique(cand_spots_df['bit'].values)
         else:
             self.bits = np.array(bits, dtype=np.int32)
         # load codebook if automatic
@@ -172,7 +172,6 @@ class Merfish_Decoder():
             self.ids = codebook_df['id'].values
         # select columns with info
         self.bit_names = [_c for _c in codebook_df.columns if _c.lower() not in ['id','name','chr','chr_order']]
-        self.bits = np.arange(1, len(self.bit_names)+1)
         self.codebook_matrix = codebook_df[self.bit_names].values
 
     def _find_valid_pairs_in_codebook(self):
@@ -1145,7 +1144,8 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
                     print(f"-- seeding chr:{_chr_name} with {len(_chr_region_ids)} regions with {len(_chr_seeding_groups)} spot_groups")
             if len(_chr_seeding_groups) < min_cand_number * num_homologs:
                 continue
-
+            # get num of homologs
+            _num_homologs = self.chr_2_copy_num[_chr_name]
             # run initialize decoding
             init_zxys_list, init_homolog_labels, init_homolog_centers =\
                 DNA_Merfish_Decoder.initial_assign_homologs_by_chr(_chr_seeding_groups, _chr_region_ids, num_homologs)
@@ -1658,7 +1658,7 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
         return homolog_zxys_list, new_chr_homolog_flags, new_homolog_centers
 
 
-def batch_decode_DNA(cand_spots_df, codebook_df, decoder_filename,
+def batch_decode_DNA(cand_spots_df, codebook_df, decoder_filename, bits,
                      normalize_intensity=False, refine_chromatic=True, id_2_channel=None,
                      pixel_sizes=default_pixel_sizes, num_homologs=2, keep_ratio_th=0.5,
                      pair_search_radius=200,
@@ -1686,55 +1686,56 @@ def batch_decode_DNA(cand_spots_df, codebook_df, decoder_filename,
         print(os.path.dirname(decoder_filename))
         os.makedirs(os.path.dirname(decoder_filename))
 
-    try:
-        # create decoder class
-        decoder = DNA_Merfish_Decoder(
-            codebook_df, cand_spots_df,
-            pixel_sizes=pixel_sizes, 
-            savefile=decoder_filename, 
-            load_from_file=load_from_file,
-            inner_dist_factor=inner_dist_factor,
-            intensity_factor=intensity_factor,
-            ct_dist_factor=ct_dist_factor,
-            local_dist_factor=local_dist_factor,
-            valid_score_th=valid_score_th,
-            metric_weights=[1,1,3,2,2],
-            )
-        # assemble spot_groups
-        decoder.prepare_spot_tuples(pair_search_radius=pair_search_radius, 
-            force_search_for_region=False,
-            overwrite=overwrite)
-        # save 
-        decoder._save_basic()
-        # calculate scores
-        self_scores = decoder.calculate_self_scores(make_plots=make_plots, overwrite=True)
-        # spot picking
-        chr_2_assigned_tuple_list, chr_2_zxys_list, chr_2_chr_centers= \
-            decoder.finish_homolog_assignment(plot_stats=make_plots, overwrite=overwrite, 
-            verbose=verbose)
-        # save picked results
-        decoder._save_picked_results(_overwrite=overwrite)
-        ## Plot
-        # distmap
-        distmap_filename = decoder_filename.replace('Decoder.hdf5', 'AllChrDistmap.png')
-        _zxys_list, _fig_labels, _fig_label_bds = decoder.summarize_zxys_all_chromosomes(
-            chr_2_zxys_list, 
-            decoder.codebook_df,
-            keep_valid=True)
-        GenomeWide_DistMap(_zxys_list, _fig_labels, _fig_label_bds,
-            save_filename=distmap_filename, show_image=False, verbose=verbose)
-        # stats
-        SpotStat_filename = decoder_filename.replace('Decoder.hdf5', 'DecodeSpotStats.png')
-        plot_spot_stats(decoder.spot_groups, decoder.spot_usage, 
-            show_image=False, save_filename=SpotStat_filename, verbose=verbose)
+    #try:
+    # create decoder class
+    decoder = DNA_Merfish_Decoder(
+        codebook_df, cand_spots_df,
+        bits=bits, 
+        pixel_sizes=pixel_sizes, 
+        savefile=decoder_filename, 
+        load_from_file=load_from_file,
+        inner_dist_factor=inner_dist_factor,
+        intensity_factor=intensity_factor,
+        ct_dist_factor=ct_dist_factor,
+        local_dist_factor=local_dist_factor,
+        valid_score_th=valid_score_th,
+        metric_weights=[1,1,3,2,2],
+        )
+    # assemble spot_groups
+    decoder.prepare_spot_tuples(pair_search_radius=pair_search_radius, 
+        force_search_for_region=False,
+        overwrite=overwrite)
+    # save 
+    decoder._save_basic()
+    # calculate scores
+    self_scores = decoder.calculate_self_scores(make_plots=make_plots, overwrite=True)
+    # spot picking
+    chr_2_assigned_tuple_list, chr_2_zxys_list, chr_2_chr_centers= \
+        decoder.finish_homolog_assignment(plot_stats=make_plots, overwrite=overwrite, 
+        verbose=verbose)
+    # save picked results
+    decoder._save_picked_results(_overwrite=overwrite)
+    ## Plot
+    # distmap
+    distmap_filename = decoder_filename.replace('Decoder.hdf5', 'AllChrDistmap.png')
+    _zxys_list, _fig_labels, _fig_label_bds = decoder.summarize_zxys_all_chromosomes(
+        chr_2_zxys_list, 
+        decoder.codebook_df,
+        keep_valid=True)
+    GenomeWide_DistMap(_zxys_list, _fig_labels, _fig_label_bds,
+        save_filename=distmap_filename, show_image=False, verbose=verbose)
+    # stats
+    SpotStat_filename = decoder_filename.replace('Decoder.hdf5', 'DecodeSpotStats.png')
+    plot_spot_stats(decoder.spot_groups, decoder.spot_usage, 
+        show_image=False, save_filename=SpotStat_filename, verbose=verbose)
 
-        if return_decoder:
-            return decoder
-        else:
-            return None
-    except:
-        print(f"failed for decoding: {decoder_filename}")
+    if return_decoder:
+        return decoder
+    else:
         return None
+    #except:
+    #    print(f"failed for decoding: {decoder_filename}")
+    #    return None
 
 def batch_load_attr(decoder_savefile, attr):
     """Batch load one attribute from decoder file"""    

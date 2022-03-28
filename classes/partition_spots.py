@@ -3,11 +3,13 @@ import os
 import time
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 #import multiprocessing as mp
 # required internal functions
-from .preprocess import Spots3D
 from ..figure_tools.plot_partition import plot_cell_spot_counts
-from ..io_tools.spots import FovCell2Spots_2_DataFrame
+from ..io_tools.spots import FovCell2Spots_2_DataFrame,FovSpots3D_2_DataFrame
+from .preprocess import Spots3D
+
 #from ..io_tools.crop import generate_neighboring_crop
 import copy
 
@@ -50,6 +52,7 @@ class Spots_Partition():
             query_label='Gene', 
             save=True,
             overwrite=False, verbose=True):
+        from .preprocess import Spots3D
         if os.path.exists(self.save_filename) and not overwrite:
             print(f"-- directly load from file: {self.save_filename}")
             _count_df = pd.read_csv(self.save_filename, header=0)
@@ -121,7 +124,7 @@ class Spots_Partition():
         _signals = find_coordinate_intensities(segmentation_masks, spots, 
             search_radius=search_radius)
         # stats
-        for _spot_signal in _signals.transpose():
+        for _spot_signal in tqdm(_signals):
             # get unique markers
             _mks, _counts = np.unique(_spot_signal, return_counts=True)
             # filter counts and mks
@@ -148,31 +151,13 @@ class Spots_Partition():
         _signals = find_coordinate_intensities(dapi_im, spots, 
             search_radius=search_radius)
         # stats
-        _dapi_stats = np.max(_signals, axis=0)
+        _dapi_stats = np.max(_signals, axis=1)
 
         return _dapi_stats
 
     @staticmethod
     def read_gene_list(readout_filename):
         return pd.read_csv(readout_filename, header=0, )
-
-
-def batch_partition_DNA_spots(_spots, 
-    segmentation_labels, dapi_image, 
-    search_radius=5, dapi_th=2000):
-    # partition by segmentation label
-    _labels = Spots_Partition.spots_to_labels(segmentation_labels, _spots, search_radius=search_radius)
-    # record neighboring DAPI
-    _signals = Spots_Partition.spots_to_DAPI(dapi_image, _spots, search_radius=search_radius)
-    # define partitioned dict
-    _cell_2_spots = {}
-    for _l in np.unique(_labels):
-        if _l > 0:
-            _cell_2_spots[_l] = _spots[(_labels==_l) * (_signals > dapi_th)]
-            if hasattr(_spots, 'bits'):
-                _cell_2_spots[_l].bits = _spots.bits[(_labels==_l) * (_signals > dapi_th)]
-
-    return _cell_2_spots, _labels, _signals
 
 
 def Merge_GeneCounts(gene_counts_list,
@@ -239,14 +224,14 @@ def find_coordinate_intensities(image:np.ndarray,
     _local_coords = np.stack(_local_coords).transpose((2, 1, 3, 0)).reshape(-1,3)
     # modify_coords
     all_ints = []
-    for _lc in _local_coords:
+    for _lc in tqdm(_local_coords):
         _modified_coords = _coords + _lc[:,np.newaxis]
         for _ic, _size in enumerate(image_size):
             _modified_coords[_ic][_modified_coords[_ic] < 0] = 0
             _modified_coords[_ic][_modified_coords[_ic] >= _size] = _size-1
         # get intensity
         all_ints.append(image[tuple(_modified_coords)])
-    all_ints = np.array(all_ints)
+    all_ints = np.array(all_ints).transpose()
     return all_ints
 
 def batch_partition_smFISH_spots(        
@@ -282,7 +267,7 @@ def _batch_partition_spots(
     verbose:bool=True,
     ):
     """Partition spots with given segmentation label in batch"""
-    if os.path.isfile(cand_spots_savefile):
+    if os.path.isfile(cand_spots_savefile) and not overwrite:
         if verbose:
             print(f"- Directly load cand_spots DataFrame for fov:{fov_id} from: {cand_spots_savefile}")
         _spots_df = pd.read_csv(cand_spots_savefile)
@@ -333,3 +318,67 @@ def _batch_partition_spots(
             count_ax = plot_cell_spot_counts(_cell_spots_counts, save=True, save_filename=SpotCount_SaveFile)
         
     return _spots_df
+
+
+
+def batch_partition_DNA_spots(
+    fov_id:int, 
+    spots:np.ndarray, spot_bits:np.ndarray, spot_channels:np.ndarray,
+    seg_label:np.ndarray, fovcell_2_uid:dict={},
+    search_radius=3, pixel_sizes=default_pixel_sizes,
+    ignore_spots_out_cell=True,
+    save=True, save_filename=None,
+    make_plot=True, expected_count=60,
+    overwite=False,
+    verbose=True,
+    ):
+    """Batch partition DNA spots"""
+    if os.path.isfile(save_filename) and not overwite:
+        if verbose:
+            print(f"- Directly load cand_spots DataFrame for fov:{fov_id} from: {save_filename}")
+        _fov_spots_df = pd.read_csv(save_filename)
+        
+    else:
+        if verbose:
+            print(f"- Partition cand_spots for fov:{fov_id}")
+            _start_time = time.time()
+        # Merge spots list into all_spots
+        _all_spots = Spots3D(spots, bits=spot_bits, channels=spot_channels, pixel_sizes=pixel_sizes)
+        # Search for segmentation label
+        _labels = Spots_Partition.spots_to_labels(
+            seg_label, _all_spots, 
+            search_radius=search_radius, 
+            verbose=verbose,
+        )
+        # convert into DataFrame
+        _fov_spots_df = FovSpots3D_2_DataFrame(
+            _all_spots, fov_id, cell_ids=_labels, 
+            fovcell_2_uid=fovcell_2_uid, pixel_sizes=pixel_sizes,
+            ignore_spots_out_cell=ignore_spots_out_cell,
+        )
+        # save
+        if save and save_filename is not None:
+            if verbose:
+                print(f"- Save {len(_fov_spots_df)} spots to file: {save_filename}")
+            _fov_spots_df.to_csv(save_filename, index=False)
+        else:
+            if verbose:
+                print(f"- Not saving DataFrame into file, return it.")
+        # make plot qc
+        if make_plot:
+            cell_spot_counts = []
+            all_bits = np.unique(_fov_spots_df['bit'])
+            for _cell in np.unique(_fov_spots_df['cell_id']):
+                _cell_spots_df = _fov_spots_df[_fov_spots_df['cell_id']==_cell]
+                _spot_counts = [np.sum(_cell_spots_df['bit']==_bit) for _bit in all_bits]
+                cell_spot_counts.append(_spot_counts)
+            cell_spot_counts = np.array(cell_spot_counts)
+            # save image
+            SpotCount_SaveFile = os.path.join(os.path.dirname(save_filename), 'Figures', f'Fov-{fov_id}_SpotCountPerCell.png')
+            if not os.path.exists(os.path.dirname(SpotCount_SaveFile)):
+                os.makedirs(os.path.dirname(SpotCount_SaveFile))
+            count_ax = plot_cell_spot_counts(cell_spot_counts, expected_count=expected_count, save_filename=SpotCount_SaveFile)
+        if verbose:
+            print(f"-- finish partition in {time.time()-_start_time:.3f}s. ")
+    
+    return _fov_spots_df
