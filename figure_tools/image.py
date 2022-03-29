@@ -10,7 +10,7 @@ import os, glob, sys, time
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from matplotlib.colors import ListedColormap,LinearSegmentedColormap
 from mpl_toolkits.mplot3d import Axes3D
-from skimage.measure import marching_cubes_lewiner # 3d cloud calculation
+from skimage.measure import marching_cubes # 3d cloud calculation
 
 # load common parameters
 from .. import visual_tools
@@ -451,7 +451,7 @@ def visualize_chromosome_3d_cloud(_spots, comp_dict, density_dict=None,
         print(f"-- plotting thresholded density, threshold={cloud_thres}")
     for _c, _d in _den.items():
         # find 3d surface
-        _verts, _faces, _normals, _values = marching_cubes_lewiner(_d, level=cloud_thres)
+        _verts, _faces, _normals, _values = marching_cubes(_d, level=cloud_thres)
         # plot
         _sf = ax3d.plot_trisurf(_verts[:, 1], _verts[:,2], _faces, _verts[:, 0], # go as x, y, face, z
                                 color=color_dict[_c], lw=1, alpha=cloud_alpha, shade=False)
