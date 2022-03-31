@@ -1148,7 +1148,7 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
             _num_homologs = self.chr_2_copy_num[_chr_name]
             # run initialize decoding
             init_zxys_list, init_homolog_labels, init_homolog_centers =\
-                DNA_Merfish_Decoder.initial_assign_homologs_by_chr(_chr_seeding_groups, _chr_region_ids, num_homologs)
+                DNA_Merfish_Decoder.initial_assign_homologs_by_chr(_chr_seeding_groups, _chr_region_ids, _num_homologs)
             # save info
             chrs_2_init_centers[_chr_name] = init_homolog_centers
             #chrs_2_init_zxys_list[_chr_name] = init_zxys_list
@@ -1538,6 +1538,8 @@ class DNA_Merfish_Decoder(Merfish_Decoder):
                                     _verbose=True,
                                     ):
         from sklearn.cluster import KMeans
+        if _verbose:
+            print(f"-- init {_num_homologs} homologs for chr:{_chr_tuples[0].chr}")
         # get coordinates
         _chr_coords = np.array([_g.centroid_spot().to_positions()[0] for _g in _chr_tuples])
         # K-means
