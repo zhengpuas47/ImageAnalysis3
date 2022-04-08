@@ -9,11 +9,7 @@ from ..spot_tools.fitting import fit_fov_image, get_centers
 
 Channel_2_SeedTh = {
     '750':700,
-<<<<<<< HEAD
     '647':750,
-=======
-    '647':800,
->>>>>>> ed0e0065531619a817323baf03b27effb58ef6c5
     '561':500,
 }
 
