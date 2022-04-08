@@ -48,7 +48,7 @@ def generate_chromatic_function(chromatic_const_file, drift=None):
         _info_dict = pickle.load(open(chromatic_const_file, 'rb'))
     elif chromatic_const_file is None:
         if drift is None:
-            print('empty_function')
+            #print('empty_function')
             def _shift_function(_coords, _drift=drift): 
                 return _coords
             return _shift_function
