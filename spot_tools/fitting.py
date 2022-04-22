@@ -181,7 +181,7 @@ def fit_fov_image(im, channel, seeds=None,
     """Function to merge seeding and fitting for the whole fov image"""
 
     ## check inputs
-    _th_seed = float(th_seed)
+    th_seed = float(th_seed)
     if verbose:
         print(f"-- start fitting spots in channel:{channel}, ", end='')
         _fit_time = time.time()
