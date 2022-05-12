@@ -369,7 +369,8 @@ class Align_Segmentation():
         rna_feature_file:str, 
         rna_dapi_file:str, 
         dna_save_file:str,
-        microscope_file:str,
+        rna_microscope_file:str,
+        dna_microscope_file:str,
         rotation_mat:np.ndarray, #
         parameters:dict={},
         overwrite:bool=False,
@@ -379,7 +380,8 @@ class Align_Segmentation():
         self.rna_feature_file = rna_feature_file
         self.rna_dapi_file = rna_dapi_file
         self.dna_save_file = dna_save_file
-        self.microscope_file = microscope_file
+        self.rna_microscope_file = rna_microscope_file
+        self.dna_microscope_file = dna_microscope_file
         self.rotation_mat = rotation_mat
         # params
         self.parameters = {_k:_v for _k,_v in default_alignment_params.items()}
@@ -409,23 +411,27 @@ class Align_Segmentation():
         return rna_mask, _z_coords, _fovcell_2_uid
 
     @staticmethod
-    def _load_dna_info(dna_save_file:str):
+    def _load_dna_info(dna_save_file:str, microscpe_params:dict):
         # Load DAPI
         with h5py.File(dna_save_file, "r", libver='latest') as _f:
             _fov_id = _f.attrs['fov_id']
             _fov_name = _f.attrs['fov_name']
             # load DAPI
             if 'dapi_im' in _f.attrs.keys():
-                dapi_im = _f.attrs['dapi_im']
+                _dapi_im = _f.attrs['dapi_im']
+                # translate DNA
+                _dapi_im = Align_Segmentation._correct_image3D_by_microscope_param(_dapi_im, microscpe_params) # transpose and flip
             else:
-                dapi_im = None
-        return dapi_im, _fov_id, _fov_name
+                _dapi_im = None
+        return _dapi_im, _fov_id, _fov_name
     @staticmethod
-    def _load_rna_dapi(rna_dapi_file:str):
-        return np.load(rna_dapi_file)
+    def _load_rna_dapi(rna_dapi_file:str, microscpe_params:dict):
+        _rna_dapi = np.load(rna_dapi_file)
+        _rna_dapi = Align_Segmentation._correct_image3D_by_microscope_param(_rna_dapi, microscpe_params) # transpose and flip
+        return _rna_dapi
     @staticmethod
-    def _read_microscope_json(microscope_file:str,):
-        return json.load(open(microscope_file, 'r'))
+    def _read_microscope_json(_microscope_file:str,):
+        return json.load(open(_microscope_file, 'r'))
 
     @staticmethod
     def _correct_image3D_by_microscope_param(image3D:np.ndarray, microscope_params:dict):
@@ -442,17 +448,22 @@ class Align_Segmentation():
 
     def _generate_dna_mask(self, target_dna_Zcoords=default_dna_Zcoords, save_dtype=np.uint16):
         # process microscope.json
-        _mparam = self._read_microscope_json(self.microscope_file)
+        _rna_mparam = self._read_microscope_json(self.rna_microscope_file)
+        _dna_mparam = self._read_microscope_json(self.dna_microscope_file)
         # load RNA
-        _rna_mask, _rna_Zcoords, _fovcell_2_uid = self._load_rna_feature(self.rna_feature_file, _mparam)
-        _rna_dapi = self._load_rna_dapi(self.rna_dapi_file)
+        _rna_mask, _rna_Zcoords, _fovcell_2_uid = self._load_rna_feature(self.rna_feature_file, _rna_mparam)
+        _rna_dapi = self._load_rna_dapi(self.rna_dapi_file, _rna_mparam)
         # generate full
         _full_rna_mask = interploate_z_masks(_rna_mask, _rna_Zcoords, 
                                              target_dna_Zcoords, verbose=self.verbose)
         # load DNA
-        _dna_dapi, _fov_id, _fov_name = self._load_dna_info(self.dna_save_file)
+        _dna_dapi, _fov_id, _fov_name = self._load_dna_info(self.dna_save_file, _dna_mparam)
+        # decide rotation matrix
+        if _dna_mparam.get('transpose', True):
+            _dna_rot_mat = self.rotation_mat.transpose()
+            
         # translate
-        _dna_mask, _rot_rna_dapi = translate_segmentation(_rna_dapi, _dna_dapi, self.rotation_mat, 
+        _dna_mask, _rot_rna_dapi = translate_segmentation(_rna_dapi, _dna_dapi, _dna_rot_mat, 
                                                          label_before=_full_rna_mask, 
                                                          return_new_dapi=True, verbose=self.verbose)
         # Do dialation
@@ -616,7 +627,7 @@ def interploate_z_masks(z_masks,
 def _batch_align_segmentation(
     _fov_id, target_dna_Zcoords,
     rna_feature_file,rna_dapi_file,
-    dna_save_file,microscope_file,
+    dna_save_file,rna_microscope_file,dna_microscope_file,
     rotation_mat, 
     segmentation_save_file, save=True, 
     save_file_lock=None,
@@ -634,7 +645,8 @@ def _batch_align_segmentation(
         rna_feature_file=rna_feature_file, 
         rna_dapi_file=rna_dapi_file,
         dna_save_file=dna_save_file,
-        microscope_file=microscope_file, 
+        rna_microscope_file=rna_microscope_file, 
+        dna_microscope_file=dna_microscope_file,
         rotation_mat=rotation_mat,
         parameters=align_parameters,
         overwrite=overwrite, debug=debug, verbose=verbose,
