@@ -571,13 +571,19 @@ def translate_segmentation(dapi_before, dapi_after, before_to_after_rotation,
 
 
 # generate bounding box
-def segmentation_mask_2_bounding_box(mask, cell_id=None):
+def segmentation_mask_2_bounding_box(mask, cell_id=None, extend_pixel=1):
     from ..classes.preprocess import ImageCrop_3d
+    if cell_id is not None and (mask==cell_id).any():
+        _mask = (mask==cell_id)
+    else:
+        _mask = mask
+    extend_pixel = int(extend_pixel)
     _crop = []
-    for _i, _sz in enumerate(mask.shape):
-        _inds = np.where(np.max(mask, axis=tuple(np.setdiff1d(np.arange(len(mask.shape)), _i)) ) )[0]
-        _crop.append([np.min(_inds), np.max(_inds)])
-    _crop = ImageCrop_3d(_crop, mask.shape)
+    for _i, _sz in enumerate(_mask.shape):
+        _inds = np.where(np.max(_mask, axis=tuple(np.setdiff1d(np.arange(len(_mask.shape)), _i)) ) )[0]
+        _crop.append([max(np.min(_inds)-extend_pixel, 0), 
+                      min(np.max(_inds)+1+extend_pixel, _sz)])
+    _crop = ImageCrop_3d(_crop, _mask.shape)
     return _crop
 
 # interpolate matrices

@@ -124,7 +124,7 @@ class Spots_Partition():
         _signals = find_coordinate_intensities(segmentation_masks, spots, 
             search_radius=search_radius)
         # stats
-        for _spot_signal in tqdm(_signals):
+        for _spot_signal in _signals:
             # get unique markers
             _mks, _counts = np.unique(_spot_signal, return_counts=True)
             # filter counts and mks
@@ -224,7 +224,7 @@ def find_coordinate_intensities(image:np.ndarray,
     _local_coords = np.stack(_local_coords).transpose((2, 1, 3, 0)).reshape(-1,3)
     # modify_coords
     all_ints = []
-    for _lc in tqdm(_local_coords):
+    for _lc in _local_coords:
         _modified_coords = _coords + _lc[:,np.newaxis]
         for _ic, _size in enumerate(image_size):
             _modified_coords[_ic][_modified_coords[_ic] < 0] = 0

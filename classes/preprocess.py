@@ -1,7 +1,7 @@
 from .. import _image_size
 import numpy as np
 from scipy.spatial.distance import cdist, pdist
-
+from scipy.ndimage.interpolation import map_coordinates
 # default info for spots
 from ..spot_tools import _3d_infos, _3d_spot_infos, _spot_coord_inds
 
@@ -19,7 +19,9 @@ class ImageCrop():
             self.array[:,1] = np.array(single_im_size)
         else:
             self.update(crop_array)
-    
+        if len(single_im_size) == ndim:
+            self.image_sizes = np.array(single_im_size, dtype=np.int32)
+        
     def update(self, 
                crop_array, 
                ):
@@ -107,7 +109,23 @@ class ImageCrop_3d(ImageCrop):
         else:
             return ImageCrop_3d(_returned_crop.array)
 
-
+    def translate_drift(self, drift=None):
+        if drift is None:
+            _drift = np.zeros(self.ndim, dtype=np.int32)
+        else:
+            _drift = np.round(drift).astype(np.int32)
+        _new_box = []
+        for _limits, _d, _sz in zip(self.array, _drift, self.image_sizes):
+            _new_limits = [
+                max(0, _limits[0]-_d),
+                min(_sz, _limits[1]-_d),
+            ]
+            _new_box.append(np.array(_new_limits, dtype=np.int32))
+        _new_box = np.array(_new_box)
+        # generate new crop
+        _new_crop = ImageCrop_3d(_new_box, self.image_sizes)
+        #print(_drift, _new_box)
+        return _new_crop
 
 class Spots3D(np.ndarray):
     """Class for fitted spots in 3D"""
@@ -195,7 +213,11 @@ class Spots3D(np.ndarray):
             setattr(self, 'bits', getattr(obj, 'bits', None))
             setattr(self, 'channels', getattr(obj, 'channels', None))
             setattr(self, 'pixel_sizes', getattr(obj, 'pixel_sizes', None))
-
+            setattr(self, 'intensity_index', getattr(obj, 'intensity_index', None))
+            setattr(self, 'coordinate_indices', getattr(obj, 'coordinate_indices', None))
+            setattr(self, '_3d_infos', getattr(obj, '_3d_infos', None))
+            setattr(self, '_3d_spot_infos', getattr(obj, '_3d_spot_infos', None))
+            setattr(self, '_spot_coord_inds', getattr(obj, '_spot_coord_inds', None))
         #print(f"**finalizing, {obj}, {type(obj)}")
         return obj
 
@@ -218,7 +240,6 @@ class Spots3D(np.ndarray):
         """ """
         _intensity_index = getattr(self, 'intensity_index', 0 )
         return np.array(self[:,_intensity_index])
-
 
 # scoring spot Tuple
 class SpotTuple():
@@ -299,6 +320,7 @@ import re
 import os
 import xml.etree.ElementTree as ET
 import time
+import h5py
 
 class DaxProcesser():
     """Major image processing class for 3D image in DNA-MERFISH,
@@ -547,7 +569,6 @@ class DaxProcesser():
         correction_pf=None, 
         correction_folder=None,
         ref_channel=default_ref_channel,
-        rescale=True,
         save_attrs=True,
         ):
         """Generate chromatic_abbrevation functions for each channel"""
@@ -679,27 +700,103 @@ class DaxProcesser():
             setattr(self, 'drift', _drift)
             setattr(self, 'drift_flag', _drift_flag)
         return _drift, _drift_flag
-        
-    def _determine_channels(self, 
-                            correction_channels, 
-                            drift_channel,
-                            ):
-        # corrections
-        _sel_channels = []
-        for _ch in correction_channels:
-            if str(_ch) in self.channels:
-                _sel_channels.append(str(_ch))
-        # drift
-        if drift_channel is None:
-            pass
-        elif str(drift_channel) in self.channels:
-            _sel_channels.append(str(drift_channel))
+    # warp image
+    def warp_image(self,
+                drift=None,
+                correction_channels=None,
+                corr_chromatic=True, chromatic_pf=None,
+                correction_folder=None,
+                ref_channel=default_ref_channel,
+                save_attrs=True,
+                ):
+        """Warp image in 3D, this step must give a drift"""
+        if drift is not None:
+            _drift = np.array(drift)
+        elif hasattr(self, 'drift'):
+            _drift = getattr(self, 'drift')
         else:
-            raise ValueError(f"Drift channel: {drift_channel} doesn't exist in channels:{self.channels}")
-        # return
-        return _sel_channels
-
+            raise ValueError(f"drift not given to warp image. ")
         
+        _total_chromatic_start = time.time()
+        if correction_channels is None:
+            if hasattr(self, 'sel_channels'):
+                correction_channels = self.sel_channels
+            else:
+                correction_channels = self.channels
+        _correction_channels = [str(_ch) for _ch in correction_channels]
+        _chromatic_channels = [_ch for _ch in _correction_channels 
+                            if _ch != getattr(self, 'drift_channel', None) and _ch != getattr(self, 'dapi_channel', None)]
+        if self.verbose:
+            print(f"- Start warpping images channels:{_correction_channels}.")
+        if correction_folder is None:
+            correction_folder = self.correction_folder
+        # load chromatic warp
+        if corr_chromatic and chromatic_pf is None:
+            chromatic_pf = load_correction_profile(
+                'chromatic', _chromatic_channels,
+                correction_folder=correction_folder,
+                all_channels=self.channels,
+                ref_channel=ref_channel,
+                im_size=self.image_size,
+                verbose=self.verbose,
+            )
+                
+        # init corrected_ims
+        _corrected_ims = []
+        # do warpping
+        for _ch in _correction_channels:
+            _chromatic_time = time.time()
+            # get image
+            _im = getattr(self, f"im_{_ch}", None)
+            if _im is None:
+                if self.verbose:
+                    print(f"-- skip warpping image for channel {_ch}, image not detected.")
+                continue
+            # 1. get coordiates to be mapped
+            _coords = np.meshgrid(np.arange(self.image_size[0]), 
+                                np.arange(self.image_size[1]), 
+                                np.arange(self.image_size[2]), 
+                                )
+            # transpose is necessary  
+            _coords = np.stack(_coords).transpose((0, 2, 1, 3)) 
+            _note = f"-- warp image"
+            _change_flag = False
+            # 2. apply drift if necessary
+            if _drift.any():
+                _coords = _coords - _drift[:, np.newaxis,np.newaxis,np.newaxis]
+                _note += ' with drift'
+                _change_flag = True
+            # 3. aaply chromatic if necessary
+            if corr_chromatic and _ch in _chromatic_channels and chromatic_pf[_ch] is not None:
+                _note += ' with chromatic abbrevation'                
+                _coords = _coords + chromatic_pf[_ch]
+                _change_flag = True
+            # 4. map coordinates
+            if self.verbose:
+                print(f"{_note} for channel: {_ch}")
+            if _change_flag:
+                _im = map_coordinates(_im, 
+                                    _coords.reshape(_coords.shape[0], -1),
+                                    mode='nearest').astype(_im.dtype)
+                _im = _im.reshape(tuple(self.image_size))
+            else:
+                if self.verbose:
+                    print("--- skip")
+            # 5. save
+            if save_attrs:
+                setattr(self, f"im_{_ch}", _im,)
+            else:
+                _corrected_ims.append(_im)
+            # release RAM
+            del(_im)
+            # print time
+            if self.verbose:
+                print(f"-- finish warpping channel {_ch} in {time.time()-_chromatic_time:.3f}s.")
+        if save_attrs:
+            return
+        else:
+            return _corrected_ims, _correction_channels
+
     @staticmethod
     def _FindDaxChannels(dax_filename,
                          verbose=True,
@@ -755,3 +852,25 @@ class DaxProcesser():
                 raise ValueError("Wrong num_color, should be integer!")
         except:
             return np.array(default_im_size)
+    @staticmethod
+    def _LoadSegmentation(segmentation_filename,
+                          fov_id=None,
+                          verbose=True):
+        """Function to load segmentation from file"""
+        # check existance
+        if not isinstance(segmentation_filename, str) or not os.path.isfile(segmentation_filename):
+            raise ValueError(f"invalid segmentation_filename: {segmentation_filename}")
+        #load
+        if verbose:
+            print(f"-- load segmentation from: {segmentation_filename}")
+        if segmentation_filename.split(os.extsep)[-1] == 'npy':
+            _seg_label = np.load(segmentation_filename)
+        elif segmentation_filename.split(os.extsep)[-1] == 'pkl':
+            _seg_label = pickle.load(open(segmentation_filename, 'rb'))
+        elif segmentation_filename.split(os.extsep)[-1] == 'hdf5' or segmentation_filename.split(os.extsep)[-1] == 'h5':
+            with h5py.File(segmentation_filename, 'r') as _f:
+                if fov_id is None:
+                    fov_id = list(_f.keys())[0]
+                _seg_label = _f[str(fov_id)]['dna_mask'][:]
+        # return
+        return _seg_label
