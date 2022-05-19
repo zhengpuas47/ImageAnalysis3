@@ -1,3 +1,6 @@
+# compiled result from library_tools seqint
+library_tools/C_Tools/*.c
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
