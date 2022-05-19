@@ -1,8 +1,12 @@
-from .. import _image_size
 import numpy as np
+import pickle
+import warnings
+# functions
 from scipy.spatial.distance import cdist, pdist
 from scipy.ndimage.interpolation import map_coordinates
+from tqdm import tqdm
 # default info for spots
+from .. import _image_size
 from ..spot_tools import _3d_infos, _3d_spot_infos, _spot_coord_inds
 
 class ImageCrop():
@@ -371,6 +375,8 @@ class DaxProcesser():
             setattr(self, 'drift_channel', str(DriftChannel))
         if DriftChannel is not None and str(DapiChannel) in self.channels:
             setattr(self, 'dapi_channel', str(DapiChannel))
+        # Log for whether corrections has been done:
+        self.correction_log = {_ch:{} for _ch in self.channels}
         # verbose
         self.verbose=verbose
         
@@ -388,21 +394,32 @@ class DaxProcesser():
                     ImSize=None, 
                     NbufferFrame=default_num_buffer_frames,
                     NemptyFrame=default_num_empty_frames,
-                    save_attrs=True,
+                    save_attrs=True, overwrite=False,
                     ):
         """Function to load and parse images by channels,
             assuming that for each z-layer, all channels has taken a frame in the same order
         """
         _load_start = time.time()
+        # init loaded channels
+        if not hasattr(self, 'loaded_channels'):
+            setattr(self, 'loaded_channels', [])
+        
         # get selected channels
         if sel_channels is None:
-            self.sel_channels = self.channels
+            _sel_channels = self.channels
         elif isinstance(sel_channels, list):
-            self.sel_channels = sel_channels
+            _sel_channels = [str(_ch) for _ch in sel_channels]
         elif isinstance(sel_channels, str) or isinstance(sel_channels, int):
-            self.sel_channels = [str(sel_channels)]
+            _sel_channels = [str(sel_channels)]
         else:
             raise ValueError(f"Invalid input for sel_channels")
+        # choose loading channels
+        _loading_channels = []
+        for _ch in sorted(_sel_channels, key=lambda v: self.channels.index(v)):
+            if hasattr(self, f"im_{_ch}") and not overwrite:
+                continue
+            else:
+                _loading_channels.append(_ch)
         # get image size
         if ImSize is None:
             self.image_size = DaxProcesser._FindImageSize(self.filename,
@@ -417,21 +434,24 @@ class DaxProcesser():
         _raw_im = _reader.loadAll()
         # split by channel
         _ims = split_im_by_channels(
-            _raw_im, self.sel_channels,
+            _raw_im, _loading_channels,
             all_channels=self.channels, single_im_size=self.image_size,
             num_buffer_frames=NbufferFrame, num_empty_frames=NemptyFrame,
         )
         if self.verbose:
-            print(f"- Loaded images for channel {self.sel_channels} in {time.time()-_load_start:.3f}s.")
+            print(f"- Loaded images for channels:{_loading_channels} in {time.time()-_load_start:.3f}s.")
         # save attributes
         if save_attrs:
-            for _ch, _im in zip(self.sel_channels, _ims):
+            for _ch, _im in zip(_loading_channels, _ims):
                 setattr(self, f"im_{_ch}", _im)
             setattr(self, 'num_buffer_frames', NbufferFrame)
             setattr(self, 'num_empty_frames', NemptyFrame)
+            self.loaded_channels.extend(_loading_channels)
+            # sort loaded
+            self.loaded_channels = [_ch for _ch in sorted(self.loaded_channels, key=lambda v: self.channels.index(v))]
             return
         else:
-            return _ims, self.sel_channels
+            return _ims, _loading_channels
 
     def _corr_bleedthrough(self,
                            correction_channels=None,
@@ -439,17 +459,23 @@ class DaxProcesser():
                            correction_folder=None,
                            rescale=True,
                            save_attrs=True,
+                           overwrite=False,
                            ):
         """Apply bleedthrough correction to remove crosstalks between channels
             by a pre-measured matrix"""
+        # find correction channels
         _total_bleedthrough_start = time.time()
         if correction_channels is None:
-            if hasattr(self, 'sel_channels'):
-                correction_channels = self.sel_channels
-            else:
-                correction_channels = self.channels
+            correction_channels = self.loaded_channels
         _correction_channels = [_ch for _ch in correction_channels 
             if _ch != getattr(self, 'drift_channel', None) and _ch != getattr(self, 'dapi_channel', None)]
+        ## if finished ALL, directly return
+        _logs = [self.correction_log[_ch].get('corr_bleedthrough', False) for _ch in _correction_channels]
+        if np.array(_logs).all():
+            if self.verbose:
+                print(f"- Correct bleedthrough already finished, skip. ")
+            return 
+        ## if not finished, do process
         if self.verbose:
             print(f"- Start bleedthrough correction for channels:{_correction_channels}.")
         if correction_folder is None:
@@ -496,6 +522,10 @@ class DaxProcesser():
             for _ch, _im in zip(_correction_channels, _corrected_ims):
                 setattr(self, f"im_{_ch}", _im)
             del(_corrected_ims)
+            # update log
+            for _ch in _correction_channels:
+                self.correction_log[_ch]['corr_bleedthrough'] = True
+            return 
         else:
             return _corrected_ims, _correction_channels
                     
@@ -505,18 +535,24 @@ class DaxProcesser():
                            correction_folder=None,
                            rescale=True,
                            save_attrs=True,
+                           overwrite=False,
                            ):
         """Apply illumination correction to flatten field-of-view illumination
             by a pre-measured 2D-array"""
         _total_illumination_start = time.time()
         if correction_channels is None:
-            if hasattr(self, 'sel_channels'):
-                correction_channels = self.sel_channels
-            else:
-                correction_channels = self.channels
+            correction_channels = self.loaded_channels
         _correction_channels = [_ch for _ch in correction_channels]
+        ## if finished ALL, directly return
+        _logs = [self.correction_log[_ch].get('corr_illumination', False) for _ch in _correction_channels]
+        if np.array(_logs).all():
+            if self.verbose:
+                print(f"- Correct illumination already finished, skip. ")
+            return 
+        ## if not finished, do process
         if self.verbose:
             print(f"- Start illumination correction for channels:{_correction_channels}.")
+        # load profile
         if correction_folder is None:
             correction_folder = self.correction_folder
         if correction_pf is None:
@@ -528,7 +564,7 @@ class DaxProcesser():
                 verbose=self.verbose,
             )
         _corrected_ims = []
-        # apply
+        # apply correction
         for _ch in _correction_channels:
             _illumination_time = time.time()
             _im = getattr(self, f"im_{_ch}", None)
@@ -549,6 +585,8 @@ class DaxProcesser():
                 # save attr
                 if save_attrs:
                     setattr(self, f"im_{_ch}", _im.astype(_dtype), )
+                    # update log
+                    self.correction_log[_ch]['corr_illumination'] = True
                 else:
                     _corrected_ims.append(_im)
                 # release RAM
@@ -570,19 +608,25 @@ class DaxProcesser():
         correction_folder=None,
         ref_channel=default_ref_channel,
         save_attrs=True,
+        overwrite=False,
         ):
         """Generate chromatic_abbrevation functions for each channel"""
         from ..correction_tools.chromatic import generate_chromatic_function
         _total_chromatic_start = time.time()
         if correction_channels is None:
-            if hasattr(self, 'sel_channels'):
-                correction_channels = self.sel_channels
-            else:
-                correction_channels = self.channels
+            correction_channels = self.loaded_channels
         _correction_channels = [_ch for _ch in correction_channels 
             if _ch != getattr(self, 'drift_channel', None) and _ch != getattr(self, 'dapi_channel', None)]
+        ## if finished ALL, directly return
+        _logs = [self.correction_log[_ch].get('corr_chromatic', False) or self.correction_log[_ch].get('corr_chromatic_function', False)
+            for _ch in _correction_channels]
+        if np.array(_logs).all():
+            if self.verbose:
+                print(f"- Correct chromatic function already finished, skip. ")
+            return 
+        ## if not finished, do process
         if self.verbose:
-            print(f"- Start chromatic correction for channels:{_correction_channels}.")
+            print(f"- Start generating chromatic correction for channels:{_correction_channels}.")
         if correction_folder is None:
             correction_folder = self.correction_folder
         if correction_pf is None:
@@ -614,6 +658,9 @@ class DaxProcesser():
         if self.verbose:
             print(f"-- finish generating chromatic functions in {time.time()-_total_chromatic_start:.3f}s")
         if save_attrs:
+            # update log
+            for _ch in _correction_channels:
+                self.correction_log[_ch]['corr_chromatic_function'] = True
             return 
         else:
             return _corrected_funcs
@@ -625,8 +672,14 @@ class DaxProcesser():
         use_autocorr=True, 
         drift_kwargs={},
         save_attr=True, 
+        save_ref_im=False,
+        overwrite=False,
         ):
         """Calculate drift given reference image"""
+        if hasattr(self, 'drift') and hasattr(self, 'drift_flag') and not overwrite:
+            if self.verbose:
+                print(f"- Drift already calculated, skip.")
+            return self.drift, self.drift_flag
         # Load drift image
         if DriftChannel is None and hasattr(self, 'drift_channel'):
             DriftChannel = getattr(self, 'drift_channel')
@@ -635,8 +688,14 @@ class DaxProcesser():
         else:
             raise ValueError(f"Wrong input value for DriftChannel: {DriftChannel}")
         # get _DriftImage
-        if DriftChannel in self.channels:
+        if DriftChannel in self.channels and hasattr(self, f"im_{DriftChannel}"):
             _DriftImage = getattr(self, f"im_{DriftChannel}")
+        elif DriftChannel in self.channels and not hasattr(self, f"im_{DriftChannel}"):
+            _DriftImage = self._load_image(sel_channels=[DriftChannel], 
+                                           ImSize=self.image_size,
+                                           NbufferFrame=self.num_buffer_frames, NemptyFrame=self.num_empty_frames,
+                                           save_attrs=False)[0][0]
+            
         else:
             raise AttributeError(f"DriftChannel:{DriftChannel} image doesn't exist, exit.")
         if self.verbose:
@@ -652,7 +711,8 @@ class DaxProcesser():
                     # drift channel
                     setattr(self, 'drift_channel', DriftChannel)
                     # ref image
-                    setattr(self, 'ref_im', getattr(self, f"im_{DriftChannel}"))
+                    if save_ref_im:
+                        setattr(self, 'ref_im', getattr(self, f"im_{DriftChannel}"))
                     # drift results
                     setattr(self, 'drift', _drift)
                     setattr(self, 'drift_flag', _drift_flag)
@@ -667,7 +727,9 @@ class DaxProcesser():
             RefImage = getattr(_dft_dax_cls, f"im_{DriftChannel}")
 
         elif isinstance(RefImage, np.ndarray) and (np.array(RefImage.shape)==self.image_size).all():
-            #DEV
+            # directly add
+            if save_ref_im:
+                setattr(self, 'ref_im', RefImage)
             pass
         else:
             raise ValueError(f"Wrong input of RefImage, should be either a matched sized image, or a filename")
@@ -695,37 +757,46 @@ class DaxProcesser():
             # drift channel
             setattr(self, 'drift_channel', DriftChannel)
             # ref image
-            setattr(self, 'ref_im', RefImage)
+            if save_ref_im:
+                setattr(self, 'ref_im', RefImage)
             # drift results
             setattr(self, 'drift', _drift)
             setattr(self, 'drift_flag', _drift_flag)
         return _drift, _drift_flag
     # warp image
-    def warp_image(self,
-                drift=None,
-                correction_channels=None,
-                corr_chromatic=True, chromatic_pf=None,
-                correction_folder=None,
-                ref_channel=default_ref_channel,
-                save_attrs=True,
-                ):
+    def _warp_image(self,
+                    drift=None,
+                    correction_channels=None,
+                    corr_chromatic=True, chromatic_pf=None,
+                    correction_folder=None,
+                    ref_channel=default_ref_channel,
+                    save_attrs=True, overwrite=False,
+                    ):
         """Warp image in 3D, this step must give a drift"""
+        _total_warp_start = time.time()
+        # get drift
         if drift is not None:
             _drift = np.array(drift)
         elif hasattr(self, 'drift'):
             _drift = getattr(self, 'drift')
         else:
-            raise ValueError(f"drift not given to warp image. ")
-        
-        _total_chromatic_start = time.time()
+            _drift = np.zeros(len(self.image_size))
+            warnings.warn(f"drift not given to warp image. ")
+        # get channels
         if correction_channels is None:
-            if hasattr(self, 'sel_channels'):
-                correction_channels = self.sel_channels
-            else:
-                correction_channels = self.channels
+            correction_channels = self.loaded_channels
         _correction_channels = [str(_ch) for _ch in correction_channels]
         _chromatic_channels = [_ch for _ch in _correction_channels 
                             if _ch != getattr(self, 'drift_channel', None) and _ch != getattr(self, 'dapi_channel', None)]
+        # Log
+        _ch_2_finish_warp = {_ch: self.correction_log[_ch].get('warp_drift', False) or  not _drift.any() for _ch in _correction_channels}
+        _ch_2_finish_chromatic = {_ch: self.correction_log[_ch].get('warp_chromatic', False) for _ch in _chromatic_channels}
+        _logs = [_ch_2_finish_warp.get(_ch) and _ch_2_finish_chromatic.get(_ch, True) for _ch in _correction_channels]
+        if np.array(_logs).all():
+            if self.verbose:
+                print(f"- Warp drift and chromatic already finished, skip. ")
+            return 
+        # start warpping
         if self.verbose:
             print(f"- Start warpping images channels:{_correction_channels}.")
         if correction_folder is None:
@@ -740,12 +811,20 @@ class DaxProcesser():
                 im_size=self.image_size,
                 verbose=self.verbose,
             )
-                
         # init corrected_ims
         _corrected_ims = []
         # do warpping
         for _ch in _correction_channels:
             _chromatic_time = time.time()
+            # get flag for this channel
+            _finish_warp = _ch_2_finish_warp.get(_ch)
+            _finish_chromatic = _ch_2_finish_chromatic.get(_ch, True)
+            print(_ch, _finish_warp, _finish_chromatic)
+            # skip if not required
+            if _finish_warp and _finish_chromatic:
+                if self.verbose:
+                    print(f"-- skip warpping image for channel {_ch}, no drift or chromatic required.")
+                continue
             # get image
             _im = getattr(self, f"im_{_ch}", None)
             if _im is None:
@@ -760,28 +839,29 @@ class DaxProcesser():
             # transpose is necessary  
             _coords = np.stack(_coords).transpose((0, 2, 1, 3)) 
             _note = f"-- warp image"
-            _change_flag = False
             # 2. apply drift if necessary
-            if _drift.any():
+            if not _finish_warp:
                 _coords = _coords - _drift[:, np.newaxis,np.newaxis,np.newaxis]
-                _note += ' with drift'
-                _change_flag = True
+                _note += f' with drift:{_drift}'
+                # update flag
+                self.correction_log[_ch]['warp_drift'] = True
             # 3. aaply chromatic if necessary
-            if corr_chromatic and _ch in _chromatic_channels and chromatic_pf[_ch] is not None:
-                _note += ' with chromatic abbrevation'                
-                _coords = _coords + chromatic_pf[_ch]
-                _change_flag = True
+            if not _finish_chromatic:
+                _note += ' with chromatic abbrevation' 
+                if chromatic_pf[_ch] is None and str(_ch) == ref_channel:
+                    pass
+                else:                 
+                    _coords = _coords + chromatic_pf[_ch]
+                # update flag
+                self.correction_log[_ch]['warp_chromatic'] = True
             # 4. map coordinates
             if self.verbose:
                 print(f"{_note} for channel: {_ch}")
-            if _change_flag:
-                _im = map_coordinates(_im, 
-                                    _coords.reshape(_coords.shape[0], -1),
-                                    mode='nearest').astype(_im.dtype)
-                _im = _im.reshape(tuple(self.image_size))
-            else:
-                if self.verbose:
-                    print("--- skip")
+            _im = map_coordinates(_im, 
+                                _coords.reshape(_coords.shape[0], -1),
+                                mode='nearest').astype(_im.dtype)
+            _im = _im.reshape(tuple(self.image_size))
+
             # 5. save
             if save_attrs:
                 setattr(self, f"im_{_ch}", _im,)
@@ -792,10 +872,66 @@ class DaxProcesser():
             # print time
             if self.verbose:
                 print(f"-- finish warpping channel {_ch} in {time.time()-_chromatic_time:.3f}s.")
+        
+        # print time
+        if self.verbose:
+            print(f"-- finish warpping in {time.time()-_total_warp_start:.3f}s.")
         if save_attrs:
             return
         else:
             return _corrected_ims, _correction_channels
+    # Spot_fitting:
+    def _fit_spots_by_segmentation(self, channel, seg_label, 
+                                   th_seed=500, num_spots=None, fitting_kwargs={},
+                                   segment_search_radius=3, 
+                                   save_attr=True, verbose=False):
+        """Function to fit spots within each segmentation
+        Necessary numbers:
+            th_seed: default seeding threshold
+            num_spots: number of expected spots (within each segmentation mask)
+        """
+        from ..segmentation_tools.cell import segmentation_mask_2_bounding_box
+        from ..spot_tools.fitting import fit_fov_image
+        from .partition_spots import Spots_Partition
+        _cell_ids = np.unique(seg_label)
+        _cell_ids = _cell_ids[_cell_ids>0]
+
+        _all_spots, _all_cell_ids = [], []
+        for _cell_id in tqdm(_cell_ids):
+            _cell_mask = (seg_label==_cell_id)
+            _crop = segmentation_mask_2_bounding_box(_cell_mask, 3)
+
+            _local_mask = _cell_mask[_crop.to_slices()]
+            _drift_crop = _crop.translate_drift(drift=self.drift)
+            _drift_local_im = getattr(self, f'im_{channel}')[_drift_crop.to_slices()]
+            # fit
+            _spots = fit_fov_image(_drift_local_im, str(channel), 
+                                th_seed=th_seed, max_num_seeds=num_spots, 
+                                verbose=verbose,
+                                **fitting_kwargs)
+            # adjust to absolute coordinate per fov
+            _spots = Spots3D(_spots)
+            _spots[:,_spots.coordinate_indices] = _spots[:,_spots.coordinate_indices] + _drift_crop.array[:,0]
+            # keep spots within mask
+            _kept_flg = Spots_Partition.spots_to_labels(_cell_mask, _spots, 
+                                                        search_radius=segment_search_radius,verbose=False)
+            _spots = _spots[_kept_flg>0]
+            # append
+            if len(_spots) > 0:
+                _all_spots.append(_spots)
+                _all_cell_ids.append(np.ones(len(_spots), dtype=np.int32)*_cell_id)
+        # concatenate
+        _all_spots = np.concatenate(_all_spots)
+        _all_cell_ids = np.concatenate(_all_cell_ids)
+        if save_attr:
+            setattr(self, f"spots_{channel}", _all_spots)
+            setattr(self, f"spots_cell_ids_{channel}", _all_cell_ids)
+        return _all_spots, _all_cell_ids
+    # Saving:
+    def _save_to_hdf5(self):
+        pass
+    def _load_from_hdf5(self):
+        pass
 
     @staticmethod
     def _FindDaxChannels(dax_filename,
