@@ -441,9 +441,9 @@ class Align_Segmentation():
         if 'transpose' in microscope_params and microscope_params['transpose']:
             _image = _image.transpose((0,2,1))
         if 'flip_horizontal' in microscope_params and microscope_params['flip_horizontal']:
-            _image = np.flip(_image, 1)
-        if  'flip_vertical' in microscope_params and microscope_params['flip_vertical']:
             _image = np.flip(_image, 2)
+        if  'flip_vertical' in microscope_params and microscope_params['flip_vertical']:
+            _image = np.flip(_image, 1)
         return _image
 
     def _generate_dna_mask(self, target_dna_Zcoords=default_dna_Zcoords, save_dtype=np.uint16):

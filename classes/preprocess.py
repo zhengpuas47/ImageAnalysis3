@@ -821,7 +821,7 @@ class DaxProcesser():
             _finish_chromatic = _ch_2_finish_chromatic.get(_ch, True)
             print(_ch, _finish_warp, _finish_chromatic)
             # skip if not required
-            if _finish_warp and _finish_chromatic:
+            if _finish_warp and (_finish_chromatic or not corr_chromatic):
                 if self.verbose:
                     print(f"-- skip warpping image for channel {_ch}, no drift or chromatic required.")
                 continue
@@ -846,7 +846,7 @@ class DaxProcesser():
                 # update flag
                 self.correction_log[_ch]['warp_drift'] = True
             # 3. aaply chromatic if necessary
-            if not _finish_chromatic:
+            if not _finish_chromatic and corr_chromatic:
                 _note += ' with chromatic abbrevation' 
                 if chromatic_pf[_ch] is None and str(_ch) == ref_channel:
                     pass
@@ -951,6 +951,19 @@ class DaxProcesser():
             return _true_channels
         except:
             return None
+    @staticmethod
+    def _FindGlobalPosition(dax_filename:str,
+                            verbose=True) -> np.ndarray:
+        """Function to find global coordinates in micron"""
+        _xml_filename = dax_filename.replace('.dax', '.xml') # xml file
+        try:
+            _hal_info = ET.parse(_xml_filename).getroot()
+            _position_micron = np.array(_hal_info.findall('acquisition/stage_position')[0].text.split(','), dtype=np.float64)
+            return _position_micron
+        except:
+            raise ValueError(f"Positions not properly parsed")
+
+
     @staticmethod
     def _LoadInfFile(inf_filename):
         with open(inf_filename, 'r') as _info_hd:
