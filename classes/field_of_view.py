@@ -394,7 +394,6 @@ class Field_of_View():
                                     self.channels, 
                                     self.shared_parameters['allowed_data_types'],
                                    )
-        print(_type_dic.keys())
         # create
         for _type, _dict in _type_dic.items():
             print(f'save type: {_type}"')
@@ -1705,7 +1704,7 @@ class Field_of_View():
         """
         
         if 'correct_fov_image' not in locals():
-            from ImageAnalysis3.io_tools.load import correct_fov_image
+            from ..io_tools.load import correct_fov_image
 
         if hasattr(self, 'chrom_im') and not _overwrite:
             if _verbose:
@@ -1736,6 +1735,13 @@ class Field_of_View():
                             _use_ref_im = False 
 
                         _select_chrom = True  # successfully selected chrom
+                        # decide used_channels
+                        _used_channels = []
+                        for _mk, _ch in zip(_infos, self.channels):
+                            if _mk.lower() == 'null':
+                                continue
+                            else:
+                                _used_channels.append(_ch)
                         break 
 
             if not _select_chrom:
@@ -1755,19 +1761,20 @@ class Field_of_View():
                 _drift_ref = getattr(self, '_ref_im')
             else:
                 _drift_ref = getattr(self, 'ref_filename')
+            print('**',  _infos, _used_channels)
 
             _chrom_im, _drift, _drift_flag = correct_fov_image(
                 _chrom_filename, 
                 [_chrom_channel],
                 single_im_size=self.shared_parameters['single_im_size'],
-                all_channels=self.channels,
+                all_channels=_used_channels,
                 num_buffer_frames=self.shared_parameters['num_buffer_frames'],
                 num_empty_frames=self.shared_parameters['num_empty_frames'],
                 drift=None, calculate_drift=_use_ref_im, 
                 drift_channel=self.drift_channel,
                 ref_filename=_drift_ref,
                 correction_folder=self.correction_folder,
-                corr_channels=self.shared_parameters['corr_channels'],
+                corr_channels=[_ch for _ch in self.shared_parameters['corr_channels'] if _ch in _used_channels],
                 warp_image=True,
                 illumination_corr=self.shared_parameters['corr_illumination'],
                 bleed_corr=False, 
