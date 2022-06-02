@@ -1764,6 +1764,12 @@ def load_hdf5_DataFrame(_filename, data_key):
     except:
         return None
 
+def load_hdf5_array(_filename, data_key):
+    try:
+        with h5py.File(_filename, 'r') as _f:
+            return _f[data_key][:]
+    except:
+        return None
 def save_hdf5_dict(_filename, _data_key, _dict, _overwrite=False, _verbose=False):
     if _verbose:
         print(f"- Update {_data_key} into {_filename}")
