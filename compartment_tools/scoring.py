@@ -226,7 +226,6 @@ def spot_cloud_scores(spots, ref_spots, comp_dict,
                       distance_zxy=_distance_zxy, exclude_self=True, 
                       convert_to_nm=True,
                       exclude_dict={}, dist_th=0.001):
-    from ..spot_tools.translating import normalize_center_spots
     ## check inputs
     # spot_variance
     if spot_variance is not None:

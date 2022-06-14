@@ -23,7 +23,3 @@ from . import translating
 # relabelling analysis
 from . import relabelling
 
-# default params
-_3d_spot_infos = ['height', 'z', 'x', 'y', 'background', 'sigma_z', 'sigma_x', 'sigma_y', 'sin_t', 'sin_p', 'eps']
-_3d_infos = ['z', 'x', 'y']
-_spot_coord_inds = [_3d_spot_infos.index(_info) for _info in _3d_infos]

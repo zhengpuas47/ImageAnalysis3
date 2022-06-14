@@ -7,7 +7,12 @@ from scipy.ndimage.interpolation import map_coordinates
 from tqdm import tqdm
 # default info for spots
 from .. import _image_size
-from ..spot_tools import _3d_infos, _3d_spot_infos, _spot_coord_inds
+#3from ..spot_tools import _3d_infos, _3d_spot_infos, _spot_coord_inds
+
+# default params
+_3d_spot_infos = ['height', 'z', 'x', 'y', 'background', 'sigma_z', 'sigma_x', 'sigma_y', 'sin_t', 'sin_p', 'eps']
+_3d_infos = ['z', 'x', 'y']
+_spot_coord_inds = [_3d_spot_infos.index(_info) for _info in _3d_infos]
 
 class ImageCrop():
     """ """

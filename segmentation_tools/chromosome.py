@@ -62,7 +62,7 @@ def find_candidate_chromosomes_in_nucleus (_chrom_im, _dna_im, _dna_mask = None,
                                            _min_label_size=30, 
                                            _random_walk_beta=15, 
                                            _num_threads=4, 
-                                           _verbose=True):
+                                           _verbose=True) -> np.ndarray:
     '''Function to find candidate chromosome centers given
     Inputs:
         _chrom_im: image where chromosomes are lighted,

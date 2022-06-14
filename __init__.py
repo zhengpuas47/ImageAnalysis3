@@ -42,13 +42,13 @@ from . import figure_tools
 # functions to read and save images
 from . import io_tools
 # everything about domain analysis
-from . import domain_tools
+#from . import domain_tools
 # function to call and evaluate compartments
-from . import compartment_tools
+#from . import compartment_tools
 # function to analyze structural features
 from . import structure_tools
 # function to help segmentations
 from . import segmentation_tools
 ## import exteral functions
 from .External import Fitting_v4
-from .External import DomainTools
+#from .External import DomainTools

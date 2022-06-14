@@ -14,6 +14,7 @@ from scipy.ndimage import grey_dilation
 
 # internal function
 from ..figure_tools.plot_segmentation import plot_segmentation
+from ..io_tools.parameters import _read_microscope_json
 
 default_cellpose_kwargs = {
     'anisotropy': 1,
@@ -391,13 +392,13 @@ class Align_Segmentation():
         self.verbose = verbose
 
     @staticmethod
-    def _load_rna_feature(rna_feature_file:str, microscpe_params:dict, _z_coords=default_Zcoords):
+    def _load_rna_feature(rna_feature_file:str, _z_coords=default_Zcoords):
         """Load RNA feature from my MERLIN output"""
         _fovcell_2_uid = {}
         with h5py.File(rna_feature_file, 'r') as _f:
             _label_group = _f['labeldata']
             rna_mask = _label_group['label3D'][:] # read
-            rna_mask = Align_Segmentation._correct_image3D_by_microscope_param(rna_mask, microscpe_params) # transpose and flip
+            #rna_mask = Align_Segmentation._correct_image3D_by_microscope_param(rna_mask, microscpe_params) # transpose and flip
             if np.max(rna_mask) <= 0:
                 print(f'No cell found in feature file: {rna_feature_file}')
                 return rna_mask, _fovcell_2_uid
@@ -431,7 +432,7 @@ class Align_Segmentation():
         return _rna_dapi
     @staticmethod
     def _read_microscope_json(_microscope_file:str,):
-        return json.load(open(_microscope_file, 'r'))
+        return io_tools.parameters._read_microscope_json(_microscope_file)
 
     @staticmethod
     def _correct_image3D_by_microscope_param(image3D:np.ndarray, microscope_params:dict):
@@ -446,12 +447,25 @@ class Align_Segmentation():
             _image = np.flip(_image, 1)
         return _image
 
+    @staticmethod
+    def _correct_image2D_by_microscope_param(image2D:np.ndarray, microscope_params:dict):
+        """Correct 3D image with microscopy parameter"""
+        _image = copy.copy(image2D)
+        # transpose
+        if 'transpose' in microscope_params and microscope_params['transpose']:
+            _image = _image.transpose((1,0))
+        if 'flip_horizontal' in microscope_params and microscope_params['flip_horizontal']:
+            _image = np.flip(_image, 1)
+        if  'flip_vertical' in microscope_params and microscope_params['flip_vertical']:
+            _image = np.flip(_image, 0)
+        return _image
+
     def _generate_dna_mask(self, target_dna_Zcoords=default_dna_Zcoords, save_dtype=np.uint16):
         # process microscope.json
-        _rna_mparam = self._read_microscope_json(self.rna_microscope_file)
-        _dna_mparam = self._read_microscope_json(self.dna_microscope_file)
+        _rna_mparam = _read_microscope_json(self.rna_microscope_file)
+        _dna_mparam = _read_microscope_json(self.dna_microscope_file)
         # load RNA
-        _rna_mask, _rna_Zcoords, _fovcell_2_uid = self._load_rna_feature(self.rna_feature_file, _rna_mparam)
+        _rna_mask, _rna_Zcoords, _fovcell_2_uid = self._load_rna_feature(self.rna_feature_file,)
         _rna_dapi = self._load_rna_dapi(self.rna_dapi_file, _rna_mparam)
         # generate full
         _full_rna_mask = interploate_z_masks(_rna_mask, _rna_Zcoords, 
@@ -459,13 +473,14 @@ class Align_Segmentation():
         # load DNA
         _dna_dapi, _fov_id, _fov_name = self._load_dna_info(self.dna_save_file, _dna_mparam)
         # decide rotation matrix
-        if _dna_mparam.get('transpose', True):
-            _dna_rot_mat = self.rotation_mat.transpose()
+        #f _dna_mparam.get('transpose', True):
+        #    _dna_rot_mat = self.rotation_mat.transpose()
             
         # translate
-        _dna_mask, _rot_rna_dapi = translate_segmentation(_rna_dapi, _dna_dapi, _dna_rot_mat, 
-                                                         label_before=_full_rna_mask, 
-                                                         return_new_dapi=True, verbose=self.verbose)
+        _dna_mask, _rot_dna_dapi = translate_segmentation(
+            _rna_dapi, _dna_dapi, self.rotation_mat, 
+            label_before=_full_rna_mask, 
+            return_new_dapi=True, verbose=self.verbose)
         # Do dialation
         if 'dialation_size' in self.parameters:
             _dna_mask = grey_dilation(_dna_mask, size=self.parameters['dialation_size'])
@@ -477,7 +492,7 @@ class Align_Segmentation():
         self.fov_name = _fov_name
         self.fovcell_2_uid = _fovcell_2_uid
         if self.debug:
-            return _dna_mask, _full_rna_mask, _rna_dapi, _rot_rna_dapi, _dna_dapi
+            return _dna_mask, _full_rna_mask, _rna_dapi, _rot_dna_dapi, _dna_dapi
         else:
             return _dna_mask,
 
@@ -504,13 +519,13 @@ class Align_Segmentation():
 
     def _load(self, save_hdf5_file:str)->bool:
         # load DNA
-        _, _fov_id, _fov_name = self._load_dna_info(self.dna_save_file)
+        _, _fov_id, _fov_name = self._load_dna_info(self.dna_save_file, self.dna_microscope_file)
         self.fov_id = _fov_id
         self.fov_name = _fov_name
         if self.verbose:
             print(f"-- loading segmentation info from fov:{self.fov_id} into file: {save_hdf5_file}")
         if not os.path.exists(save_hdf5_file):
-            print(f"sav_hdf5_file:{save_hdf5_file} does not exist, skip.")
+            print(f"--- sav_hdf5_file:{save_hdf5_file} does not exist, skip loading.")
             return False
         # load
         with h5py.File(save_hdf5_file, 'r') as _f:
@@ -536,7 +551,7 @@ def translate_segmentation(dapi_before, dapi_after, before_to_after_rotation,
     from ..correction_tools.alignment import calculate_translation
     from ..correction_tools.translate import warp_3d_image
     # calculate drift
-    rot_dna_dapi_im, _rot, _dft = calculate_translation(dapi_before, dapi_after, before_to_after_rotation,)
+    _rot_dapi_after, _rot, _dft = calculate_translation(dapi_before, dapi_after, before_to_after_rotation,)
     # get dimensions
     _dz,_dx,_dy = np.shape(dapi_before)
     _rotation_angle = np.arcsin(_rot[0,1])/math.pi*180
@@ -565,7 +580,7 @@ def translate_segmentation(dapi_before, dapi_after, before_to_after_rotation,
     # warp the segmentation label by drift
     _dft_rot_seg_labels = warp_3d_image(_rot_seg_labels, _dft, warp_order=0)
     if return_new_dapi:
-        return _dft_rot_seg_labels, rot_dna_dapi_im
+        return _dft_rot_seg_labels, _rot_dapi_after
     else:
         return _dft_rot_seg_labels
 

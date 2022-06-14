@@ -1,8 +1,11 @@
 # import common packages
+import copy
 import numpy as np
 import os, glob, sys, time
 # import from parental packages
 from . import _distance_zxy, _image_size
+from ..classes.preprocess import Spots3D
+from ..io_tools.parameters import _read_microscope_json
 
 ## Change scaling-------------------------------------------------------
 # center and PCA transfomr spots in 3d
@@ -87,7 +90,33 @@ def normalize_center_spots(spots, distance_zxy=_distance_zxy,
     else:
         return _spots 
 
-## Warpping------------------------------------------------------- 
+## translate spots with microscope.json
+
+def MicroscopeTranslate_Spots(
+    fov_spots:Spots3D,
+    microscope_param_file:str,
+    image_size:np.ndarray=_image_size,
+    )->Spots3D:
+    """Translate spots given microscope"""
+    _fov_spots = copy.copy(fov_spots)
+    # load microscope.json
+    microscope_param = _read_microscope_json(microscope_param_file)
+    _coords = _fov_spots.to_coords()
+    # transpose
+    if microscope_param.get('transpose', False):
+        _coords = _coords[:, np.array([0,2,1])]
+    # flip_x
+    if microscope_param.get('flip_horizontal', False):
+        _coords[:,2] = -1 * (_coords[:,2] - image_size[2]/2) + image_size[2]/2
+    # flip y
+    if microscope_param.get('flip_vertical', False):
+        _coords[:,1] = -1 * (_coords[:,1] - image_size[1]/2) + image_size[1]/2
+    # update coordinates
+    _fov_spots[:, _fov_spots.coordinate_indices] = _coords
+    return _fov_spots
+        
+
+## Affine Warpping------------------------------------------------------- 
 
 def translate_spots(spots, rotation_mat=None, drift=None, 
                     single_im_size=_image_size):

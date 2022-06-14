@@ -3,7 +3,8 @@ import numpy as np
 import pickle as pickle
 import multiprocessing as mp
 
-from .. import get_img_info, corrections, visual_tools, spot_tools, domain_tools
+from .. import get_img_info, corrections, visual_tools
+#from ..domain_tools.calling import iterative_domain_calling, basic_domain_calling, local_domain_calling
 from .. import _correction_folder, _corr_channels, _temp_folder,_distance_zxy,\
     _sigma_zxy,_image_size, _allowed_colors, _num_buffer_frames, _num_empty_frames, _image_dtype
 from ..External import Fitting_v3
@@ -2293,7 +2294,7 @@ class Cell_List():
         ## start multi-processing
         # get partially filled function
         if _method == 'iterative':
-            _domain_func = partial(domain_tools.calling.iterative_domain_calling,
+            _domain_func = partial(iterative_domain_calling,
                                 distance_zxy=self.shared_parameters['distance_zxy'], dom_sz=_domain_size,
                                 gfilt_size=_gfilt_size, split_level=_split_level,
                                 num_iter=_num_iter, normalization_matrix=_norm_mat,
@@ -2303,7 +2304,7 @@ class Cell_List():
                                 fig_dpi=_dpi, fig_dim=_dim, fig_font_size=_fontsize,
                                 save_result_figs=_save_result_figure, verbose=_verbose)
         elif _method == 'basic':
-            _domain_func = partial(domain_tools.calling.basic_domain_calling,
+            _domain_func = partial(basic_domain_calling,
                                 distance_zxy=self.shared_parameters['distance_zxy'], dom_sz=_domain_size,
                                 gfilt_size=_gfilt_size, normalization_matrix=_norm_mat,
                                 domain_dist_metric=_dist_metric,
@@ -2312,7 +2313,7 @@ class Cell_List():
                                 fig_dpi=_dpi, fig_dim=_dim, fig_font_size=_fontsize,
                                 save_result_figs=_save_result_figure, verbose=_verbose)
         elif _method == 'local':
-            _domain_func = partial(domain_tools.calling.local_domain_calling,
+            _domain_func = partial(local_domain_calling,
                                    distance_zxy=self.shared_parameters['distance_zxy'], dom_sz=_domain_size, 
                                    gfilt_size=_gfilt_size,
                                    cutoff_max=_dist_th, plot_results=_plot_results,

@@ -120,9 +120,9 @@ def sort_mouse_chr(_chr):
         out_key = int(_chr)
     except:
         if _chr == 'X':
-            out_key = 23
+            out_key = 20
         elif _chr == 'Y':
-            out_key = 24
+            out_key = 21
     return out_key
 # Generate a chromosome plot order by either region id in codebook, or by chromosome
 def Generate_PlotOrder(total_codebook, sel_codebook, sort_by_region=True):

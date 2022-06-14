@@ -8,6 +8,7 @@ from tqdm import tqdm
 # required internal functions
 from ..figure_tools.plot_partition import plot_cell_spot_counts
 from ..io_tools.spots import FovCell2Spots_2_DataFrame,FovSpots3D_2_DataFrame
+from ..io_tools.parameters import _read_microscope_json
 from .preprocess import Spots3D
 
 #from ..io_tools.crop import generate_neighboring_crop
@@ -47,7 +48,7 @@ class Spots_Partition():
         # filenames
         self.readout_filename = readout_filename
         self.save_filename = save_filename
-    
+        
     def run_RNA(self, spots_list, bits=None,
             query_label='Gene', 
             save=True,
@@ -260,12 +261,13 @@ def _batch_partition_spots(
     fov_id, seg_label, fovcell_2_uid,
     cand_spots_list, cand_bits, cand_channels,
     cand_spots_savefile, 
+    microscope_param_file=None, 
     search_radius=3, pixel_sizes=default_pixel_sizes,
     make_plot=True,
     overwrite:bool=False,
     debug:bool=False,
     verbose:bool=True,
-    ):
+    )->pd.DataFrame:
     """Partition spots with given segmentation label in batch"""
     if os.path.isfile(cand_spots_savefile) and not overwrite:
         if verbose:
@@ -281,6 +283,9 @@ def _batch_partition_spots(
         for _bit, _ch, _pts in zip(cand_bits, cand_channels, cand_spots_list):
             # cast spot class
             _spots = Spots3D(_pts, bits=_bit, channels=_ch, pixel_sizes=pixel_sizes)
+            if microscope_param_file is not None:
+                from ..spot_tools.translating import MicroscopeTranslate_Spots
+                _spots = MicroscopeTranslate_Spots(_spots, microscope_param_file)
             # calculate labels
             _labels = Spots_Partition.spots_to_labels(seg_label, _spots, 
                                                       search_radius=search_radius, verbose=verbose)
@@ -325,6 +330,7 @@ def batch_partition_DNA_spots(
     fov_id:int, 
     spots:np.ndarray, spot_bits:np.ndarray, spot_channels:np.ndarray,
     seg_label:np.ndarray, fovcell_2_uid:dict={},
+    microscope_param_file=None, 
     search_radius=3, pixel_sizes=default_pixel_sizes,
     ignore_spots_out_cell=True,
     save=True, save_filename=None,
@@ -344,6 +350,10 @@ def batch_partition_DNA_spots(
             _start_time = time.time()
         # Merge spots list into all_spots
         _all_spots = Spots3D(spots, bits=spot_bits, channels=spot_channels, pixel_sizes=pixel_sizes)
+        # Translate based on microscope.json if specified
+        if microscope_param_file is not None:
+            from ..spot_tools.translating import MicroscopeTranslate_Spots
+            _all_spots = MicroscopeTranslate_Spots(_all_spots, microscope_param_file)
         # Search for segmentation label
         _labels = Spots_Partition.spots_to_labels(
             seg_label, _all_spots, 
