@@ -517,7 +517,8 @@ class imshow_mark_3d_v2:
         #load vars
         self.load_coords()
         self.set_image()
-    def __init__(self,ims,fig=None,image_names=None,rescz=1.,min_max_default = [None,None], given_dic=None,save_file=None,paramaters={}):
+    def __init__(self,ims,fig=None,image_names=None,rescz=1.,min_max_default = [None,None], given_dic=None,save_file=None,paramaters={},
+                 marker_size=8, show_ticks=True):
         #internalize
         #seeding paramaters
         self.gfilt_size = paramaters.get('gfilt_size',0.75)#first gaussian blur with radius # to avoid false local max from camera fluc
@@ -563,11 +564,11 @@ class imshow_mark_3d_v2:
         #gs = gridspec.GridSpec(2,1, figure=self.f,  hspace=-0.1, height_ratios=[4,1])
         #self.ax1 = self.f.add_subplot(gs[0], aspect='equal')
         #self.ax2 = self.f.add_subplot(gs[1], sharex=self.ax1, aspect='equal')
-
+        
         self.lxy,=self.ax1.plot(self.draw_x, self.draw_y, 'o',
-                              markersize=12,markeredgewidth=1,markeredgecolor='y',markerfacecolor='None')
+                              markersize=marker_size,markeredgewidth=1,markeredgecolor='y',markerfacecolor='None')
         self.lz,=self.ax2.plot(self.draw_x, self.draw_z, 'o',
-                      markersize=12,markeredgewidth=1,markeredgecolor='y',markerfacecolor='None')
+                      markersize=marker_size,markeredgewidth=1,markeredgecolor='y',markerfacecolor='None')
         self.imshow_xy = self.ax1.imshow(self.im_xy,interpolation='nearest',cmap='gray')
         self.imshow_z = self.ax2.imshow(self.im_z,interpolation='nearest',cmap='gray')
 
@@ -579,7 +580,13 @@ class imshow_mark_3d_v2:
 
         self.ax1.callbacks.connect('ylim_changed', self.xy_on_lims_change)
         self.ax2.callbacks.connect('ylim_changed', self.z_on_lims_change)
-        self.f.suptitle(self.image_names[self.index_im])
+        self.ax1.set_title(self.image_names[self.index_im], )
+        # ticks
+        if not show_ticks:
+            self.ax1.get_yaxis().set_ticks([])
+            self.ax2.get_yaxis().set_ticks([])
+            self.ax2.get_xaxis().set_ticks([])
+
         #connect mouse and keyboard
         cid = self.f.canvas.mpl_connect('button_press_event', self.onclick)
         cid2 = self.f.canvas.mpl_connect('key_press_event', self.press)
@@ -709,7 +716,7 @@ class imshow_mark_3d_v2:
         self.lz.set_ydata(z_[keep])
         self.save_coords()
         self.remove_text()
-        self.create_text()
+        #self.create_text()
         self.f.canvas.draw()
     def remove_text(self):
         if not hasattr(self,'texts'): self.texts = []
@@ -797,7 +804,7 @@ class imshow_mark_3d_v2:
             self.imshow_xy.set_clim(min_,max_)
             self.imshow_z.set_clim(min_,max_)
         self.update_point_plot()
-        self.f.suptitle(self.image_names[self.index_im])
+        self.ax1.set_title(self.image_names[self.index_im])
         self.f.canvas.draw()
     def get_limits(self):
         y_min,y_max = self.ax1.get_xlim()

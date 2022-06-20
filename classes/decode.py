@@ -81,8 +81,6 @@ class Merfish_Decoder():
             self._find_valid_pairs_in_codebook()
             self._find_valid_tuples_in_codebook()
 
-
-
     def _create_bit_2_channel(self, save_attr=True):
         """Create bit_2_channel dict"""
         # try create bit_2_channel if possible
@@ -1901,6 +1899,8 @@ def generate_score_metrics(spot_groups, chr_tree=None, homolog_centers=None,
                           n_neighbors=10, 
                           update_attr=True, 
                           overwrite=False):
+    """Five metrics:
+    [mean_intensity, COV_intensity, median_internal_distance, distance_to_neighbor, distance_to_chr_center]"""
     # check inputs
     if chr_tree is None or isinstance(chr_tree, list) or isinstance(chr_tree, KDTree):
         pass
