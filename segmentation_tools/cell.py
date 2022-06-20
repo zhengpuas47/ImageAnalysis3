@@ -432,12 +432,14 @@ class Align_Segmentation():
         return _rna_dapi
     @staticmethod
     def _read_microscope_json(_microscope_file:str,):
-        return io_tools.parameters._read_microscope_json(_microscope_file)
+        return _read_microscope_json(_microscope_file)
 
     @staticmethod
     def _correct_image3D_by_microscope_param(image3D:np.ndarray, microscope_params:dict):
         """Correct 3D image with microscopy parameter"""
         _image = copy.copy(image3D)
+        if not isinstance(microscope_params, dict):
+            raise TypeError(f"Wrong inputt ype for microscope_params, should be a dict")
         # transpose
         if 'transpose' in microscope_params and microscope_params['transpose']:
             _image = _image.transpose((0,2,1))
@@ -519,7 +521,8 @@ class Align_Segmentation():
 
     def _load(self, save_hdf5_file:str)->bool:
         # load DNA
-        _, _fov_id, _fov_name = self._load_dna_info(self.dna_save_file, self.dna_microscope_file)
+        _dna_mparam = _read_microscope_json(self.dna_microscope_file)
+        _, _fov_id, _fov_name = self._load_dna_info(self.dna_save_file, _dna_mparam)
         self.fov_id = _fov_id
         self.fov_name = _fov_name
         if self.verbose:
@@ -646,10 +649,14 @@ def interploate_z_masks(z_masks,
 
 
 def _batch_align_segmentation(
-    _fov_id, target_dna_Zcoords,
-    rna_feature_file,rna_dapi_file,
-    dna_save_file,rna_microscope_file,dna_microscope_file,
-    rotation_mat, 
+    _fov_id:int, 
+    target_dna_Zcoords:np.ndarray,
+    rna_feature_file:str,
+    rna_dapi_file:str,
+    dna_save_file:str,
+    rna_microscope_file:str,
+    dna_microscope_file:str,
+    rotation_mat:np.ndarray, 
     segmentation_save_file, save=True, 
     save_file_lock=None,
     align_parameters={},
