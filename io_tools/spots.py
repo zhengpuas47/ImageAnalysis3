@@ -116,15 +116,53 @@ def SpotTuple_2_Dict(spot_tuple,
     _tuple_info_dict['region_id'] = getattr(spot_tuple, 'tuple_id', None)
     # region information
     if codebook is None or _tuple_info_dict['region_id'] is None:
-        _region_dict = {'start':None, 'end':None, 'chr':None, 'chr_order':None}
+        _region_dict = {'region_name':None, 'start':None, 'end':None, 'chr':None, 'chr_order':None}
     else:
         _region_dict = {}
-        _reg_info = codebook.loc[codebook['id']==_tuple_info_dict['region_id'], ['name', 'chr', 'chr_order']].values[0]
+        _reg_info = codebook.loc[codebook['id']==_tuple_info_dict['region_id'], ['name', 'chr']].values[0]
+        _region_dict['region_name'] = _reg_info[0]
         _region_dict['start'], _region_dict['end'] = _reg_info[0].split(':')[1].split('-')
         _region_dict['chr'] = _reg_info[1]
-        _region_dict['chr_order'] = _reg_info[2]
+        if 'chr_order' in codebook.columns:
+            _region_dict['chr_order'] = codebook.loc[codebook['id']==_tuple_info_dict['region_id'], ['chr_order']].values[0][0]
     _tuple_info_dict.update(_region_dict)
     return _tuple_info_dict
+
+def spotTuple_2_positionDict(spot_tuple, axes_infos=Axis3D_infos):
+    _posDict = {f"center_{_name}":_pos
+                for _name, _pos in zip(axes_infos, spot_tuple.centroid_spot().to_positions()[0])}
+    _posDict["center_intensity"] = np.mean(spot_tuple.intensities())
+    _posDict["center_intensity_var"] = np.std(spot_tuple.intensities())/np.mean(spot_tuple.intensities())
+    _posDict["center_internal_dist"] = np.median(spot_tuple.dist_internal())
+    return _posDict
+
+def spotTupleList_2_DataFrame(spotTuple_list, 
+                              fov_id=None, cell_id=None, 
+                              cell_uid=None, homolog=None, 
+                              bit_2_channel=None, codebook=None, include_position=True,
+                              spot_infos=Spot3D_infos, pixel_infos=Pixel3D_infos, 
+                              axes_infos=Axis3D_infos):
+    _dict_list = []
+    for _g in spotTuple_list:
+        _info_dict = SpotTuple_2_Dict(_g,
+                                      fov_id=fov_id, cell_id=cell_id, cell_uid=cell_uid,
+                                      homolog=homolog, sel_ind=getattr(_g, 'sel_ind',None), bit_2_channel=bit_2_channel,
+                                      codebook=codebook, spot_infos=spot_infos, pixel_infos=pixel_infos)
+        if include_position:
+            _pos_dict = spotTuple_2_positionDict(_g, axes_infos=axes_infos)
+            _info_dict.update(_pos_dict)
+        _dict_list.append(_info_dict)
+    return pd.DataFrame(_dict_list)
+
+def CandSpotDf_add_positions(candSpotDf, intensity_name='height', axes_infos=Axis3D_infos, pixel_infos=Pixel3D_infos, ):
+    _ext_candSpotDf = candSpotDf.copy()
+    for _name, _pixel_name in zip(axes_infos, pixel_infos):
+        if _name in _ext_candSpotDf.columns:
+            _ext_candSpotDf[f"center_{_name}"] = _ext_candSpotDf[_name] * _ext_candSpotDf[_pixel_name]
+    # intensity
+    _ext_candSpotDf["center_intensity"] = _ext_candSpotDf[intensity_name]
+    return _ext_candSpotDf
+
 
 def Dataframe_2_SpotGroups(decoder_group_df, spot_infos=Spot3D_infos, pixel_infos=Pixel3D_infos,):
     _spot_groups = []
@@ -314,7 +352,7 @@ def FovSpots3D_2_DataFrame(
         # cell_id
         _cell_id = cell_ids[_i]
         if ignore_spots_out_cell and \
-            (_cell_id is None or _cell_id < 0 or np.isnan(_cell_id)):
+            (_cell_id is None or _cell_id <= 0 or np.isnan(_cell_id)):
             continue
         # uid
         _uid = fovcell_2_uid.get((fov_id,_cell_id), None)

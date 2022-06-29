@@ -578,7 +578,8 @@ def translate_segmentation(dapi_before, dapi_after, before_to_after_rotation,
                                               _rotation_M, 
                                               _seg_layer.shape, 
                                               flags=cv2.INTER_NEAREST,
-                                              borderMode=cv2.BORDER_CONSTANT)
+                                              borderMode=cv2.BORDER_CONSTANT,
+                                              borderValue=int(np.min(_seg_labels)))
                                for _seg_layer in _seg_labels])
     # warp the segmentation label by drift
     _dft_rot_seg_labels = warp_3d_image(_rot_seg_labels, _dft, warp_order=0)

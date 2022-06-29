@@ -63,22 +63,33 @@ def plot_decoding_ims(combo_ids, cropped_ims, _sel_bit_2_coords=None,
     else:
         return None
 
-def plot_spot_stats(_spot_groups, _spot_usage, _max_usage=5,
+def plot_spot_stats(_spot_groups, _spot_usage, _max_usage=5, codebook=None,
                     save=True, save_filename=None,
                     show_image=True, verbose=True,
                     ):
     """Plot spot_group stats in decoder groups"""
-    fig, axes = plt.subplots(1,2, figsize=(4,2), dpi=150)
+    fig, axes = plt.subplots(1,3, figsize=(6,2), dpi=150)
     # Plot spot usage
     axes[0].hist(_spot_usage, bins=np.arange(_max_usage), width=0.8, color='r')
-    axes[0].set_title("Spot Usage", fontsize=8, pad=3)
+    axes[0].set_title("Usage of each spot", fontsize=8, pad=3)
     axes[0].set_xticks(np.arange(0.5, _max_usage+0.5))
     axes[0].set_xticklabels(np.arange(_max_usage))
     # Plot spot number in groups
-    axes[1].hist([len(_g.spots) for _g in _spot_groups], bins=np.arange(5), width=0.8, color='y')
+    axes[1].hist([len(_g.spots) for _g in _spot_groups], bins=np.arange(_max_usage), width=0.8, color='y')
     axes[1].set_title("Spot Num. in Groups", fontsize=8, pad=3)
     axes[1].set_xticks(np.arange(0.5, _max_usage+0.5))
     axes[1].set_xticklabels(np.arange(_max_usage))
+
+    # Plot number of decoded spots for each region
+    regions = codebook['id'].values
+    _decoded_counts = np.zeros(len(regions))
+    for _g in _spot_groups:
+        _decoded_counts[regions==_g.tuple_id] += 1
+    axes[2].hist(_decoded_counts, bins=np.arange(0,np.max(_decoded_counts)+1), width=1, color='b')
+    axes[2].set_title("Decoded Num. in regions", fontsize=8, pad=3)
+    axes[2].set_xticks(np.arange(0.5, np.max(_decoded_counts)+1,2))
+    axes[2].set_xticklabels(np.arange(0,np.max(_decoded_counts)+1,2).astype(np.int32))
+    # total figure
     fig.subplots_adjust(wspace=0.3, top=0.80, bottom=0.12)
     fig.suptitle(f"{len(_spot_usage)} spots, {len(_spot_groups)} groups", 
                  fontsize=10, y=0.97)
@@ -94,3 +105,16 @@ def plot_spot_stats(_spot_groups, _spot_usage, _max_usage=5,
     else:
         plt.close(fig)
         return None
+
+
+def Centering_Chr2ZxysListDict(chr_2_zxys_list):
+    # center
+    _all_zxys = []
+    for _zxys_list in chr_2_zxys_list.values():
+        _all_zxys.extend(list(_zxys_list))
+    _center = np.nanmean(np.concatenate(_all_zxys), axis=0)
+    _centered_dict = {}
+    for _chr, _zxys_list in chr_2_zxys_list.items():
+        _centered_dict[_chr] = _zxys_list - _center[np.newaxis,:]
+        
+    return _centered_dict

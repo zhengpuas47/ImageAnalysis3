@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 from copy import copy
+from itertools import combinations
 from scipy import stats
 from scipy.spatial.distance import cdist,pdist,squareform
 from scipy.spatial import KDTree
@@ -17,6 +18,7 @@ from . import default_pixel_sizes, default_search_th,default_search_eps
 from ..figure_tools.plot_decode import plot_spot_stats
 from ..figure_tools.distmap import GenomeWide_DistMap
 
+default_weights = np.array([1,1,1,1,1,])
 default_metric_names = ['int. mean', 'int. CV', 'inner dist median', 'local dist mean', 'homolog dist']
 
 
@@ -2209,3 +2211,4 @@ def generate_default_chr_2_copy_num(codebook_df, male=True):
         chr_2_copy_num['Y'] = 0
     
     return chr_2_copy_num
+
