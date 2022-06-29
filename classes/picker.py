@@ -1,3 +1,4 @@
+from cmath import nan
 import enum
 import os, time
 import h5py
@@ -8,7 +9,7 @@ from scipy.stats import percentileofscore
 Axis3D_infos = ['z', 'x', 'y']
 default_weights = [5,2,1]
 default_score_th=np.log(0.05)
-default_coords_columns = ['region_name', 'chr','start','end','center_intensity', 'center_z', 'center_x', 'center_y']
+default_coords_columns = ['region_name', 'chr','start','end','center_z', 'center_x', 'center_y', 'center_intensity', 'center_internal_dist']
 
 
 class SpotPicker():
@@ -86,10 +87,14 @@ class SpotPicker():
             # coordiates
             _coords_df = pd.read_hdf(self.decodedFile, _lk)
             if len(_coords_df) > 0:
-                _coords_df = _coords_df[sel_columns]
-                _coords_df['codebook_name'] = _ck.split('/codebook')[0]
-                _coords_df['data_type'] = _dtype
-                self.coords_list.append(_coords_df)
+                # sel among sel_col
+                _kept_sel_columns = [_c for _c in sel_columns if _c in _coords_df.columns]
+                _miss_sel_columns = [_c for _c in sel_columns if _c not in _coords_df.columns]
+                _sel_df = _coords_df[_kept_sel_columns] # get existing columns
+                _sel_df.loc[:,_miss_sel_columns] = nan # fill nan
+                _sel_df.loc[:,'codebook_name'] = _ck.split('/codebook')[0]
+                _sel_df.loc[:,'data_type'] = _dtype
+                self.coords_list.append(_sel_df)
         return
     # Merge coodinates and sort along chromosomes 
     def _merge_decoded(self):
