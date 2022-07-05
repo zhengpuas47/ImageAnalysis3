@@ -932,6 +932,7 @@ class DaxProcesser():
             setattr(self, f"spots_{channel}", _all_spots)
             setattr(self, f"spots_cell_ids_{channel}", _all_cell_ids)
         return _all_spots, _all_cell_ids
+
     # Saving:
     def _save_to_hdf5(self):
         pass

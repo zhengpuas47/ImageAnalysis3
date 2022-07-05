@@ -90,7 +90,7 @@ class SpotPicker():
                 # sel among sel_col
                 _kept_sel_columns = [_c for _c in sel_columns if _c in _coords_df.columns]
                 _miss_sel_columns = [_c for _c in sel_columns if _c not in _coords_df.columns]
-                _sel_df = _coords_df[_kept_sel_columns] # get existing columns
+                _sel_df = _coords_df[_kept_sel_columns].copy() # get existing columns
                 _sel_df.loc[:,_miss_sel_columns] = nan # fill nan
                 _sel_df.loc[:,'codebook_name'] = _ck.split('/codebook')[0]
                 _sel_df.loc[:,'data_type'] = _dtype
