@@ -317,12 +317,14 @@ class SpotTuple():
 
 
 default_im_size=np.array([50,2048,2048])
+default_pixel_sizes=np.array([250,108,108])
 default_channels = ['750','647','561','488','405']
 default_ref_channel = '647'
 default_dapi_channel = '405'
 default_num_buffer_frames = 0
 default_num_empty_frames = 0
 from ..io_tools.load import split_im_by_channels,load_correction_profile
+from ..correction_tools.filter import gaussian_high_pass_filter
 from ..correction_tools.alignment import align_image
 from ..visual_tools import DaxReader
 import re
@@ -547,16 +549,19 @@ class DaxProcesser():
         _total_illumination_start = time.time()
         if correction_channels is None:
             correction_channels = self.loaded_channels
-        _correction_channels = [_ch for _ch in correction_channels]
+        _correction_channels = [str(_ch) for _ch in correction_channels]
+        if self.verbose:
+            print(f"- Correct illumination for channels: {_correction_channels}")
         ## if finished ALL, directly return
         _logs = [self.correction_log[_ch].get('corr_illumination', False) for _ch in _correction_channels]
         if np.array(_logs).all():
             if self.verbose:
                 print(f"- Correct illumination already finished, skip. ")
             return 
-        ## if not finished, do process
+        ## update _correction_channels based on log
+        _correction_channels = [_ch for _ch, _log in zip(_correction_channels, _logs) if not _log ]
         if self.verbose:
-            print(f"- Start illumination correction for channels:{_correction_channels}.")
+            print(f"-- Keep channels: {_correction_channels} for corr_illumination.")
         # load profile
         if correction_folder is None:
             correction_folder = self.correction_folder
@@ -622,6 +627,8 @@ class DaxProcesser():
             correction_channels = self.loaded_channels
         _correction_channels = [_ch for _ch in correction_channels 
             if _ch != getattr(self, 'drift_channel', None) and _ch != getattr(self, 'dapi_channel', None)]
+        if self.verbose:
+            print(f"- Generate corr_chromatic_functions for channels: {_correction_channels}")
         ## if finished ALL, directly return
         _logs = [self.correction_log[_ch].get('corr_chromatic', False) or self.correction_log[_ch].get('corr_chromatic_function', False)
             for _ch in _correction_channels]
@@ -629,6 +636,10 @@ class DaxProcesser():
             if self.verbose:
                 print(f"- Correct chromatic function already finished, skip. ")
             return 
+        # update _correction_channels based on log
+        _correction_channels = [_ch for _ch, _log in zip(_correction_channels, _logs) if not _log ]
+        if self.verbose:
+            print(f"- Keep channels: {_correction_channels} for corr_chromatic_functions.")
         ## if not finished, do process
         if self.verbose:
             print(f"- Start generating chromatic correction for channels:{_correction_channels}.")
@@ -885,11 +896,132 @@ class DaxProcesser():
             return
         else:
             return _corrected_ims, _correction_channels
+    # Gaussian highpass for high-background images
+    def _gaussian_highpass(self,                            
+                        correction_channels=None,
+                        gaussian_sigma=3,
+                        gaussian_truncate=2,
+                        save_attrs=True,
+                        overwrite=False,
+                        ):
+        """Function to apply gaussian highpass for selected channels"""
+        _total_highpass_start = time.time()
+        if correction_channels is None:
+            correction_channels = self.loaded_channels
+        _correction_channels = [str(_ch) for _ch in correction_channels 
+                                if str(_ch) != getattr(self, 'dapi_channel', None)]
+        if self.verbose:
+            print(f"- Apply Gaussian highpass for channels: {_correction_channels}")
+        ## if finished ALL, directly return
+        _logs = [self.correction_log[_ch].get('corr_highpass', False) for _ch in _correction_channels]
+        if np.array(_logs).all():
+            if self.verbose:
+                print(f"-- Gaussian_highpass for channel:{_correction_channels} already finished, skip. ")
+            return 
+        # update _correction_channels based on log
+        _correction_channels = [_ch for _ch, _log in zip(_correction_channels, _logs) if not _log ]
+        if self.verbose:
+            print(f"-- Keep channels: {_correction_channels} for gaussian_highpass.")
+        # loop through channels
+        _corrected_ims = []
+        for _ch in _correction_channels:
+            if self.verbose:
+                print(f"-- applying gaussian highpass, channel={_ch}, sigma={gaussian_sigma}", end=' ')
+                _highpass_time = time.time()
+            # get image
+            _im = getattr(self, f"im_{_ch}", None)
+            if _im is None:
+                if self.verbose:
+                    print(f"-- skip gaussian_highpass for channel {_ch}, image not detected.")
+                if not save_attrs:
+                    _corrected_ims.append(None)
+                continue
+            else:
+                _dtype = _im.dtype
+                _min,_max = np.iinfo(_dtype).min, np.iinfo(_dtype).max
+                # apply gaussian highpass filter
+                _im = gaussian_high_pass_filter(_im, gaussian_sigma, gaussian_truncate)
+                _im = np.clip(_im, a_min=_min, a_max=_max).astype(_dtype)
+                # save attr
+                if save_attrs:
+                    setattr(self, f"im_{_ch}", _im)
+                    # update log
+                    self.correction_log[_ch]['corr_highpass'] = True
+                else:
+                    _corrected_ims.append(_im)
+                # release RAM
+                del(_im)
+                # print time
+                if self.verbose:
+                    print(f"in {time.time()-_highpass_time:.3f}s")
+        # finish
+        if self.verbose:
+            print(f"- Finished gaussian_highpass filtering in {time.time()-_total_highpass_start:.3f}s.")
+        if save_attrs:
+            return
+        else:
+            return _corrected_ims, _correction_channels
+            
     # Spot_fitting:
+def _fit_spots(self, fit_channels=None, 
+               th_seed=1000, num_spots=None, fitting_kwargs={},
+               save_attrs=True, overwrite=False):
+    """Fit spots for the entire image"""
+    _total_fit_start = time.time()
+    if fit_channels is None:
+        fit_channels = self.loaded_channels
+    _fit_channels = [str(_ch) for _ch in fit_channels 
+                     if str(_ch) != getattr(self, 'drift_channel', None) \
+                         and str(_ch) != getattr(self, 'dapi_channel', None)]
+    if self.verbose:
+        print(f"- Fit spots in channels:{_fit_channels}")
+    _fit_logs = [hasattr(self, f'spots_{_ch}') and not overwrite for _ch in _fit_channels]
+    ## if finished ALL, directly return
+    if np.array(_fit_logs).all():
+        if self.verbose:
+            print(f"-- Fitting for channel:{_fit_channels} already finished, skip. ")
+        return 
+    # update _fit_channels based on log
+    _fit_channels = [_ch for _ch, _log in zip(_fit_channels, _fit_logs) if not _log ]
+    # th_seeds
+    if isinstance(th_seed, int) or isinstance(th_seed, float):
+        _ch_2_thSeed = {_ch:th_seed for _ch in _fit_channels}
+    if self.verbose:
+        print(f"-- Keep channels: {_fit_channels} for fitting.")
+    _spots_list = []
+    for _ch in _fit_channels:
+        if self.verbose:
+            print(f"-- fitting channel={_ch}", end=' ')
+            _fit_time = time.time()
+        # get image
+        _im = getattr(self, f"im_{_ch}", None)
+        if _im is None:
+            if self.verbose:
+                print(f"-- skip fitting for channel {_ch}, image not detected.")
+            continue
+        # fit
+        _spots = fit_fov_image(_im, _ch, 
+                               th_seed=th_seed, max_num_seeds=num_spots, 
+                               verbose=self.verbose,
+                               **fitting_kwargs)
+        _cell_ids = np.ones(len(_spots),dtype=np.int32) -1
+        if save_attrs:
+            setattr(self, f"spots_{_ch}", _spots)
+            setattr(self, f"spots_cell_ids_{_ch}", _cell_ids)
+        else:
+            _spots_list.append(_spots)
+    # return
+    if self.verbose:
+        print(f"-- finish fitting in {time.time()-_total_fit_start:.3f}s.")
+    if save_attrs:
+        return
+    else:
+        return _spots_list
+    # Spot Fitting 2, by segmentation
     def _fit_spots_by_segmentation(self, channel, seg_label, 
                                    th_seed=500, num_spots=None, fitting_kwargs={},
                                    segment_search_radius=3, 
-                                   save_attr=True, verbose=False):
+                                   save_attrs=True, verbose=False):
         """Function to fit spots within each segmentation
         Necessary numbers:
             th_seed: default seeding threshold
@@ -898,6 +1030,12 @@ class DaxProcesser():
         from ..segmentation_tools.cell import segmentation_mask_2_bounding_box
         from ..spot_tools.fitting import fit_fov_image
         from .partition_spots import Spots_Partition
+        
+        # get drift
+        _drift = getattr(self, 'drift', np.zeros(len(self.image_size)))
+        # get cell_id
+        if self.verbose:
+            print(f"- Start fitting spots in each segmentation")
         _cell_ids = np.unique(seg_label)
         _cell_ids = _cell_ids[_cell_ids>0]
 
@@ -907,30 +1045,38 @@ class DaxProcesser():
             _crop = segmentation_mask_2_bounding_box(_cell_mask, 3)
 
             _local_mask = _cell_mask[_crop.to_slices()]
-            _drift_crop = _crop.translate_drift(drift=self.drift)
+            _drift_crop = _crop.translate_drift(drift=_drift)
             _drift_local_im = getattr(self, f'im_{channel}')[_drift_crop.to_slices()]
             # fit
             _spots = fit_fov_image(_drift_local_im, str(channel), 
                                 th_seed=th_seed, max_num_seeds=num_spots, 
                                 verbose=verbose,
                                 **fitting_kwargs)
-            # adjust to absolute coordinate per fov
-            _spots = Spots3D(_spots)
-            _spots[:,_spots.coordinate_indices] = _spots[:,_spots.coordinate_indices] + _drift_crop.array[:,0]
-            # keep spots within mask
-            _kept_flg = Spots_Partition.spots_to_labels(_cell_mask, _spots, 
-                                                        search_radius=segment_search_radius,verbose=False)
-            _spots = _spots[_kept_flg>0]
-            # append
             if len(_spots) > 0:
-                _all_spots.append(_spots)
-                _all_cell_ids.append(np.ones(len(_spots), dtype=np.int32)*_cell_id)
+                # adjust to absolute coordinate per fov
+                _spots = Spots3D(_spots)
+                _spots[:,_spots.coordinate_indices] = _spots[:,_spots.coordinate_indices] + _drift_crop.array[:,0]
+                # keep spots within mask
+                _kept_flg = Spots_Partition.spots_to_labels(_cell_mask, _spots, 
+                                                            search_radius=segment_search_radius,verbose=False)
+                _spots = _spots[_kept_flg>0]
+                # append
+                if len(_spots) > 0:
+                    _all_spots.append(_spots)
+                    _all_cell_ids.append(np.ones(len(_spots), dtype=np.int32)*_cell_id)
         # concatenate
-        _all_spots = np.concatenate(_all_spots)
-        _all_cell_ids = np.concatenate(_all_cell_ids)
-        if save_attr:
+        if len(_all_spots) > 0:
+            _all_spots = np.concatenate(_all_spots)
+            _all_cell_ids = np.concatenate(_all_cell_ids)
+        else:
+            _all_spots = np.array([])
+            _all_cell_ids = np.array([])
+            print(f"No spots detected.")
+        # save attr
+        if save_attrs:
             setattr(self, f"spots_{channel}", _all_spots)
             setattr(self, f"spots_cell_ids_{channel}", _all_cell_ids)
+            return
         return _all_spots, _all_cell_ids
     # Saving:
     def _save_to_hdf5(self):
