@@ -380,7 +380,7 @@ class DaxProcesser():
             raise TypeError(f"Wrong input type for Channels")
         if DriftChannel is not None and str(DriftChannel) in self.channels:
             setattr(self, 'drift_channel', str(DriftChannel))
-        if DriftChannel is not None and str(DapiChannel) in self.channels:
+        if DapiChannel is not None and str(DapiChannel) in self.channels:
             setattr(self, 'dapi_channel', str(DapiChannel))
         # Log for whether corrections has been done:
         self.correction_log = {_ch:{} for _ch in self.channels}
@@ -963,60 +963,60 @@ class DaxProcesser():
             return _corrected_ims, _correction_channels
             
     # Spot_fitting:
-def _fit_spots(self, fit_channels=None, 
-               th_seed=1000, num_spots=None, fitting_kwargs={},
-               save_attrs=True, overwrite=False):
-    """Fit spots for the entire image"""
-    _total_fit_start = time.time()
-    if fit_channels is None:
-        fit_channels = self.loaded_channels
-    _fit_channels = [str(_ch) for _ch in fit_channels 
-                     if str(_ch) != getattr(self, 'drift_channel', None) \
-                         and str(_ch) != getattr(self, 'dapi_channel', None)]
-    if self.verbose:
-        print(f"- Fit spots in channels:{_fit_channels}")
-    _fit_logs = [hasattr(self, f'spots_{_ch}') and not overwrite for _ch in _fit_channels]
-    ## if finished ALL, directly return
-    if np.array(_fit_logs).all():
+    def _fit_spots(self, fit_channels=None, 
+                th_seed=1000, num_spots=None, fitting_kwargs={},
+                save_attrs=True, overwrite=False):
+        """Fit spots for the entire image"""
+        _total_fit_start = time.time()
+        if fit_channels is None:
+            fit_channels = self.loaded_channels
+        _fit_channels = [str(_ch) for _ch in fit_channels 
+                        if str(_ch) != getattr(self, 'drift_channel', None) \
+                            and str(_ch) != getattr(self, 'dapi_channel', None)]
         if self.verbose:
-            print(f"-- Fitting for channel:{_fit_channels} already finished, skip. ")
-        return 
-    # update _fit_channels based on log
-    _fit_channels = [_ch for _ch, _log in zip(_fit_channels, _fit_logs) if not _log ]
-    # th_seeds
-    if isinstance(th_seed, int) or isinstance(th_seed, float):
-        _ch_2_thSeed = {_ch:th_seed for _ch in _fit_channels}
-    if self.verbose:
-        print(f"-- Keep channels: {_fit_channels} for fitting.")
-    _spots_list = []
-    for _ch in _fit_channels:
-        if self.verbose:
-            print(f"-- fitting channel={_ch}", end=' ')
-            _fit_time = time.time()
-        # get image
-        _im = getattr(self, f"im_{_ch}", None)
-        if _im is None:
+            print(f"- Fit spots in channels:{_fit_channels}")
+        _fit_logs = [hasattr(self, f'spots_{_ch}') and not overwrite for _ch in _fit_channels]
+        ## if finished ALL, directly return
+        if np.array(_fit_logs).all():
             if self.verbose:
-                print(f"-- skip fitting for channel {_ch}, image not detected.")
-            continue
-        # fit
-        _spots = fit_fov_image(_im, _ch, 
-                               th_seed=th_seed, max_num_seeds=num_spots, 
-                               verbose=self.verbose,
-                               **fitting_kwargs)
-        _cell_ids = np.ones(len(_spots),dtype=np.int32) -1
+                print(f"-- Fitting for channel:{_fit_channels} already finished, skip. ")
+            return 
+        # update _fit_channels based on log
+        _fit_channels = [_ch for _ch, _log in zip(_fit_channels, _fit_logs) if not _log ]
+        # th_seeds
+        if isinstance(th_seed, int) or isinstance(th_seed, float):
+            _ch_2_thSeed = {_ch:th_seed for _ch in _fit_channels}
+        if self.verbose:
+            print(f"-- Keep channels: {_fit_channels} for fitting.")
+        _spots_list = []
+        for _ch in _fit_channels:
+            if self.verbose:
+                print(f"-- fitting channel={_ch}", end=' ')
+                _fit_time = time.time()
+            # get image
+            _im = getattr(self, f"im_{_ch}", None)
+            if _im is None:
+                if self.verbose:
+                    print(f"-- skip fitting for channel {_ch}, image not detected.")
+                continue
+            # fit
+            _spots = fit_fov_image(_im, _ch, 
+                                th_seed=th_seed, max_num_seeds=num_spots, 
+                                verbose=self.verbose,
+                                **fitting_kwargs)
+            _cell_ids = np.ones(len(_spots),dtype=np.int32) -1
+            if save_attrs:
+                setattr(self, f"spots_{_ch}", _spots)
+                setattr(self, f"spots_cell_ids_{_ch}", _cell_ids)
+            else:
+                _spots_list.append(_spots)
+        # return
+        if self.verbose:
+            print(f"-- finish fitting in {time.time()-_total_fit_start:.3f}s.")
         if save_attrs:
-            setattr(self, f"spots_{_ch}", _spots)
-            setattr(self, f"spots_cell_ids_{_ch}", _cell_ids)
+            return
         else:
-            _spots_list.append(_spots)
-    # return
-    if self.verbose:
-        print(f"-- finish fitting in {time.time()-_total_fit_start:.3f}s.")
-    if save_attrs:
-        return
-    else:
-        return _spots_list
+            return _spots_list
     # Spot Fitting 2, by segmentation
     def _fit_spots_by_segmentation(self, channel, seg_label, 
                                    th_seed=500, num_spots=None, fitting_kwargs={},
@@ -1175,3 +1175,23 @@ def _fit_spots(self, fit_channels=None,
                 _seg_label = _f[str(fov_id)]['dna_mask'][:]
         # return
         return _seg_label
+
+
+def batch_process_image_quick(
+    dax_filename, correction_folder,
+    sel_channels,
+    drift_channel='488', dapi_channel='405',
+    corr_illumination=True,
+    verbose=True,
+    ):
+    """Function to quickly apply DaxProcesser"""
+    # create class
+    _cls = DaxProcesser(dax_filename, correction_folder,
+        Channels=None, DriftChannel=drift_channel, DapiChannel=dapi_channel, verbose=verbose)
+    # load image
+    _cls._load_image(sel_channels=sel_channels)
+    # correct illumination if applicable
+    if corr_illumination:
+        _cls._corr_illumination(correction_channels=sel_channels)
+    # get images
+    return [getattr(_cls, f"im_{_ch}") for _ch in sel_channels]

@@ -493,7 +493,7 @@ def correct_fov_image(dax_filename, sel_channels,
             print(f"-- applying gaussian highpass filte, sigma={gauss_sigma}", end=' ')
             _highpass_time = time.time()
         from ..correction_tools.filter import gaussian_high_pass_filter
-        for _i, _im in enumerate(_im
+        for _i, _im in enumerate(_ims):
             _ims[_i] = gaussian_high_pass_filter(_im, gauss_sigma, gauss_truncate)
         # clear
         if verbose:
