@@ -5,7 +5,8 @@ from .. import _correction_folder
 
 ## alignment between re-labeled sample
 def align_manual_points(pos_file_before, pos_file_after,
-    save=True, save_folder=None, save_filename='', verbose=True):
+    save=True, save_folder=None, save_filename='', 
+    overwrite=False, verbose=True):
     """Function to align two manually picked position files, 
     they should follow exactly the same order and of same length.
     Inputs:
@@ -58,13 +59,21 @@ def align_manual_points(pos_file_before, pos_file_after,
         if len(save_filename) > 0:
             save_filename += '_'
         rotation_name = os.path.join(save_folder, save_filename+'rotation')
-        translation_name = os.path.join(
-            save_folder, save_filename+'translation')
-        np.save(rotation_name, R)
-        np.save(translation_name, t)
-        if verbose:
-            print(f'-- rotation matrix saved to file:{rotation_name}')
-            print(f'-- translation matrix saved to file:{translation_name}')
+        if not os.path.exists(rotation_name+'.npy') or overwrite:
+            np.save(rotation_name, R)
+            if verbose:
+                print(f'-- rotation matrix saved to file:{rotation_name}.npy')
+        else:
+            if verbose:
+                print(f'-- {rotation_name}.npy exists, skip.')
+        translation_name = os.path.join(save_folder, save_filename+'translation')        
+        if not os.path.exists(translation_name+'.npy') or overwrite:      
+            np.save(translation_name, t)
+            if verbose:
+                print(f'-- translation matrix saved to file:{translation_name}.npy')
+        else:
+            if verbose:
+                print(f'-- {translation_name}.npy exists, skip.')
     return R, t
 
 
