@@ -94,6 +94,8 @@ class SpotPicker():
                 _sel_df.loc[:,_miss_sel_columns] = nan # fill nan
                 _sel_df.loc[:,'codebook_name'] = _ck.split('/codebook')[0]
                 _sel_df.loc[:,'data_type'] = _dtype
+                # add number of spots info
+                _sel_df.loc[:,'num_spots'] = (np.isnan(_coords_df[[_c for _c in _coords_df.columns if 'height' in _c]])==False).sum(1)
                 self.coords_list.append(_sel_df)
         return
     # Merge coodinates and sort along chromosomes 
@@ -505,7 +507,8 @@ class SpotPicker():
         if self.verbose:
             print(f"- Load picker from file: {self.saveFile}")
         if self.saveFile is None:
-            print(f"saveFile not given, skip loading!")
+            if self.verbose:
+                print(f"saveFile not given, skip loading!")
             return
         if not os.path.exists(self.saveFile):
             print(f"-- savefile:{self.saveFile} not exist, skip")

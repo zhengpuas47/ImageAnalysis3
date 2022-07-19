@@ -1,8 +1,6 @@
 from warnings import WarningMessage
 import numpy as np
 from numpy.lib.npyio import save
-from cellpose import models
-import torch
 import cv2
 import os,sys,time
 import skimage 
@@ -328,6 +326,8 @@ class Cellpose_Segmentation_3D():
                          cellpose_kwargs={},
                          verbose=True,
                          ):
+        from cellpose import models
+        import torch
         # check inputs
         _start_time = time.time()
         if small_polyt_im is None:
@@ -574,15 +574,20 @@ def translate_segmentation(dapi_before, dapi_after, before_to_after_rotation,
     # rotate segmentation
     if verbose:
         print('- rotate segmentation label with rotation matrix')
-    _rot_seg_labels = np.array([cv2.warpAffine(_seg_layer,
-                                              _rotation_M, 
-                                              _seg_layer.shape, 
-                                              flags=cv2.INTER_NEAREST,
-                                              borderMode=cv2.BORDER_CONSTANT,
-                                              borderValue=int(np.min(_seg_labels)))
-                               for _seg_layer in _seg_labels])
+    _rot_seg_labels = np.array(
+        [cv2.warpAffine(_seg_layer,
+                        _rotation_M, 
+                        _seg_layer.shape, 
+                        flags=cv2.INTER_NEAREST,
+                        #borderMode=cv2.BORDER_CONSTANT,
+                        borderMode=cv2.BORDER_REPLICATE,
+                        #borderValue=int(np.min(_seg_labels)
+                        )
+            for _seg_layer in _seg_labels]
+        )
     # warp the segmentation label by drift
-    _dft_rot_seg_labels = warp_3d_image(_rot_seg_labels, _dft, warp_order=0)
+    _dft_rot_seg_labels = warp_3d_image(_rot_seg_labels, _dft, 
+        warp_order=0, border_mode='nearest')
     if return_new_dapi:
         return _dft_rot_seg_labels, _rot_dapi_after
     else:

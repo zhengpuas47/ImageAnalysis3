@@ -280,7 +280,8 @@ class SpotDecoder():
         if self.verbose:
             print(f"- Load decoder from file: {self.saveFile}")
         if self.saveFile is None:
-            print(f"saveFile not given, skip loading!")
+            if self.verbose:
+                print(f"saveFile not given, skip loading!")
             return
         if not os.path.exists(self.saveFile):
             print(f"-- savefile:{self.saveFile} not exist, skip")
