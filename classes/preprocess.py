@@ -541,6 +541,7 @@ class DaxProcesser():
     # remove hot pixels
     def _corr_hot_pixels_3D(
         self, 
+        correction_channels=None,
         hot_pixel_th:float=0.5, 
         hot_pixel_num_th:float=4, 
         save_attrs:bool=True,
