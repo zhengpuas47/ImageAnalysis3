@@ -139,7 +139,7 @@ def convert_spots_to_cloud(spots, comp_dict, im_radius=30,
             raise ValueError(f"variance should be given for 3d")
 
     _norm_spots = normalize_center_spots(_spots, distance_zxy=distance_zxy, 
-                                         center=center, pca_align=pca_align, 
+                                         center_zero=center, pca_align=pca_align, 
                                          scaling=scaling)
     if max_project_AB:
         _norm_spots = max_project_AB_compartment(_norm_spots, comp_dict, pca_other_2d=True)
