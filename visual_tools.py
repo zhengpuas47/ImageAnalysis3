@@ -14,7 +14,6 @@ from scipy.ndimage import gaussian_laplace
 import cv2
 import multiprocessing as mp
 from sklearn.decomposition import PCA
-from scipy.ndimage.interpolation import map_coordinates
 
 from . import get_img_info, corrections, alignment_tools
 from .External import Fitting_v3

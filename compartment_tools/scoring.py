@@ -6,7 +6,6 @@ import pickle as pickle
 import multiprocessing as mp
 # import functions
 from sklearn.decomposition import PCA
-from scipy.ndimage.interpolation import map_coordinates
 from scipy.stats import scoreatpercentile
 from scipy.spatial.distance import cdist
 # from ImageAnalysis3 import constants
@@ -246,7 +245,7 @@ def spot_cloud_scores(spots, ref_spots, comp_dict,
                                             scale_variance=False,scaling=1.
                                             )
         # adjust zxys
-        _zxys = _spots[:,1:4] - np.nanmean(ref_spots[:,1:4], axis=0)
+        _zxys = spots[:,1:4] - np.nanmean(ref_spots[:,1:4], axis=0)
         if convert_to_nm:
             _zxys = _zxys * np.array(distance_zxy) / np.min(distance_zxy)
     else:
