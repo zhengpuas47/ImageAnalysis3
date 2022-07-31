@@ -1152,8 +1152,11 @@ class DaxProcesser():
     # Saving:
     def _save_to_hdf5(self):
         pass
-    def _save_to_npy(self, save_channels):
-        pass
+    def _save_to_npy(self, save_channels, save_folder=None, save_basenames=None):
+        if save_folder is None:
+            pass
+
+        
     # Loading:
     def _load_from_hdf5(self):
         pass
@@ -1253,6 +1256,7 @@ def batch_process_image_quick(
     dax_filename, correction_folder,
     sel_channels,
     drift_channel='488', dapi_channel='405',
+    corr_hot_pixels=True,
     corr_illumination=True,
     verbose=True,
     ):
@@ -1263,6 +1267,8 @@ def batch_process_image_quick(
     # load image
     _cls._load_image(sel_channels=sel_channels)
     # correct illumination if applicable
+    if corr_hot_pixels:
+        _cls._corr_hot_pixels_3D(correction_channels=sel_channels)
     if corr_illumination:
         _cls._corr_illumination(correction_channels=sel_channels)
     # get images

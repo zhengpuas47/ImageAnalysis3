@@ -39,8 +39,8 @@ def Chr2ZxysList_2_summaryDist_by_key(chr_2_zxys_list, _c1, _c2, codebook_df,
                         _out_dist_dict[f"trans_{_c1}"].append(
                             cdist(_chr_2_zxys[_c1][_i1], _chr_2_zxys[_c1][_i2])
                         )
-    for _key in _out_dist_dict:
-        print(_key, len(_out_dist_dict[_key]))
+    #for _key in _out_dist_dict:
+    #    print(_key, len(_out_dist_dict[_key]))
     #return _out_dist_dict
     # summarize
     _summary_dict = {}
@@ -78,7 +78,7 @@ def Chr2ZxysList_2_summaryDict(
     _summary_args = []
     # prepare args
     _all_chrs = np.unique(total_codebook['chr'].values)
-    #sorted(_all_chrs, key=lambda _c:sort_mouse_chr(_c))
+    #sorted(_all_chrs, key=lambda _c:sort_chr(_c))
     for _chr1, _chr2 in combinations_with_replacement(_all_chrs, 2):
         if _chr1 != _chr2:
             _sel_chr_2_zxys = [
@@ -109,9 +109,10 @@ def Chr2ZxysList_2_summaryDict(
         if verbose:
             print(f"in {time.time()-_start_time:.3f}s.")
     else:
+        from tqdm import tqdm
         if verbose:
             print(f"-- summarize {len(_summary_args)} inter-chr distances sequentially", end=' ')
-        all_summary_dicts = [Chr2ZxysList_2_summaryDist_by_key(*_args) for _args in _summary_args]
+        all_summary_dicts = [Chr2ZxysList_2_summaryDist_by_key(*_args) for _args in tqdm(_summary_args)]
         if verbose:
             print(f"in {time.time()-_start_time:.3f}s.")
     # summarize into one dict
@@ -119,19 +120,9 @@ def Chr2ZxysList_2_summaryDict(
     for _dict in all_summary_dicts:
         _summary_dict.update(_dict)
     return _summary_dict
-# sort chromosome order
-def sort_mouse_chr(_chr):
-    try:
-        out_key = int(_chr)
-    except:
-        if _chr == 'X':
-            out_key = 20
-        elif _chr == 'Y':
-            out_key = 21
-    return out_key
 
 # sort chromosome order
-def sort_human_chr(_chr):
+def sort_chr(_chr):
     try:
         out_key = int(_chr)
     except:
@@ -147,7 +138,7 @@ def Generate_PlotOrder(total_codebook, sel_codebook, sort_by_region=True):
     chr_2_plot_indices = {}
     chr_2_chr_orders = {}
     _sel_Nreg = 0
-    for _chr in sorted(np.unique(total_codebook['chr']), key=lambda _c:sort_mouse_chr(_c)):
+    for _chr in sorted(np.unique(total_codebook['chr']), key=lambda _c:sort_chr(_c)):
         _chr_codebook = total_codebook[total_codebook['chr']==_chr]
 
         _reg_ids = _chr_codebook['id'].values 
@@ -183,8 +174,8 @@ def assemble_ChrDistDict_2_Matrix(dist_dict,
     # init plot matrix
     _matrix = np.ones([len(sel_codebook),len(sel_codebook)]) * np.nan
     # loop through chr
-    for _chr1 in sorted(np.unique(total_codebook['chr']), key=lambda _c:sort_human_chr(_c)):
-        for _chr2 in sorted(np.unique(total_codebook['chr']), key=lambda _c:sort_human_chr(_c)):
+    for _chr1 in sorted(np.unique(total_codebook['chr']), key=lambda _c:sort_chr(_c)):
+        for _chr2 in sorted(np.unique(total_codebook['chr']), key=lambda _c:sort_chr(_c)):
             if _chr1 not in chr_2_plot_inds or _chr2 not in chr_2_plot_inds:
                 continue
             # get plot_inds
@@ -234,3 +225,7 @@ def generate_plot_chr_edges(sel_codebook, chr_2_plot_inds=None, sort_by_region=T
         _chr_edges.append(len(sel_codebook))
     _chr_edges = np.array(_chr_edges)
     return _chr_edges, _chr_names
+
+
+def contact_prob(mat, contact_th=600, axis=0):
+    return np.sum(np.array(mat) <= contact_th, axis=axis) / np.sum(np.isfinite(mat), axis=axis)
