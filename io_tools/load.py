@@ -177,7 +177,7 @@ def correct_fov_image(dax_filename, sel_channels,
                       illumination_corr=True, illumination_profile=None, 
                       bleed_corr=True, bleed_profile=None, 
                       chromatic_ref_channel='647', chromatic_corr=True, chromatic_profile=None, 
-                      gaussian_highpass=False, gauss_sigma=5, gauss_truncate=2,
+                      gaussian_highpass=False, gauss_sigma=3, gauss_truncate=2,
                       normalization=False, output_dtype=np.uint16,
                       return_drift=False, verbose=True):
     """Function to correct one whole field-of-view image in proper manner

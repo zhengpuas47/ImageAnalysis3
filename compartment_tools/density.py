@@ -10,6 +10,7 @@ def calculate_gaussian_density(centers, ref_center, sigma,
 ## For Genome-wide DNA-MERFISH, do the calculation as follows:
 def calculate_compartment_densities(chr_2_zxys, chr_2_AB_dict, 
                                     gaussian_radius,
+                                    normalize_by_reg_num=False, 
                                     exclude_self=True,
                                     use_cis=False, use_trans=True,
                                     ):
@@ -62,8 +63,12 @@ def calculate_compartment_densities(chr_2_zxys, chr_2_AB_dict,
                 _B_zxys = np.concatenate(_B_zxys)
                 _B_zxys = _B_zxys[np.isfinite(_B_zxys).all(1)]
                 # Calculate density
-                _A_scores_list[_ihomo, _ireg] = calculate_gaussian_density(_A_zxys, _zxy, gaussian_radius).sum()
-                _B_scores_list[_ihomo, _ireg] = calculate_gaussian_density(_B_zxys, _zxy, gaussian_radius).sum()
+                if normalize_by_reg_num:
+                    _A_scores_list[_ihomo, _ireg] = calculate_gaussian_density(_A_zxys, _zxy, gaussian_radius).mean()
+                    _B_scores_list[_ihomo, _ireg] = calculate_gaussian_density(_B_zxys, _zxy, gaussian_radius).mean()
+                else:
+                    _A_scores_list[_ihomo, _ireg] = calculate_gaussian_density(_A_zxys, _zxy, gaussian_radius).sum()
+                    _B_scores_list[_ihomo, _ireg] = calculate_gaussian_density(_B_zxys, _zxy, gaussian_radius).sum()
         # append to dict
         chr_2_densities[_chr] = {
             'A': _A_scores_list,
@@ -75,8 +80,9 @@ def calculate_compartment_densities(chr_2_zxys, chr_2_AB_dict,
     
 def BatchCompartmentDensities(chr_2_zxys_dicts, chr_2_AB_dict, gaussian_radius, 
                               num_threads=12,
-                              exclude_self=True, use_cis=False, use_trans=True):
-    _args_list = [(_zxysDict, chr_2_AB_dict, gaussian_radius, exclude_self, use_cis, use_trans)
+                              normalize_by_reg_num=True, exclude_self=True, 
+                              use_cis=False, use_trans=True):
+    _args_list = [(_zxysDict, chr_2_AB_dict, gaussian_radius, normalize_by_reg_num, exclude_self, use_cis, use_trans)
                   for _zxysDict in chr_2_zxys_dicts]
     # pool
     with mp.Pool(num_threads) as density_pool:
