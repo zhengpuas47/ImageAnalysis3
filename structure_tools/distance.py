@@ -180,10 +180,11 @@ def assemble_ChrDistDict_2_Matrix(dist_dict,
                 continue
             # get plot_inds
             _ind1, _ind2 = chr_2_plot_inds[_chr1], chr_2_plot_inds[_chr2]
-            _ords1, _ords2 = chr_2_chr_orders[_chr1], chr_2_chr_orders[_chr2]
+            _ords1, _ords2 = chr_2_chr_orders[_chr1].astype(np.int32), chr_2_chr_orders[_chr2].astype(np.int32)
             # if the same chr, decide using cis/trans
             if _chr1 == _chr2:
                 if use_cis and f"cis_{_chr1}" in dist_dict:
+                    #print(_ind1, _ind2, _ords1, _ords2)
                     _matrix[_ind1[:, np.newaxis], _ind2] = dist_dict[f"cis_{_chr1}"][_ords1[:, np.newaxis], _ords2]
                 elif use_trans and f"trans_{_chr1}" in dist_dict:
                     _matrix[_ind1[:, np.newaxis], _ind2] = dist_dict[f"trans_{_chr1}"][_ords1[:, np.newaxis], _ords2]

@@ -58,17 +58,26 @@ def calculate_compartment_densities(chr_2_zxys, chr_2_AB_dict,
                                             for _iref, _ref_zxys in enumerate(_ref_zxys_list) if _iref != _ihomo])
                 # summarize
                 #print(_chr, _ihomo, _ireg, len(_A_zxys), len(_B_zxys))
-                _A_zxys = np.concatenate(_A_zxys)
-                _A_zxys = _A_zxys[np.isfinite(_A_zxys).all(1)]
-                _B_zxys = np.concatenate(_B_zxys)
-                _B_zxys = _B_zxys[np.isfinite(_B_zxys).all(1)]
-                # Calculate density
-                if normalize_by_reg_num:
-                    _A_scores_list[_ihomo, _ireg] = calculate_gaussian_density(_A_zxys, _zxy, gaussian_radius).mean()
-                    _B_scores_list[_ihomo, _ireg] = calculate_gaussian_density(_B_zxys, _zxy, gaussian_radius).mean()
+                if len(_A_zxys) == 0:
+                    _A_scores_list[_ihomo, _ireg] = np.nan
                 else:
-                    _A_scores_list[_ihomo, _ireg] = calculate_gaussian_density(_A_zxys, _zxy, gaussian_radius).sum()
-                    _B_scores_list[_ihomo, _ireg] = calculate_gaussian_density(_B_zxys, _zxy, gaussian_radius).sum()
+                    _A_zxys = np.concatenate(_A_zxys)
+                    _A_zxys = _A_zxys[np.isfinite(_A_zxys).all(1)]
+                    # Calculate density
+                    if normalize_by_reg_num:
+                        _A_scores_list[_ihomo, _ireg] = calculate_gaussian_density(_A_zxys, _zxy, gaussian_radius).mean()
+                    else:
+                        _A_scores_list[_ihomo, _ireg] = calculate_gaussian_density(_A_zxys, _zxy, gaussian_radius).sum()
+                if len(_B_zxys) == 0:
+                    _B_scores_list[_ihomo, _ireg] = np.nan
+                else:
+                    _B_zxys = np.concatenate(_B_zxys)
+                    _B_zxys = _B_zxys[np.isfinite(_B_zxys).all(1)]
+                    # Calculate density
+                    if normalize_by_reg_num:
+                        _B_scores_list[_ihomo, _ireg] = calculate_gaussian_density(_B_zxys, _zxy, gaussian_radius).mean()
+                    else:
+                        _B_scores_list[_ihomo, _ireg] = calculate_gaussian_density(_B_zxys, _zxy, gaussian_radius).sum()
         # append to dict
         chr_2_densities[_chr] = {
             'A': _A_scores_list,
