@@ -43,12 +43,16 @@ def convert_chr2Zxys_2_Cloud(chr2Zxys,
             # normalize by pdf
             if normalize_pdf:
                 _chr2densityArrs[_chr][_ihomo] = _chr2densityArrs[_chr][_ihomo] / np.sum(_chr2densityArrs[_chr][_ihomo])
-        if return_empty:
-            _homolog_kepts = _chr2densityArrs[_chr].any((1,2,3))
-            if _homolog_kepts.any():
-                _chr2densityArrs[_chr] = _chr2densityArrs[_chr][_homolog_kepts]
-            else:
-                del(_chr2densityArrs[_chr])
+    
+    kept_chrs = list(_chr2densityArrs.keys())
+    for _chr in kept_chrs:
+        if not return_empty:
+                _homolog_kepts = _chr2densityArrs[_chr].any((1,2,3))
+                #print(_homolog_kepts)
+                if _homolog_kepts.any():
+                    _chr2densityArrs[_chr] = _chr2densityArrs[_chr][_homolog_kepts]
+                else:
+                    del(_chr2densityArrs[_chr])
 
     return _chr2densityArrs
     
