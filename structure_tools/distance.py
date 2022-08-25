@@ -227,5 +227,5 @@ def generate_plot_chr_edges(sel_codebook, chr_2_plot_inds=None, sort_by_region=T
     return _chr_edges, _chr_names
 
 
-def contact_prob(mat, contact_th=600, axis=0):
+def contact_prob(mat, contact_th=0.6, axis=0):
     return np.sum(np.array(mat) <= contact_th, axis=axis) / np.sum(np.isfinite(mat), axis=axis)
