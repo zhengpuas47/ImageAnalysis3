@@ -118,3 +118,26 @@ def Centering_Chr2ZxysListDict(chr_2_zxys_list):
         _centered_dict[_chr] = _zxys_list - _center[np.newaxis,:]
         
     return _centered_dict
+
+def summarize_chr2Zxys(chr_2_zxys_list, codebook_df, keep_valid=False):
+    # generate an order and sort by chr
+    from ..structure_tools.distance import Generate_PlotOrder
+    _chr_2_indices, _ = Generate_PlotOrder(codebook_df, codebook_df, sort_by_region=False) 
+    _merged_zxys = []
+    _merged_region_ids = []
+    
+    for _chr_name, _chr_inds in _chr_2_indices.items():
+        if _chr_name in chr_2_zxys_list:
+            _zxys_list = chr_2_zxys_list[_chr_name]
+            for _zxys in _zxys_list:
+                if keep_valid:
+                    if len(np.shape(_zxys)) == 2:
+                        _valid_flags = np.isfinite(_zxys).all(1)
+                    else:
+                        _valid_flags = np.isfinite(_zxys)
+                    _merged_zxys.append(_zxys[_valid_flags])
+                    _merged_region_ids.append(_chr_inds[_valid_flags])
+                else:
+                    _merged_zxys.append(_zxys)
+                    _merged_region_ids.append(_chr_inds)
+    return np.concatenate(_merged_zxys), np.concatenate(_merged_region_ids)
