@@ -339,7 +339,9 @@ def generate_flags_for_isoforms(gene_dict, plot_flags=True):
 class sequence_reader:
     """Class to prepare sequences to read"""
     
-    def __init__(self, genome_folder, resolution=0, flanking=0, overwrite=False, verbose=True):
+    def __init__(
+        self, genome_folder, resolution=0, flanking=0, 
+        auto_load_ref=False, overwrite=False, verbose=True):
         # save the input attributes
         self.genome_folder = genome_folder
         self.resolution = resolution # size of each region in bp, 0 means the whole region
@@ -358,7 +360,11 @@ class sequence_reader:
         self.seq_dict = {}
         # inherit from superclass
         super().__init__()
-        
+        # auto load if necessary
+        if auto_load_ref:
+            self.load_ref_sequences()
+        return
+
     def __str__(self, infotype='all'):
         _str = ''
         if infotype is 'input' or infotype is 'all':
@@ -366,7 +372,7 @@ class sequence_reader:
             _str += f"load sequence from folder: {self.genome_folder}\n"
         return _str
     
-    def load_sequences(self):
+    def load_ref_sequences(self):
         # search through files
         for _fl in self.input_files:
             # load fasta file
@@ -384,10 +390,10 @@ class sequence_reader:
         """find sequence from single reg_dict"""
         # find chromosome
         if isinstance(reg_dict, dict):
-            _ref = [self.ref_seq_dict[reg_dict['Chr']]]
+            _ref = [self.ref_seq_dict[str(reg_dict['Chr'])]]
         elif isinstance(reg_dict, list):
             _ref = []
-            for _chr in np.unique([_r['Chr'] for _r in reg_dict]):
+            for _chr in np.unique([str(_r['Chr']) for _r in reg_dict]):
                 _ref.append(self.ref_seq_dict[_chr])
 
         seqs = extract_sequence(reg_dict, _ref, 
