@@ -494,6 +494,7 @@ class DaxProcesser():
             correction_pf = load_correction_profile(
                 'bleedthrough', _correction_channels,
                 correction_folder=correction_folder,
+                ref_channel=_correction_channels[0],
                 all_channels=self.channels,
                 im_size=self.image_size,
                 verbose=self.verbose,
@@ -634,6 +635,7 @@ class DaxProcesser():
             correction_pf = load_correction_profile(
                 'illumination', _correction_channels,
                 correction_folder=correction_folder,
+                ref_channel=_correction_channels[0],
                 all_channels=self.channels,
                 im_size=self.image_size,
                 verbose=self.verbose,
@@ -807,7 +809,7 @@ class DaxProcesser():
                                      NbufferFrame=self.num_buffer_frames, NemptyFrame=self.num_empty_frames)
             RefImage = getattr(_dft_dax_cls, f"im_{DriftChannel}")
 
-        elif isinstance(RefImage, np.ndarray) and (np.array(RefImage.shape)==self.image_size).all():
+        elif isinstance(RefImage, np.ndarray) and (np.array(RefImage.shape)==np.array(_DriftImage.shape)).all():
             # directly add
             if save_ref_im:
                 setattr(self, 'ref_im', RefImage)
