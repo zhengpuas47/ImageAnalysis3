@@ -166,7 +166,7 @@ def extract_sequence(reg_dicts, genome_reference,
     kept_seqs_dict = {'all':[]}
     
     # loop thorugh regions
-    for _reg_dict in reg_dicts:
+    for _reg_id, _reg_dict in enumerate(reg_dicts):
         _chrom, _start, _stop = parse_region(_reg_dict)
         # search all genomic files to match this region
         _wholechr = None 
@@ -208,16 +208,16 @@ def extract_sequence(reg_dicts, genome_reference,
             _kept_seqs = []
             for _i in range(_n_reg):
                 # end location
-                _reg_start = int(_gene_start + _i * resolution)
-                _reg_end = np.min([_reg_start+resolution, len(_wholechr)])
+                _reg_start = int(_gene_start-1 + _i * resolution)
+                _reg_end = np.min([_reg_start + resolution, len(_wholechr)])
                 #_end_loc = min((_i+1)*resolution, len(_wholechr))
                 # extract sequence for this region
                 _seq = _wholechr[_reg_start:_reg_end]
                 _name = f"{_chrom}:{_reg_start}-{_reg_end}_"
                 if 'Strand' in _reg_dict:
-                    _name += ':'+_reg_dict['Strand']+'_'
+                    _name += f"strand_{_reg_dict['Strand']}_"
                 if "Gene" in _reg_dict:
-                    _name += 'gene_'+_reg_dict['Gene']+'_'
+                    _name += f"gene_{_reg_dict['Gene']}_"
                 _name += 'reg_'+str(_i+1)
                 # append
                 if "Strand" in _reg_dict and _reg_dict['Strand'] == '-':
@@ -234,12 +234,12 @@ def extract_sequence(reg_dicts, genome_reference,
         ## NOTICE: gene_end for the whole sequence should +1 because the ending base-pair is included in 
         ## this has been checked with publically available ensembl fasta reference
         elif resolution <= 0:
-            _seq = _wholechr[_gene_start-1:_gene_stop-1+1]
+            _seq = _wholechr[_gene_start-1:_gene_stop-1+1] # 0 is not allowed as a gene start
             _name = f"{_chrom}:{_gene_start}-{_gene_stop}_"
             if 'Strand' in _reg_dict:
-                _name += ':'+_reg_dict['Strand']+'_'
+                _name += f"strand_{_reg_dict['Strand']}_"
             if "Gene" in _reg_dict:
-                _name += 'gene_'+_reg_dict['Gene']+'_'
+                _name += f"gene_{_reg_dict['Gene']}_"
             #_name += 'reg_'
             if _name[-1] == '_':
                 _name = _name[:-1]
@@ -367,7 +367,7 @@ class sequence_reader:
 
     def __str__(self, infotype='all'):
         _str = ''
-        if infotype is 'input' or infotype is 'all':
+        if infotype == 'input' or infotype == 'all':
             _str += f"reader for region: {self.region_dict}\n"
             _str += f"load sequence from folder: {self.genome_folder}\n"
         return _str
@@ -425,7 +425,7 @@ class sequence_reader:
                     SeqIO.write(_records, _output_handle, "fasta")
             else:
                 for _i, _record in enumerate(_records):
-                    _save_filename = os.path.join(_gene_save_folder, f"{_gene}_reg_{_i+1}.fasta")
+                    _save_filename = os.path.join(_gene_save_folder, f"{_gene}_reg_{_i}.fasta")
                     if self.verbose:
                         print(f"-- save to file: {_save_filename}")
                     with open(_save_filename, 'w') as _output_handle:

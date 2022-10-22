@@ -474,17 +474,17 @@ Key information:
             # compute this input file (fasta) into OTMap
             _input_map_dic = {_k:_v for _k,_v in self.map_dic['self_sequences'].items()}
             _input_map_dic['file'] = _file
-            print(f"region: {_reg_id}, input file: {_input_map_dic['file']}")
+            print(f"-- region: {_reg_id}, input file: {_input_map_dic['file']}")
 
             self.files_to_OTmap('map_self_sequences', _input_map_dic)
-            # initialize kept flag (for two-strands)
-            _kept_flags = np.zeros((len(_seq)-pb_len+1)*2)
+            _num_candidate_probes = 0
+            # loop through all possible positions
             for _i in range(len(_seq)-pb_len+1):
                 # extract sequence
                 _cand_seq = _seq[_i:_i+pb_len]
                 _rc_cand_seq = seqrc(_cand_seq)
 
-                # skip any sequence contain N
+                # case 0, here, skip any sequence contain N
                 if 'N' in _cand_seq:
                     continue   
 
@@ -493,17 +493,18 @@ Key information:
                     # get forward strand sequence
                     if isinstance(_cand_seq, str):
                         _cand_seq = _cand_seq.encode()
-                    if _kept_flags[_i] == 0:
-                        pb_reports[_cand_seq] = constant_zero_dict()
-                        pb_reports[_cand_seq].update(
-                            {'name':f'{_name}_pb_{_i}',
-                            'reg_index':_reg_id,
-                            'reg_name':_name,
-                            'pb_index': _i,
-                            'strand':'+',
-                            'gc':gc(_cand_seq),
-                            'tm':tm(_cand_seq),}
-                        )
+                    # create basic info
+                    pb_reports[_cand_seq] = constant_zero_dict()
+                    pb_reports[_cand_seq].update(
+                        {'name':f'{_name}_reg_{_reg_id}_pb_{_i}',
+                        'reg_index':_reg_id,
+                        'reg_name':_name,
+                        'pb_index': _i,
+                        'strand':'+',
+                        'gc':gc(_cand_seq),
+                        'tm':tm(_cand_seq),}
+                    )
+                    _num_candidate_probes += 1
                     # update map_keys
                     for _key, _curr_dic in self.map_dic.items():
                         _map_use_kmer = _curr_dic.get('use_kmer',True)
@@ -538,17 +539,18 @@ Key information:
                     # get reverse strand sequence
                     if isinstance(_rc_cand_seq, str):
                         _rc_cand_seq = _rc_cand_seq.encode()
-                    if _kept_flags[_i] == 0:
-                        pb_reports[_rc_cand_seq] = constant_zero_dict()
-                        pb_reports[_rc_cand_seq].update(
-                            {'name':f'{_name}_pb_{_i}',
-                            'reg_index':_reg_id,
-                            'reg_name':_name,
-                            'pb_index': _i,
-                            'strand':'-',
-                            'gc':gc(_rc_cand_seq),
-                            'tm':tm(_rc_cand_seq),}
-                        )
+                    # create basic info
+                    pb_reports[_rc_cand_seq] = constant_zero_dict()
+                    pb_reports[_rc_cand_seq].update(
+                        {'name':f'{_name}_reg_{_reg_id}_pb_{_i}',
+                        'reg_index':_reg_id,
+                        'reg_name':_name,
+                        'pb_index': _i,
+                        'strand':'-',
+                        'gc':gc(_rc_cand_seq),
+                        'tm':tm(_rc_cand_seq),}
+                    )
+                    _num_candidate_probes += 1
                     # update map_keys
                     for _key, _curr_dic in self.map_dic.items():
                         _map_use_kmer = _curr_dic.get('use_kmer',True)
@@ -578,10 +580,9 @@ Key information:
                                     # reverse from maps
                                     if _map_rev_com or _map_two_stranded:
                                         pb_reports[_rc_cand_seq][_map_key]+= _map.get(seqrc(_blk))
-                
             
             if self.verbose:
-                print(f"in {time.time()-_design_start:.3f}s.")
+                print(f"- Designed {_num_candidate_probes} candidate probes in {time.time()-_design_start:.3f}s.")
         # add to attribute
         self.cand_probes = pb_reports
         # save
