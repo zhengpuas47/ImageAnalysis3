@@ -176,7 +176,8 @@ def load_readouts(_num_readouts, _type='NDB', _num_colors=3, _start_channel=0,
     _num_per_color = int(np.ceil(_num_readouts / _num_colors))
     # load readouts
     _multi_readout_lists = []
-    for _rd_fl in _readout_files[::-1][int(_start_channel):int(_start_channel+_num_colors)]:
+    for _rd_fl in sorted(_readout_files, key=lambda f: -1 * int(os.path.basename(f).split('.fasta')[0].split('_')[-1]) )[int(_start_channel):int(_start_channel+_num_colors)]:
+    #_readout_files[::-1]:
         _readout_list = []
         with open(_rd_fl, 'r') as _rd_handle:
             for _readout in SeqIO.parse(_rd_handle, "fasta"):
