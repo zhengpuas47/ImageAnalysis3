@@ -165,3 +165,27 @@ def check_spot_scores(all_spot_list, sel_spots, region_ids=None, sel_indices=Non
 
 
 # select spots given crop
+
+# Filter fitted spots in the dataframe format
+def filter_candidate_spots(cand_spots_df, 
+                           background_th=[100,np.inf],
+                           height_th=[800, np.inf],
+                           sigma_xy_th=[0.5, 3],
+                           sigma_z_th=[0.5, 3.5],
+                           verbose=True,
+                           ):
+    """Based on emperical """
+    kept_flg = (cand_spots_df['background'] >= np.min(background_th)) & \
+     (cand_spots_df['background'] <= np.max(background_th)) & \
+     (cand_spots_df['height'] >= np.min(height_th)) & \
+     (cand_spots_df['height'] <= np.max(height_th)) & \
+     (cand_spots_df['sigma_x'] >= np.min(sigma_xy_th)) & \
+     (cand_spots_df['sigma_x'] <= np.max(sigma_xy_th)) & \
+     (cand_spots_df['sigma_y'] >= np.min(sigma_xy_th)) & \
+     (cand_spots_df['sigma_y'] <= np.max(sigma_xy_th)) & \
+     (cand_spots_df['sigma_z'] >= np.min(sigma_z_th)) & \
+     (cand_spots_df['sigma_z'] <= np.max(sigma_z_th)) 
+    # print keeping percentage:
+    if verbose:
+        print(f"-- {np.mean(kept_flg)*100:.1f}% of {len(cand_spots_df)} spots kept.")
+    return cand_spots_df.loc[kept_flg]

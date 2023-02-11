@@ -509,7 +509,7 @@ def Blast_probes(probes, library_folder, blast_subfolder='blast',
                                            out=_outfile,
                                            outfmt=5)()[0]
             if verbose:
-                print(f"--- total time for blast {_gene}: {time.time()-_start}")
+                print(f"--- total time for blast {_gene}: {time.time()-_start:.3f}s.")
                     
 # screen blast results
 def Screening_Probes_by_Blast(library_folder, probe_per_region, keep_mode='center', 
@@ -587,6 +587,7 @@ def Screening_Probes_by_Blast(library_folder, probe_per_region, keep_mode='cente
             if keep_mode == 'center':
                 if verbose:
                     print("--- keep probes in the center")
+                # detect region start and end
                 _start, _end = _pbs[0].id.split(
                     ':')[1].split('_')[0].split('-')
                 _start, _end = int(_start), int(_end)
@@ -599,7 +600,14 @@ def Screening_Probes_by_Blast(library_folder, probe_per_region, keep_mode='cente
                 _kept_pb_dic[_reg] = sorted(_kept_center_pbs, key=lambda p: int(
                     p.id.split('pb_')[1].split('_')[0]))
             elif keep_mode == 'front':
+                if verbose:
+                    print("--- keep probes in the front")
                 _kept_pbs = _kept_pbs[:probe_per_region]
+                _kept_pb_dic[_reg] = _kept_pbs
+            elif keep_mode == 'end':
+                if verbose:
+                    print("--- keep probes in the end")
+                _kept_pbs = _kept_pbs[-probe_per_region:]
                 _kept_pb_dic[_reg] = _kept_pbs
         else:
             _kept_pb_dic[_reg] = sorted(_kept_pbs, key=lambda p: int(
@@ -620,9 +628,10 @@ def Screening_Probes_by_Blast(library_folder, probe_per_region, keep_mode='cente
     print("- Number of probes kept:", len(_kept_probe_list))
 
     if save:
+        _full_save_filename = os.path.join(_probe_folder, save_filename)
         if verbose:
-            print("- Saving to file:", _probe_folder + os.sep + save_filename)
-        with open(_probe_folder + os.sep + save_filename, 'w') as _output_handle:
+            print(f"- Saving to file: {_full_save_filename}")
+        with open(_full_save_filename, 'w') as _output_handle:
             SeqIO.write(_kept_probe_list, _output_handle, 'fasta')
 
     return _kept_probe_list, _keep_dic, _hard_count_list, _soft_count_list

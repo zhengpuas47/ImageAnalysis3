@@ -216,9 +216,11 @@ def extract_sequence(reg_dicts, genome_reference,
                 _name = f"{_chrom}:{_reg_start}-{_reg_end}_"
                 if 'Strand' in _reg_dict:
                     _name += f"strand_{_reg_dict['Strand']}_"
+                # gene
                 if "Gene" in _reg_dict:
-                    _name += f"gene_{_reg_dict['Gene']}_"
-                _name += 'reg_'+str(_i+1)
+                    _name += f"gene_{_reg_dict['Gene']}-seg-{_i+1}"
+                else:
+                    _name += 'reg_'+str(_i+1)
                 # append
                 if "Strand" in _reg_dict and _reg_dict['Strand'] == '-':
                     _record = SeqRecord(_seq.reverse_complement(), id=_name, name='', description='')
@@ -267,14 +269,14 @@ def extract_sequence(reg_dicts, genome_reference,
                 _gene_save_folder = save_folder
             # save
             if merge:
-                _save_filename = os.path.join(_gene_save_folder, f"{_gene}_reg_1-{len(_records)}.fasta")
+                _save_filename = os.path.join(_gene_save_folder, f"{_gene}-seg-1-{len(_records)}.fasta")
                 if verbose:
                     print(f"-- save to file: {_save_filename}")
                 with open(_save_filename, 'w') as _output_handle:
                     SeqIO.write(_records, _output_handle, "fasta")
             else:
                 for _i, _record in enumerate(_records):
-                    _save_filename = os.path.join(_gene_save_folder, f"{_gene}_reg_{_i+1}.fasta")
+                    _save_filename = os.path.join(_gene_save_folder, f"{_gene}-seg-{_i+1}.fasta")
                     if verbose:
                         print(f"-- save to file: {_save_filename}")
                     with open(_save_filename, 'w') as _output_handle:
@@ -418,14 +420,14 @@ class sequence_reader:
                 _gene_save_folder = save_folder
             # save
             if merge:
-                _save_filename = os.path.join(_gene_save_folder, f"{_gene}_reg_1-{len(_records)}.fasta")
+                _save_filename = os.path.join(_gene_save_folder, f"{_gene}-seg-1-{len(_records)}.fasta")
                 if self.verbose:
                     print(f"-- save to file: {_save_filename}")
                 with open(_save_filename, 'w') as _output_handle:
                     SeqIO.write(_records, _output_handle, "fasta")
             else:
                 for _i, _record in enumerate(_records):
-                    _save_filename = os.path.join(_gene_save_folder, f"{_gene}_reg_{_i}.fasta")
+                    _save_filename = os.path.join(_gene_save_folder, f"{_gene}-seg-{_i}.fasta")
                     if self.verbose:
                         print(f"-- save to file: {_save_filename}")
                     with open(_save_filename, 'w') as _output_handle:

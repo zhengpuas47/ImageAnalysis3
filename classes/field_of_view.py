@@ -1385,8 +1385,8 @@ class Field_of_View():
                             _attr_feature = _attr_name.split(_type+'_')[1][1:]
 
                             if _attr_feature not in _grp.keys():
-                                _grp[_attr_name] = getattr(self, _attr_name)
-                                _data_attrs.append(_attr_name)
+                                _grp[_attr_feature] = getattr(self, _attr_name)
+                                _data_attrs.append(_attr_feature)
                     
                     # if change size, update these features:
                     if len(_change_size_flag) > 0:

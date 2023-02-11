@@ -16,6 +16,7 @@ from . import LibraryTools as lt
 from . import _rand_seq_generator
 from . import _primer_folder, _readout_folder, _genome_folder
 from . import quality_check
+from . import design
 # Load probes
 def _load_probes_in_folder(report_folder, pb_postfix='.pbr', save_folder=None):
 
@@ -166,24 +167,35 @@ def Screen_probe_against_fasta(report_folder, ref_fasta, word_size=17, allowed_h
 def load_readouts(_num_readouts, _type='NDB', _num_colors=3, _start_channel=0, 
                   _readout_folder=_readout_folder, _start_id=0, _verbose=True):
     """Function to load readouts into a list"""
-    # get target files
-    _readout_files = glob.glob(os.path.join(
-        _readout_folder, _type) + '_*.fasta')
-    
+    # based on types, generate re
+    import re
+    _re_string = f'({_type})_([0-9]+).fasta'
+    # find matched files
+    _readout_files = []
+    _readout_channels = []
+    for _fl in os.listdir(_readout_folder):
+        _match = re.match(f"({_type})_([0-9]+).fasta", _fl)
+        if _match != None:
+            _readout_files.append(os.path.join(_readout_folder, _fl))
+            _readout_channels.append(int(_match.groups()[1]))
+    # sort matched_files:
+    _readout_files = [_fl for _fl, _ch in sorted(zip(_readout_files, _readout_channels), key= lambda v:-1 * v[1])]
     if len(_readout_files) < _num_colors:
         raise IOError(
             "Not enough readout files in given readout folder compared to num-colors specified")
     _num_per_color = int(np.ceil(_num_readouts / _num_colors))
     # load readouts
     _multi_readout_lists = []
-    for _rd_fl in sorted(_readout_files, key=lambda f: -1 * int(os.path.basename(f).split('.fasta')[0].split('_')[-1]) )[int(_start_channel):int(_start_channel+_num_colors)]:
-    #_readout_files[::-1]:
+    for _rd_fl in _readout_files:
+        # load readouts within this file:
         _readout_list = []
         with open(_rd_fl, 'r') as _rd_handle:
             for _readout in SeqIO.parse(_rd_handle, "fasta"):
                 _readout_list.append(_readout)
+        print(_rd_fl, len(_readout_list), _start_id, _num_per_color)
         _multi_readout_lists.append(
             _readout_list[_start_id: _start_id+_num_per_color])
+    print([len(_rd) for _rd in _multi_readout_lists])
     # sort and save
     _selected_list = []
     while len(_selected_list) < _num_readouts:
@@ -253,8 +265,8 @@ def _assemble_single_probename(_pb_info, _readout_name_list, _pb_id, _fwd_primer
     if 'gene_' in _pb_info['reg_name']:
         _name.extend(['gene', _pb_info['reg_name'].split('gene_')[1].split('_')[0]])
     # gene
-    elif 'reg_' in _pb_info['reg_name']:
-        _name.extend(['gene', _pb_info['reg_name'].split('reg_')[1].split('_')[0]])
+    if 'reg_' in _pb_info['reg_name']:
+        _name.extend(['reg', _pb_info['reg_name'].split('reg_')[1].split('_')[0]])
     # pb_index
     _name.extend(['pb', str(_pb_id)])
     # probe position
@@ -373,7 +385,7 @@ def Assemble_probes(library_folder, probe_source, gene_readout_dict,
                 or _sel_readout.id not in [_rd.id for _rd in readout_summary[_type][_reg_name]]:
                 readout_summary[_type][_reg_name].append(_sel_readout)
 
-        if isinstance(_pb_obj, ld.pb_reports_class):
+        if isinstance(_pb_obj, ld.pb_reports_class) or isinstance(_pb_obj, design.pb_reports_class):
             # new version of probe_designer
             if hasattr(_pb_obj, 'kept_probes'):
                 _probe_dict = getattr(_pb_obj, 'kept_probes')

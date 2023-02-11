@@ -29,7 +29,7 @@ class reference_reader:
         
     def __str__(self, infotype='all'):
         _str = ''
-        if infotype is 'input' or infotype is 'all':
+        if infotype == 'input' or infotype == 'all':
             _str += f"reference file: {self.ref_filename}\n"
             _str += f"reference type: {self.ref_type}\n"
         return _str
