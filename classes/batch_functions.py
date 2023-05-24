@@ -54,16 +54,21 @@ def _color_dic_stat(color_dic, channels, _type_dic=_allowed_kwds):
     return _include_types
 
 
-def batch_process_image_to_spots(dax_filename, sel_channels, 
+def batch_process_image_to_spots(dax_filename, 
+                                 sel_channels, 
                                  save_filename, 
-                                 data_type, region_ids,
+                                 data_type, 
+                                 region_ids,
                                  ref_filename, 
                                  load_file_lock=None, 
-                                 warp_image=True, correction_args={}, 
-                                 save_image=True, empty_value=0,
+                                 warp_image=True, 
+                                 correction_args={}, 
+                                 save_image=True, 
+                                 empty_value=0,
                                  fov_savefile_lock=None, 
                                  overwrite_image=False, 
-                                 drift_args={}, save_drift=True, 
+                                 drift_args={}, 
+                                 save_drift=True, 
                                  drift_filename=None, 
                                  drift_file_lock=None, 
                                  overwrite_drift=False, 
@@ -105,7 +110,7 @@ def batch_process_image_to_spots(dax_filename, sel_channels,
         pass
     else:
         raise TypeError(f"ref_filename should be np.ndarray or string of path, but {type(ref_filename)} is given")
-    # region ids
+    ## region-ids
     if len(region_ids) != len(sel_channels):
         raise ValueError(f"Wrong input region_ids:{region_ids}, should of same length as sel_channels:{sel_channels}.")
     region_ids = [int(_id) for _id in region_ids] # convert to ints

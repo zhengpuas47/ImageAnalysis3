@@ -6,14 +6,14 @@ import copy
 import numpy as np
 import pickle as pickle
 # fix mp reducer 4GB limit
-#from ..required_files import pickle2reducer
-#import multiprocessing as mp
-#ctx = mp.get_context()
-#ctx.reducer = pickle2reducer.Pickle2Reducer()
-from ..required_files import pickle4reducer
+from ..required_files import pickle2reducer
 import multiprocessing as mp
 ctx = mp.get_context()
-ctx.reducer = pickle4reducer.Pickle4Reducer()
+ctx.reducer = pickle2reducer.Pickle2Reducer()
+#from ..required_files import pickle4reducer
+#import multiprocessing as mp
+#ctx = mp.get_context()
+#ctx.reducer = pickle4reducer.Pickle4Reducer()
 
 # saving
 import h5py
@@ -1078,9 +1078,11 @@ class Field_of_View():
 
             # append if any channels selected
             if len(_sel_channels) > 0:
-                _args = (_dax_filename, _sel_channels, 
+                _args = (_dax_filename, 
+                         _sel_channels, 
                         self.save_filename, 
-                        _data_type, _reg_ids, 
+                        _data_type, 
+                        _reg_ids, 
                         _drift_reference,
                         _fov_savefile_lock,
                         _warp_images, 

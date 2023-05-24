@@ -44,7 +44,6 @@ def get_num_frame(dax_filename, frame_per_color=_image_size[0], buffer_frame=10,
 
     return _im_shape, _num_color
 
-
 # used by the old pipline
 def multi_crop_image_fov(filename, channels, crop_limit_list,
                          all_channels=_allowed_colors, single_im_size=_image_size,
