@@ -229,13 +229,13 @@ def calc_seps(mat,dom_starts,func = 'mean',plt_val=False):
     for i,j,k in ijks:
         score,b1,b2,a = insulation(i,j,k,mat,func = np.nanmean,return_dists=True)
         b = np.concatenate([b1,b2])
-        if func is 'mean':
+        if func == 'mean':
             sep_score = (np.nanmedian(a)-np.nanmedian(b))/np.sqrt(np.nanvar(a)+np.nanvar(b))
-        if func is 'median':
+        if func == 'median':
             am,bm = np.nanmedian(a),np.nanmedian(b)
             ad,bd = np.nanmedian((a-am)**2),np.nanmedian((b-bm)**2)
             sep_score = (am-bm)/np.sqrt(ad+bd)
-        if func is 'median2':
+        if func == 'median2':
             am,bm = np.nanmedian(a),np.nanmedian(b)
             ad,bd = np.nanmedian(np.abs(a-am)),np.nanmedian(np.abs(b-bm))
             sep_score = (am-bm)/float(ad+bd)
