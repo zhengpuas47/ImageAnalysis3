@@ -218,6 +218,14 @@ class Field_of_View():
             self.shared_parameters['normalization'] = False
         if 'corr_channels' not in self.shared_parameters:
             self.shared_parameters['corr_channels'] = _corr_channels
+        # ref channel:
+        if 'ref_channel' not in self.shared_parameters:
+            if len(self.channels) >= 2:
+                self.shared_parameters['ref_channel'] = self.channels[1]
+            else:
+                self.shared_parameters['ref_channel'] = self.channels[0]
+        
+        
         # adjust corr_channels
         _kept_corr_channels = []
         for _ch in self.shared_parameters['corr_channels']:
@@ -417,6 +425,9 @@ class Field_of_View():
         # determine correction folder
         if _correction_folder is None:
             _correction_folder = self.correction_folder
+        # ref channel:
+        _ref_channel = self.shared_parameters.get('ref_channel', _chromatic_target)
+        print(f"Reference channel: {_ref_channel}")
         # loading bleedthrough
         if self.shared_parameters['corr_bleed']:
             if 'bleed' in self.correction_profiles and self.correction_profiles['bleed'] is not None and not _overwrite:
@@ -443,6 +454,7 @@ class Field_of_View():
                     self.correction_profiles['bleed'] = load_correction_profile('bleedthrough', self.shared_parameters['corr_channels'], 
                                                 self.correction_folder, all_channels=self.channels, 
                                                 im_size=self.shared_parameters['single_im_size'],
+                                                ref_channel=_ref_channel,
                                                 verbose=_verbose)
         # loading chromatic
         if self.shared_parameters['corr_chromatic']:
@@ -478,6 +490,7 @@ class Field_of_View():
                     self.correction_profiles['chromatic']= load_correction_profile('chromatic', self.shared_parameters['corr_channels'], 
                                                 self.correction_folder, all_channels=self.channels, 
                                                 im_size=self.shared_parameters['single_im_size'],
+                                                ref_channel=_ref_channel,
                                                 verbose=_verbose)
             
             ## chromatic_constants
@@ -523,6 +536,7 @@ class Field_of_View():
                         self.shared_parameters['corr_channels'], 
                         self.correction_folder, all_channels=self.channels, 
                         im_size=self.shared_parameters['single_im_size'],
+                        ref_channel=_ref_channel,
                         verbose=_verbose)
             
         # load illumination
@@ -567,6 +581,7 @@ class Field_of_View():
                                                         _illumination_channels, 
                                                         self.correction_folder, all_channels=self.channels, 
                                                         im_size=self.shared_parameters['single_im_size'],
+                                                        ref_channel=_ref_channel,
                                                         verbose=_verbose)
         return
 
@@ -770,6 +785,7 @@ class Field_of_View():
                                         illumination_corr=True,
                                         bleed_corr=False, 
                                         chromatic_corr=False, 
+                                        chromatic_ref_channel=self.shared_parameters['ref_channel'],
                                         z_shift_corr=self.shared_parameters['corr_Z_shift'],
                                         verbose=_verbose,
                                         )[0][0]
@@ -1781,6 +1797,7 @@ class Field_of_View():
                 illumination_corr=self.shared_parameters['corr_illumination'],
                 bleed_corr=False, 
                 chromatic_corr=self.shared_parameters['corr_chromatic'], 
+                chromatic_ref_channel=self.shared_parameters['ref_channel'],
                 z_shift_corr=self.shared_parameters['corr_Z_shift'],
                 return_drift=True, verbose=_verbose,
                 )
@@ -2404,6 +2421,7 @@ class Field_of_View():
                 illumination_corr=self.shared_parameters['corr_illumination'],
                 bleed_corr=False, 
                 chromatic_corr=False, 
+                chromatic_ref_channel=self.shared_parameters['ref_channel'],
                 z_shift_corr=self.shared_parameters['corr_Z_shift'],
                 verbose=_verbose,
                 )[0][0]
@@ -2468,6 +2486,7 @@ class Field_of_View():
             illumination_corr=self.shared_parameters['corr_illumination'],
             bleed_corr=False, 
             chromatic_corr=False, 
+            chromatic_ref_channel=self.shared_parameters['ref_channel'],
             z_shift_corr=self.shared_parameters['corr_Z_shift'],
             verbose=_verbose,
             )[0][0]
@@ -2552,7 +2571,7 @@ class Field_of_View():
                 self.correction_profiles['illumination'],
                 False,
                 None,
-                '647',
+                self.shared_parameters['ref_channel'],
                 False,
                 None,
                 False,
