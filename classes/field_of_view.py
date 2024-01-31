@@ -1034,7 +1034,7 @@ class Field_of_View():
             _reg_ids = []
             # loop through color_dic to collect selected channels and ids
             for _mk, _ch in zip(_info, self.channels):
-                if _mk.lower() == 'null':
+                if _mk.lower() == 'null' or _mk.lower() == 'empty':
                     continue
                 else:
                     _used_channels.append(_ch)

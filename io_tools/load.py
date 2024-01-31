@@ -441,7 +441,7 @@ def correct_fov_image(dax_filename, sel_channels,
                     # transpose is necessary  
                     _coords = np.stack(_coords).transpose((0, 2, 1, 3)) 
                     # 2. calculate corrected coordinates if chormatic abbrev.
-                    if chromatic_corr and _ch in _chromatic_channels:
+                    if chromatic_corr and _ch in _chromatic_channels and chromatic_profile[_ch] is not None:
                         _coords = _coords + chromatic_profile[_ch]#[:,np.newaxis,:,:] # only need this for old correction
                     # 3. apply drift if necessary
                     if _drift.any():
