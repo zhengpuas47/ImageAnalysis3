@@ -120,7 +120,7 @@ def MicroscopeTranslate_Spots(
 
 def translate_spots(spots, rotation_mat=None, drift=None, 
                     single_im_size=_image_size):
-    _spots = np.array(spots, dtype=np.float)
+    _spots = np.array(spots, dtype=np.float32)
     _single_im_size = np.array(single_im_size, dtype=np.float)
     _rot_center = _single_im_size / 2
     if len(np.shape(_spots)) == 1:

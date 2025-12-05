@@ -290,10 +290,10 @@ def fftalign_2d(im1, im2, center=[0, 0], max_disp=150, plt_val=False):
     """
     from scipy.signal import fftconvolve
     im2_ = np.array(im2[::-1, ::-1], dtype=float)
-    #im2_ = np.array(im2[:,:], dtype=np.float)
+    
     im2_ -= np.mean(im2_)
     im2_ /= np.std(im2_)
-    im1_ = np.array(im1, dtype=np.float)
+    im1_ = np.array(im1, dtype=np.float32)
     im1_ -= np.mean(im1_)
     im1_ /= np.std(im1_)
     im_cor = fftconvolve(im1_, im2_, mode='full')
